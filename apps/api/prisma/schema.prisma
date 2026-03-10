@@ -1,0 +1,211 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  CASHIER
+}
+
+enum PaymentMode {
+  CASH
+  CARD
+  WALLET
+}
+
+enum WalletTxnType {
+  TOPUP
+  DEBIT_SALE
+  REFUND_RETURN
+  ADJUSTMENT
+}
+
+enum StockTxnType {
+  OPENING
+  ADJUSTMENT_PLUS
+  ADJUSTMENT_MINUS
+  SALE
+  RETURN
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SETTLED
+  PARTIALLY_SETTLED
+  CANCELLED
+}
+
+model Branch {
+  id          String       @id @default(uuid())
+  name        String
+  code        String       @unique
+  invoiceSeq  Int          @default(0)
+  receiptSeq  Int          @default(0)
+  returnSeq   Int          @default(0)
+  customerSeq Int          @default(0)
+  users       User[]
+  customers   Customer[]
+  wallets     WalletAccount[]
+  stockLedgers StockLedger[]
+  saleInvoices SaleInvoice[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String
+  role      UserRole
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model Customer {
+  id        String        @id @default(uuid())
+  branchId  String
+  branch    Branch        @relation(fields: [branchId], references: [id])
+  code      String
+  name      String
+  phone     String?
+  isWalkIn  Boolean       @default(false)
+  wallet    WalletAccount?
+  invoices  SaleInvoice[]
+  createdAt DateTime      @default(now())
+
+  @@unique([branchId, code])
+}
+
+model WalletAccount {
+  id         String      @id @default(uuid())
+  customerId String      @unique
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  branchId   String
+  branch     Branch      @relation(fields: [branchId], references: [id])
+  balance    Decimal     @db.Decimal(14, 2)
+  txns       WalletTxn[]
+  createdAt  DateTime    @default(now())
+}
+
+model WalletTxn {
+  id              String        @id @default(uuid())
+  walletAccountId String
+  walletAccount   WalletAccount @relation(fields: [walletAccountId], references: [id])
+  type            WalletTxnType
+  amount          Decimal       @db.Decimal(14, 2)
+  referenceType   String?
+  referenceId     String?
+  createdAt       DateTime      @default(now())
+}
+
+model Item {
+  id          String          @id @default(uuid())
+  code        String          @unique
+  name        String
+  category    String?
+  uom         String
+  sellPrice   Decimal         @db.Decimal(14, 2)
+  taxRate     Decimal         @db.Decimal(5, 2)
+  isActive    Boolean         @default(true)
+  lines       SaleInvoiceLine[]
+  stockLedgers StockLedger[]
+  createdAt   DateTime        @default(now())
+}
+
+model StockLedger {
+  id            String       @id @default(uuid())
+  branchId      String
+  branch        Branch       @relation(fields: [branchId], references: [id])
+  itemId        String
+  item          Item         @relation(fields: [itemId], references: [id])
+  txnType       StockTxnType
+  qtyIn         Decimal      @db.Decimal(14, 3)
+  qtyOut        Decimal      @db.Decimal(14, 3)
+  reason        String?
+  referenceType String?
+  referenceId   String?
+  createdAt     DateTime     @default(now())
+
+  @@index([branchId, itemId, createdAt])
+}
+
+model SaleInvoice {
+  id            String           @id @default(uuid())
+  branchId      String
+  branch        Branch           @relation(fields: [branchId], references: [id])
+  invoiceNo     String           @unique
+  customerId    String
+  customer      Customer         @relation(fields: [customerId], references: [id])
+  status        InvoiceStatus
+  subTotal      Decimal          @db.Decimal(14, 2)
+  discountTotal Decimal          @db.Decimal(14, 2)
+  taxTotal      Decimal          @db.Decimal(14, 2)
+  grandTotal    Decimal          @db.Decimal(14, 2)
+  paidTotal     Decimal          @db.Decimal(14, 2)
+  createdBy     String
+  lines         SaleInvoiceLine[]
+  payments      Payment[]
+  receipts      Receipt[]
+  returns       ReturnInvoice[]
+  createdAt     DateTime         @default(now())
+}
+
+model SaleInvoiceLine {
+  id            String        @id @default(uuid())
+  invoiceId     String
+  invoice       SaleInvoice   @relation(fields: [invoiceId], references: [id])
+  itemId        String
+  item          Item          @relation(fields: [itemId], references: [id])
+  qty           Decimal       @db.Decimal(14, 3)
+  rate          Decimal       @db.Decimal(14, 2)
+  discountAmount Decimal      @db.Decimal(14, 2)
+  taxRate       Decimal       @db.Decimal(5, 2)
+  taxableAmount Decimal       @db.Decimal(14, 2)
+  taxAmount     Decimal       @db.Decimal(14, 2)
+  netAmount     Decimal       @db.Decimal(14, 2)
+  returnLines   ReturnInvoiceLine[]
+}
+
+model Payment {
+  id         String       @id @default(uuid())
+  invoiceId  String
+  invoice    SaleInvoice  @relation(fields: [invoiceId], references: [id])
+  mode       PaymentMode
+  amount     Decimal      @db.Decimal(14, 2)
+  reference  String?
+  createdAt  DateTime     @default(now())
+}
+
+model Receipt {
+  id         String      @id @default(uuid())
+  receiptNo  String      @unique
+  invoiceId  String
+  invoice    SaleInvoice @relation(fields: [invoiceId], references: [id])
+  amount     Decimal     @db.Decimal(14, 2)
+  createdAt  DateTime    @default(now())
+}
+
+model ReturnInvoice {
+  id            String             @id @default(uuid())
+  saleInvoiceId String
+  saleInvoice   SaleInvoice        @relation(fields: [saleInvoiceId], references: [id])
+  returnNo      String             @unique
+  totalAmount   Decimal            @db.Decimal(14, 2)
+  refundMode    PaymentMode
+  lines         ReturnInvoiceLine[]
+  createdAt     DateTime           @default(now())
+}
+
+model ReturnInvoiceLine {
+  id              String         @id @default(uuid())
+  returnInvoiceId String
+  returnInvoice   ReturnInvoice  @relation(fields: [returnInvoiceId], references: [id])
+  saleLineId      String
+  saleLine        SaleInvoiceLine @relation(fields: [saleLineId], references: [id])
+  qty             Decimal        @db.Decimal(14, 3)
+  amount          Decimal        @db.Decimal(14, 2)
+}
