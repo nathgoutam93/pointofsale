@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Headers,
@@ -9,8 +10,12 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
   UnauthorizedException
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { join } from 'path';
 import { PaymentMode, UserRole } from '@prisma/client';
 import { PosService } from './pos.service';
 import { SessionUser } from './pos.types';
@@ -102,9 +107,43 @@ export class PosController {
     return this.posService.listItems(activeOnly === 'true');
   }
 
+  @Post('/items/upload-image')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      dest: join(process.cwd(), 'uploads', 'items'),
+      fileFilter: (_req: unknown, file: { mimetype: string }, cb: (error: Error | null, acceptFile: boolean) => void) => {
+        if (!file.mimetype?.startsWith('image/')) {
+          cb(new BadRequestException('Only image files are allowed'), false);
+          return;
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 5 * 1024 * 1024 }
+    })
+  )
+  uploadItemImage(@UploadedFile() file: { filename: string } | undefined, @Headers() headers: Record<string, string | string[] | undefined>) {
+    this.requireAdmin(this.getSession(headers));
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+
+    return { path: `/uploads/items/${file.filename}` };
+  }
+
   @Post('/items')
   createItem(
-    @Body() body: { code: string; name: string; category?: string; uom: string; sellPrice: number; taxRate: number },
+    @Body()
+    body: {
+      code: string;
+      name: string;
+      category?: string;
+      uom: string;
+      costPrice?: number;
+      sellPrice: number;
+      taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
+      taxRate: number;
+      imageUrl?: string;
+    },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     this.requireAdmin(this.getSession(headers));
@@ -114,11 +153,28 @@ export class PosController {
   @Patch('/items/:id')
   updateItem(
     @Param('id') id: string,
-    @Body() body: { name?: string; category?: string | null; uom?: string; sellPrice?: number; taxRate?: number; isActive?: boolean },
+    @Body()
+    body: {
+      name?: string;
+      category?: string | null;
+      uom?: string;
+      costPrice?: number;
+      sellPrice?: number;
+      taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
+      taxRate?: number;
+      imageUrl?: string | null;
+      isActive?: boolean;
+    },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     this.requireAdmin(this.getSession(headers));
     return this.posService.updateItem(id, body);
+  }
+
+  @Delete('/items/:id')
+  deleteItem(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    this.requireAdmin(this.getSession(headers));
+    return this.posService.deleteItem(id);
   }
 
   @Post('/stock/opening')

@@ -189,12 +189,53 @@ export class PosService {
     return this.prisma.item.findMany({ where: activeOnly ? { isActive: true } : undefined, orderBy: { createdAt: 'desc' } });
   }
 
-  async createItem(input: { code: string; name: string; category?: string; uom: string; sellPrice: number; taxRate: number }) {
-    return this.prisma.item.create({ data: input });
+  async createItem(input: {
+    code: string;
+    name: string;
+    category?: string;
+    uom: string;
+    costPrice?: number;
+    sellPrice: number;
+    taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
+    taxRate: number;
+    imageUrl?: string;
+  }) {
+    return this.prisma.item.create({
+      data: {
+        ...input,
+        costPrice: input.costPrice ?? 0,
+        taxMode: input.taxMode ?? 'EXCLUSIVE'
+      }
+    });
   }
 
-  async updateItem(id: string, input: { name?: string; category?: string | null; uom?: string; sellPrice?: number; taxRate?: number; isActive?: boolean }) {
+  async updateItem(
+    id: string,
+    input: {
+      name?: string;
+      category?: string | null;
+      uom?: string;
+      costPrice?: number;
+      sellPrice?: number;
+      taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
+      taxRate?: number;
+      imageUrl?: string | null;
+      isActive?: boolean;
+    }
+  ) {
     return this.prisma.item.update({ where: { id }, data: input });
+  }
+
+  async deleteItem(id: string) {
+    const salesCount = await this.prisma.saleInvoiceLine.count({ where: { itemId: id } });
+    if (salesCount > 0) {
+      throw new BadRequestException('Cannot delete item with sales history');
+    }
+
+    return this.prisma.item.update({
+      where: { id },
+      data: { isActive: false }
+    });
   }
 
   async createStockOpening(branchId: string, itemId: string, qty: number, reason?: string) {

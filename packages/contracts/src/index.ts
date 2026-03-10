@@ -8,6 +8,7 @@ const paymentModeSchema = z.enum(['CASH', 'CARD', 'WALLET']);
 const invoiceStatusSchema = z.enum(['DRAFT', 'SETTLED', 'PARTIALLY_SETTLED', 'CANCELLED']);
 const stockTxnTypeSchema = z.enum(['OPENING', 'ADJUSTMENT_PLUS', 'ADJUSTMENT_MINUS', 'SALE', 'RETURN']);
 const walletTxnTypeSchema = z.enum(['TOPUP', 'DEBIT_SALE', 'REFUND_RETURN', 'ADJUSTMENT']);
+const taxModeSchema = z.enum(['INCLUSIVE', 'EXCLUSIVE']);
 
 export const moneySchema = z.number().finite();
 
@@ -49,8 +50,11 @@ export const itemSchema = z.object({
   name: z.string(),
   category: z.string().nullable(),
   uom: z.string(),
+  costPrice: moneySchema,
   sellPrice: moneySchema,
+  taxMode: taxModeSchema,
   taxRate: z.number().min(0),
+  imageUrl: z.string().url().nullable(),
   isActive: z.boolean(),
   createdAt: z.string().datetime()
 });
@@ -183,13 +187,39 @@ export const appContract = c.router({
     create: {
       method: 'POST',
       path: '/items',
-      body: z.object({ code: z.string(), name: z.string(), category: z.string().optional(), uom: z.string(), sellPrice: moneySchema.nonnegative(), taxRate: z.number().min(0) }),
+      body: z.object({
+        code: z.string(),
+        name: z.string(),
+        category: z.string().optional(),
+        uom: z.string(),
+        costPrice: moneySchema.nonnegative().optional(),
+        sellPrice: moneySchema.nonnegative(),
+        taxMode: taxModeSchema.optional(),
+        taxRate: z.number().min(0),
+        imageUrl: z.string().url().optional()
+      }),
       responses: { 201: itemSchema }
     },
     update: {
       method: 'PATCH',
       path: '/items/:id',
-      body: z.object({ name: z.string().optional(), category: z.string().nullable().optional(), uom: z.string().optional(), sellPrice: moneySchema.nonnegative().optional(), taxRate: z.number().min(0).optional(), isActive: z.boolean().optional() }),
+      body: z.object({
+        name: z.string().optional(),
+        category: z.string().nullable().optional(),
+        uom: z.string().optional(),
+        costPrice: moneySchema.nonnegative().optional(),
+        sellPrice: moneySchema.nonnegative().optional(),
+        taxMode: taxModeSchema.optional(),
+        taxRate: z.number().min(0).optional(),
+        imageUrl: z.string().url().nullable().optional(),
+        isActive: z.boolean().optional()
+      }),
+      responses: { 200: itemSchema }
+    },
+    delete: {
+      method: 'DELETE',
+      path: '/items/:id',
+      body: z.undefined(),
       responses: { 200: itemSchema }
     }
   },

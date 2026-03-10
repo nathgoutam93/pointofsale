@@ -40,6 +40,11 @@ enum InvoiceStatus {
   CANCELLED
 }
 
+enum TaxMode {
+  INCLUSIVE
+  EXCLUSIVE
+}
+
 model Branch {
   id          String       @id @default(uuid())
   name        String
@@ -108,8 +113,11 @@ model Item {
   name        String
   category    String?
   uom         String
+  costPrice   Decimal         @default(0) @db.Decimal(14, 2)
   sellPrice   Decimal         @db.Decimal(14, 2)
+  taxMode     TaxMode         @default(EXCLUSIVE)
   taxRate     Decimal         @db.Decimal(5, 2)
+  imageUrl    String?
   isActive    Boolean         @default(true)
   lines       SaleInvoiceLine[]
   stockLedgers StockLedger[]
