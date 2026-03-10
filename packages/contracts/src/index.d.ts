@@ -6,12 +6,12 @@ export declare const branchSchema: z.ZodObject<{
     code: z.ZodString;
 }, "strip", z.ZodTypeAny, {
     id: string;
-    name: string;
     code: string;
+    name: string;
 }, {
     id: string;
-    name: string;
     code: string;
+    name: string;
 }>;
 export declare const customerSchema: z.ZodObject<{
     id: z.ZodString;
@@ -23,16 +23,16 @@ export declare const customerSchema: z.ZodObject<{
     createdAt: z.ZodString;
 }, "strip", z.ZodTypeAny, {
     id: string;
-    name: string;
     code: string;
+    name: string;
     branchId: string;
     phone: string | null;
     isWalkIn: boolean;
     createdAt: string;
 }, {
     id: string;
-    name: string;
     code: string;
+    name: string;
     branchId: string;
     phone: string | null;
     isWalkIn: boolean;
@@ -88,8 +88,8 @@ export declare const itemSchema: z.ZodObject<{
     createdAt: z.ZodString;
 }, "strip", z.ZodTypeAny, {
     id: string;
-    name: string;
     code: string;
+    name: string;
     createdAt: string;
     category: string | null;
     uom: string;
@@ -98,8 +98,8 @@ export declare const itemSchema: z.ZodObject<{
     isActive: boolean;
 }, {
     id: string;
-    name: string;
     code: string;
+    name: string;
     createdAt: string;
     category: string | null;
     uom: string;
@@ -110,7 +110,6 @@ export declare const itemSchema: z.ZodObject<{
 export declare const appContract: {
     auth: {
         login: {
-            method: "POST";
             body: z.ZodObject<{
                 username: z.ZodString;
                 password: z.ZodString;
@@ -121,6 +120,7 @@ export declare const appContract: {
                 username: string;
                 password: string;
             }>;
+            method: "POST";
             path: "/auth/login";
             responses: {
                 200: z.ZodObject<{
@@ -129,15 +129,15 @@ export declare const appContract: {
                     role: z.ZodEnum<["ADMIN", "CASHIER"]>;
                     branchId: z.ZodString;
                 }, "strip", z.ZodTypeAny, {
+                    role: "ADMIN" | "CASHIER";
                     branchId: string;
                     token: string;
                     userId: string;
-                    role: "ADMIN" | "CASHIER";
                 }, {
+                    role: "ADMIN" | "CASHIER";
                     branchId: string;
                     token: string;
                     userId: string;
-                    role: "ADMIN" | "CASHIER";
                 }>;
             };
         };
@@ -150,13 +150,13 @@ export declare const appContract: {
                     role: z.ZodEnum<["ADMIN", "CASHIER"]>;
                     branchId: z.ZodString;
                 }, "strip", z.ZodTypeAny, {
+                    role: "ADMIN" | "CASHIER";
                     branchId: string;
                     userId: string;
-                    role: "ADMIN" | "CASHIER";
                 }, {
+                    role: "ADMIN" | "CASHIER";
                     branchId: string;
                     userId: string;
-                    role: "ADMIN" | "CASHIER";
                 }>;
             };
         };
@@ -183,16 +183,16 @@ export declare const appContract: {
                     createdAt: z.ZodString;
                 }, "strip", z.ZodTypeAny, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     branchId: string;
                     phone: string | null;
                     isWalkIn: boolean;
                     createdAt: string;
                 }, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     branchId: string;
                     phone: string | null;
                     isWalkIn: boolean;
@@ -201,7 +201,6 @@ export declare const appContract: {
             };
         };
         create: {
-            method: "POST";
             body: z.ZodObject<{
                 branchId: z.ZodString;
                 name: z.ZodString;
@@ -215,6 +214,7 @@ export declare const appContract: {
                 branchId: string;
                 phone?: string | undefined;
             }>;
+            method: "POST";
             path: "/customers";
             responses: {
                 201: z.ZodObject<{
@@ -227,16 +227,16 @@ export declare const appContract: {
                     createdAt: z.ZodString;
                 }, "strip", z.ZodTypeAny, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     branchId: string;
                     phone: string | null;
                     isWalkIn: boolean;
                     createdAt: string;
                 }, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     branchId: string;
                     phone: string | null;
                     isWalkIn: boolean;
@@ -258,16 +258,16 @@ export declare const appContract: {
                     createdAt: z.ZodString;
                 }, "strip", z.ZodTypeAny, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     branchId: string;
                     phone: string | null;
                     isWalkIn: boolean;
                     createdAt: string;
                 }, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     branchId: string;
                     phone: string | null;
                     isWalkIn: boolean;
@@ -295,7 +295,6 @@ export declare const appContract: {
             };
         };
         topupWallet: {
-            method: "POST";
             body: z.ZodObject<{
                 amount: z.ZodNumber;
                 reference: z.ZodOptional<z.ZodString>;
@@ -306,6 +305,7 @@ export declare const appContract: {
                 amount: number;
                 reference?: string | undefined;
             }>;
+            method: "POST";
             path: "/customers/:id/wallet/topup";
             responses: {
                 200: z.ZodObject<{
@@ -360,8 +360,8 @@ export declare const appContract: {
                     createdAt: z.ZodString;
                 }, "strip", z.ZodTypeAny, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     createdAt: string;
                     category: string | null;
                     uom: string;
@@ -370,8 +370,8 @@ export declare const appContract: {
                     isActive: boolean;
                 }, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     createdAt: string;
                     category: string | null;
                     uom: string;
@@ -382,7 +382,6 @@ export declare const appContract: {
             };
         };
         create: {
-            method: "POST";
             body: z.ZodObject<{
                 code: z.ZodString;
                 name: z.ZodString;
@@ -391,20 +390,21 @@ export declare const appContract: {
                 sellPrice: z.ZodNumber;
                 taxRate: z.ZodNumber;
             }, "strip", z.ZodTypeAny, {
-                name: string;
                 code: string;
+                name: string;
                 uom: string;
                 sellPrice: number;
                 taxRate: number;
                 category?: string | undefined;
             }, {
-                name: string;
                 code: string;
+                name: string;
                 uom: string;
                 sellPrice: number;
                 taxRate: number;
                 category?: string | undefined;
             }>;
+            method: "POST";
             path: "/items";
             responses: {
                 201: z.ZodObject<{
@@ -419,8 +419,8 @@ export declare const appContract: {
                     createdAt: z.ZodString;
                 }, "strip", z.ZodTypeAny, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     createdAt: string;
                     category: string | null;
                     uom: string;
@@ -429,8 +429,8 @@ export declare const appContract: {
                     isActive: boolean;
                 }, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     createdAt: string;
                     category: string | null;
                     uom: string;
@@ -441,7 +441,6 @@ export declare const appContract: {
             };
         };
         update: {
-            method: "PATCH";
             body: z.ZodObject<{
                 name: z.ZodOptional<z.ZodString>;
                 category: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -464,6 +463,7 @@ export declare const appContract: {
                 taxRate?: number | undefined;
                 isActive?: boolean | undefined;
             }>;
+            method: "PATCH";
             path: "/items/:id";
             responses: {
                 200: z.ZodObject<{
@@ -478,8 +478,8 @@ export declare const appContract: {
                     createdAt: z.ZodString;
                 }, "strip", z.ZodTypeAny, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     createdAt: string;
                     category: string | null;
                     uom: string;
@@ -488,8 +488,8 @@ export declare const appContract: {
                     isActive: boolean;
                 }, {
                     id: string;
-                    name: string;
                     code: string;
+                    name: string;
                     createdAt: string;
                     category: string | null;
                     uom: string;
@@ -502,7 +502,6 @@ export declare const appContract: {
     };
     stock: {
         opening: {
-            method: "POST";
             body: z.ZodObject<{
                 branchId: z.ZodString;
                 itemId: z.ZodString;
@@ -519,6 +518,7 @@ export declare const appContract: {
                 qty: number;
                 reason?: string | undefined;
             }>;
+            method: "POST";
             path: "/stock/opening";
             responses: {
                 201: z.ZodObject<{
@@ -558,7 +558,6 @@ export declare const appContract: {
             };
         };
         adjustment: {
-            method: "POST";
             body: z.ZodObject<{
                 branchId: z.ZodString;
                 itemId: z.ZodString;
@@ -578,6 +577,7 @@ export declare const appContract: {
                 reason: string;
                 direction: "IN" | "OUT";
             }>;
+            method: "POST";
             path: "/stock/adjustment";
             responses: {
                 201: z.ZodObject<{
@@ -695,7 +695,6 @@ export declare const appContract: {
     };
     sales: {
         create: {
-            method: "POST";
             body: z.ZodObject<{
                 branchId: z.ZodString;
                 customerId: z.ZodString;
@@ -739,6 +738,7 @@ export declare const appContract: {
                     discountAmount?: number | undefined;
                 }[];
             }>;
+            method: "POST";
             path: "/sales";
             responses: {
                 201: z.ZodObject<{
@@ -877,7 +877,6 @@ export declare const appContract: {
             };
         };
         settle: {
-            method: "POST";
             body: z.ZodObject<{
                 payments: z.ZodArray<z.ZodObject<{
                     mode: z.ZodEnum<["CASH", "CARD", "WALLET"]>;
@@ -905,6 +904,7 @@ export declare const appContract: {
                     reference?: string | undefined;
                 }[];
             }>;
+            method: "POST";
             path: "/sales/:id/settle";
             responses: {
                 200: z.ZodObject<{
@@ -1338,7 +1338,6 @@ export declare const appContract: {
             };
         };
         returns: {
-            method: "POST";
             body: z.ZodObject<{
                 lines: z.ZodArray<z.ZodObject<{
                     saleLineId: z.ZodString;
@@ -1364,6 +1363,7 @@ export declare const appContract: {
                 }[];
                 refundMode: "CASH" | "CARD" | "WALLET";
             }>;
+            method: "POST";
             path: "/sales/:id/return";
             responses: {
                 201: z.ZodObject<{

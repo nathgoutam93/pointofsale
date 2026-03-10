@@ -366,8 +366,9 @@ export class PosService {
 
       const payTotal = this.round2(payments.reduce((acc, p) => acc + p.amount, 0));
       const pending = this.round2(this.toNumber(invoice.grandTotal) - this.toNumber(invoice.paidTotal));
+      const excess = this.round2(Math.max(0, payTotal - pending));
 
-      if (payTotal > pending) {
+      if (payTotal > pending && invoice.customer.isWalkIn) {
         throw new BadRequestException('Payment exceeds pending amount');
       }
 
@@ -400,7 +401,8 @@ export class PosService {
         }))
       });
 
-      const updatedPaid = this.round2(this.toNumber(invoice.paidTotal) + payTotal);
+      const appliedToInvoice = this.round2(Math.min(payTotal, pending));
+      const updatedPaid = this.round2(this.toNumber(invoice.paidTotal) + appliedToInvoice);
       const status = updatedPaid >= this.toNumber(invoice.grandTotal) ? InvoiceStatus.SETTLED : InvoiceStatus.PARTIALLY_SETTLED;
 
       const updated = await tx.saleInvoice.update({
@@ -419,6 +421,25 @@ export class PosService {
           amount: payTotal
         }
       });
+
+      if (excess > 0 && !invoice.customer.isWalkIn) {
+        const wallet = await tx.walletAccount.findUnique({ where: { customerId: invoice.customerId } });
+        if (!wallet) throw new NotFoundException('Wallet not found');
+
+        await tx.walletAccount.update({
+          where: { id: wallet.id },
+          data: { balance: { increment: excess } }
+        });
+        await tx.walletTxn.create({
+          data: {
+            walletAccountId: wallet.id,
+            type: WalletTxnType.TOPUP,
+            amount: excess,
+            referenceType: 'SALE',
+            referenceId: invoice.id
+          }
+        });
+      }
 
       return { invoice: updated, receipt };
     });
