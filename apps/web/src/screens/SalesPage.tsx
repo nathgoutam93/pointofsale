@@ -431,8 +431,59 @@ export function SalesPage() {
     [sales.data],
   );
 
+  const saleLines =
+    settledSummary?.lines ??
+    selectedInvoiceDetails.data?.lines.map((line) => ({
+      id: line.id,
+      itemId: line.itemId,
+      qty: Number(line.qty),
+      netAmount: Number(line.netAmount),
+    })) ??
+    [];
+
+  const paymentBreakdown =
+    settledSummary?.payments ??
+    selectedInvoiceDetails.data?.payments.map((line) => ({
+      mode: line.mode as PaymentMode,
+      amount: Number(line.amount),
+    })) ??
+    [];
+
+  const invoiceSubTotal =
+    settledSummary?.subTotal ?? Number(currentInvoice?.subTotal ?? 0);
+  const invoiceTaxTotal =
+    settledSummary?.taxTotal ?? Number(currentInvoice?.taxTotal ?? 0);
+  const invoiceGrandTotal =
+    settledSummary?.grandTotal ?? Number(currentInvoice?.grandTotal ?? 0);
+
   return (
     <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[360px_1fr]">
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+
+          #printable-invoice,
+          #printable-invoice * {
+            visibility: visible !important;
+          }
+
+          #printable-invoice {
+            position: absolute;
+            inset: 0;
+            margin: 0;
+            width: 100%;
+            max-width: none;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+            padding: 16px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        }
+      `}</style>
       <aside className="flex flex-col overflow-hidden border-r border-slate-200 bg-white">
         {settledSummary ? (
           <>
@@ -532,7 +583,11 @@ export function SalesPage() {
                           {invoice.status}
                         </p>
                         <p className="text-xs text-slate-500">
-                          By: {formatSaleCreator(invoice.createdBy, invoice.createdByName)}
+                          By:{" "}
+                          {formatSaleCreator(
+                            invoice.createdBy,
+                            invoice.createdByName,
+                          )}
                         </p>
                       </div>
                       <p
@@ -579,8 +634,8 @@ export function SalesPage() {
         ) : null}
       </aside>
 
-      <div className="bg-slate-100 p-4">
-        <div className="mb-3 flex w-full items-center justify-between p-2">
+      <div className="bg-slate-100 p-4 print:bg-white print:p-0">
+        <div className="mb-3 flex w-full items-center justify-between p-2 print:hidden">
           <div></div>
           <div className="flex items-center gap-2">
             <button
@@ -600,129 +655,199 @@ export function SalesPage() {
             </button>
           </div>
         </div>
-        <div className="mx-auto w-full max-w-sm rounded border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-center text-3xl font-semibold text-fuchsia-800">
-            Your logo
-          </p>
-          <p className="mt-3 text-center text-xs text-slate-600">
-            Ticket {previewReceipt?.receiptNo ?? "—"}
-          </p>
-          <p className="text-center text-xs text-slate-600">
-            {new Date(previewReceipt?.createdAt ?? Date.now()).toLocaleString()}
-          </p>
-          <p className="mt-1 text-center text-xs text-slate-600">
-            Invoice:{" "}
-            {settledSummary?.invoiceNo ?? currentInvoice?.invoiceNo ?? "—"}
-          </p>
-          <p className="mt-1 text-center text-xs text-slate-600">
-            Made by:{" "}
-            {currentSaleCreatorId
-              ? formatSaleCreator(currentSaleCreatorId, currentSaleCreatorName)
-              : "—"}
-          </p>
-          {previewReceipt ? (
-            <p className="mt-1 text-center text-xs text-slate-600">
-              Receipt Amount: ₹ {money(Number(previewReceipt.amount))}
-            </p>
-          ) : null}
+        <div className="mx-auto grid w-full max-w-6xl gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="rounded border border-slate-200 bg-white p-5 shadow-sm print:hidden">
+            <h3 className="text-lg font-semibold text-slate-900">
+              Sale Details
+            </h3>
+            <div className="mt-4 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+              <p>
+                Invoice:{" "}
+                {settledSummary?.invoiceNo ?? currentInvoice?.invoiceNo ?? "—"}
+              </p>
+              <p>
+                Status:{" "}
+                <span className="font-semibold">
+                  {currentInvoice?.status ?? "—"}
+                </span>
+              </p>
+              <p>
+                Customer:{" "}
+                <span className="font-semibold">
+                  {selectedCustomer?.name ?? "Walk-in"}
+                </span>
+              </p>
+              <p>
+                Pending:{" "}
+                <span className="font-semibold">₹ {money(pendingAmount)}</span>
+              </p>
+              <p className="sm:col-span-2">
+                Sold by:{" "}
+                {currentSaleCreatorId
+                  ? formatSaleCreator(
+                      currentSaleCreatorId,
+                      currentSaleCreatorName,
+                    )
+                  : "—"}
+              </p>
+            </div>
 
-          <div className="mt-5 space-y-2 text-sm text-slate-700">
-            {(
-              settledSummary?.lines ??
-              selectedInvoiceDetails.data?.lines.map((line) => ({
-                id: line.id,
-                itemId: line.itemId,
-                qty: Number(line.qty),
-                netAmount: Number(line.netAmount),
-              })) ??
-              []
-            ).map((line) => (
-              <div key={line.id} className="flex items-start justify-between">
-                <p className="mr-3">
-                  {line.qty.toFixed(0)} x{" "}
-                  {itemNameById.get(line.itemId) ??
-                    `Item ${line.itemId.slice(0, 6)}`}
+            <div className="mt-5 rounded border border-slate-200">
+              <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Items
+              </div>
+              <div className="space-y-2 px-3 py-3 text-sm text-slate-700">
+                {saleLines.map((line) => (
+                  <div
+                    key={line.id}
+                    className="flex items-start justify-between"
+                  >
+                    <p className="mr-3">
+                      {line.qty.toFixed(0)} x{" "}
+                      {itemNameById.get(line.itemId) ??
+                        `Item ${line.itemId.slice(0, 6)}`}
+                    </p>
+                    <p>₹ {money(line.netAmount)}</p>
+                  </div>
+                ))}
+                {saleLines.length === 0 ? (
+                  <p className="text-xs text-slate-500">
+                    No line items available.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+              <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2">
+                <p>Subtotal</p>
+                <p>₹ {money(invoiceSubTotal)}</p>
+              </div>
+              <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2">
+                <p>Tax</p>
+                <p>₹ {money(invoiceTaxTotal)}</p>
+              </div>
+              <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2 sm:col-span-2">
+                <p className="font-semibold">Grand Total</p>
+                <p className="text-base font-semibold">
+                  ₹ {money(invoiceGrandTotal)}
                 </p>
-                <p>₹ {money(line.netAmount)}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-5 space-y-1 border-t border-slate-200 pt-4 text-slate-700">
-            <div className="flex items-center justify-between">
-              <p>Subtotal</p>
-              <p>
-                ₹{" "}
-                {money(
-                  settledSummary?.subTotal ??
-                    Number(currentInvoice?.subTotal ?? 0),
-                )}
-              </p>
-            </div>
-            <div className="flex items-center justify-between">
-              <p>Tax</p>
-              <p>
-                ₹{" "}
-                {money(
-                  settledSummary?.taxTotal ??
-                    Number(currentInvoice?.taxTotal ?? 0),
-                )}
-              </p>
-            </div>
-            <div className="flex items-center justify-between text-lg font-semibold">
-              <p>Total</p>
-              <p>
-                ₹{" "}
-                {money(
-                  settledSummary?.grandTotal ??
-                    Number(currentInvoice?.grandTotal ?? 0),
-                )}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4 space-y-1 text-sm text-slate-700">
-            {(
-              settledSummary?.payments ??
-              selectedInvoiceDetails.data?.payments.map((line) => ({
-                mode: line.mode as PaymentMode,
-                amount: Number(line.amount),
-              })) ??
-              []
-            ).map((line, idx) => (
-              <div
-                key={`${line.mode}-${idx}`}
-                className="flex items-center justify-between"
-              >
-                <p>{line.mode}</p>
-                <p>₹ {money(line.amount)}</p>
-              </div>
-            ))}
-          </div>
-
-          {receiptsForInvoice.length > 0 ? (
-            <div className="mt-4 border-t border-slate-200 pt-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Receipts For Invoice
-              </p>
-              <div className="mt-2 grid gap-2">
-                {receiptsForInvoice.map((receipt) => {
-                  const isActive = previewReceipt?.id === receipt.id;
-                  return (
-                    <button
-                      key={receipt.id}
-                      className={`rounded border px-2 py-2 text-left text-xs ${isActive ? "border-fuchsia-500 bg-fuchsia-50 text-fuchsia-900" : "border-slate-200 bg-white text-slate-700"}`}
-                      onClick={() => setSelectedReceiptId(receipt.id)}
-                    >
-                      <p className="font-semibold">{receipt.receiptNo}</p>
-                      <p>₹ {money(Number(receipt.amount))}</p>
-                      <p>{new Date(receipt.createdAt).toLocaleString()}</p>
-                    </button>
-                  );
-                })}
               </div>
             </div>
-          ) : null}
+
+            <div className="mt-4 rounded border border-slate-200">
+              <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Payments
+              </div>
+              <div className="space-y-2 px-3 py-3 text-sm text-slate-700">
+                {paymentBreakdown.map((line, idx) => (
+                  <div
+                    key={`${line.mode}-${idx}`}
+                    className="flex items-center justify-between"
+                  >
+                    <p>{line.mode}</p>
+                    <p>₹ {money(line.amount)}</p>
+                  </div>
+                ))}
+                {paymentBreakdown.length === 0 ? (
+                  <p className="text-xs text-slate-500">
+                    No payments recorded yet.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            {receiptsForInvoice.length > 0 ? (
+              <div className="mt-4 rounded border border-slate-200 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Receipts For Invoice
+                </p>
+                <div className="mt-2 grid gap-2">
+                  {receiptsForInvoice.map((receipt) => {
+                    const isActive = previewReceipt?.id === receipt.id;
+                    return (
+                      <button
+                        key={receipt.id}
+                        className={`rounded border px-2 py-2 text-left text-xs ${isActive ? "border-fuchsia-500 bg-fuchsia-50 text-fuchsia-900" : "border-slate-200 bg-white text-slate-700"}`}
+                        onClick={() => setSelectedReceiptId(receipt.id)}
+                      >
+                        <p className="font-semibold">{receipt.receiptNo}</p>
+                        <p>₹ {money(Number(receipt.amount))}</p>
+                        <p>{new Date(receipt.createdAt).toLocaleString()}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div
+            id="printable-invoice"
+            className="w-full rounded border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <p className="text-center text-3xl font-semibold text-fuchsia-800">
+              Your logo
+            </p>
+            <p className="text-center text-xs text-slate-600">
+              {new Date(
+                previewReceipt?.createdAt ?? Date.now(),
+              ).toLocaleString()}
+            </p>
+            <p className="mt-1 text-center text-xs text-slate-600">
+              Invoice:{" "}
+              {settledSummary?.invoiceNo ?? currentInvoice?.invoiceNo ?? "—"}
+            </p>
+            <p className="mt-1 text-center text-xs text-slate-600">
+              Sold by:{" "}
+              {currentSaleCreatorId
+                ? formatSaleCreator(
+                    currentSaleCreatorId,
+                    currentSaleCreatorName,
+                  )
+                : "—"}
+            </p>
+
+            <div className="mt-5 space-y-2 text-sm text-slate-700">
+              {saleLines.map((line) => (
+                <div key={line.id} className="flex items-start justify-between">
+                  <p className="mr-3">
+                    {line.qty.toFixed(0)} x{" "}
+                    {itemNameById.get(line.itemId) ??
+                      `Item ${line.itemId.slice(0, 6)}`}
+                  </p>
+                  <p>₹ {money(line.netAmount)}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 space-y-1 border-t border-slate-200 pt-4 text-slate-700">
+              <div className="flex items-center justify-between">
+                <p>Subtotal</p>
+                <p>₹ {money(invoiceSubTotal)}</p>
+              </div>
+              <div className="flex items-center justify-between">
+                <p>Tax</p>
+                <p>₹ {money(invoiceTaxTotal)}</p>
+              </div>
+              <div className="flex items-center justify-between text-lg font-semibold">
+                <p>Total</p>
+                <p>₹ {money(invoiceGrandTotal)}</p>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-1 text-sm text-slate-700">
+              {paymentBreakdown.map((line, idx) => (
+                <div
+                  key={`${line.mode}-${idx}`}
+                  className="flex items-center justify-between"
+                >
+                  <p>{line.mode}</p>
+                  <p>₹ {money(line.amount)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
