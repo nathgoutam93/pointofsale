@@ -63,6 +63,17 @@ export function SalesPage() {
     },
   });
 
+  const customers = useQuery({
+    queryKey: ["customers-sales", session.branchId],
+    queryFn: async () => {
+      const res = await api.customers.list({
+        query: { branchId: session.branchId },
+      });
+      if (res.status !== 200) throw new Error("Failed to load customers");
+      return res.body;
+    },
+  });
+
   const selectedInvoiceDetails = useQuery({
     queryKey: ["sales-by-id", selectedInvoiceId],
     enabled: !!selectedInvoiceId,
@@ -133,6 +144,55 @@ export function SalesPage() {
   }, [sales.data, selectedInvoiceId]);
 
   const currentInvoice = selectedInvoiceDetails.data ?? selectedInvoice;
+  const selectedCustomer = useMemo(() => {
+    if (!currentInvoice) return null;
+    return (
+      (customers.data ?? []).find(
+        (customer) => customer.id === currentInvoice.customerId,
+      ) ?? null
+    );
+  }, [currentInvoice, customers.data]);
+  const isRegisteredCustomer = !!selectedCustomer && !selectedCustomer.isWalkIn;
+
+  const customerWallet = useQuery({
+    queryKey: ["customer-wallet-sales", selectedCustomer?.id],
+    enabled: paymentModalOpen && isRegisteredCustomer && !!selectedCustomer?.id,
+    queryFn: async () => {
+      if (!selectedCustomer?.id) {
+        throw new Error("No customer selected");
+      }
+      const res = await api.customers.getWallet({
+        params: { id: selectedCustomer.id },
+      });
+      if (res.status !== 200) throw new Error("Failed to load customer wallet");
+      return res.body;
+    },
+  });
+
+  const availablePaymentMethods = useMemo<
+    Array<{ key: PaymentMode; label: string }>
+  >(() => {
+    if (!isRegisteredCustomer) {
+      return [
+        { key: "CASH", label: "Cash" },
+        { key: "CARD", label: "Card" },
+      ];
+    }
+    return [
+      { key: "CASH", label: "Cash" },
+      { key: "CARD", label: "Card" },
+      { key: "WALLET", label: "Customer Wallet" },
+    ];
+  }, [isRegisteredCustomer]);
+
+  useEffect(() => {
+    if (isRegisteredCustomer) return;
+    setPaymentLines((prev) => prev.filter((line) => line.mode !== "WALLET"));
+    if (paymentMethod === "WALLET") {
+      setPaymentMethod("CASH");
+    }
+  }, [isRegisteredCustomer, paymentMethod]);
+
   const fallbackReceipt =
     settledSummary && settledSummary.invoiceId === selectedInvoiceId
       ? {
@@ -169,6 +229,15 @@ export function SalesPage() {
     [pendingAmount, totalPaid],
   );
   const paymentMatchesPending = Math.abs(totalPaid - pendingAmount) < 0.005;
+  const walletBalance = Number(customerWallet.data?.balance ?? 0);
+  const walletLineAmount = useMemo(
+    () =>
+      paymentLines
+        .filter((line) => line.mode === "WALLET")
+        .reduce((acc, line) => acc + line.amount, 0),
+    [paymentLines],
+  );
+  const walletOverused = walletLineAmount > walletBalance;
 
   const paymentKeypadPress = (key: string) => {
     const current = paymentAmount;
@@ -208,6 +277,28 @@ export function SalesPage() {
   const applyPaymentLine = () => {
     const amount = Number(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
+    if (paymentMethod === "WALLET") {
+      if (!isRegisteredCustomer) {
+        setPaymentModalError(
+          "Wallet payment is allowed only for registered customers.",
+        );
+        return;
+      }
+      if (customerWallet.isLoading) {
+        setPaymentModalError("Loading wallet balance. Try again.");
+        return;
+      }
+      if (customerWallet.isError) {
+        setPaymentModalError("Failed to fetch wallet balance. Try again.");
+        return;
+      }
+      if (amount > walletBalance + 0.0001) {
+        setPaymentModalError(
+          `Wallet balance is insufficient. Available: ₹ ${money(walletBalance)}`,
+        );
+        return;
+      }
+    }
 
     setPaymentModalError("");
     setPaymentLines((prev) => {
@@ -220,6 +311,12 @@ export function SalesPage() {
       if (amount > maxAllowedForCurrent + 0.0001) {
         setPaymentModalError(
           `Amount exceeds remaining. You can add up to ₹ ${money(maxAllowedForCurrent)}`,
+        );
+        return prev;
+      }
+      if (paymentMethod === "WALLET" && amount > walletBalance + 0.0001) {
+        setPaymentModalError(
+          `Wallet balance is insufficient. Available: ₹ ${money(walletBalance)}`,
         );
         return prev;
       }
@@ -259,7 +356,13 @@ export function SalesPage() {
         body: { payments: payload.payments },
         extraHeaders: authHeaders(),
       });
-      if (res.status !== 200) throw new Error("Failed to settle invoice");
+      if (res.status !== 200) {
+        const apiMessage =
+          typeof (res.body as { message?: unknown })?.message === "string"
+            ? (res.body as { message: string }).message
+            : "";
+        throw new Error(apiMessage || "Failed to settle invoice");
+      }
       return res.body;
     },
     onSuccess: (result) => {
@@ -448,6 +551,11 @@ export function SalesPage() {
             {(selectedInvoiceDetails.error as Error).message}
           </p>
         ) : null}
+        {customers.error ? (
+          <p className="px-4 pb-2 text-sm text-red-700">
+            {(customers.error as Error).message}
+          </p>
+        ) : null}
         {message ? (
           <p className="px-4 pb-3 text-sm text-emerald-700">{message}</p>
         ) : null}
@@ -599,11 +707,7 @@ export function SalesPage() {
           <div className="grid w-full max-w-6xl grid-cols-1 overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl lg:grid-cols-[480px_1fr]">
             <div className="border-r border-slate-200 p-3">
               <div className="mb-3 grid gap-2">
-                {[
-                  { key: "CASH" as const, label: "Cash" },
-                  { key: "CARD" as const, label: "Card" },
-                  { key: "WALLET" as const, label: "Customer Wallet" },
-                ].map((method) => (
+                {availablePaymentMethods.map((method) => (
                   <button
                     key={method.key}
                     className={`rounded px-3 py-4 text-left text-3xl ${paymentMethod === method.key ? "bg-indigo-100 text-indigo-900" : "bg-slate-100 text-slate-700"}`}
@@ -674,6 +778,19 @@ export function SalesPage() {
                   <p className="mt-3 text-7xl leading-none text-slate-900">
                     ₹ {money(paymentAmount)}
                   </p>
+                  {paymentMethod === "WALLET" ? (
+                    <p
+                      className={`mt-4 text-2xl ${isRegisteredCustomer && !customerWallet.isError ? "text-slate-600" : "text-rose-700"}`}
+                    >
+                      {!isRegisteredCustomer
+                        ? "Wallet not available for walk-in customer."
+                        : customerWallet.isLoading
+                          ? "Loading wallet balance..."
+                          : customerWallet.isError
+                            ? "Failed to load wallet balance."
+                            : `Wallet Balance: ₹ ${money(walletBalance)}`}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="mx-auto mt-10 max-w-3xl space-y-3">
@@ -728,6 +845,7 @@ export function SalesPage() {
                 }}
                 disabled={
                   settleInvoice.isPending ||
+                  walletOverused ||
                   !currentInvoice ||
                   paymentLines.length === 0 ||
                   !paymentMatchesPending
@@ -736,6 +854,11 @@ export function SalesPage() {
                 Validate
               </button>
 
+              {walletOverused ? (
+                <p className="mt-2 text-sm text-rose-700">
+                  Wallet payment exceeds available balance.
+                </p>
+              ) : null}
               {paymentLines.length > 0 && !paymentMatchesPending ? (
                 <p className="mt-2 text-sm text-rose-700">
                   Payment total must be exactly ₹ {money(pendingAmount)}.
