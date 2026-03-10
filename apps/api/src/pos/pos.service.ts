@@ -238,23 +238,80 @@ export class PosService {
     });
   }
 
-  async createStockOpening(branchId: string, itemId: string, qty: number, reason?: string) {
+  async createStockOpening(branchId: string, itemId: string, qty: number, costPrice?: number, reason?: string) {
     await this.ensureBranchExists(branchId);
     const normalizedItemId = await this.resolveItemId(itemId);
 
-    return this.prisma.stockLedger.create({
-      data: {
+    const existingOpening = await this.prisma.stockLedger.findFirst({
+      where: {
         branchId,
         itemId: normalizedItemId,
-        txnType: StockTxnType.OPENING,
-        qtyIn: qty,
-        qtyOut: 0,
-        reason
+        txnType: StockTxnType.OPENING
       }
+    });
+
+    if (existingOpening) {
+      throw new BadRequestException('Opening stock already exists for this item');
+    }
+
+    try {
+      return await this.prisma.stockLedger.create({
+        data: {
+          branchId,
+          itemId: normalizedItemId,
+          txnType: StockTxnType.OPENING,
+          qtyIn: qty,
+          qtyOut: 0,
+          costPrice: costPrice ?? 0,
+          reason
+        }
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new BadRequestException('Opening stock already exists for this item');
+      }
+      throw error;
+    }
+  }
+
+  async updateStockOpening(branchId: string, itemId: string, qty: number, costPrice?: number, reason?: string) {
+    await this.ensureBranchExists(branchId);
+    const normalizedItemId = await this.resolveItemId(itemId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const opening = await tx.stockLedger.findFirst({
+        where: {
+          branchId,
+          itemId: normalizedItemId,
+          txnType: StockTxnType.OPENING
+        }
+      });
+
+      if (!opening) {
+        throw new NotFoundException('Opening stock does not exist for this item');
+      }
+
+      const currentOnHand = await this.getOnHandForItem(branchId, normalizedItemId, tx);
+      const openingQty = this.toNumber(opening.qtyIn);
+      const newOnHand = this.round2(currentOnHand - openingQty + qty);
+
+      if (newOnHand < 0) {
+        throw new BadRequestException('Opening qty cannot be less than already consumed stock');
+      }
+
+      return tx.stockLedger.update({
+        where: { id: opening.id },
+        data: {
+          qtyIn: qty,
+          qtyOut: 0,
+          costPrice: costPrice ?? this.toNumber(opening.costPrice),
+          reason
+        }
+      });
     });
   }
 
-  async createStockAdjustment(branchId: string, itemId: string, qty: number, direction: 'IN' | 'OUT', reason: string) {
+  async createStockAdjustment(branchId: string, itemId: string, qty: number, direction: 'IN' | 'OUT', costPrice: number | undefined, reason: string) {
     await this.ensureBranchExists(branchId);
     const normalizedItemId = await this.resolveItemId(itemId);
 
@@ -270,6 +327,7 @@ export class PosService {
         txnType: direction === 'IN' ? StockTxnType.ADJUSTMENT_PLUS : StockTxnType.ADJUSTMENT_MINUS,
         qtyIn: direction === 'IN' ? qty : 0,
         qtyOut: direction === 'OUT' ? qty : 0,
+        costPrice: costPrice ?? 0,
         reason
       }
     });

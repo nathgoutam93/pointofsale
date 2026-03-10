@@ -179,20 +179,29 @@ export class PosController {
 
   @Post('/stock/opening')
   stockOpening(
-    @Body() body: { branchId: string; itemId: string; qty: number; reason?: string },
+    @Body() body: { branchId: string; itemId: string; qty: number; costPrice?: number; reason?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     this.requireAdmin(this.getSession(headers));
-    return this.posService.createStockOpening(body.branchId, body.itemId, body.qty, body.reason);
+    return this.posService.createStockOpening(body.branchId, body.itemId, body.qty, body.costPrice, body.reason);
+  }
+
+  @Patch('/stock/opening')
+  updateStockOpening(
+    @Body() body: { branchId: string; itemId: string; qty: number; costPrice?: number; reason?: string },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    this.requireAdmin(this.getSession(headers));
+    return this.posService.updateStockOpening(body.branchId, body.itemId, body.qty, body.costPrice, body.reason);
   }
 
   @Post('/stock/adjustment')
   stockAdjustment(
-    @Body() body: { branchId: string; itemId: string; qty: number; direction: 'IN' | 'OUT'; reason: string },
+    @Body() body: { branchId: string; itemId: string; qty: number; direction: 'IN' | 'OUT'; costPrice?: number; reason: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     this.requireAdmin(this.getSession(headers));
-    return this.posService.createStockAdjustment(body.branchId, body.itemId, body.qty, body.direction, body.reason);
+    return this.posService.createStockAdjustment(body.branchId, body.itemId, body.qty, body.direction, body.costPrice, body.reason);
   }
 
   @Get('/stock/on-hand')

@@ -110,6 +110,7 @@ const stockLedgerSchema = z.object({
   txnType: stockTxnTypeSchema,
   qtyIn: z.number().nonnegative(),
   qtyOut: z.number().nonnegative(),
+  costPrice: moneySchema.nonnegative(),
   reason: z.string().nullable(),
   referenceType: z.string().nullable(),
   referenceId: z.string().nullable(),
@@ -227,13 +228,38 @@ export const appContract = c.router({
     opening: {
       method: 'POST',
       path: '/stock/opening',
-      body: z.object({ branchId: z.string().uuid(), itemId: z.string().uuid(), qty: z.number().positive(), reason: z.string().optional() }),
+      body: z.object({
+        branchId: z.string().uuid(),
+        itemId: z.string().uuid(),
+        qty: z.number().positive(),
+        costPrice: moneySchema.nonnegative().optional(),
+        reason: z.string().optional()
+      }),
       responses: { 201: stockLedgerSchema }
+    },
+    updateOpening: {
+      method: 'PATCH',
+      path: '/stock/opening',
+      body: z.object({
+        branchId: z.string().uuid(),
+        itemId: z.string().uuid(),
+        qty: z.number().positive(),
+        costPrice: moneySchema.nonnegative().optional(),
+        reason: z.string().optional()
+      }),
+      responses: { 200: stockLedgerSchema }
     },
     adjustment: {
       method: 'POST',
       path: '/stock/adjustment',
-      body: z.object({ branchId: z.string().uuid(), itemId: z.string().uuid(), qty: z.number().positive(), direction: z.enum(['IN', 'OUT']), reason: z.string() }),
+      body: z.object({
+        branchId: z.string().uuid(),
+        itemId: z.string().uuid(),
+        qty: z.number().positive(),
+        direction: z.enum(['IN', 'OUT']),
+        costPrice: moneySchema.nonnegative().optional(),
+        reason: z.string()
+      }),
       responses: { 201: stockLedgerSchema }
     },
     onHand: {

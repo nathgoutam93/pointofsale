@@ -133,6 +133,7 @@ model StockLedger {
   txnType       StockTxnType
   qtyIn         Decimal      @db.Decimal(14, 3)
   qtyOut        Decimal      @db.Decimal(14, 3)
+  costPrice     Decimal      @default(0) @db.Decimal(14, 2)
   reason        String?
   referenceType String?
   referenceId   String?
