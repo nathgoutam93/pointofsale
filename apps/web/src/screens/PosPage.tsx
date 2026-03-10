@@ -51,7 +51,49 @@ export function PosPage() {
   const [postPayment, setPostPayment] = useState<PostPaymentSummary | null>(
     null,
   );
+  const printableSaleLines = postPayment?.lines ?? [];
+  const printablePaymentLines = postPayment?.paymentLines ?? [];
+  const printableSubtotal = postPayment?.subTotal ?? 0;
+  const printableTaxTotal = postPayment?.taxTotal ?? 0;
+  const printableGrandTotal = postPayment?.grandTotal ?? 0;
   const [receiptContact, setReceiptContact] = useState("");
+
+  const buildPrintableInvoiceDocument = () => {
+    if (!postPayment) {
+      return null;
+    }
+    const invoiceElement = document.getElementById("printable-invoice");
+    if (!invoiceElement) {
+      return null;
+    }
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${postPayment.invoiceNo}</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#fff;color:#1f2937;}@media print{body{margin:0;}}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
+  };
+
+  const exportPrintableInvoice = () => {
+    const htmlDocument = buildPrintableInvoiceDocument();
+    if (!htmlDocument) {
+      setMessage("Printable invoice is not ready to download yet.");
+      return;
+    }
+
+    const blob = new Blob([htmlDocument], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `invoice-${postPayment?.invoiceNo ?? "receipt"}.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    if (receiptContact.trim()) {
+      setMessage(
+        `Invoice download ready for sharing via WhatsApp (${receiptContact.trim()}).`,
+      );
+    } else {
+      setMessage("Invoice download started. Share it on WhatsApp manually.");
+    }
+  };
 
   const items = useQuery({
     queryKey: ["items-pos"],
@@ -496,6 +538,32 @@ export function PosPage() {
 
   return (
     <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[390px_1fr]">
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+
+          #printable-invoice,
+          #printable-invoice * {
+            visibility: visible !important;
+          }
+
+          #printable-invoice {
+            position: absolute;
+            inset: 0;
+            margin: 0;
+            width: 100%;
+            max-width: none;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+            padding: 16px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        }
+      `}</style>
       <aside className="flex h-full flex-col overflow-hidden bg-white">
         {postPayment ? (
           <>
@@ -523,7 +591,7 @@ export function PosPage() {
               </div>
 
               <button
-                className="w-full rounded border border-slate-200 bg-slate-50 px-4 py-4 text-3xl text-slate-700"
+                className="w-full rounded border border-slate-200 bg-slate-50 px-4 py-4 text-3xl text-slate-700 print:hidden"
                 onClick={() => window.print()}
               >
                 Print Full Receipt
@@ -532,19 +600,13 @@ export function PosPage() {
               <div className="flex overflow-hidden rounded border border-slate-300">
                 <input
                   className="w-full px-3 py-3 text-lg text-slate-700 outline-none"
-                  placeholder="Send receipt to email or phone"
+                  placeholder="Send receipt to whatsapp"
                   value={receiptContact}
                   onChange={(e) => setReceiptContact(e.target.value)}
                 />
                 <button
                   className="w-20 bg-fuchsia-800 text-2xl text-white"
-                  onClick={() => {
-                    if (!receiptContact.trim()) {
-                      setMessage("Enter email or phone to send receipt.");
-                      return;
-                    }
-                    setMessage(`Receipt sent to ${receiptContact.trim()}`);
-                  }}
+                  onClick={() => exportPrintableInvoice()}
                 >
                   ➤
                 </button>
@@ -717,68 +779,168 @@ export function PosPage() {
         ) : null}
       </aside>
 
-      <div className="">
+      <div className="bg-slate-100 p-6 print:bg-white print:p-0">
         {postPayment ? (
-          <div className="grid min-h-full place-items-center bg-slate-100 p-6">
-            <div className="w-full max-w-sm rounded border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-center text-4xl font-semibold text-fuchsia-800">
-                Your logo
-              </p>
-              <p className="mt-4 text-center text-sm text-slate-600">
-                Ticket {postPayment.receiptNo}
-              </p>
-              <p className="text-center text-sm text-slate-600">
-                {new Date(postPayment.createdAt).toLocaleString()}
-              </p>
-              <p className="mt-1 text-center text-sm text-slate-600">
-                Invoice: {postPayment.invoiceNo}
-              </p>
-              <p className="mt-2 text-center text-sm font-semibold text-slate-700">
-                {postPayment.customerName}
-              </p>
-
-              <div className="mt-6 space-y-2 text-sm text-slate-700">
-                {postPayment.lines.map((line) => {
-                  const net = computeLineAmounts(line);
-                  return (
-                    <div
-                      key={line.itemId}
-                      className="flex items-start justify-between"
-                    >
-                      <p className="mr-3">
-                        {line.qty.toFixed(0)} x {line.name}
-                      </p>
-                      <p>₹ {money(net.net)}</p>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="mt-6 space-y-1 border-t border-slate-200 pt-4 text-slate-700">
-                <div className="flex items-center justify-between">
-                  <p>Subtotal</p>
-                  <p>₹ {money(postPayment.subTotal)}</p>
+          <div className="grid min-h-full place-items-center">
+            <div className="mx-auto grid w-full max-w-6xl gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
+              <div className="space-y-4 rounded border border-slate-200 bg-white p-5 shadow-sm print:hidden">
+                <p className="text-center text-3xl font-semibold text-fuchsia-800">
+                  Payment summary
+                </p>
+                <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                  <p>
+                    Invoice:{" "}
+                    <span className="font-semibold">
+                      {postPayment.invoiceNo}
+                    </span>
+                  </p>
+                  <p>
+                    Receipt:{" "}
+                    <span className="font-semibold">
+                      {postPayment.receiptNo}
+                    </span>
+                  </p>
+                  <p>
+                    Customer:{" "}
+                    <span className="font-semibold">
+                      {postPayment.customerName}
+                    </span>
+                  </p>
+                  <p>
+                    Phone:{" "}
+                    <span className="font-semibold">
+                      {postPayment.customerPhone || "—"}
+                    </span>
+                  </p>
+                  <p className="sm:col-span-2 text-xs text-slate-500">
+                    {new Date(postPayment.createdAt).toLocaleString()}
+                  </p>
                 </div>
-                <div className="flex items-center justify-between">
-                  <p>Tax</p>
-                  <p>₹ {money(postPayment.taxTotal)}</p>
-                </div>
-                <div className="flex items-center justify-between text-lg font-semibold">
-                  <p>Total</p>
-                  <p>₹ {money(postPayment.grandTotal)}</p>
-                </div>
-              </div>
 
-              <div className="mt-4 space-y-1 text-sm text-slate-700">
-                {postPayment.paymentLines.map((line) => (
-                  <div
-                    key={line.mode}
-                    className="flex items-center justify-between"
-                  >
-                    <p>{line.mode}</p>
-                    <p>₹ {money(line.amount)}</p>
+                <div className="rounded border border-slate-200">
+                  <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Items
                   </div>
-                ))}
+                  <div className="space-y-2 px-3 py-3 text-sm text-slate-700">
+                    {postPayment.lines.map((line) => {
+                      const net = computeLineAmounts(line);
+                      return (
+                        <div
+                          key={line.itemId}
+                          className="flex items-start justify-between"
+                        >
+                          <p className="mr-3">
+                            {line.qty.toFixed(0)} x {line.name}
+                          </p>
+                          <p>₹ {money(net.net)}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                  <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2">
+                    <p>Subtotal</p>
+                    <p>₹ {money(printableSubtotal)}</p>
+                  </div>
+                  <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2">
+                    <p>Tax</p>
+                    <p>₹ {money(printableTaxTotal)}</p>
+                  </div>
+                  <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2 sm:col-span-2">
+                    <p className="font-semibold">Grand Total</p>
+                    <p className="text-base font-semibold">
+                      ₹ {money(printableGrandTotal)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded border border-slate-200">
+                  <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Payments
+                  </div>
+                  <div className="space-y-2 px-3 py-3 text-sm text-slate-700">
+                    {postPayment.paymentLines.map((line, idx) => (
+                      <div
+                        key={`${line.mode}-${idx}`}
+                        className="flex items-center justify-between"
+                      >
+                        <p>{line.mode}</p>
+                        <p>₹ {money(line.amount)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  className="w-full rounded bg-emerald-600 px-3 py-3 text-base font-semibold text-white print:hidden"
+                  onClick={() => window.print()}
+                >
+                  Print Invoice
+                </button>
+              </div>
+
+              <div
+                id="printable-invoice"
+                className="w-full rounded border border-slate-200 bg-white p-6 shadow-sm"
+              >
+                <p className="text-center text-4xl font-semibold text-fuchsia-800">
+                  Your logo
+                </p>
+                <p className="text-center text-xs text-slate-600">
+                  {new Date(postPayment.createdAt).toLocaleString()}
+                </p>
+                <p className="mt-1 text-center text-xs text-slate-600">
+                  Invoice: {postPayment.invoiceNo}
+                </p>
+                <p className="mt-2 text-center text-sm font-semibold text-slate-700">
+                  {postPayment.customerName}
+                </p>
+
+                <div className="mt-6 space-y-3 text-sm text-slate-700">
+                  {printableSaleLines.map((line) => {
+                    const net = computeLineAmounts(line);
+                    return (
+                      <div
+                        key={line.itemId}
+                        className="flex items-start justify-between"
+                      >
+                        <p className="mr-3">
+                          {line.qty.toFixed(0)} x {line.name}
+                        </p>
+                        <p>₹ {money(net.net)}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-6 space-y-1 border-t border-slate-200 pt-4 text-slate-700">
+                  <div className="flex items-center justify-between">
+                    <p>Subtotal</p>
+                    <p>₹ {money(printableSubtotal)}</p>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p>Tax</p>
+                    <p>₹ {money(printableTaxTotal)}</p>
+                  </div>
+                  <div className="flex items-center justify-between text-lg font-semibold">
+                    <p>Total</p>
+                    <p>₹ {money(printableGrandTotal)}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-1 text-sm text-slate-700">
+                  {printablePaymentLines.map((line, idx) => (
+                    <div
+                      key={`${line.mode}-${idx}`}
+                      className="flex items-center justify-between"
+                    >
+                      <p>{line.mode}</p>
+                      <p>₹ {money(line.amount)}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
