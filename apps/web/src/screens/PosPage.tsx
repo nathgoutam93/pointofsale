@@ -10,6 +10,8 @@ type CartLine = {
   rate: number;
   discountAmount: number;
   taxRate: number;
+  taxMode: "INCLUSIVE" | "EXCLUSIVE";
+  imageUrl?: string | null;
 };
 
 type PostPaymentSummary = {
@@ -22,14 +24,7 @@ type PostPaymentSummary = {
   taxTotal: number;
   grandTotal: number;
   paymentLines: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
-  lines: Array<{
-    itemId: string;
-    name: string;
-    qty: number;
-    rate: number;
-    discountAmount: number;
-    taxRate: number;
-  }>;
+  lines: CartLine[];
 };
 
 export function PosPage() {
@@ -90,14 +85,37 @@ export function PosPage() {
     },
   });
 
+  const computeLineAmounts = (
+    line: Pick<
+      CartLine,
+      "qty" | "rate" | "discountAmount" | "taxRate" | "taxMode"
+    >,
+  ) => {
+    const gross = line.qty * line.rate;
+    const afterDiscount = gross - line.discountAmount;
+    if (line.taxMode === "INCLUSIVE") {
+      const taxable =
+        line.taxRate > 0
+          ? (afterDiscount * 100) / (100 + line.taxRate)
+          : afterDiscount;
+      const tax = afterDiscount - taxable;
+      return { taxable, tax, net: afterDiscount };
+    }
+    const tax = (afterDiscount * line.taxRate) / 100;
+    return { taxable: afterDiscount, tax, net: afterDiscount + tax };
+  };
+
   const addItem = (item: {
     id: string;
     name: string;
     sellPrice: number | string;
     taxRate: number | string;
+    taxMode?: "INCLUSIVE" | "EXCLUSIVE";
+    imageUrl?: string | null;
   }) => {
     const rate = Number(item.sellPrice) || 0;
     const taxRate = Number(item.taxRate) || 0;
+    const taxMode = item.taxMode ?? "EXCLUSIVE";
     setCart((prev) => {
       const idx = prev.findIndex((l) => l.itemId === item.id);
       if (idx === -1) {
@@ -110,6 +128,8 @@ export function PosPage() {
             rate,
             discountAmount: 0,
             taxRate,
+            taxMode,
+            imageUrl: item.imageUrl,
           },
         ];
       }
@@ -121,18 +141,15 @@ export function PosPage() {
 
   const total = useMemo(() => {
     return cart.reduce((acc, line) => {
-      const gross = line.qty * line.rate;
-      const taxable = gross - line.discountAmount;
-      const tax = (taxable * line.taxRate) / 100;
-      return acc + taxable + tax;
+      const { net } = computeLineAmounts(line);
+      return acc + net;
     }, 0);
   }, [cart]);
 
   const totalTax = useMemo(() => {
     return cart.reduce((acc, line) => {
-      const gross = line.qty * line.rate;
-      const taxable = gross - line.discountAmount;
-      return acc + (taxable * line.taxRate) / 100;
+      const { tax } = computeLineAmounts(line);
+      return acc + tax;
     }, 0);
   }, [cart]);
 
@@ -347,13 +364,19 @@ export function PosPage() {
       body: {
         branchId: session.branchId,
         customerId: selected,
-        lines: cart.map((line) => ({
-          itemId: line.itemId,
-          qty: line.qty,
-          rate: line.rate,
-          discountAmount: line.discountAmount,
-          taxRate: line.taxRate,
-        })),
+        lines: cart.map((line) => {
+          const conversionFactor =
+            line.taxMode === "INCLUSIVE" && line.taxRate > 0
+              ? 100 / (100 + line.taxRate)
+              : 1;
+          return {
+            itemId: line.itemId,
+            qty: line.qty,
+            rate: line.rate * conversionFactor,
+            discountAmount: line.discountAmount * conversionFactor,
+            taxRate: line.taxRate,
+          };
+        }),
       },
       extraHeaders: authHeaders(),
     });
@@ -544,24 +567,30 @@ export function PosPage() {
                 </p>
               ) : null}
               {cart.map((line) => {
-                const lineNet =
-                  line.qty * line.rate -
-                  line.discountAmount +
-                  ((line.qty * line.rate - line.discountAmount) *
-                    line.taxRate) /
-                    100;
+                const lineNet = computeLineAmounts(line).net;
                 return (
                   <div
                     className="flex items-start justify-between border-b border-slate-100 px-3 py-2"
                     key={line.itemId}
                   >
-                    <div>
-                      <p className="text-[20px] font-semibold leading-tight text-slate-800">
-                        {line.name}
-                      </p>
-                      <p className="text-base text-slate-500">
-                        {line.qty.toFixed(3)} x {money(line.rate)} / unit
-                      </p>
+                    <div className="flex gap-2">
+                      <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-slate-100">
+                        {line.imageUrl ? (
+                          <img
+                            src={line.imageUrl}
+                            alt={line.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : null}
+                      </div>
+                      <div>
+                        <p className="text-[20px] font-semibold leading-tight text-slate-800">
+                          {line.name}
+                        </p>
+                        <p className="text-base text-slate-500">
+                          {line.qty.toFixed(3)} x {money(line.rate)} / unit
+                        </p>
+                      </div>
                     </div>
                     <div className="text-right">
                       <p className="text-[26px] font-bold leading-none text-slate-800">
@@ -710,9 +739,7 @@ export function PosPage() {
 
               <div className="mt-6 space-y-2 text-sm text-slate-700">
                 {postPayment.lines.map((line) => {
-                  const taxable = line.qty * line.rate - line.discountAmount;
-                  const tax = (taxable * line.taxRate) / 100;
-                  const net = taxable + tax;
+                  const net = computeLineAmounts(line);
                   return (
                     <div
                       key={line.itemId}
@@ -721,7 +748,7 @@ export function PosPage() {
                       <p className="mr-3">
                         {line.qty.toFixed(0)} x {line.name}
                       </p>
-                      <p>₹ {money(net)}</p>
+                      <p>₹ {money(net.net)}</p>
                     </div>
                   );
                 })}
@@ -784,7 +811,15 @@ export function PosPage() {
                   className="rounded border border-slate-200 bg-white p-2 text-left hover:bg-slate-50"
                   onClick={() => addItem(item)}
                 >
-                  <div className="mb-2 h-16 rounded bg-slate-100" />
+                  <div className="mb-2 h-30 overflow-hidden rounded bg-slate-100">
+                    {item.imageUrl ? (
+                      <img
+                        src={item.imageUrl}
+                        alt={item.name}
+                        className="h-full w-full object-scale-down"
+                      />
+                    ) : null}
+                  </div>
                   <p className="truncate text-sm font-semibold text-slate-800">
                     {item.name}
                   </p>
@@ -934,9 +969,7 @@ export function PosPage() {
                   })
                 }
                 disabled={
-                  checkout.isPending ||
-                  walletOverused ||
-                  !paymentCanValidate
+                  checkout.isPending || walletOverused || !paymentCanValidate
                 }
               >
                 Validate
