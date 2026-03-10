@@ -637,20 +637,20 @@ export class PosService {
     return receipt;
   }
 
-  async getReceiptByInvoice(invoiceId: string) {
+  async getReceiptsByInvoice(invoiceId: string) {
     const key = invoiceId.trim();
-    const receiptById = await this.prisma.receipt.findFirst({
+    const receiptsById = await this.prisma.receipt.findMany({
       where: { invoiceId: key },
       orderBy: { createdAt: 'desc' }
     });
-    if (receiptById) return receiptById;
+    if (receiptsById.length > 0) return receiptsById;
 
-    const receiptByInvoiceNo = await this.prisma.receipt.findFirst({
+    const receiptsByInvoiceNo = await this.prisma.receipt.findMany({
       where: { invoice: { invoiceNo: key } },
       orderBy: { createdAt: 'desc' }
     });
 
-    if (receiptByInvoiceNo) return receiptByInvoiceNo;
+    if (receiptsByInvoiceNo.length > 0) return receiptsByInvoiceNo;
 
     throw new NotFoundException('Receipt not found for given invoice id/number');
   }

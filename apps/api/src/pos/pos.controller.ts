@@ -257,7 +257,7 @@ export class PosController {
   }
 
   @Get('/receipts/by-invoice/:invoiceId')
-  getReceiptByInvoice(@Param('invoiceId') invoiceId: string) {
-    return this.posService.getReceiptByInvoice(invoiceId);
+  getReceiptsByInvoice(@Param('invoiceId') invoiceId: string) {
+    return this.posService.getReceiptsByInvoice(invoiceId);
   }
 }

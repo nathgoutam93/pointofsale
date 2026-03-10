@@ -8,7 +8,9 @@ type PaymentMode = "CASH" | "CARD" | "WALLET";
 type SettledSummary = {
   invoiceId: string;
   invoiceNo: string;
+  receiptId: string;
   receiptNo: string;
+  receiptAmount: number;
   createdAt: string;
   subTotal: number;
   taxTotal: number;
@@ -36,6 +38,7 @@ export function SalesPage() {
   const [paymentModalError, setPaymentModalError] = useState("");
   const [message, setMessage] = useState("");
   const [receiptContact, setReceiptContact] = useState("");
+  const [selectedReceiptId, setSelectedReceiptId] = useState("");
   const [settledSummary, setSettledSummary] = useState<SettledSummary | null>(
     null,
   );
@@ -72,14 +75,14 @@ export function SalesPage() {
     },
   });
 
-  const selectedReceipt = useQuery({
-    queryKey: ["receipt-by-invoice-sales", selectedInvoiceId],
+  const selectedReceipts = useQuery({
+    queryKey: ["receipt-list-by-invoice-sales", selectedInvoiceId],
     enabled: !!selectedInvoiceId,
     queryFn: async () => {
       const res = await api.receipts.getByInvoice({
         params: { invoiceId: selectedInvoiceId },
       });
-      if (res.status !== 200) return null;
+      if (res.status !== 200) return [];
       return res.body;
     },
   });
@@ -99,6 +102,20 @@ export function SalesPage() {
     setSelectedInvoiceId(firstPending.id);
   }, [sales.data, selectedInvoiceId]);
 
+  useEffect(() => {
+    const receipts = selectedReceipts.data ?? [];
+    if (!selectedInvoiceId || receipts.length === 0) {
+      setSelectedReceiptId("");
+      return;
+    }
+    const selectedStillExists = receipts.some(
+      (receipt) => receipt.id === selectedReceiptId,
+    );
+    if (!selectedStillExists) {
+      setSelectedReceiptId(receipts[0].id);
+    }
+  }, [selectedInvoiceId, selectedReceiptId, selectedReceipts.data]);
+
   const itemNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const item of items.data ?? []) {
@@ -116,6 +133,26 @@ export function SalesPage() {
   }, [sales.data, selectedInvoiceId]);
 
   const currentInvoice = selectedInvoiceDetails.data ?? selectedInvoice;
+  const fallbackReceipt =
+    settledSummary && settledSummary.invoiceId === selectedInvoiceId
+      ? {
+          id: settledSummary.receiptId,
+          receiptNo: settledSummary.receiptNo,
+          invoiceId: settledSummary.invoiceId,
+          amount: settledSummary.receiptAmount,
+          createdAt: settledSummary.createdAt,
+        }
+      : null;
+  const receiptsForInvoice =
+    (selectedReceipts.data ?? []).length > 0
+      ? (selectedReceipts.data ?? [])
+      : fallbackReceipt
+        ? [fallbackReceipt]
+        : [];
+  const previewReceipt =
+    receiptsForInvoice.find((receipt) => receipt.id === selectedReceiptId) ??
+    receiptsForInvoice[0] ??
+    null;
   const pendingAmount = useMemo(() => {
     if (!currentInvoice) return 0;
     const pending =
@@ -229,7 +266,9 @@ export function SalesPage() {
       setSettledSummary({
         invoiceId: result.invoice.id,
         invoiceNo: result.invoice.invoiceNo,
+        receiptId: result.receipt.id,
         receiptNo: result.receipt.receiptNo,
+        receiptAmount: Number(result.receipt.amount),
         createdAt: result.receipt.createdAt,
         subTotal: Number(result.invoice.subTotal),
         taxTotal: Number(result.invoice.taxTotal),
@@ -250,6 +289,7 @@ export function SalesPage() {
       setPaymentLines([]);
       setPaymentAmount("0");
       setSelectedInvoiceId(result.invoice.id);
+      setSelectedReceiptId(result.receipt.id);
       setMessage(
         `Done: ${result.invoice.invoiceNo}, Receipt: ${result.receipt.receiptNo}`,
       );
@@ -260,7 +300,7 @@ export function SalesPage() {
         queryKey: ["sales-by-id", result.invoice.id],
       });
       queryClient.invalidateQueries({
-        queryKey: ["receipt-by-invoice-sales", result.invoice.id],
+        queryKey: ["receipt-list-by-invoice-sales", result.invoice.id],
       });
     },
   });
@@ -274,7 +314,7 @@ export function SalesPage() {
   );
 
   return (
-    <section className="grid h-[calc(100vh-48px)] grid-cols-1 gap-4 xl:grid-cols-[1fr_420px]">
+    <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[360px_1fr]">
       <aside className="flex flex-col overflow-hidden border-r border-slate-200 bg-white">
         {settledSummary ? (
           <>
@@ -439,22 +479,44 @@ export function SalesPage() {
             Your logo
           </p>
           <p className="mt-3 text-center text-xs text-slate-600">
-            Ticket{" "}
-            {settledSummary?.receiptNo ??
-              selectedReceipt.data?.receiptNo ??
-              "—"}
+            Ticket {previewReceipt?.receiptNo ?? "—"}
           </p>
           <p className="text-center text-xs text-slate-600">
-            {new Date(
-              settledSummary?.createdAt ??
-                selectedReceipt.data?.createdAt ??
-                Date.now(),
-            ).toLocaleString()}
+            {new Date(previewReceipt?.createdAt ?? Date.now()).toLocaleString()}
           </p>
           <p className="mt-1 text-center text-xs text-slate-600">
             Invoice:{" "}
             {settledSummary?.invoiceNo ?? currentInvoice?.invoiceNo ?? "—"}
           </p>
+          {previewReceipt ? (
+            <p className="mt-1 text-center text-xs text-slate-600">
+              Receipt Amount: ₹ {money(Number(previewReceipt.amount))}
+            </p>
+          ) : null}
+
+          {receiptsForInvoice.length > 0 ? (
+            <div className="mt-4 border-t border-slate-200 pt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Receipts For Invoice
+              </p>
+              <div className="mt-2 grid gap-2">
+                {receiptsForInvoice.map((receipt) => {
+                  const isActive = previewReceipt?.id === receipt.id;
+                  return (
+                    <button
+                      key={receipt.id}
+                      className={`rounded border px-2 py-2 text-left text-xs ${isActive ? "border-fuchsia-500 bg-fuchsia-50 text-fuchsia-900" : "border-slate-200 bg-white text-slate-700"}`}
+                      onClick={() => setSelectedReceiptId(receipt.id)}
+                    >
+                      <p className="font-semibold">{receipt.receiptNo}</p>
+                      <p>₹ {money(Number(receipt.amount))}</p>
+                      <p>{new Date(receipt.createdAt).toLocaleString()}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-5 space-y-2 text-sm text-slate-700">
             {(

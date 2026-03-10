@@ -69,14 +69,7 @@ export function AppLayout() {
             to="/stock"
             onClick={() => setOpen(false)}
           >
-            Stock
-          </Link>
-          <Link
-            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"
-            to="/receipts"
-            onClick={() => setOpen(false)}
-          >
-            Receipts
+            Inventory
           </Link>
           <button
             className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-left"

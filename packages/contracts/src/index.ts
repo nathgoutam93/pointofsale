@@ -315,7 +315,7 @@ export const appContract = c.router({
     getByInvoice: {
       method: 'GET',
       path: '/receipts/by-invoice/:invoiceId',
-      responses: { 200: receiptSchema }
+      responses: { 200: z.array(receiptSchema) }
     }
   }
 });

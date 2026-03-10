@@ -7,7 +7,6 @@ import { SalesPage } from './screens/SalesPage';
 import { ItemsPage } from './screens/ItemsPage';
 import { CustomersPage } from './screens/CustomersPage';
 import { StockPage } from './screens/StockPage';
-import { ReceiptsPage } from './screens/ReceiptsPage';
 import { requireSession } from './screens/route-helpers';
 
 const rootRoute = createRootRoute({ component: AppLayout });
@@ -58,14 +57,7 @@ const stockRoute = createRoute({
   component: StockPage
 });
 
-const receiptsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/receipts',
-  beforeLoad: () => requireSession(),
-  component: ReceiptsPage
-});
-
-const routeTree = rootRoute.addChildren([loginRoute, posRoute, salesRoute, itemsRoute, customersRoute, stockRoute, receiptsRoute]);
+const routeTree = rootRoute.addChildren([loginRoute, posRoute, salesRoute, itemsRoute, customersRoute, stockRoute]);
 
 export const router = createRouter({ routeTree });
 
