@@ -553,7 +553,7 @@ export function ItemsPage() {
                   <img
                     src={selectedItem.imageUrl}
                     alt={selectedItem.name}
-                    className="h-52 w-full object-cover"
+                    className="h-52 w-full object-scale-down"
                   />
                 ) : (
                   <div className="flex h-52 items-center justify-center text-sm text-slate-500">

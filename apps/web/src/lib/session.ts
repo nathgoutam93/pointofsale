@@ -2,6 +2,7 @@ export type Session = {
   token: string;
   userId: string;
   branchId: string;
+  username?: string;
   role: 'ADMIN' | 'CASHIER';
 };
 

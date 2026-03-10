@@ -6,6 +6,9 @@ export function AppLayout() {
   const location = useRouterState({ select: (s) => s.location.pathname });
   const session = getSession();
   const [open, setOpen] = useState(false);
+  const userLabel = session
+    ? session.username?.trim() || session.role
+    : "";
 
   if (!session && location === "/") {
     return (
@@ -21,7 +24,12 @@ export function AppLayout() {
         <div>
           <h1 className="font-semibold">POS</h1>
         </div>
-        <div>
+        <div className="flex items-center gap-3">
+          {session ? (
+            <p className="text-right text-xs text-slate-600">
+              Logged in: <span className="font-semibold text-slate-900">{userLabel}</span>
+            </p>
+          ) : null}
           <button
             className="self-end h-10 w-10 rounded-lg border border-slate-300 bg-white text-lg"
             onClick={() => setOpen((v) => !v)}
@@ -34,7 +42,9 @@ export function AppLayout() {
       <aside
         className={`fixed right-0 top-0 z-30 h-screen w-60 bg-slate-900 p-4 pt-16 text-white transition-transform ${open ? "translate-x-0" : "translate-x-full"}`}
       >
-        <h2 className="mb-4 text-lg font-semibold">Modules</h2>
+        <div className="mb-6 flex justify-between items-center">
+          <button onClick={() => setOpen(false)}>&gt; close</button>
+        </div>
         <nav className="grid gap-2">
           <Link
             className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"

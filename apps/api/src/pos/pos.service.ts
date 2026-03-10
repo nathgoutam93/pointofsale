@@ -7,6 +7,35 @@ import { PaymentInput, SessionUser } from './pos.types';
 export class PosService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async withCreatedByName<T extends { createdBy: string }>(
+    invoice: T
+  ): Promise<T & { createdByName: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: invoice.createdBy },
+      select: { username: true }
+    });
+    return {
+      ...invoice,
+      createdByName: user?.username ?? 'Unknown User'
+    };
+  }
+
+  private async withCreatedByNames<T extends { createdBy: string }>(
+    invoices: T[]
+  ): Promise<Array<T & { createdByName: string }>> {
+    const userIds = Array.from(new Set(invoices.map((invoice) => invoice.createdBy)));
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, username: true }
+    });
+    const usernameById = new Map(users.map((user) => [user.id, user.username]));
+
+    return invoices.map((invoice) => ({
+      ...invoice,
+      createdByName: usernameById.get(invoice.createdBy) ?? 'Unknown User'
+    }));
+  }
+
   private async ensureBranchExists(branchId: string, tx?: Prisma.TransactionClient) {
     const client = tx ?? this.prisma;
     const branch = await client.branch.findUnique({ where: { id: branchId }, select: { id: true } });
@@ -118,11 +147,18 @@ export class PosService {
     }
 
     const token = Buffer.from(`${user.id}:${user.role}:${user.branchId}`).toString('base64');
-    return { token, userId: user.id, role: user.role, branchId: user.branchId };
+    return { token, userId: user.id, username: user.username, role: user.role, branchId: user.branchId };
   }
 
   async me(session: SessionUser) {
-    return session;
+    const user = await this.prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { username: true }
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    return { ...session, username: user.username };
   }
 
   async listCustomers(branchId: string) {
@@ -449,7 +485,7 @@ export class PosService {
         }))
       });
 
-      return invoice;
+      return this.withCreatedByName(invoice);
     });
   }
 
@@ -540,18 +576,23 @@ export class PosService {
         });
       }
 
-      return { invoice: updated, receipt };
+      const invoiceWithCreatorName = await this.withCreatedByName(updated);
+      return { invoice: invoiceWithCreatorName, receipt };
     });
   }
 
   async listSales(branchId: string) {
-    return this.prisma.saleInvoice.findMany({ where: { branchId }, orderBy: { createdAt: 'desc' } });
+    const invoices = await this.prisma.saleInvoice.findMany({
+      where: { branchId },
+      orderBy: { createdAt: 'desc' }
+    });
+    return this.withCreatedByNames(invoices);
   }
 
   async getSaleById(id: string) {
     const invoice = await this.prisma.saleInvoice.findUnique({ where: { id }, include: { lines: true, payments: true } });
     if (!invoice) throw new NotFoundException('Invoice not found');
-    return invoice;
+    return this.withCreatedByName(invoice);
   }
 
   async createReturn(session: SessionUser, saleInvoiceId: string, input: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: PaymentMode }) {

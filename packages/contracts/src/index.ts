@@ -95,6 +95,7 @@ const saleInvoiceSchema = z.object({
   paidTotal: moneySchema,
   status: invoiceStatusSchema,
   createdBy: z.string().uuid(),
+  createdByName: z.string(),
   createdAt: z.string().datetime()
 });
 
@@ -140,12 +141,12 @@ export const appContract = c.router({
       method: 'POST',
       path: '/auth/login',
       body: z.object({ username: z.string(), password: z.string() }),
-      responses: { 200: z.object({ token: z.string(), userId: z.string().uuid(), role: roleSchema, branchId: z.string().uuid() }) }
+      responses: { 200: z.object({ token: z.string(), userId: z.string().uuid(), username: z.string(), role: roleSchema, branchId: z.string().uuid() }) }
     },
     me: {
       method: 'GET',
       path: '/auth/me',
-      responses: { 200: z.object({ userId: z.string().uuid(), role: roleSchema, branchId: z.string().uuid() }) }
+      responses: { 200: z.object({ userId: z.string().uuid(), username: z.string(), role: roleSchema, branchId: z.string().uuid() }) }
     }
   },
   customers: {

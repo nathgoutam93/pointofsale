@@ -165,7 +165,7 @@ export function CustomersPage() {
         </div>
       </div>
 
-      <div className="bg-white p-4">
+      <div className="bg-slate-100 p-4">
         <h3 className="text-lg font-semibold text-slate-900">
           Customer Details
         </h3>
@@ -175,7 +175,7 @@ export function CustomersPage() {
           </p>
         ) : (
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
               <p className="text-xs uppercase tracking-wide text-slate-500">
                 Name
               </p>
@@ -183,7 +183,7 @@ export function CustomersPage() {
                 {selectedCustomer.name}
               </p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
               <p className="text-xs uppercase tracking-wide text-slate-500">
                 Phone
               </p>
@@ -191,7 +191,7 @@ export function CustomersPage() {
                 {selectedCustomer.phone ?? "Not provided"}
               </p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
               <p className="text-xs uppercase tracking-wide text-slate-500">
                 Customer Code
               </p>
@@ -199,7 +199,7 @@ export function CustomersPage() {
                 {selectedCustomer.code}
               </p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
               <p className="text-xs uppercase tracking-wide text-slate-500">
                 Wallet Balance
               </p>
@@ -209,7 +209,7 @@ export function CustomersPage() {
                   : `₹ ${money(customerWallet.data?.balance ?? 0)}`}
               </p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
               <p className="text-xs uppercase tracking-wide text-slate-500">
                 Walk In
               </p>
@@ -217,7 +217,7 @@ export function CustomersPage() {
                 {selectedCustomer.isWalkIn ? "Yes" : "No"}
               </p>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
               <p className="text-xs uppercase tracking-wide text-slate-500">
                 Created
               </p>
