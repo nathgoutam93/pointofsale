@@ -8,6 +8,7 @@ export function CustomersPage() {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [search, setSearch] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(
     null,
   );
@@ -78,6 +79,48 @@ export function CustomersPage() {
     },
   });
 
+  const sales = useQuery({
+    queryKey: ["customers-module-sales", session.branchId],
+    queryFn: async () => {
+      const res = await api.sales.list({
+        query: { branchId: session.branchId },
+      });
+      if (res.status !== 200) throw new Error("Failed to fetch sales");
+      return res.body;
+    },
+  });
+
+  const filteredCustomers = useMemo(() => {
+    const list = customers.data ?? [];
+    const query = search.trim().toLowerCase();
+    if (!query) return list;
+    return list.filter((customer) => {
+      return [
+        customer.name,
+        customer.phone ?? "",
+        customer.code,
+      ].some((value) => value.toLowerCase().includes(query));
+    });
+  }, [customers.data, search]);
+
+  const pendingInvoiceSummary = useMemo(() => {
+    if (!selectedCustomer) {
+      return { count: 0, total: 0 };
+    }
+    const invoices = sales.data ?? [];
+    let count = 0;
+    let total = 0;
+    for (const invoice of invoices) {
+      if (invoice.customerId !== selectedCustomer.id) continue;
+      const pending = Number(invoice.grandTotal) - Number(invoice.paidTotal);
+      if (pending > 0) {
+        count += 1;
+        total += pending;
+      }
+    }
+    return { count, total };
+  }, [sales.data, selectedCustomer]);
+
   return (
     <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[390px_1fr]">
       <div className="border-r border-slate-200 bg-white p-3">
@@ -125,8 +168,15 @@ export function CustomersPage() {
           </form>
         ) : null}
 
-        <div className="mt-3 max-h-[560px] space-y-2 overflow-auto pr-1">
-          {customers.data?.map((customer) => {
+        <input
+          className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2"
+          placeholder="Search by name, phone, or code"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        <div className="mt-3 max-h-[520px] space-y-2 overflow-auto pr-1">
+          {filteredCustomers.map((customer) => {
             const selected = selectedCustomer?.id === customer.id;
             return (
               <button
@@ -160,6 +210,13 @@ export function CustomersPage() {
           {customers.data?.length === 0 ? (
             <p className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">
               No customers found.
+            </p>
+          ) : null}
+
+          {customers.data?.length &&
+          filteredCustomers.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">
+              No customers match that search.
             </p>
           ) : null}
         </div>
@@ -207,6 +264,24 @@ export function CustomersPage() {
                 {customerWallet.isLoading
                   ? "Loading..."
                   : `₹ ${money(customerWallet.data?.balance ?? 0)}`}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <p className="text-xs uppercase tracking-wide text-slate-500">
+                Pending Invoices
+              </p>
+              <p className="mt-1 font-semibold text-slate-900">
+                {sales.isLoading ? "Loading..." : pendingInvoiceSummary.count}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <p className="text-xs uppercase tracking-wide text-slate-500">
+                Total Pending Amount
+              </p>
+              <p className="mt-1 font-semibold text-slate-900">
+                {sales.isLoading
+                  ? "Loading..."
+                  : `₹ ${money(pendingInvoiceSummary.total)}`}
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
