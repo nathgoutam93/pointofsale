@@ -706,7 +706,10 @@ export class PosService {
   }
 
   async listCustomers(branchId: string) {
-    return this.prisma.customer.findMany({ where: { branchId }, orderBy: { createdAt: 'desc' } });
+    const where = branchId
+      ? { OR: [{ isWalkIn: false }, { isWalkIn: true, branchId }] }
+      : { isWalkIn: false };
+    return this.prisma.customer.findMany({ where, orderBy: { createdAt: 'desc' } });
   }
 
   async createCustomer(branchId: string, name: string, phone?: string) {
