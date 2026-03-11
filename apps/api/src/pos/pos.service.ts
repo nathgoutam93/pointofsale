@@ -616,11 +616,11 @@ export class PosService {
     await this.ensureUserHasBranchAccess(session.userId, branchId);
 
     const openRegister = await this.prisma.registerSession.findFirst({
-      where: { userId: session.userId, closedAt: null },
+      where: { branchId, closedAt: null },
       select: { id: true }
     });
     if (openRegister) {
-      throw new BadRequestException('You already have an open register. Close it before opening a new one.');
+      throw new BadRequestException('This branch already has an open register. Close it before opening a new one.');
     }
 
     const register = await this.prisma.registerSession.create({
