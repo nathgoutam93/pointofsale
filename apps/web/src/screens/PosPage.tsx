@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL, api, authHeaders } from "../lib/api";
+import {
+  buildReceiptLines,
+  formatReceiptDate,
+  formatReceiptTime,
+  resolveReceiptWidth,
+} from "../lib/receiptFormat";
 import { money, requireSession } from "./route-helpers";
 
 type CartLine = {
@@ -52,7 +58,6 @@ export function PosPage() {
     null,
   );
   const printableSaleLines = postPayment?.lines ?? [];
-  const printablePaymentLines = postPayment?.paymentLines ?? [];
   const printableSubtotal = postPayment?.subTotal ?? 0;
   const printableTaxTotal = postPayment?.taxTotal ?? 0;
   const printableGrandTotal = postPayment?.grandTotal ?? 0;
@@ -63,22 +68,36 @@ export function PosPage() {
     queryFn: async () => {
       const res = await api.branches.get({
         params: { id: session.branchId },
-        extraHeaders: authHeaders()
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load branch settings");
       return res.body;
-    }
+    },
   });
 
   const invoiceHeaderLines = useMemo(() => {
     const raw = branchSettings.data?.invoiceHeader ?? "";
-    return raw.split("\n").map((line) => line.trim()).filter(Boolean);
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
   }, [branchSettings.data?.invoiceHeader]);
 
   const invoiceFooterLines = useMemo(() => {
     const raw = branchSettings.data?.invoiceFooter ?? "";
-    return raw.split("\n").map((line) => line.trim()).filter(Boolean);
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
   }, [branchSettings.data?.invoiceFooter]);
+
+  const receiptFooterLines = useMemo(() => {
+    const raw = branchSettings.data?.receiptFooter ?? "";
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }, [branchSettings.data?.receiptFooter]);
 
   const invoiceLogoSrc = useMemo(() => {
     const logoUrl = branchSettings.data?.logoUrl;
@@ -89,6 +108,103 @@ export function PosPage() {
     return `${API_BASE_URL.replace(/\/$/, "")}${logoUrl.startsWith("/") ? "" : "/"}${logoUrl}`;
   }, [branchSettings.data?.logoUrl]);
 
+  const receiptCharWidth = resolveReceiptWidth(
+    branchSettings.data?.invoiceCss,
+    48,
+  );
+  const receiptTemplateCss = `
+    #printable-invoice {
+      font-family: "Courier New", Courier, monospace;
+      --receipt-ch: ${receiptCharWidth};
+      width: calc(var(--receipt-ch) * 1ch);
+      max-width: 100%;
+      margin: 0 auto;
+      color: #111827;
+    }
+    #printable-invoice .receipt-line {
+      white-space: pre;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+    #printable-invoice .receipt-strong {
+      font-weight: 700;
+    }
+    #printable-invoice .receipt-logo {
+      display: block;
+      margin: 0 auto 6px;
+      max-height: 64px;
+      max-width: 100%;
+      object-fit: contain;
+    }
+  `;
+
+  const printableInvoice = useMemo(() => {
+    if (!postPayment) return null;
+
+    const createdAt = postPayment.createdAt;
+    const metadata = [
+      { label: "Invoice", value: postPayment.invoiceNo },
+      { label: "Receipt", value: postPayment.receiptNo },
+      { label: "Date", value: formatReceiptDate(createdAt) },
+      { label: "Time", value: formatReceiptTime(createdAt) },
+      { label: "Cashier", value: session.username },
+      { label: "Customer", value: postPayment.customerName },
+    ];
+
+    const items = printableSaleLines.map((line) => {
+      const net = computeLineAmounts(line);
+      const unitPrice = line.rate ?? (net.net / line.qty || 0);
+      const taxLabel =
+        line.taxRate > 0
+          ? `@${line.taxRate}% ${line.taxMode === "INCLUSIVE" ? "Incl." : "Excl."}`
+          : "";
+      return {
+        name: line.name,
+        subLine: taxLabel || undefined,
+        qty: line.qty,
+        price: unitPrice,
+        total: net.net,
+      };
+    });
+
+    const totals = [
+      { label: "Subtotal", value: money(printableSubtotal) },
+      { label: "Tax", value: money(printableTaxTotal) },
+      { label: "TOTAL", value: money(printableGrandTotal), isGrandTotal: true },
+    ];
+
+    const payments = postPayment.paymentLines.map((line) => ({
+      label: `Paid ${line.mode}`,
+      value: money(line.amount),
+    }));
+
+    const footerLines =
+      invoiceFooterLines.length > 0 ? invoiceFooterLines : receiptFooterLines;
+
+    return buildReceiptLines({
+      width: receiptCharWidth,
+      storeName: branchSettings.data?.name ?? "Store",
+      headerLines: invoiceHeaderLines,
+      metadata,
+      items,
+      totals,
+      payments,
+      footerLines,
+    });
+  }, [
+    postPayment,
+    printableSaleLines,
+    printableSubtotal,
+    printableTaxTotal,
+    printableGrandTotal,
+    invoiceHeaderLines,
+    invoiceFooterLines,
+    receiptFooterLines,
+    branchSettings.data?.name,
+    session.username,
+    receiptCharWidth,
+  ]);
+
   const buildPrintableInvoiceDocument = () => {
     if (!postPayment) {
       return null;
@@ -98,7 +214,7 @@ export function PosPage() {
       return null;
     }
     const customCss = branchSettings.data?.invoiceCss ?? "";
-    return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${postPayment.invoiceNo}</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#fff;color:#1f2937;}@media print{body{margin:0;}}${customCss}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${postPayment.invoiceNo}</title><style>body{font-family:\"Courier New\",Courier,monospace;margin:0;padding:24px;background:#fff;color:#111827;}@media print{body{margin:0;}}${receiptTemplateCss}${customCss}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
   };
 
   const exportPrintableInvoice = () => {
@@ -159,12 +275,12 @@ export function PosPage() {
     },
   });
 
-  const computeLineAmounts = (
+  function computeLineAmounts(
     line: Pick<
       CartLine,
       "qty" | "rate" | "discountAmount" | "taxRate" | "taxMode"
     >,
-  ) => {
+  ) {
     const gross = line.qty * line.rate;
     const afterDiscount = gross - line.discountAmount;
     if (line.taxMode === "INCLUSIVE") {
@@ -177,7 +293,7 @@ export function PosPage() {
     }
     const tax = (afterDiscount * line.taxRate) / 100;
     return { taxable: afterDiscount, tax, net: afterDiscount + tax };
-  };
+  }
 
   const addItem = (item: {
     id: string;
@@ -595,6 +711,7 @@ export function PosPage() {
             print-color-adjust: exact;
           }
         }
+        ${receiptTemplateCss}
         ${branchSettings.data?.invoiceCss ?? ""}
       `}</style>
       <aside className="flex h-full flex-col overflow-hidden bg-white">
@@ -918,83 +1035,23 @@ export function PosPage() {
                 id="printable-invoice"
                 className="w-full rounded border border-slate-200 bg-white p-6 shadow-sm"
               >
-                <div className="flex flex-col items-center gap-2">
-                  {invoiceLogoSrc ? (
-                    <img src={invoiceLogoSrc} alt="Branch logo" className="h-16 w-auto object-contain" />
-                  ) : (
-                    <p className="text-center text-4xl font-semibold text-fuchsia-800">
-                      {branchSettings.data?.name ?? "Branch"}
-                    </p>
-                  )}
-                  {invoiceHeaderLines.length > 0 ? (
-                    <div className="text-center text-xs text-slate-600">
-                      {invoiceHeaderLines.map((line, idx) => (
-                        <p key={`${line}-${idx}`}>{line}</p>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-                <p className="text-center text-xs text-slate-600">
-                  {new Date(postPayment.createdAt).toLocaleString()}
-                </p>
-                <p className="mt-1 text-center text-xs text-slate-600">
-                  Invoice: {postPayment.invoiceNo}
-                </p>
-                <p className="mt-2 text-center text-sm font-semibold text-slate-700">
-                  {postPayment.customerName}
-                </p>
-
-                <div className="mt-6 space-y-3 text-sm text-slate-700">
-                  {printableSaleLines.map((line) => {
-                    const net = computeLineAmounts(line);
-                    return (
-                      <div
-                        key={line.itemId}
-                        className="flex items-start justify-between"
-                      >
-                        <p className="mr-3">
-                          {line.qty.toFixed(0)} x {line.name}
-                        </p>
-                        <p>₹ {money(net.net)}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-6 space-y-1 border-t border-slate-200 pt-4 text-slate-700">
-                  <div className="flex items-center justify-between">
-                    <p>Subtotal</p>
-                    <p>₹ {money(printableSubtotal)}</p>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <p>Tax</p>
-                    <p>₹ {money(printableTaxTotal)}</p>
-                  </div>
-                  <div className="flex items-center justify-between text-lg font-semibold">
-                    <p>Total</p>
-                    <p>₹ {money(printableGrandTotal)}</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-1 text-sm text-slate-700">
-                  {printablePaymentLines.map((line, idx) => (
+                {invoiceLogoSrc ? (
+                  <img
+                    src={invoiceLogoSrc}
+                    alt="Branch logo"
+                    className="receipt-logo"
+                  />
+                ) : null}
+                <div className="receipt-text">
+                  {(printableInvoice?.lines ?? []).map((line, idx) => (
                     <div
-                      key={`${line.mode}-${idx}`}
-                      className="flex items-center justify-between"
+                      key={`${line.text}-${idx}`}
+                      className={`receipt-line ${line.strong ? "receipt-strong" : ""}`}
                     >
-                      <p>{line.mode}</p>
-                      <p>₹ {money(line.amount)}</p>
+                      {line.text}
                     </div>
                   ))}
                 </div>
-
-                {invoiceFooterLines.length > 0 ? (
-                  <div className="mt-4 border-t border-slate-200 pt-3 text-center text-xs text-slate-600">
-                    {invoiceFooterLines.map((line, idx) => (
-                      <p key={`${line}-${idx}`}>{line}</p>
-                    ))}
-                  </div>
-                ) : null}
               </div>
             </div>
           </div>

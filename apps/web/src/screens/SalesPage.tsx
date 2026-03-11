@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL, api, authHeaders } from "../lib/api";
+import {
+  buildReceiptLines,
+  formatReceiptDate,
+  formatReceiptTime,
+  resolveReceiptWidth,
+} from "../lib/receiptFormat";
 import { money, requireSession } from "./route-helpers";
 
 type PaymentMode = "CASH" | "CARD" | "WALLET";
@@ -21,6 +27,8 @@ type SettledSummary = {
     id: string;
     itemId: string;
     qty: number;
+    rate: number;
+    taxRate: number;
     netAmount: number;
   }>;
   payments: Array<{ mode: PaymentMode; amount: number }>;
@@ -62,22 +70,36 @@ export function SalesPage() {
     queryFn: async () => {
       const res = await api.branches.get({
         params: { id: session.branchId },
-        extraHeaders: authHeaders()
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load branch settings");
       return res.body;
-    }
+    },
   });
 
   const receiptHeaderLines = useMemo(() => {
     const raw = branchSettings.data?.receiptHeader ?? "";
-    return raw.split("\n").map((line) => line.trim()).filter(Boolean);
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
   }, [branchSettings.data?.receiptHeader]);
 
   const receiptFooterLines = useMemo(() => {
     const raw = branchSettings.data?.receiptFooter ?? "";
-    return raw.split("\n").map((line) => line.trim()).filter(Boolean);
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
   }, [branchSettings.data?.receiptFooter]);
+
+  const invoiceFooterLines = useMemo(() => {
+    const raw = branchSettings.data?.invoiceFooter ?? "";
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }, [branchSettings.data?.invoiceFooter]);
 
   const receiptLogoSrc = useMemo(() => {
     const logoUrl = branchSettings.data?.logoUrl;
@@ -87,6 +109,36 @@ export function SalesPage() {
     }
     return `${API_BASE_URL.replace(/\/$/, "")}${logoUrl.startsWith("/") ? "" : "/"}${logoUrl}`;
   }, [branchSettings.data?.logoUrl]);
+
+  const receiptCharWidth = resolveReceiptWidth(
+    branchSettings.data?.receiptCss,
+    48,
+  );
+  const receiptTemplateCss = `
+    #printable-invoice {
+      font-family: "Courier New", Courier, monospace;
+      --receipt-ch: ${receiptCharWidth};
+      width: calc(var(--receipt-ch) * 1ch);
+      max-width: 100%;
+      margin: 0 auto;
+      color: #111827;
+    }
+    #printable-invoice .receipt-line {
+      white-space: pre;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+    #printable-invoice .receipt-strong {
+      font-weight: 700;
+    }
+    #printable-invoice .receipt-logo {
+      display: block;
+      margin: 0 auto 6px;
+      max-height: 64px;
+      max-width: 100%;
+      object-fit: contain;
+    }
+  `;
 
   const sales = useQuery({
     queryKey: ["sales-module", session.branchId],
@@ -172,10 +224,13 @@ export function SalesPage() {
     }
   }, [selectedInvoiceId, selectedReceiptId, selectedReceipts.data]);
 
-  const itemNameById = useMemo(() => {
-    const map = new Map<string, string>();
+  const itemById = useMemo(() => {
+    const map = new Map<
+      string,
+      { name: string; taxMode: "INCLUSIVE" | "EXCLUSIVE" }
+    >();
     for (const item of items.data ?? []) {
-      map.set(item.id, item.name);
+      map.set(item.id, { name: item.name, taxMode: item.taxMode });
     }
     return map;
   }, [items.data]);
@@ -439,6 +494,8 @@ export function SalesPage() {
           id: line.id,
           itemId: line.itemId,
           qty: Number(line.qty),
+          rate: Number(line.rate),
+          taxRate: Number(line.taxRate),
           netAmount: Number(line.netAmount),
         })),
         payments: result.invoice.payments.map((line) => ({
@@ -534,6 +591,8 @@ export function SalesPage() {
       id: line.id,
       itemId: line.itemId,
       qty: Number(line.qty),
+      rate: Number(line.rate),
+      taxRate: Number(line.taxRate),
       netAmount: Number(line.netAmount),
     })) ??
     [];
@@ -552,6 +611,87 @@ export function SalesPage() {
     settledSummary?.taxTotal ?? Number(currentInvoice?.taxTotal ?? 0);
   const invoiceGrandTotal =
     settledSummary?.grandTotal ?? Number(currentInvoice?.grandTotal ?? 0);
+
+  const printableReceipt = useMemo(() => {
+    if (!currentInvoice) return null;
+
+    const createdAt =
+      previewReceipt?.createdAt ??
+      currentInvoice.createdAt ??
+      new Date().toISOString();
+    const cashier = currentSaleCreatorId
+      ? formatSaleCreator(currentSaleCreatorId, currentSaleCreatorName)
+      : "";
+
+    const metadata = [
+      { label: "Invoice", value: currentInvoice.invoiceNo },
+      { label: "Receipt", value: previewReceipt?.receiptNo ?? "" },
+      { label: "Date", value: formatReceiptDate(createdAt) },
+      { label: "Time", value: formatReceiptTime(createdAt) },
+      { label: "Cashier", value: cashier },
+      { label: "Customer", value: selectedCustomer?.name ?? "" },
+    ];
+
+    const items = saleLines.map((line) => {
+      const name =
+        itemById.get(line.itemId)?.name ?? `Item ${line.itemId.slice(0, 6)}`;
+      const taxMode = itemById.get(line.itemId)?.taxMode ?? "EXCLUSIVE";
+      const taxLabel =
+        line.taxRate && line.taxRate > 0
+          ? `@${line.taxRate}% ${taxMode === "INCLUSIVE" ? "Incl." : "Excl."}`
+          : "";
+      return {
+        name,
+        subLine: taxLabel || undefined,
+        qty: line.qty,
+        price: line.rate,
+        total: line.netAmount,
+      };
+    });
+
+    const totals = [
+      { label: "Subtotal", value: money(invoiceSubTotal) },
+      { label: "Tax", value: money(invoiceTaxTotal) },
+      { label: "TOTAL", value: money(invoiceGrandTotal), isGrandTotal: true },
+    ];
+
+    const payments = paymentBreakdown.map((line) => ({
+      label: `Paid ${line.mode}`,
+      value: money(line.amount),
+    }));
+
+    const footerLines =
+      receiptFooterLines.length > 0 ? receiptFooterLines : invoiceFooterLines;
+
+    return buildReceiptLines({
+      width: receiptCharWidth,
+      storeName: branchSettings.data?.name ?? "Store",
+      headerLines: receiptHeaderLines,
+      metadata,
+      items,
+      totals,
+      payments,
+      footerLines,
+    });
+  }, [
+    currentInvoice,
+    previewReceipt?.receiptNo,
+    previewReceipt?.createdAt,
+    currentSaleCreatorId,
+    currentSaleCreatorName,
+    selectedCustomer?.name,
+    saleLines,
+    itemById,
+    invoiceSubTotal,
+    invoiceTaxTotal,
+    invoiceGrandTotal,
+    branchSettings.data?.name,
+    receiptHeaderLines,
+    receiptFooterLines,
+    invoiceFooterLines,
+    receiptCharWidth,
+    paymentBreakdown,
+  ]);
 
   return (
     <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[360px_1fr]">
@@ -580,6 +720,7 @@ export function SalesPage() {
             print-color-adjust: exact;
           }
         }
+        ${receiptTemplateCss}
         ${branchSettings.data?.receiptCss ?? ""}
       `}</style>
       <aside className="flex flex-col overflow-hidden border-r border-slate-200 bg-white">
@@ -844,7 +985,7 @@ export function SalesPage() {
                   >
                     <p className="mr-3">
                       {line.qty.toFixed(0)} x{" "}
-                      {itemNameById.get(line.itemId) ??
+                      {itemById.get(line.itemId)?.name ??
                         `Item ${line.itemId.slice(0, 6)}`}
                     </p>
                     <p>₹ {money(line.netAmount)}</p>
@@ -926,88 +1067,23 @@ export function SalesPage() {
             id="printable-invoice"
             className="w-full rounded border border-slate-200 bg-white p-5 shadow-sm"
           >
-            <div className="flex flex-col items-center gap-2">
-              {receiptLogoSrc ? (
-                <img src={receiptLogoSrc} alt="Branch logo" className="h-14 w-auto object-contain" />
-              ) : (
-                <p className="text-center text-3xl font-semibold text-fuchsia-800">
-                  {branchSettings.data?.name ?? "Branch"}
-                </p>
-              )}
-              {receiptHeaderLines.length > 0 ? (
-                <div className="text-center text-xs text-slate-600">
-                  {receiptHeaderLines.map((line, idx) => (
-                    <p key={`${line}-${idx}`}>{line}</p>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <p className="text-center text-xs text-slate-600">
-              {new Date(
-                previewReceipt?.createdAt ?? Date.now(),
-              ).toLocaleString()}
-            </p>
-            <p className="mt-1 text-center text-xs text-slate-600">
-              Invoice:{" "}
-              {settledSummary?.invoiceNo ?? currentInvoice?.invoiceNo ?? "—"}
-            </p>
-            <p className="mt-1 text-center text-xs text-slate-600">
-              Sold by:{" "}
-              {currentSaleCreatorId
-                ? formatSaleCreator(
-                    currentSaleCreatorId,
-                    currentSaleCreatorName,
-                  )
-                : "—"}
-            </p>
-
-            <div className="mt-5 space-y-2 text-sm text-slate-700">
-              {saleLines.map((line) => (
-                <div key={line.id} className="flex items-start justify-between">
-                  <p className="mr-3">
-                    {line.qty.toFixed(0)} x{" "}
-                    {itemNameById.get(line.itemId) ??
-                      `Item ${line.itemId.slice(0, 6)}`}
-                  </p>
-                  <p>₹ {money(line.netAmount)}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-5 space-y-1 border-t border-slate-200 pt-4 text-slate-700">
-              <div className="flex items-center justify-between">
-                <p>Subtotal</p>
-                <p>₹ {money(invoiceSubTotal)}</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <p>Tax</p>
-                <p>₹ {money(invoiceTaxTotal)}</p>
-              </div>
-              <div className="flex items-center justify-between text-lg font-semibold">
-                <p>Total</p>
-                <p>₹ {money(invoiceGrandTotal)}</p>
-              </div>
-            </div>
-
-            <div className="mt-4 space-y-1 text-sm text-slate-700">
-              {paymentBreakdown.map((line, idx) => (
-                <div
-                  key={`${line.mode}-${idx}`}
-                  className="flex items-center justify-between"
-                >
-                  <p>{line.mode}</p>
-                  <p>₹ {money(line.amount)}</p>
-                </div>
-              ))}
-            </div>
-
-            {receiptFooterLines.length > 0 ? (
-              <div className="mt-4 border-t border-slate-200 pt-3 text-center text-xs text-slate-600">
-                {receiptFooterLines.map((line, idx) => (
-                  <p key={`${line}-${idx}`}>{line}</p>
-                ))}
-              </div>
+            {receiptLogoSrc ? (
+              <img
+                src={receiptLogoSrc}
+                alt="Branch logo"
+                className="receipt-logo"
+              />
             ) : null}
+            <div className="receipt-text">
+              {(printableReceipt?.lines ?? []).map((line, idx) => (
+                <div
+                  key={`${line.text}-${idx}`}
+                  className={`receipt-line ${line.strong ? "receipt-strong" : ""}`}
+                >
+                  {line.text}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
