@@ -101,6 +101,15 @@ export class PosController {
     return this.posService.listAccessibleBranches(this.getSession(headers));
   }
 
+  @Post('/branches')
+  createBranch(
+    @Body() body: { name: string; code: string },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    const session = this.requireAdminSession(headers);
+    return this.posService.createBranch(session, body);
+  }
+
   @Post('/registers/open')
   @HttpCode(200)
   openRegister(

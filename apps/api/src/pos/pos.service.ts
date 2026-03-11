@@ -19,6 +19,22 @@ export class PosService {
     gstNumber: true
   } as const;
 
+  private readonly branchSettingsSelect = {
+    id: true,
+    name: true,
+    code: true,
+    logoUrl: true,
+    invoicePrefix: true,
+    receiptPrefix: true,
+    returnPrefix: true,
+    invoiceHeader: true,
+    invoiceFooter: true,
+    receiptHeader: true,
+    receiptFooter: true,
+    invoiceCss: true,
+    receiptCss: true
+  } as const;
+
   private async withCreatedByName<T extends { createdBy: string }>(
     invoice: T
   ): Promise<T & { createdByName: string }> {
@@ -122,21 +138,7 @@ export class PosService {
   async getBranchSettings(branchId: string) {
     const branch = await this.prisma.branch.findUnique({
       where: { id: branchId },
-      select: {
-        id: true,
-        name: true,
-        code: true,
-        logoUrl: true,
-        invoicePrefix: true,
-        receiptPrefix: true,
-        returnPrefix: true,
-        invoiceHeader: true,
-        invoiceFooter: true,
-        receiptHeader: true,
-        receiptFooter: true,
-        invoiceCss: true,
-        receiptCss: true
-      }
+      select: this.branchSettingsSelect
     });
     if (!branch) {
       throw new NotFoundException('Branch not found');
@@ -178,22 +180,60 @@ export class PosService {
         invoiceCss: input.invoiceCss,
         receiptCss: input.receiptCss
       },
-      select: {
-        id: true,
-        name: true,
-        code: true,
-        logoUrl: true,
-        invoicePrefix: true,
-        receiptPrefix: true,
-        returnPrefix: true,
-        invoiceHeader: true,
-        invoiceFooter: true,
-        receiptHeader: true,
-        receiptFooter: true,
-        invoiceCss: true,
-        receiptCss: true
-      }
+      select: this.branchSettingsSelect
     });
+  }
+
+  async createBranch(session: SessionUser, input: { name: string; code: string }) {
+    const name = input.name.trim();
+    const code = input.code.trim().toUpperCase();
+
+    if (!name) {
+      throw new BadRequestException('Branch name is required');
+    }
+    if (!code) {
+      throw new BadRequestException('Branch code is required');
+    }
+
+    try {
+      const branch = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.branch.create({
+          data: { name, code },
+          select: this.branchSummarySelect
+        });
+
+        const adminUsers = await tx.user.findMany({
+          where: { role: UserRole.ADMIN },
+          select: { id: true }
+        });
+
+        await Promise.all(
+          adminUsers.map((admin) =>
+            tx.userBranchAccess.upsert({
+              where: { userId_branchId: { userId: admin.id, branchId: created.id } },
+              update: {},
+              create: { userId: admin.id, branchId: created.id }
+            })
+          )
+        );
+
+        await tx.userBranchAccess.upsert({
+          where: { userId_branchId: { userId: session.userId, branchId: created.id } },
+          update: {},
+          create: { userId: session.userId, branchId: created.id }
+        });
+
+        return created;
+      });
+
+      await this.ensureWalkInCustomer(branch.id);
+      return branch;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new BadRequestException('Branch code already exists');
+      }
+      throw error;
+    }
   }
 
   async listUsers(branchId: string) {

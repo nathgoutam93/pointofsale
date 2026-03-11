@@ -275,6 +275,15 @@ export const appContract = c.router({
       path: '/branches',
       responses: { 200: z.array(branchSchema) }
     },
+    create: {
+      method: 'POST',
+      path: '/branches',
+      body: z.object({
+        name: z.string().min(1),
+        code: z.string().min(1)
+      }),
+      responses: { 201: branchSchema }
+    },
     get: {
       method: 'GET',
       path: '/branches/:id',
