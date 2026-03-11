@@ -82,8 +82,8 @@ export class PosService {
     await this.ensureWalkInCustomer(branch.id);
   }
 
-  private toNumber(value: Prisma.Decimal | number) {
-    return Number(value);
+  private toNumber(value: Prisma.Decimal | number | null | undefined) {
+    return Number(value ?? 0);
   }
 
   private round2(value: number) {
@@ -694,5 +694,138 @@ export class PosService {
     if (receiptsByInvoiceNo.length > 0) return receiptsByInvoiceNo;
 
     throw new NotFoundException('Receipt not found for given invoice id/number');
+  }
+
+  private startOfDay(date: Date) {
+    const value = new Date(date);
+    value.setHours(0, 0, 0, 0);
+    return value;
+  }
+
+  private startOfWeek(date: Date) {
+    const value = this.startOfDay(date);
+    const day = value.getDay();
+    const diff = (day + 6) % 7;
+    value.setDate(value.getDate() - diff);
+    return value;
+  }
+
+  private startOfMonth(date: Date) {
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  }
+
+  private addDays(date: Date, days: number) {
+    const value = new Date(date);
+    value.setDate(value.getDate() + days);
+    return value;
+  }
+
+  private addMonths(date: Date, months: number) {
+    return new Date(date.getFullYear(), date.getMonth() + months, 1);
+  }
+
+  private async computeReportRange(
+    branchId: string,
+    range: { label: string; startDate: Date | null; endDate: Date | null }
+  ) {
+    const createdAt =
+      range.startDate && range.endDate
+        ? {
+            gte: range.startDate,
+            lt: range.endDate
+          }
+        : undefined;
+
+    const salesWhere: Prisma.SaleInvoiceWhereInput = {
+      branchId,
+      status: { not: InvoiceStatus.CANCELLED },
+      ...(createdAt ? { createdAt } : {})
+    };
+    const returnsWhere: Prisma.ReturnInvoiceWhereInput = {
+      saleInvoice: { branchId },
+      ...(createdAt ? { createdAt } : {})
+    };
+    const expensesWhere: Prisma.StockLedgerWhereInput = {
+      branchId,
+      txnType: { in: [StockTxnType.OPENING, StockTxnType.ADJUSTMENT_PLUS] },
+      ...(createdAt ? { createdAt } : {})
+    };
+
+    const [salesAgg, returnsAgg, expenseRows] = await Promise.all([
+      this.prisma.saleInvoice.aggregate({
+        where: salesWhere,
+        _sum: { grandTotal: true }
+      }),
+      this.prisma.returnInvoice.aggregate({
+        where: returnsWhere,
+        _sum: { totalAmount: true }
+      }),
+      this.prisma.stockLedger.findMany({
+        where: expensesWhere,
+        select: { qtyIn: true, costPrice: true }
+      })
+    ]);
+
+    const salesTotal = this.toNumber(salesAgg._sum.grandTotal);
+    const returnsTotal = this.toNumber(returnsAgg._sum.totalAmount);
+    const expensesTotal = this.round2(
+      expenseRows.reduce((acc, row) => acc + this.toNumber(row.qtyIn) * this.toNumber(row.costPrice), 0)
+    );
+    const netSales = this.round2(salesTotal - returnsTotal);
+    const profit = this.round2(netSales - expensesTotal);
+
+    return {
+      label: range.label,
+      startDate: range.startDate ? range.startDate.toISOString() : null,
+      endDate: range.endDate ? range.endDate.toISOString() : null,
+      salesTotal: this.round2(salesTotal),
+      returnsTotal: this.round2(returnsTotal),
+      expensesTotal,
+      netSales,
+      profit
+    };
+  }
+
+  async getSalesSummary(session: SessionUser, branchId: string) {
+    if (session.branchId !== branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
+    await this.ensureBranchExists(branchId);
+
+    const now = new Date();
+    const todayStart = this.startOfDay(now);
+    const weekStart = this.startOfWeek(now);
+    const monthStart = this.startOfMonth(now);
+
+    const ranges = [
+      {
+        label: 'Today',
+        startDate: todayStart,
+        endDate: this.addDays(todayStart, 1)
+      },
+      {
+        label: 'This Week',
+        startDate: weekStart,
+        endDate: this.addDays(weekStart, 7)
+      },
+      {
+        label: 'This Month',
+        startDate: monthStart,
+        endDate: this.addMonths(monthStart, 1)
+      },
+      {
+        label: 'Overall',
+        startDate: null,
+        endDate: null
+      }
+    ];
+
+    const summaries = await Promise.all(ranges.map((range) => this.computeReportRange(branchId, range)));
+
+    return {
+      branchId,
+      generatedAt: now.toISOString(),
+      ranges: summaries
+    };
   }
 }

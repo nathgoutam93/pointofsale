@@ -214,6 +214,13 @@ export class PosController {
     return this.posService.getLedger(branchId, itemId);
   }
 
+  @Get('/reports/sales-summary')
+  salesSummary(@Query('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    const session = this.getSession(headers);
+    this.requireAdmin(session);
+    return this.posService.getSalesSummary(session, branchId);
+  }
+
   @Post('/sales')
   createSale(
     @Body() body: { branchId: string; customerId: string; lines: Array<{ itemId: string; qty: number; rate: number; discountAmount?: number; taxRate: number }> },

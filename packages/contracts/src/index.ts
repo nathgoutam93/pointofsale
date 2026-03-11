@@ -135,6 +135,17 @@ const returnSchema = z.object({
   createdAt: z.string().datetime()
 });
 
+const reportRangeSchema = z.object({
+  label: z.string(),
+  startDate: z.string().datetime().nullable(),
+  endDate: z.string().datetime().nullable(),
+  salesTotal: moneySchema,
+  returnsTotal: moneySchema,
+  expensesTotal: moneySchema,
+  netSales: moneySchema,
+  profit: moneySchema
+});
+
 export const appContract = c.router({
   auth: {
     login: {
@@ -317,6 +328,20 @@ export const appContract = c.router({
       method: 'GET',
       path: '/receipts/by-invoice/:invoiceId',
       responses: { 200: z.array(receiptSchema) }
+    }
+  },
+  reports: {
+    salesSummary: {
+      method: 'GET',
+      path: '/reports/sales-summary',
+      query: z.object({ branchId: z.string().uuid() }),
+      responses: {
+        200: z.object({
+          branchId: z.string().uuid(),
+          generatedAt: z.string().datetime(),
+          ranges: z.array(reportRangeSchema)
+        })
+      }
     }
   }
 });
