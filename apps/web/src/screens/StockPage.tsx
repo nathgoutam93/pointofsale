@@ -20,6 +20,8 @@ export function StockPage() {
   const queryClient = useQueryClient();
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [modalType, setModalType] = useState<StockModalType>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [stockSort, setStockSort] = useState<"desc" | "asc">("desc");
   const [openingModalMode, setOpeningModalMode] = useState<"create" | "edit">(
     "create",
   );
@@ -75,6 +77,29 @@ export function StockPage() {
     }
     return map;
   }, [onHand.data]);
+
+  const filteredItems = useMemo(() => {
+    const data = items.data ?? [];
+    const term = searchTerm.trim().toLowerCase();
+    const filtered = term
+      ? data.filter((item) => {
+          const name = item.name.toLowerCase();
+          const code = item.code?.toLowerCase() ?? "";
+          return name.includes(term) || code.includes(term);
+        })
+      : data;
+
+    return filtered
+      .slice()
+      .sort((a, b) => {
+        const aOnHand = onHandByItem.get(a.id) ?? 0;
+        const bOnHand = onHandByItem.get(b.id) ?? 0;
+        if (aOnHand === bOnHand) {
+          return a.name.localeCompare(b.name);
+        }
+        return stockSort === "desc" ? bOnHand - aOnHand : aOnHand - bOnHand;
+      });
+  }, [items.data, onHandByItem, searchTerm, stockSort]);
 
   const selectedItem = useMemo(
     () => items.data?.find((item) => item.id === selectedItemId) ?? null,
@@ -235,8 +260,29 @@ export function StockPage() {
               Could not load items.
             </p>
           )}
+          <div className="mb-3 grid gap-2">
+            <input
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              placeholder="Search by item or code"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+            />
+            <label className="flex items-center justify-between text-xs text-slate-500">
+              Sort by stock
+              <select
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+                value={stockSort}
+                onChange={(event) =>
+                  setStockSort(event.target.value as "desc" | "asc")
+                }
+              >
+                <option value="desc">High to Low</option>
+                <option value="asc">Low to High</option>
+              </select>
+            </label>
+          </div>
           <div className="space-y-2 overflow-y-auto">
-            {items.data?.map((item) => {
+            {filteredItems.map((item) => {
               const isSelected = item.id === selectedItemId;
               const itemOnHand = onHandByItem.get(item.id) ?? 0;
               return (
@@ -263,6 +309,11 @@ export function StockPage() {
                 </button>
               );
             })}
+            {!items.isLoading && filteredItems.length === 0 && (
+              <p className="px-2 py-3 text-sm text-slate-500">
+                No items match your search.
+              </p>
+            )}
           </div>
         </aside>
 
