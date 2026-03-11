@@ -45,6 +45,7 @@ export function ItemsPage() {
     "view",
   );
   const [removeImageOnEdit, setRemoveImageOnEdit] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const items = useQuery({
     queryKey: ["items-module"],
@@ -60,19 +61,36 @@ export function ItemsPage() {
     [items.data, selectedItemId],
   );
 
+  const filteredItems = useMemo(() => {
+    if (!items.data) return [];
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return items.data;
+    return items.data.filter((item) => {
+      const haystack = [
+        item.name,
+        item.code,
+        item.category ?? "",
+        item.uom,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [items.data, searchQuery]);
+
   useEffect(() => {
-    if (!items.data?.length) {
+    if (!filteredItems.length) {
       setSelectedItemId(null);
       return;
     }
 
     if (
       !selectedItemId ||
-      !items.data.some((item) => item.id === selectedItemId)
+      !filteredItems.some((item) => item.id === selectedItemId)
     ) {
-      setSelectedItemId(items.data[0].id);
+      setSelectedItemId(filteredItems[0].id);
     }
-  }, [items.data, selectedItemId]);
+  }, [filteredItems, selectedItemId]);
 
   const uploadImage = async (file: File) => {
     const body = new FormData();
@@ -198,6 +216,12 @@ export function ItemsPage() {
             New Item
           </button>
         </div>
+        <input
+          className="mb-3 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          placeholder="Search by name, code, category, or UOM"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
 
         {items.isLoading && (
           <p className="px-2 py-3 text-sm text-slate-500">Loading items...</p>
@@ -209,7 +233,7 @@ export function ItemsPage() {
         )}
 
         <div className="space-y-2 flex-1 overflow-y-scroll">
-          {items.data?.map((item) => {
+          {filteredItems.map((item) => {
             const isSelected =
               selectedItemId === item.id && panelMode !== "create";
             return (
@@ -247,6 +271,13 @@ export function ItemsPage() {
             No active items found.
           </p>
         )}
+        {!items.isLoading &&
+          !!items.data?.length &&
+          !filteredItems.length && (
+            <p className="px-2 py-3 text-sm text-slate-500">
+              No items match your search.
+            </p>
+          )}
       </aside>
 
       <div className="rounded-xl border border-slate-200 p-4">
