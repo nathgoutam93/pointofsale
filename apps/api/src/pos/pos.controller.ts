@@ -353,7 +353,7 @@ export class PosController {
   @Post('/sales/:id/return')
   createReturn(
     @Param('id') id: string,
-    @Body() body: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: PaymentMode },
+    @Body() body: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET' },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     return this.posService.createReturn(this.getSession(headers), id, body);
@@ -367,5 +367,16 @@ export class PosController {
   @Get('/receipts/by-invoice/:invoiceId')
   getReceiptsByInvoice(@Param('invoiceId') invoiceId: string) {
     return this.posService.getReceiptsByInvoice(invoiceId);
+  }
+
+  @Get('/returns')
+  listReturns(@Headers() headers: Record<string, string | string[] | undefined>) {
+    const session = this.getSession(headers);
+    return this.posService.listReturns(session.branchId);
+  }
+
+  @Get('/returns/:id')
+  getReturnById(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    return this.posService.getReturnById(this.getSession(headers), id);
   }
 }

@@ -748,13 +748,38 @@ export class PosService {
   }
 
   async getSaleById(id: string) {
-    const invoice = await this.prisma.saleInvoice.findUnique({ where: { id }, include: { lines: true, payments: true } });
+    const invoice = await this.prisma.saleInvoice.findUnique({
+      where: { id },
+      include: {
+        lines: {
+          include: {
+            returnLines: {
+              select: {
+                id: true,
+                returnInvoiceId: true,
+                qty: true,
+                amount: true
+              }
+            }
+          }
+        },
+        payments: true
+      }
+    });
     if (!invoice) throw new NotFoundException('Invoice not found');
     return this.withCreatedByName(invoice);
   }
 
-  async createReturn(session: SessionUser, saleInvoiceId: string, input: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: PaymentMode }) {
+  async createReturn(
+    session: SessionUser,
+    saleInvoiceId: string,
+    input: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET' }
+  ) {
     return this.prisma.$transaction(async (tx) => {
+      if (input.refundMode !== PaymentMode.CASH && input.refundMode !== PaymentMode.WALLET) {
+        throw new BadRequestException('Return refund mode must be CASH or WALLET');
+      }
+
       const invoice = await tx.saleInvoice.findUnique({
         where: { id: saleInvoiceId },
         include: { lines: { include: { returnLines: true } } }
@@ -852,6 +877,80 @@ export class PosService {
     if (receiptsByInvoiceNo.length > 0) return receiptsByInvoiceNo;
 
     throw new NotFoundException('Receipt not found for given invoice id/number');
+  }
+
+  async listReturns(branchId: string) {
+    const returns = await this.prisma.returnInvoice.findMany({
+      where: { saleInvoice: { branchId } },
+      include: {
+        saleInvoice: {
+          select: {
+            invoiceNo: true,
+            customer: {
+              select: { name: true }
+            }
+          }
+        },
+        lines: { select: { id: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    return returns.map((row) => ({
+      id: row.id,
+      saleInvoiceId: row.saleInvoiceId,
+      returnNo: row.returnNo,
+      totalAmount: row.totalAmount,
+      refundMode: row.refundMode,
+      createdAt: row.createdAt,
+      saleInvoiceNo: row.saleInvoice.invoiceNo,
+      customerName: row.saleInvoice.customer.name,
+      lineCount: row.lines.length
+    }));
+  }
+
+  async getReturnById(session: SessionUser, id: string) {
+    const returnInvoice = await this.prisma.returnInvoice.findUnique({
+      where: { id },
+      include: {
+        saleInvoice: {
+          include: {
+            customer: { select: { name: true } }
+          }
+        },
+        lines: {
+          include: {
+            saleLine: {
+              include: {
+                item: { select: { id: true, name: true } }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!returnInvoice) throw new NotFoundException('Return invoice not found');
+    if (returnInvoice.saleInvoice.branchId !== session.branchId) throw new BadRequestException('Branch mismatch');
+
+    return {
+      id: returnInvoice.id,
+      saleInvoiceId: returnInvoice.saleInvoiceId,
+      returnNo: returnInvoice.returnNo,
+      totalAmount: returnInvoice.totalAmount,
+      refundMode: returnInvoice.refundMode,
+      createdAt: returnInvoice.createdAt,
+      saleInvoiceNo: returnInvoice.saleInvoice.invoiceNo,
+      customerName: returnInvoice.saleInvoice.customer.name,
+      lines: returnInvoice.lines.map((line) => ({
+        id: line.id,
+        saleLineId: line.saleLineId,
+        itemId: line.saleLine.item.id,
+        itemName: line.saleLine.item.name,
+        qty: line.qty,
+        amount: line.amount
+      }))
+    };
   }
 
   private startOfDay(date: Date) {

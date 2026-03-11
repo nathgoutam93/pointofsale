@@ -5,6 +5,7 @@ const c = initContract();
 
 const roleSchema = z.enum(['ADMIN', 'CASHIER']);
 const paymentModeSchema = z.enum(['CASH', 'CARD', 'WALLET']);
+const returnRefundModeSchema = z.enum(['CASH', 'WALLET']);
 const invoiceStatusSchema = z.enum(['DRAFT', 'SETTLED', 'PARTIALLY_SETTLED', 'CANCELLED']);
 const stockTxnTypeSchema = z.enum(['OPENING', 'ADJUSTMENT_PLUS', 'ADJUSTMENT_MINUS', 'SALE', 'RETURN']);
 const walletTxnTypeSchema = z.enum(['TOPUP', 'DEBIT_SALE', 'REFUND_RETURN', 'ADJUSTMENT']);
@@ -96,6 +97,13 @@ const saleLineSchema = saleLineInput.extend({
   netAmount: moneySchema
 });
 
+const returnLineForSaleLineSchema = z.object({
+  id: z.string().uuid(),
+  returnInvoiceId: z.string().uuid(),
+  qty: z.number().positive(),
+  amount: moneySchema
+});
+
 const paymentSchema = z.object({
   id: z.string().uuid(),
   invoiceId: z.string().uuid(),
@@ -126,6 +134,11 @@ const saleInvoiceWithLinesSchema = saleInvoiceSchema.extend({
   payments: z.array(paymentSchema)
 });
 
+const saleInvoiceDetailSchema = saleInvoiceSchema.extend({
+  lines: z.array(saleLineSchema.extend({ returnLines: z.array(returnLineForSaleLineSchema) })),
+  payments: z.array(paymentSchema)
+});
+
 const stockLedgerSchema = z.object({
   id: z.string().uuid(),
   branchId: z.string().uuid(),
@@ -153,8 +166,29 @@ const returnSchema = z.object({
   saleInvoiceId: z.string().uuid(),
   returnNo: z.string(),
   totalAmount: moneySchema,
-  refundMode: paymentModeSchema,
+  refundMode: returnRefundModeSchema,
   createdAt: z.string().datetime()
+});
+
+const returnListItemSchema = returnSchema.extend({
+  saleInvoiceNo: z.string(),
+  customerName: z.string(),
+  lineCount: z.number().int().nonnegative()
+});
+
+const returnDetailSchema = returnSchema.extend({
+  saleInvoiceNo: z.string(),
+  customerName: z.string(),
+  lines: z.array(
+    z.object({
+      id: z.string().uuid(),
+      saleLineId: z.string().uuid(),
+      itemId: z.string().uuid(),
+      itemName: z.string(),
+      qty: z.number().positive(),
+      amount: moneySchema
+    })
+  )
 });
 
 const reportRangeSchema = z.object({
@@ -381,12 +415,12 @@ export const appContract = c.router({
     getById: {
       method: 'GET',
       path: '/sales/:id',
-      responses: { 200: saleInvoiceWithLinesSchema }
+      responses: { 200: saleInvoiceDetailSchema }
     },
     returns: {
       method: 'POST',
       path: '/sales/:id/return',
-      body: z.object({ lines: z.array(z.object({ saleLineId: z.string().uuid(), qty: z.number().positive() })).min(1), refundMode: paymentModeSchema }),
+      body: z.object({ lines: z.array(z.object({ saleLineId: z.string().uuid(), qty: z.number().positive() })).min(1), refundMode: returnRefundModeSchema }),
       responses: { 201: returnSchema }
     }
   },
@@ -400,6 +434,18 @@ export const appContract = c.router({
       method: 'GET',
       path: '/receipts/by-invoice/:invoiceId',
       responses: { 200: z.array(receiptSchema) }
+    }
+  },
+  returns: {
+    list: {
+      method: 'GET',
+      path: '/returns',
+      responses: { 200: z.array(returnListItemSchema) }
+    },
+    getById: {
+      method: 'GET',
+      path: '/returns/:id',
+      responses: { 200: returnDetailSchema }
     }
   },
   reports: {
