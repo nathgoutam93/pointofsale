@@ -43,7 +43,10 @@ export function ReturnsPage() {
     queryKey: ["sales-module", session.branchId],
     enabled: createMode,
     queryFn: async () => {
-      const res = await api.sales.list({ query: { branchId: session.branchId } });
+      const res = await api.sales.list({
+        query: { branchId: session.branchId },
+        extraHeaders: authHeaders(),
+      });
       if (res.status !== 200) throw new Error("Failed to load sales");
       return res.body;
     },
@@ -53,7 +56,7 @@ export function ReturnsPage() {
     queryKey: ["items-returns"],
     enabled: createMode,
     queryFn: async () => {
-      const res = await api.items.list({});
+      const res = await api.items.list({ extraHeaders: authHeaders() });
       if (res.status !== 200) throw new Error("Failed to load items");
       return res.body;
     },
@@ -63,7 +66,10 @@ export function ReturnsPage() {
     queryKey: ["customers-returns", session.branchId],
     enabled: createMode,
     queryFn: async () => {
-      const res = await api.customers.list({ query: { branchId: session.branchId } });
+      const res = await api.customers.list({
+        query: { branchId: session.branchId },
+        extraHeaders: authHeaders(),
+      });
       if (res.status !== 200) throw new Error("Failed to load customers");
       return res.body;
     },
@@ -73,7 +79,10 @@ export function ReturnsPage() {
     queryKey: ["sales-by-id", selectedInvoiceId],
     enabled: createMode && !!selectedInvoiceId,
     queryFn: async () => {
-      const res = await api.sales.getById({ params: { id: selectedInvoiceId } });
+      const res = await api.sales.getById({
+        params: { id: selectedInvoiceId },
+        extraHeaders: authHeaders(),
+      });
       if (res.status !== 200) throw new Error("Failed to load invoice details");
       return res.body;
     },

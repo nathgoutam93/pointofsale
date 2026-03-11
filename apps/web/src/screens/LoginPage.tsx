@@ -21,7 +21,7 @@ export function LoginPage() {
     e.preventDefault();
     const data = await login.mutateAsync();
     setSession(data);
-    navigate({ to: "/open-register" });
+    navigate({ to: data.branchId && data.registerId ? "/pos" : "/open-register" });
   };
 
   return (

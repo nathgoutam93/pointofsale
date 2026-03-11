@@ -550,14 +550,24 @@ export class PosService {
       throw new BadRequestException('Account is inactive');
     }
 
-    const token = this.buildToken({ userId: user.id, role: user.role });
+    const openRegister = await this.prisma.registerSession.findFirst({
+      where: { userId: user.id, closedAt: null },
+      select: { id: true, branchId: true }
+    });
+
+    const token = this.buildToken({
+      userId: user.id,
+      role: user.role,
+      branchId: openRegister?.branchId,
+      registerId: openRegister?.id
+    });
     return {
       token,
       userId: user.id,
       username: user.username,
       role: user.role,
-      branchId: null,
-      registerId: null,
+      branchId: openRegister?.branchId ?? null,
+      registerId: openRegister?.id ?? null,
       branches: user.branchAccesses.map((access) => access.branch)
     };
   }
