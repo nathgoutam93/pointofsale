@@ -22,6 +22,10 @@ async function bootstrap() {
   if (!existsSync(branchUploadsDir)) {
     mkdirSync(branchUploadsDir, { recursive: true });
   }
+  const businessUploadsDir = join(uploadsDir, 'business');
+  if (!existsSync(businessUploadsDir)) {
+    mkdirSync(businessUploadsDir, { recursive: true });
+  }
   app.useStaticAssets(uploadsDir, { prefix: '/uploads/' });
 
   await app.listen(process.env.PORT ? Number(process.env.PORT) : 3001);

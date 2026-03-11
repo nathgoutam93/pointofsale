@@ -1,6 +1,8 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
-import { clearSession, getSession } from "../lib/session";
+import { useMutation } from "@tanstack/react-query";
+import { api, authHeaders } from "../lib/api";
+import { clearSession, getSession, updateSession } from "../lib/session";
 
 export function AppLayout() {
   const location = useRouterState({ select: (s) => s.location.pathname });
@@ -9,6 +11,24 @@ export function AppLayout() {
   const userLabel = session
     ? session.username?.trim() || session.role
     : "";
+  const branchLabel = session?.branchId ? session.branches.find((branch) => branch.id === session.branchId)?.name ?? "Selected Branch" : "";
+
+  const closeRegister = useMutation({
+    mutationFn: async (closingBalance: number) => {
+      const res = await api.registers.close({
+        body: { closingBalance },
+        extraHeaders: authHeaders()
+      });
+      if (res.status !== 200) {
+        throw new Error("Failed to close register");
+      }
+      return res.body;
+    },
+    onSuccess: (data) => {
+      updateSession({ token: data.token, branchId: null, registerId: null });
+      window.location.href = "/open-register";
+    }
+  });
 
   if (!session && location === "/") {
     return (
@@ -28,6 +48,7 @@ export function AppLayout() {
           {session ? (
             <p className="text-right text-xs text-slate-600">
               Logged in: <span className="font-semibold text-slate-900">{userLabel}</span>
+              {branchLabel ? <span className="ml-2">| Branch: <span className="font-semibold text-slate-900">{branchLabel}</span></span> : null}
             </p>
           ) : null}
           <button
@@ -105,6 +126,20 @@ export function AppLayout() {
                 Settings
               </Link>
             </>
+          ) : null}
+          {session?.registerId ? (
+            <button
+              className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-left"
+              onClick={() => {
+                const value = window.prompt("Enter closing cash balance");
+                if (value == null) return;
+                const amount = Number(value);
+                if (!Number.isFinite(amount) || amount < 0) return;
+                closeRegister.mutate(amount);
+              }}
+            >
+              Close Register
+            </button>
           ) : null}
           <button
             className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-left"

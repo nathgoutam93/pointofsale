@@ -1,7 +1,9 @@
 export type Session = {
   token: string;
   userId: string;
-  branchId: string;
+  branchId: string | null;
+  registerId: string | null;
+  branches: Array<{ id: string; name: string; code: string }>;
   username?: string;
   role: 'ADMIN' | 'CASHIER';
 };
@@ -20,6 +22,12 @@ export function getSession(): Session | null {
 
 export function setSession(session: Session) {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+export function updateSession(partial: Partial<Session>) {
+  const current = getSession();
+  if (!current) return;
+  setSession({ ...current, ...partial });
 }
 
 export function clearSession() {

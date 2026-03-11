@@ -21,7 +21,7 @@ export function LoginPage() {
     e.preventDefault();
     const data = await login.mutateAsync();
     setSession(data);
-    navigate({ to: '/pos' });
+    navigate({ to: '/open-register' });
   };
 
   return (

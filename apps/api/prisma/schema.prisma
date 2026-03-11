@@ -64,10 +64,21 @@ model Branch {
   returnSeq   Int          @default(0)
   customerSeq Int          @default(0)
   users       User[]
+  userAccesses UserBranchAccess[]
+  registers   RegisterSession[]
   customers   Customer[]
   wallets     WalletAccount[]
   stockLedgers StockLedger[]
   saleInvoices SaleInvoice[]
+}
+
+model BusinessSettings {
+  id        String   @id @default("default")
+  name      String
+  logoUrl   String?
+  gstNumber String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model User {
@@ -77,8 +88,38 @@ model User {
   role      UserRole
   branchId  String
   branch    Branch   @relation(fields: [branchId], references: [id])
+  branchAccesses UserBranchAccess[]
+  registers RegisterSession[]
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
+}
+
+model UserBranchAccess {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, branchId])
+  @@index([branchId])
+}
+
+model RegisterSession {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  branchId      String
+  branch        Branch   @relation(fields: [branchId], references: [id])
+  openingBalance Decimal @db.Decimal(14, 2)
+  closingBalance Decimal? @db.Decimal(14, 2)
+  openedAt      DateTime @default(now())
+  closedAt      DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([userId, closedAt])
+  @@index([branchId, closedAt])
 }
 
 model Customer {

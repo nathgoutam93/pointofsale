@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { api, authHeaders } from "../lib/api";
-import { money, requireSession } from "./route-helpers";
+import { money, requireAdmin } from "./route-helpers";
 
 function formatShortDate(value: string) {
   return new Date(value).toLocaleDateString("en-IN", {
@@ -11,14 +12,18 @@ function formatShortDate(value: string) {
 }
 
 export function ReportsPage() {
-  const session = requireSession();
+  const session = requireAdmin();
+  const activeBranchId = useMemo(
+    () => session.branchId ?? session.branches[0]?.id ?? "",
+    [session.branchId, session.branches]
+  );
 
   const summary = useQuery({
-    queryKey: ["reports-sales-summary", session.branchId],
-    enabled: session.role === "ADMIN",
+    queryKey: ["reports-sales-summary", activeBranchId],
+    enabled: session.role === "ADMIN" && !!activeBranchId,
     queryFn: async () => {
       const res = await api.reports.salesSummary({
-        query: { branchId: session.branchId },
+        query: { branchId: activeBranchId },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load report");
@@ -35,6 +40,14 @@ export function ReportsPage() {
             Sales analytics are available only to admin users.
           </p>
         </div>
+      </section>
+    );
+  }
+
+  if (!activeBranchId) {
+    return (
+      <section className="p-6">
+        <p className="text-sm text-slate-600">No branch access is configured for this admin account.</p>
       </section>
     );
   }

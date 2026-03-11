@@ -34,20 +34,49 @@ export class PosController {
     try {
       const token = authValue.slice('Bearer '.length);
       const decoded = Buffer.from(token, 'base64').toString('utf8');
-      const [userId, role, branchId] = decoded.split(':');
+      const [userId, role, branchId, registerId, ...rest] = decoded.split(':');
 
-      if (!userId || !branchId || !role) {
+      if (!userId || !role || rest.length > 0) {
         throw new UnauthorizedException('Invalid token');
       }
-
       if (role !== UserRole.ADMIN && role !== UserRole.CASHIER) {
         throw new UnauthorizedException('Invalid role');
       }
+      if (registerId && !branchId) {
+        throw new UnauthorizedException('Invalid token');
+      }
 
-      return { userId, branchId, role };
+      return {
+        userId,
+        role,
+        branchId: branchId || undefined,
+        registerId: registerId || undefined
+      };
     } catch {
       throw new UnauthorizedException('Invalid bearer token');
     }
+  }
+
+  private requireBranchSession(headers: Record<string, string | string[] | undefined>) {
+    const session = this.getSession(headers);
+    if (!session.branchId) {
+      throw new BadRequestException('Select a branch and open a register first');
+    }
+    return session;
+  }
+
+  private requireOpenRegisterSession(headers: Record<string, string | string[] | undefined>) {
+    const session = this.requireBranchSession(headers);
+    if (!session.registerId) {
+      throw new BadRequestException('Register is not open');
+    }
+    return session;
+  }
+
+  private requireAdminSession(headers: Record<string, string | string[] | undefined>) {
+    const session = this.getSession(headers);
+    this.requireAdmin(session);
+    return session;
   }
 
   private requireAdmin(session: SessionUser) {
@@ -67,10 +96,78 @@ export class PosController {
     return this.posService.me(this.getSession(headers));
   }
 
+  @Get('/branches')
+  listAccessibleBranches(@Headers() headers: Record<string, string | string[] | undefined>) {
+    return this.posService.listAccessibleBranches(this.getSession(headers));
+  }
+
+  @Post('/registers/open')
+  @HttpCode(200)
+  openRegister(
+    @Body() body: { branchId: string; openingBalance: number },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    return this.posService.openRegister(this.getSession(headers), body.branchId, body.openingBalance);
+  }
+
+  @Get('/registers/current')
+  currentRegister(@Headers() headers: Record<string, string | string[] | undefined>) {
+    return this.posService.getCurrentRegister(this.getSession(headers));
+  }
+
+  @Post('/registers/close')
+  @HttpCode(200)
+  closeRegister(
+    @Body() body: { closingBalance: number },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    return this.posService.closeRegister(this.requireOpenRegisterSession(headers), body.closingBalance);
+  }
+
+  @Get('/business/settings')
+  getBusinessSettings(@Headers() headers: Record<string, string | string[] | undefined>) {
+    this.getSession(headers);
+    return this.posService.getBusinessSettings();
+  }
+
+  @Patch('/business/settings')
+  updateBusinessSettings(
+    @Body() body: { name?: string; logoUrl?: string | null; gstNumber?: string | null },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    this.requireAdmin(this.getSession(headers));
+    return this.posService.updateBusinessSettings(body);
+  }
+
+  @Post('/business/logo')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      dest: join(process.cwd(), 'uploads', 'business'),
+      fileFilter: (_req: unknown, file: { mimetype: string }, cb: (error: Error | null, acceptFile: boolean) => void) => {
+        if (!file.mimetype?.startsWith('image/')) {
+          cb(new BadRequestException('Only image files are allowed'), false);
+          return;
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 5 * 1024 * 1024 }
+    })
+  )
+  uploadBusinessLogo(
+    @UploadedFile() file: { filename: string } | undefined,
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    this.requireAdmin(this.getSession(headers));
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+    return this.posService.updateBusinessSettings({ logoUrl: `/uploads/business/${file.filename}` });
+  }
+
   @Get('/branches/:id')
   getBranch(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
     const session = this.getSession(headers);
-    if (session.branchId !== id) {
+    if (session.branchId && session.branchId !== id) {
       throw new BadRequestException('Branch mismatch');
     }
     return this.posService.getBranchSettings(id);
@@ -96,9 +193,8 @@ export class PosController {
     },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    const session = this.getSession(headers);
-    this.requireAdmin(session);
-    if (session.branchId !== id) {
+    const session = this.requireAdminSession(headers);
+    if (session.branchId && session.branchId !== id) {
       throw new BadRequestException('Branch mismatch');
     }
     return this.posService.updateBranchSettings(id, body);
@@ -123,9 +219,8 @@ export class PosController {
     @UploadedFile() file: { filename: string } | undefined,
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    const session = this.getSession(headers);
-    this.requireAdmin(session);
-    if (session.branchId !== id) {
+    const session = this.requireAdminSession(headers);
+    if (session.branchId && session.branchId !== id) {
       throw new BadRequestException('Branch mismatch');
     }
     if (!file) {
@@ -135,7 +230,11 @@ export class PosController {
   }
 
   @Get('/customers')
-  listCustomers(@Query('branchId') branchId: string) {
+  listCustomers(@Query('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    const session = this.requireOpenRegisterSession(headers);
+    if (session.branchId !== branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
     return this.posService.listCustomers(branchId);
   }
 
@@ -144,17 +243,25 @@ export class PosController {
     @Body() body: { branchId: string; name: string; phone?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    this.getSession(headers);
+    const session = this.requireOpenRegisterSession(headers);
+    if (session.branchId !== body.branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
     return this.posService.createCustomer(body.branchId, body.name, body.phone);
   }
 
   @Get('/customers/walk-in/:branchId')
-  getWalkIn(@Param('branchId') branchId: string) {
+  getWalkIn(@Param('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    const session = this.requireOpenRegisterSession(headers);
+    if (session.branchId !== branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
     return this.posService.getWalkIn(branchId);
   }
 
   @Get('/customers/:id/wallet')
-  getWallet(@Param('id') customerId: string) {
+  getWallet(@Param('id') customerId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    this.requireOpenRegisterSession(headers);
     return this.posService.getWallet(customerId);
   }
 
@@ -165,15 +272,14 @@ export class PosController {
     @Body() body: { amount: number; reference?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    this.requireAdmin(this.getSession(headers));
+    this.requireAdmin(this.requireOpenRegisterSession(headers));
     return this.posService.topupWallet(customerId, body.amount, body.reference);
   }
 
   @Get('/users')
   listUsers(@Query('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
-    const session = this.getSession(headers);
-    this.requireAdmin(session);
-    if (session.branchId !== branchId) {
+    const session = this.requireAdminSession(headers);
+    if (session.branchId && session.branchId !== branchId) {
       throw new BadRequestException('Branch mismatch');
     }
     return this.posService.listUsers(branchId);
@@ -181,12 +287,11 @@ export class PosController {
 
   @Post('/users')
   createUser(
-    @Body() body: { branchId: string; username: string; password: string },
+    @Body() body: { branchId: string; username: string; password: string; branchIds?: string[] },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    const session = this.getSession(headers);
-    this.requireAdmin(session);
-    if (session.branchId !== body.branchId) {
+    const session = this.requireAdminSession(headers);
+    if (session.branchId && session.branchId !== body.branchId) {
       throw new BadRequestException('Branch mismatch');
     }
     return this.posService.createUser(body.branchId, body);
@@ -198,13 +303,35 @@ export class PosController {
     @Body() body: { username?: string; password?: string; isActive?: boolean },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    const session = this.getSession(headers);
-    this.requireAdmin(session);
+    const session = this.requireAdminSession(headers);
     return this.posService.updateUser(session, id, body);
   }
 
+  @Post('/users/:id/branches/:branchId')
+  @HttpCode(204)
+  addUserBranchAccess(
+    @Param('id') id: string,
+    @Param('branchId') branchId: string,
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    const session = this.requireAdminSession(headers);
+    return this.posService.grantUserBranchAccess(session, id, branchId);
+  }
+
+  @Delete('/users/:id/branches/:branchId')
+  @HttpCode(204)
+  removeUserBranchAccess(
+    @Param('id') id: string,
+    @Param('branchId') branchId: string,
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    const session = this.requireAdminSession(headers);
+    return this.posService.revokeUserBranchAccess(session, id, branchId);
+  }
+
   @Get('/items')
-  listItems(@Query('activeOnly') activeOnly?: string) {
+  listItems(@Query('activeOnly') activeOnly: string | undefined, @Headers() headers: Record<string, string | string[] | undefined>) {
+    this.requireOpenRegisterSession(headers);
     return this.posService.listItems(activeOnly === 'true');
   }
 
@@ -223,7 +350,7 @@ export class PosController {
     })
   )
   uploadItemImage(@UploadedFile() file: { filename: string } | undefined, @Headers() headers: Record<string, string | string[] | undefined>) {
-    this.requireAdmin(this.getSession(headers));
+    this.requireAdmin(this.requireOpenRegisterSession(headers));
     if (!file) {
       throw new BadRequestException('Image file is required');
     }
@@ -247,7 +374,7 @@ export class PosController {
     },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    this.requireAdmin(this.getSession(headers));
+    this.requireAdmin(this.requireOpenRegisterSession(headers));
     return this.posService.createItem(body);
   }
 
@@ -268,13 +395,13 @@ export class PosController {
     },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    this.requireAdmin(this.getSession(headers));
+    this.requireAdmin(this.requireOpenRegisterSession(headers));
     return this.posService.updateItem(id, body);
   }
 
   @Delete('/items/:id')
   deleteItem(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
-    this.requireAdmin(this.getSession(headers));
+    this.requireAdmin(this.requireOpenRegisterSession(headers));
     return this.posService.deleteItem(id);
   }
 
@@ -283,7 +410,11 @@ export class PosController {
     @Body() body: { branchId: string; itemId: string; qty: number; costPrice?: number; reason?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    this.requireAdmin(this.getSession(headers));
+    const session = this.requireOpenRegisterSession(headers);
+    this.requireAdmin(session);
+    if (session.branchId !== body.branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
     return this.posService.createStockOpening(body.branchId, body.itemId, body.qty, body.costPrice, body.reason);
   }
 
@@ -292,7 +423,11 @@ export class PosController {
     @Body() body: { branchId: string; itemId: string; qty: number; costPrice?: number; reason?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    this.requireAdmin(this.getSession(headers));
+    const session = this.requireOpenRegisterSession(headers);
+    this.requireAdmin(session);
+    if (session.branchId !== body.branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
     return this.posService.updateStockOpening(body.branchId, body.itemId, body.qty, body.costPrice, body.reason);
   }
 
@@ -301,24 +436,43 @@ export class PosController {
     @Body() body: { branchId: string; itemId: string; qty: number; direction: 'IN' | 'OUT'; costPrice?: number; reason: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    this.requireAdmin(this.getSession(headers));
+    const session = this.requireOpenRegisterSession(headers);
+    this.requireAdmin(session);
+    if (session.branchId !== body.branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
     return this.posService.createStockAdjustment(body.branchId, body.itemId, body.qty, body.direction, body.costPrice, body.reason);
   }
 
   @Get('/stock/on-hand')
-  onHand(@Query('branchId') branchId: string, @Query('itemId') itemId?: string) {
+  onHand(
+    @Query('branchId') branchId: string,
+    @Query('itemId') itemId: string | undefined,
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    const session = this.requireOpenRegisterSession(headers);
+    if (session.branchId !== branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
     return this.posService.getOnHand(branchId, itemId);
   }
 
   @Get('/stock/ledger')
-  stockLedger(@Query('branchId') branchId: string, @Query('itemId') itemId?: string) {
+  stockLedger(
+    @Query('branchId') branchId: string,
+    @Query('itemId') itemId: string | undefined,
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    const session = this.requireOpenRegisterSession(headers);
+    if (session.branchId !== branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
     return this.posService.getLedger(branchId, itemId);
   }
 
   @Get('/reports/sales-summary')
   salesSummary(@Query('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
-    const session = this.getSession(headers);
-    this.requireAdmin(session);
+    const session = this.requireAdminSession(headers);
     return this.posService.getSalesSummary(session, branchId);
   }
 
@@ -327,7 +481,7 @@ export class PosController {
     @Body() body: { branchId: string; customerId: string; lines: Array<{ itemId: string; qty: number; rate: number; discountAmount?: number; taxRate: number }> },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    return this.posService.createSale(this.getSession(headers), body);
+    return this.posService.createSale(this.requireOpenRegisterSession(headers), body);
   }
 
   @Post('/sales/:id/settle')
@@ -337,16 +491,21 @@ export class PosController {
     @Body() body: { payments: Array<{ mode: PaymentMode; amount: number; reference?: string }> },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    return this.posService.settleSale(this.getSession(headers), id, body.payments);
+    return this.posService.settleSale(this.requireOpenRegisterSession(headers), id, body.payments);
   }
 
   @Get('/sales')
-  listSales(@Query('branchId') branchId: string) {
+  listSales(@Query('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    const session = this.requireOpenRegisterSession(headers);
+    if (session.branchId !== branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
     return this.posService.listSales(branchId);
   }
 
   @Get('/sales/:id')
-  getSaleById(@Param('id') id: string) {
+  getSaleById(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    this.requireOpenRegisterSession(headers);
     return this.posService.getSaleById(id);
   }
 
@@ -356,27 +515,29 @@ export class PosController {
     @Body() body: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET' },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    return this.posService.createReturn(this.getSession(headers), id, body);
+    return this.posService.createReturn(this.requireOpenRegisterSession(headers), id, body);
   }
 
   @Get('/receipts/:id')
-  getReceipt(@Param('id') id: string) {
+  getReceipt(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    this.requireOpenRegisterSession(headers);
     return this.posService.getReceiptById(id);
   }
 
   @Get('/receipts/by-invoice/:invoiceId')
-  getReceiptsByInvoice(@Param('invoiceId') invoiceId: string) {
+  getReceiptsByInvoice(@Param('invoiceId') invoiceId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    this.requireOpenRegisterSession(headers);
     return this.posService.getReceiptsByInvoice(invoiceId);
   }
 
   @Get('/returns')
   listReturns(@Headers() headers: Record<string, string | string[] | undefined>) {
-    const session = this.getSession(headers);
-    return this.posService.listReturns(session.branchId);
+    const session = this.requireOpenRegisterSession(headers);
+    return this.posService.listReturns(session.branchId!);
   }
 
   @Get('/returns/:id')
   getReturnById(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
-    return this.posService.getReturnById(this.getSession(headers), id);
+    return this.posService.getReturnById(this.requireOpenRegisterSession(headers), id);
   }
 }

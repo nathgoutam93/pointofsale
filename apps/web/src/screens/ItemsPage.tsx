@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL, api, authHeaders } from "../lib/api";
-import { requireSession } from "./route-helpers";
+import { requireOperationalSession } from "./route-helpers";
 
 type ItemFormState = {
   code: string;
@@ -36,7 +36,7 @@ function money(value: number | string) {
 }
 
 export function ItemsPage() {
-  requireSession();
+  requireOperationalSession();
   const queryClient = useQueryClient();
   const normalizedApiBaseUrl = API_BASE_URL.replace(/\/$/, "");
   const [form, setForm] = useState(initialForm);
@@ -50,7 +50,7 @@ export function ItemsPage() {
   const items = useQuery({
     queryKey: ["items-module"],
     queryFn: async () => {
-      const res = await api.items.list({ query: { activeOnly: true } });
+      const res = await api.items.list({ query: { activeOnly: true }, extraHeaders: authHeaders() });
       if (res.status !== 200) throw new Error("Failed to fetch items");
       return res.body;
     },

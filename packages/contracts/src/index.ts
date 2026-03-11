@@ -19,6 +19,15 @@ export const branchSchema = z.object({
   code: z.string()
 });
 
+export const registerSessionSchema = z.object({
+  id: z.string().uuid(),
+  branchId: z.string().uuid(),
+  openingBalance: moneySchema,
+  closingBalance: moneySchema.nullable(),
+  openedAt: z.string().datetime(),
+  closedAt: z.string().datetime().nullable()
+});
+
 export const branchSettingsSchema = branchSchema.extend({
   logoUrl: z.string().nullable(),
   invoicePrefix: z.string(),
@@ -32,11 +41,19 @@ export const branchSettingsSchema = branchSchema.extend({
   receiptCss: z.string().nullable()
 });
 
+export const businessSettingsSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  logoUrl: z.string().nullable(),
+  gstNumber: z.string().nullable()
+});
+
 export const userSchema = z.object({
   id: z.string().uuid(),
   username: z.string(),
   role: roleSchema,
   branchId: z.string().uuid(),
+  branchIds: z.array(z.string().uuid()),
   isActive: z.boolean(),
   createdAt: z.string().datetime()
 });
@@ -208,15 +225,56 @@ export const appContract = c.router({
       method: 'POST',
       path: '/auth/login',
       body: z.object({ username: z.string(), password: z.string() }),
-      responses: { 200: z.object({ token: z.string(), userId: z.string().uuid(), username: z.string(), role: roleSchema, branchId: z.string().uuid() }) }
+      responses: {
+        200: z.object({
+          token: z.string(),
+          userId: z.string().uuid(),
+          username: z.string(),
+          role: roleSchema,
+          branchId: z.string().uuid().nullable(),
+          registerId: z.string().uuid().nullable(),
+          branches: z.array(branchSchema)
+        })
+      }
     },
     me: {
       method: 'GET',
       path: '/auth/me',
-      responses: { 200: z.object({ userId: z.string().uuid(), username: z.string(), role: roleSchema, branchId: z.string().uuid() }) }
+      responses: {
+        200: z.object({
+          userId: z.string().uuid(),
+          username: z.string(),
+          role: roleSchema,
+          branchId: z.string().uuid().optional(),
+          registerId: z.string().uuid().optional(),
+          branches: z.array(branchSchema)
+        })
+      }
+    }
+  },
+  business: {
+    get: {
+      method: 'GET',
+      path: '/business/settings',
+      responses: { 200: businessSettingsSchema }
+    },
+    update: {
+      method: 'PATCH',
+      path: '/business/settings',
+      body: z.object({
+        name: z.string().optional(),
+        logoUrl: z.string().nullable().optional(),
+        gstNumber: z.string().nullable().optional()
+      }),
+      responses: { 200: businessSettingsSchema }
     }
   },
   branches: {
+    list: {
+      method: 'GET',
+      path: '/branches',
+      responses: { 200: z.array(branchSchema) }
+    },
     get: {
       method: 'GET',
       path: '/branches/:id',
@@ -282,7 +340,12 @@ export const appContract = c.router({
     create: {
       method: 'POST',
       path: '/users',
-      body: z.object({ branchId: z.string().uuid(), username: z.string(), password: z.string() }),
+      body: z.object({
+        branchId: z.string().uuid(),
+        username: z.string(),
+        password: z.string(),
+        branchIds: z.array(z.string().uuid()).optional()
+      }),
       responses: { 201: userSchema }
     },
     update: {
@@ -294,6 +357,54 @@ export const appContract = c.router({
         isActive: z.boolean().optional()
       }),
       responses: { 200: userSchema }
+    },
+    grantBranchAccess: {
+      method: 'POST',
+      path: '/users/:id/branches/:branchId',
+      body: z.undefined(),
+      responses: { 204: z.undefined() }
+    },
+    revokeBranchAccess: {
+      method: 'DELETE',
+      path: '/users/:id/branches/:branchId',
+      body: z.undefined(),
+      responses: { 204: z.undefined() }
+    }
+  },
+  registers: {
+    open: {
+      method: 'POST',
+      path: '/registers/open',
+      body: z.object({
+        branchId: z.string().uuid(),
+        openingBalance: moneySchema.nonnegative()
+      }),
+      responses: {
+        200: z.object({
+          token: z.string(),
+          register: registerSessionSchema
+        })
+      }
+    },
+    current: {
+      method: 'GET',
+      path: '/registers/current',
+      responses: {
+        200: registerSessionSchema.nullable()
+      }
+    },
+    close: {
+      method: 'POST',
+      path: '/registers/close',
+      body: z.object({
+        closingBalance: moneySchema.nonnegative()
+      }),
+      responses: {
+        200: z.object({
+          token: z.string(),
+          register: registerSessionSchema
+        })
+      }
     }
   },
   items: {

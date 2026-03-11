@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, authHeaders } from "../lib/api";
-import { money, requireSession } from "./route-helpers";
+import { money, requireOperationalSession } from "./route-helpers";
 
 type ReturnRefundMode = "CASH" | "WALLET";
 
 export function ReturnsPage() {
-  const session = requireSession();
+  const session = requireOperationalSession();
   const queryClient = useQueryClient();
 
   const [createMode, setCreateMode] = useState(false);

@@ -7,7 +7,7 @@ import {
   formatReceiptTime,
   resolveReceiptWidth,
 } from "../lib/receiptFormat";
-import { money, requireSession } from "./route-helpers";
+import { money, requireOperationalSession } from "./route-helpers";
 
 type PaymentMode = "CASH" | "CARD" | "WALLET";
 
@@ -35,7 +35,7 @@ type SettledSummary = {
 };
 
 export function SalesPage() {
-  const session = requireSession();
+  const session = requireOperationalSession();
   const queryClient = useQueryClient();
   const formatSaleCreator = (createdBy: string, createdByName?: string) => {
     const name = createdByName?.trim() || "Unknown User";
@@ -76,6 +76,16 @@ export function SalesPage() {
       return res.body;
     },
   });
+  const businessSettings = useQuery({
+    queryKey: ["business-settings"],
+    queryFn: async () => {
+      const res = await api.business.get({
+        extraHeaders: authHeaders(),
+      });
+      if (res.status !== 200) throw new Error("Failed to load business settings");
+      return res.body;
+    },
+  });
 
   const receiptHeaderLines = useMemo(() => {
     const raw = branchSettings.data?.receiptHeader ?? "";
@@ -102,13 +112,21 @@ export function SalesPage() {
   }, [branchSettings.data?.invoiceFooter]);
 
   const receiptLogoSrc = useMemo(() => {
-    const logoUrl = branchSettings.data?.logoUrl;
+    const logoUrl = branchSettings.data?.logoUrl ?? businessSettings.data?.logoUrl;
     if (!logoUrl) return null;
     if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
       return logoUrl;
     }
     return `${API_BASE_URL.replace(/\/$/, "")}${logoUrl.startsWith("/") ? "" : "/"}${logoUrl}`;
-  }, [branchSettings.data?.logoUrl]);
+  }, [branchSettings.data?.logoUrl, businessSettings.data?.logoUrl]);
+
+  const storeDisplayName = useMemo(() => {
+    return (
+      businessSettings.data?.name?.trim() ||
+      branchSettings.data?.name?.trim() ||
+      "Store"
+    );
+  }, [businessSettings.data?.name, branchSettings.data?.name]);
 
   const receiptCharWidth = resolveReceiptWidth(
     branchSettings.data?.receiptCss,
@@ -145,6 +163,7 @@ export function SalesPage() {
     queryFn: async () => {
       const res = await api.sales.list({
         query: { branchId: session.branchId },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load sales");
       return res.body;
@@ -154,7 +173,7 @@ export function SalesPage() {
   const items = useQuery({
     queryKey: ["items-sales"],
     queryFn: async () => {
-      const res = await api.items.list({});
+      const res = await api.items.list({ extraHeaders: authHeaders() });
       if (res.status !== 200) throw new Error("Failed to load items");
       return res.body;
     },
@@ -165,6 +184,7 @@ export function SalesPage() {
     queryFn: async () => {
       const res = await api.customers.list({
         query: { branchId: session.branchId },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load customers");
       return res.body;
@@ -177,6 +197,7 @@ export function SalesPage() {
     queryFn: async () => {
       const res = await api.sales.getById({
         params: { id: selectedInvoiceId },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load invoice details");
       return res.body;
@@ -189,6 +210,7 @@ export function SalesPage() {
     queryFn: async () => {
       const res = await api.receipts.getByInvoice({
         params: { invoiceId: selectedInvoiceId },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) return [];
       return res.body;
@@ -275,6 +297,7 @@ export function SalesPage() {
       }
       const res = await api.customers.getWallet({
         params: { id: selectedCustomer.id },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load customer wallet");
       return res.body;
@@ -630,6 +653,7 @@ export function SalesPage() {
       { label: "Time", value: formatReceiptTime(createdAt) },
       { label: "Cashier", value: cashier },
       { label: "Customer", value: selectedCustomer?.name ?? "" },
+      { label: "GSTIN", value: businessSettings.data?.gstNumber ?? "" },
     ];
 
     const items = saleLines.map((line) => {
@@ -656,7 +680,7 @@ export function SalesPage() {
     ];
 
     const payments = paymentBreakdown.map((line) => ({
-      label: `Paid ${line.mode}`,
+      label: `Paid by ${line.mode}`,
       value: money(line.amount),
     }));
 
@@ -665,7 +689,7 @@ export function SalesPage() {
 
     return buildReceiptLines({
       width: receiptCharWidth,
-      storeName: branchSettings.data?.name ?? "Store",
+      storeName: storeDisplayName,
       headerLines: receiptHeaderLines,
       metadata,
       items,
@@ -685,7 +709,8 @@ export function SalesPage() {
     invoiceSubTotal,
     invoiceTaxTotal,
     invoiceGrandTotal,
-    branchSettings.data?.name,
+    businessSettings.data?.gstNumber,
+    storeDisplayName,
     receiptHeaderLines,
     receiptFooterLines,
     invoiceFooterLines,

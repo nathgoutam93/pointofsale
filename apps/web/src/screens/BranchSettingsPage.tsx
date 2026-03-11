@@ -18,27 +18,37 @@ type SettingsForm = {
   receiptCss: string;
 };
 
+type BusinessSettingsForm = {
+  name: string;
+  logoUrl: string | null;
+  gstNumber: string;
+};
+
 type CashierForm = {
   username: string;
   password: string;
+  branchIds: string[];
 };
 
-const emptyCashierForm: CashierForm = { username: "", password: "" };
+const emptyCashierForm = (branchId: string): CashierForm => ({ username: "", password: "", branchIds: [branchId] });
 
 export function BranchSettingsPage() {
   const session = requireAdmin();
+  const activeBranchId = session.branchId ?? session.branches[0]?.id ?? "";
   const queryClient = useQueryClient();
   const normalizedApiBaseUrl = API_BASE_URL.replace(/\/$/, "");
   const [message, setMessage] = useState("");
+  const [businessMessage, setBusinessMessage] = useState("");
   const [userMessage, setUserMessage] = useState("");
-  const [cashierForm, setCashierForm] = useState<CashierForm>(emptyCashierForm);
+  const [cashierForm, setCashierForm] = useState<CashierForm>(emptyCashierForm(activeBranchId));
   const [passwordByUserId, setPasswordByUserId] = useState<Record<string, string>>({});
 
   const branchSettings = useQuery({
-    queryKey: ["branch-settings", session.branchId],
+    queryKey: ["branch-settings", activeBranchId],
+    enabled: !!activeBranchId,
     queryFn: async () => {
       const res = await api.branches.get({
-        params: { id: session.branchId },
+        params: { id: activeBranchId },
         extraHeaders: authHeaders()
       });
       if (res.status !== 200) throw new Error("Failed to load branch settings");
@@ -46,16 +56,38 @@ export function BranchSettingsPage() {
     }
   });
 
+  const businessSettings = useQuery({
+    queryKey: ["business-settings"],
+    queryFn: async () => {
+      const res = await api.business.get({
+        extraHeaders: authHeaders()
+      });
+      if (res.status !== 200) throw new Error("Failed to load business settings");
+      return res.body;
+    }
+  });
+
   const users = useQuery({
-    queryKey: ["branch-users", session.branchId],
+    queryKey: ["branch-users", activeBranchId],
+    enabled: !!activeBranchId,
     queryFn: async () => {
       const res = await api.users.list({
-        query: { branchId: session.branchId },
+        query: { branchId: activeBranchId },
         extraHeaders: authHeaders()
       });
       if (res.status !== 200) throw new Error("Failed to load users");
       return res.body;
     }
+  });
+
+  const branches = useQuery({
+    queryKey: ["accessible-branches"],
+    queryFn: async () => {
+      const res = await api.branches.list({ extraHeaders: authHeaders() });
+      if (res.status !== 200) throw new Error("Failed to load branches");
+      return res.body;
+    },
+    initialData: session.branches
   });
 
   const [form, setForm] = useState<SettingsForm>({
@@ -72,6 +104,20 @@ export function BranchSettingsPage() {
     invoiceCss: "",
     receiptCss: ""
   });
+  const [businessForm, setBusinessForm] = useState<BusinessSettingsForm>({
+    name: "",
+    logoUrl: null,
+    gstNumber: ""
+  });
+
+  useEffect(() => {
+    if (!businessSettings.data) return;
+    setBusinessForm({
+      name: businessSettings.data.name,
+      logoUrl: businessSettings.data.logoUrl,
+      gstNumber: businessSettings.data.gstNumber ?? ""
+    });
+  }, [businessSettings.data]);
 
   useEffect(() => {
     if (!branchSettings.data) return;
@@ -99,6 +145,70 @@ export function BranchSettingsPage() {
     return `${normalizedApiBaseUrl}${form.logoUrl.startsWith("/") ? "" : "/"}${form.logoUrl}`;
   }, [form.logoUrl, normalizedApiBaseUrl]);
 
+  const businessLogoSrc = useMemo(() => {
+    if (!businessForm.logoUrl) return null;
+    if (businessForm.logoUrl.startsWith("http://") || businessForm.logoUrl.startsWith("https://")) {
+      return businessForm.logoUrl;
+    }
+    return `${normalizedApiBaseUrl}${businessForm.logoUrl.startsWith("/") ? "" : "/"}${businessForm.logoUrl}`;
+  }, [businessForm.logoUrl, normalizedApiBaseUrl]);
+
+  const saveBusinessSettings = useMutation({
+    mutationFn: async () => {
+      const emptyToNull = (value: string) => (value.trim() ? value.trim() : null);
+      const trimmedName = businessForm.name.trim();
+      if (!trimmedName) {
+        throw new Error("Business name is required.");
+      }
+      const res = await api.business.update({
+        body: {
+          name: trimmedName,
+          logoUrl: businessForm.logoUrl,
+          gstNumber: emptyToNull(businessForm.gstNumber)
+        },
+        extraHeaders: authHeaders()
+      });
+      if (res.status !== 200) throw new Error("Failed to save business settings");
+      return res.body;
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["business-settings"], updated);
+      setBusinessMessage("Business settings saved.");
+    },
+    onError: (error) => {
+      setBusinessMessage((error as Error).message);
+    }
+  });
+
+  const uploadBusinessLogo = async (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    const res = await fetch(`${normalizedApiBaseUrl}/business/logo`, {
+      method: "POST",
+      headers: authHeaders(),
+      body
+    });
+    if (!res.ok) throw new Error("Failed to upload business logo");
+    return (await res.json()) as { id: string; name: string; logoUrl: string | null; gstNumber: string | null };
+  };
+
+  const uploadBusinessLogoMutation = useMutation({
+    mutationFn: async (file: File) => uploadBusinessLogo(file),
+    onSuccess: (updated) => {
+      setBusinessForm((prev) => ({
+        ...prev,
+        name: updated.name ?? prev.name,
+        logoUrl: updated.logoUrl ?? null,
+        gstNumber: updated.gstNumber ?? ""
+      }));
+      queryClient.invalidateQueries({ queryKey: ["business-settings"] });
+      setBusinessMessage("Business logo updated.");
+    },
+    onError: (error) => {
+      setBusinessMessage((error as Error).message);
+    }
+  });
+
   const saveSettings = useMutation({
     mutationFn: async () => {
       const emptyToNull = (value: string) => (value.trim() ? value : null);
@@ -107,7 +217,7 @@ export function BranchSettingsPage() {
         throw new Error("Branch code is required.");
       }
       const res = await api.branches.update({
-        params: { id: session.branchId },
+        params: { id: activeBranchId },
         body: {
           name: form.name.trim(),
           code: trimmedCode,
@@ -128,7 +238,7 @@ export function BranchSettingsPage() {
       return res.body;
     },
     onSuccess: (updated) => {
-      queryClient.setQueryData(["branch-settings", session.branchId], updated);
+      queryClient.setQueryData(["branch-settings", activeBranchId], updated);
       setMessage("Branch settings saved.");
     },
     onError: (error) => {
@@ -139,7 +249,7 @@ export function BranchSettingsPage() {
   const uploadLogo = async (file: File) => {
     const body = new FormData();
     body.append("file", file);
-    const res = await fetch(`${normalizedApiBaseUrl}/branches/${session.branchId}/logo`, {
+    const res = await fetch(`${normalizedApiBaseUrl}/branches/${activeBranchId}/logo`, {
       method: "POST",
       headers: authHeaders(),
       body
@@ -179,7 +289,7 @@ export function BranchSettingsPage() {
         invoiceCss: updated.invoiceCss ?? "",
         receiptCss: updated.receiptCss ?? ""
       }));
-      queryClient.invalidateQueries({ queryKey: ["branch-settings", session.branchId] });
+      queryClient.invalidateQueries({ queryKey: ["branch-settings", activeBranchId] });
       setMessage("Logo updated.");
     },
     onError: (error) => {
@@ -190,15 +300,20 @@ export function BranchSettingsPage() {
   const createCashier = useMutation({
     mutationFn: async () => {
       const res = await api.users.create({
-        body: { branchId: session.branchId, username: cashierForm.username.trim(), password: cashierForm.password },
+        body: {
+          branchId: activeBranchId,
+          username: cashierForm.username.trim(),
+          password: cashierForm.password,
+          branchIds: cashierForm.branchIds
+        },
         extraHeaders: authHeaders()
       });
       if (res.status !== 201) throw new Error("Failed to create cashier");
       return res.body;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["branch-users", session.branchId] });
-      setCashierForm(emptyCashierForm);
+      queryClient.invalidateQueries({ queryKey: ["branch-users", activeBranchId] });
+      setCashierForm(emptyCashierForm(activeBranchId));
       setUserMessage("Cashier account created.");
     },
     onError: (error) => {
@@ -217,8 +332,40 @@ export function BranchSettingsPage() {
       return res.body;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["branch-users", session.branchId] });
+      queryClient.invalidateQueries({ queryKey: ["branch-users", activeBranchId] });
       setUserMessage("User updated.");
+    },
+    onError: (error) => {
+      setUserMessage((error as Error).message);
+    }
+  });
+
+  const grantBranchAccess = useMutation({
+    mutationFn: async (payload: { id: string; branchId: string }) => {
+      const res = await api.users.grantBranchAccess({
+        params: { id: payload.id, branchId: payload.branchId },
+        extraHeaders: authHeaders()
+      });
+      if (res.status !== 204) throw new Error("Failed to add branch access");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["branch-users", activeBranchId] });
+    },
+    onError: (error) => {
+      setUserMessage((error as Error).message);
+    }
+  });
+
+  const revokeBranchAccess = useMutation({
+    mutationFn: async (payload: { id: string; branchId: string }) => {
+      const res = await api.users.revokeBranchAccess({
+        params: { id: payload.id, branchId: payload.branchId },
+        extraHeaders: authHeaders()
+      });
+      if (res.status !== 204) throw new Error("Failed to remove branch access");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["branch-users", activeBranchId] });
     },
     onError: (error) => {
       setUserMessage((error as Error).message);
@@ -227,8 +374,84 @@ export function BranchSettingsPage() {
 
   const cashiers = useMemo(() => (users.data ?? []).filter((user) => user.role === "CASHIER"), [users.data]);
 
+  if (!activeBranchId) {
+    return (
+      <section className="p-6">
+        <p className="text-sm text-slate-600">No branch access is configured for this admin account.</p>
+      </section>
+    );
+  }
+
   return (
     <section className="grid gap-6 p-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-2xl font-semibold text-slate-900">Business Settings</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Configure global details shared by all branches, including logo and GST number.
+        </p>
+
+        <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-slate-600">Business name</label>
+              <input
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={businessForm.name}
+                onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-sm text-slate-600">GST number</label>
+              <input
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={businessForm.gstNumber}
+                onChange={(e) => setBusinessForm((prev) => ({ ...prev, gstNumber: e.target.value }))}
+                placeholder="e.g. 29ABCDE1234F2Z5"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm text-slate-600">Global logo</label>
+            <div className="mt-2 flex items-center gap-4">
+              <div className="h-16 w-16 overflow-hidden rounded border border-slate-200 bg-slate-50">
+                {businessLogoSrc ? <img src={businessLogoSrc} alt="Business logo" className="h-full w-full object-contain" /> : null}
+              </div>
+              <div className="grid gap-2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) uploadBusinessLogoMutation.mutate(file);
+                  }}
+                />
+                <button
+                  className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                  onClick={() => setBusinessForm((prev) => ({ ...prev, logoUrl: null }))}
+                >
+                  Remove logo
+                </button>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              Branch logo can override this. If branch logo is empty, this one is used.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-emerald-300"
+            onClick={() => saveBusinessSettings.mutate()}
+            disabled={saveBusinessSettings.isPending || businessSettings.isLoading}
+          >
+            Save Business Settings
+          </button>
+          {businessMessage ? <p className="text-sm text-emerald-700">{businessMessage}</p> : null}
+        </div>
+      </div>
+
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-2xl font-semibold text-slate-900">Branch Settings</h2>
         <p className="mt-1 text-sm text-slate-600">
@@ -402,10 +625,35 @@ export function BranchSettingsPage() {
             value={cashierForm.password}
             onChange={(e) => setCashierForm((prev) => ({ ...prev, password: e.target.value }))}
           />
+          <div className="rounded border border-slate-200 p-2 text-sm">
+            <p className="text-xs font-semibold text-slate-600">Branch Access</p>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {(branches.data ?? []).map((branch) => {
+                const checked = cashierForm.branchIds.includes(branch.id);
+                return (
+                  <label key={branch.id} className="inline-flex items-center gap-1 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        setCashierForm((prev) => ({
+                          ...prev,
+                          branchIds: e.target.checked
+                            ? Array.from(new Set([...prev.branchIds, branch.id]))
+                            : prev.branchIds.filter((id) => id !== branch.id)
+                        }));
+                      }}
+                    />
+                    {branch.code}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
           <button
             className="rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
             onClick={() => createCashier.mutate()}
-            disabled={createCashier.isPending || !cashierForm.username.trim() || !cashierForm.password}
+            disabled={createCashier.isPending || !cashierForm.username.trim() || !cashierForm.password || cashierForm.branchIds.length === 0}
           >
             Add Cashier
           </button>
@@ -419,6 +667,9 @@ export function BranchSettingsPage() {
                   <p className="font-semibold text-slate-900">{user.username}</p>
                   <p className="text-xs text-slate-500">
                     Status: {user.isActive ? "Active" : "Inactive"} • Created {new Date(user.createdAt).toLocaleDateString()}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Branch access: {user.branchIds.join(", ")}
                   </p>
                 </div>
                 <button
@@ -452,6 +703,32 @@ export function BranchSettingsPage() {
                 >
                   Reset Password
                 </button>
+              </div>
+              <div className="mt-3 rounded border border-slate-200 p-2">
+                <p className="text-xs font-semibold text-slate-600">Branch Access</p>
+                <div className="mt-2 flex flex-wrap gap-3">
+                  {(branches.data ?? []).map((branch) => {
+                    const hasAccess = user.branchIds.includes(branch.id);
+                    const isPrimary = user.branchId === branch.id;
+                    return (
+                      <label key={`${user.id}-${branch.id}`} className="inline-flex items-center gap-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={hasAccess}
+                          disabled={isPrimary}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              grantBranchAccess.mutate({ id: user.id, branchId: branch.id });
+                            } else {
+                              revokeBranchAccess.mutate({ id: user.id, branchId: branch.id });
+                            }
+                          }}
+                        />
+                        {branch.name} ({branch.code}){isPrimary ? " - Primary" : ""}
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           ))}

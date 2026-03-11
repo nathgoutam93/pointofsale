@@ -7,7 +7,7 @@ import {
   formatReceiptTime,
   resolveReceiptWidth,
 } from "../lib/receiptFormat";
-import { money, requireSession } from "./route-helpers";
+import { money, requireOperationalSession } from "./route-helpers";
 
 type CartLine = {
   itemId: string;
@@ -34,7 +34,7 @@ type PostPaymentSummary = {
 };
 
 export function PosPage() {
-  const session = requireSession();
+  const session = requireOperationalSession();
   const queryClient = useQueryClient();
   const [customerId, setCustomerId] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -74,6 +74,16 @@ export function PosPage() {
       return res.body;
     },
   });
+  const businessSettings = useQuery({
+    queryKey: ["business-settings"],
+    queryFn: async () => {
+      const res = await api.business.get({
+        extraHeaders: authHeaders(),
+      });
+      if (res.status !== 200) throw new Error("Failed to load business settings");
+      return res.body;
+    },
+  });
 
   const invoiceHeaderLines = useMemo(() => {
     const raw = branchSettings.data?.invoiceHeader ?? "";
@@ -100,13 +110,21 @@ export function PosPage() {
   }, [branchSettings.data?.receiptFooter]);
 
   const invoiceLogoSrc = useMemo(() => {
-    const logoUrl = branchSettings.data?.logoUrl;
+    const logoUrl = branchSettings.data?.logoUrl ?? businessSettings.data?.logoUrl;
     if (!logoUrl) return null;
     if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
       return logoUrl;
     }
     return `${API_BASE_URL.replace(/\/$/, "")}${logoUrl.startsWith("/") ? "" : "/"}${logoUrl}`;
-  }, [branchSettings.data?.logoUrl]);
+  }, [branchSettings.data?.logoUrl, businessSettings.data?.logoUrl]);
+
+  const storeDisplayName = useMemo(() => {
+    return (
+      businessSettings.data?.name?.trim() ||
+      branchSettings.data?.name?.trim() ||
+      "Store"
+    );
+  }, [businessSettings.data?.name, branchSettings.data?.name]);
 
   const receiptCharWidth = resolveReceiptWidth(
     branchSettings.data?.invoiceCss,
@@ -147,8 +165,9 @@ export function PosPage() {
       { label: "Receipt", value: postPayment.receiptNo },
       { label: "Date", value: formatReceiptDate(createdAt) },
       { label: "Time", value: formatReceiptTime(createdAt) },
-      { label: "Cashier", value: session.username },
+      { label: "Cashier", value: session.username ?? "" },
       { label: "Customer", value: postPayment.customerName },
+      { label: "GSTIN", value: businessSettings.data?.gstNumber ?? "" },
     ];
 
     const items = printableSaleLines.map((line) => {
@@ -174,7 +193,7 @@ export function PosPage() {
     ];
 
     const payments = postPayment.paymentLines.map((line) => ({
-      label: `Paid ${line.mode}`,
+      label: `Paid by ${line.mode}`,
       value: money(line.amount),
     }));
 
@@ -183,7 +202,7 @@ export function PosPage() {
 
     return buildReceiptLines({
       width: receiptCharWidth,
-      storeName: branchSettings.data?.name ?? "Store",
+      storeName: storeDisplayName,
       headerLines: invoiceHeaderLines,
       metadata,
       items,
@@ -200,7 +219,8 @@ export function PosPage() {
     invoiceHeaderLines,
     invoiceFooterLines,
     receiptFooterLines,
-    branchSettings.data?.name,
+    businessSettings.data?.gstNumber,
+    storeDisplayName,
     session.username,
     receiptCharWidth,
   ]);
@@ -246,7 +266,10 @@ export function PosPage() {
   const items = useQuery({
     queryKey: ["items-pos"],
     queryFn: async () => {
-      const res = await api.items.list({ query: { activeOnly: true } });
+      const res = await api.items.list({
+        query: { activeOnly: true },
+        extraHeaders: authHeaders(),
+      });
       if (res.status !== 200) throw new Error("Failed to load items");
       return res.body;
     },
@@ -257,6 +280,7 @@ export function PosPage() {
     queryFn: async () => {
       const res = await api.customers.list({
         query: { branchId: session.branchId },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load customers");
       return res.body;
@@ -268,6 +292,7 @@ export function PosPage() {
     queryFn: async () => {
       const res = await api.customers.getWalkIn({
         params: { branchId: session.branchId },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200)
         throw new Error("Failed to load walk-in customer");
@@ -390,7 +415,10 @@ export function PosPage() {
     queryKey: ["customer-wallet", customerId],
     enabled: !!customerId,
     queryFn: async () => {
-      const res = await api.customers.getWallet({ params: { id: customerId } });
+      const res = await api.customers.getWallet({
+        params: { id: customerId },
+        extraHeaders: authHeaders(),
+      });
       if (res.status !== 200) throw new Error("Failed to load customer wallet");
       return res.body;
     },

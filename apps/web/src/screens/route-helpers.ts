@@ -1,5 +1,5 @@
 import { redirect } from '@tanstack/react-router';
-import { getSession } from '../lib/session';
+import { getSession, Session } from '../lib/session';
 
 export function money(n: number | string | null | undefined) {
   const value = Number(n);
@@ -13,6 +13,14 @@ export function requireSession() {
     throw redirect({ to: '/' });
   }
   return session;
+}
+
+export function requireOperationalSession() {
+  const session = requireSession();
+  if (!session.branchId || !session.registerId) {
+    throw redirect({ to: '/open-register' });
+  }
+  return session as Session & { branchId: string; registerId: string };
 }
 
 export function requireAdmin() {

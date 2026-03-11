@@ -6,6 +6,18 @@ import { PaymentInput, SessionUser } from './pos.types';
 @Injectable()
 export class PosService {
   constructor(private readonly prisma: PrismaService) {}
+  private readonly branchSummarySelect = {
+    id: true,
+    name: true,
+    code: true
+  } as const;
+
+  private readonly businessSettingsSelect = {
+    id: true,
+    name: true,
+    logoUrl: true,
+    gstNumber: true
+  } as const;
 
   private async withCreatedByName<T extends { createdBy: string }>(
     invoice: T
@@ -42,6 +54,69 @@ export class PosService {
     if (!branch) {
       throw new BadRequestException(`Invalid branchId: ${branchId}`);
     }
+  }
+
+  private requireSessionBranchId(session: SessionUser) {
+    if (!session.branchId) {
+      throw new BadRequestException('Branch not selected. Open a register first.');
+    }
+    return session.branchId;
+  }
+
+  private requireSessionRegisterId(session: SessionUser) {
+    if (!session.registerId) {
+      throw new BadRequestException('Register is not open.');
+    }
+    return session.registerId;
+  }
+
+  private async ensureUserHasBranchAccess(userId: string, branchId: string, tx?: Prisma.TransactionClient) {
+    const client = tx ?? this.prisma;
+    const access = await client.userBranchAccess.findUnique({
+      where: { userId_branchId: { userId, branchId } },
+      select: { id: true }
+    });
+    if (!access) {
+      throw new BadRequestException('You do not have access to this branch');
+    }
+  }
+
+  private buildToken(session: SessionUser) {
+    const parts = [session.userId, session.role];
+    if (session.branchId) {
+      parts.push(session.branchId);
+    }
+    if (session.registerId) {
+      parts.push(session.registerId);
+    }
+    return Buffer.from(parts.join(':')).toString('base64');
+  }
+
+  private async ensureBusinessSettings(tx?: Prisma.TransactionClient) {
+    const client = tx ?? this.prisma;
+    return client.businessSettings.upsert({
+      where: { id: 'default' },
+      update: {},
+      create: { id: 'default', name: 'My Business' },
+      select: this.businessSettingsSelect
+    });
+  }
+
+  async getBusinessSettings() {
+    return this.ensureBusinessSettings();
+  }
+
+  async updateBusinessSettings(input: { name?: string; logoUrl?: string | null; gstNumber?: string | null }) {
+    await this.ensureBusinessSettings();
+    return this.prisma.businessSettings.update({
+      where: { id: 'default' },
+      data: {
+        name: input.name,
+        logoUrl: input.logoUrl,
+        gstNumber: input.gstNumber
+      },
+      select: this.businessSettingsSelect
+    });
   }
 
   async getBranchSettings(branchId: string) {
@@ -123,29 +198,115 @@ export class PosService {
 
   async listUsers(branchId: string) {
     await this.ensureBranchExists(branchId);
-    return this.prisma.user.findMany({
-      where: { branchId },
+    const users = await this.prisma.user.findMany({
+      where: { branchAccesses: { some: { branchId } } },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, username: true, role: true, branchId: true, isActive: true, createdAt: true }
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        branchId: true,
+        isActive: true,
+        createdAt: true,
+        branchAccesses: { select: { branchId: true } }
+      }
     });
+    return users.map((user) => ({
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      branchId: user.branchId,
+      branchIds: user.branchAccesses.map((access) => access.branchId),
+      isActive: user.isActive,
+      createdAt: user.createdAt
+    }));
   }
 
   async createUser(
     branchId: string,
-    input: { username: string; password: string; role?: UserRole }
+    input: { username: string; password: string; role?: UserRole; branchIds?: string[] }
   ) {
     await this.ensureBranchExists(branchId);
     if (input.role && input.role !== UserRole.CASHIER) {
       throw new BadRequestException('Only cashier accounts can be created here');
     }
-    return this.prisma.user.create({
+    const uniqueBranchIds = Array.from(new Set([branchId, ...(input.branchIds ?? [])]));
+    await Promise.all(uniqueBranchIds.map((id) => this.ensureBranchExists(id)));
+    const created = await this.prisma.user.create({
       data: {
         branchId,
         username: input.username,
         password: input.password,
-        role: UserRole.CASHIER
+        role: UserRole.CASHIER,
+        branchAccesses: {
+          createMany: {
+            data: uniqueBranchIds.map((id) => ({ branchId: id }))
+          }
+        }
       },
-      select: { id: true, username: true, role: true, branchId: true, isActive: true, createdAt: true }
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        branchId: true,
+        isActive: true,
+        createdAt: true,
+        branchAccesses: { select: { branchId: true } }
+      }
+    });
+    return {
+      id: created.id,
+      username: created.username,
+      role: created.role,
+      branchId: created.branchId,
+      branchIds: created.branchAccesses.map((access) => access.branchId),
+      isActive: created.isActive,
+      createdAt: created.createdAt
+    };
+  }
+
+  async grantUserBranchAccess(session: SessionUser, userId: string, branchId: string) {
+    await this.ensureBranchExists(branchId);
+    if (session.branchId) {
+      await this.ensureUserHasBranchAccess(session.userId, session.branchId);
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    if (user.role !== UserRole.CASHIER) {
+      throw new BadRequestException('Only cashier access updates are allowed');
+    }
+
+    await this.prisma.userBranchAccess.upsert({
+      where: { userId_branchId: { userId, branchId } },
+      update: {},
+      create: { userId, branchId }
+    });
+  }
+
+  async revokeUserBranchAccess(session: SessionUser, userId: string, branchId: string) {
+    if (session.branchId) {
+      await this.ensureUserHasBranchAccess(session.userId, session.branchId);
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, branchId: true }
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    if (user.role !== UserRole.CASHIER) {
+      throw new BadRequestException('Only cashier access updates are allowed');
+    }
+    if (user.branchId === branchId) {
+      throw new BadRequestException('Cannot remove the user primary branch access');
+    }
+
+    await this.prisma.userBranchAccess.delete({
+      where: { userId_branchId: { userId, branchId } }
     });
   }
 
@@ -154,11 +315,14 @@ export class PosService {
     userId: string,
     input: { username?: string; password?: string; isActive?: boolean; role?: UserRole }
   ) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { branchAccesses: { select: { branchId: true } } }
+    });
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    if (user.branchId !== session.branchId) {
+    if (session.branchId && !user.branchAccesses.some((access) => access.branchId === session.branchId)) {
       throw new BadRequestException('Branch mismatch');
     }
     if (input.role && input.role !== UserRole.CASHIER) {
@@ -168,15 +332,32 @@ export class PosService {
       throw new BadRequestException('Cannot deactivate your own account');
     }
 
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
         username: input.username,
         password: input.password,
         isActive: input.isActive
       },
-      select: { id: true, username: true, role: true, branchId: true, isActive: true, createdAt: true }
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        branchId: true,
+        isActive: true,
+        createdAt: true,
+        branchAccesses: { select: { branchId: true } }
+      }
     });
+    return {
+      id: updated.id,
+      username: updated.username,
+      role: updated.role,
+      branchId: updated.branchId,
+      branchIds: updated.branchAccesses.map((access) => access.branchId),
+      isActive: updated.isActive,
+      createdAt: updated.createdAt
+    };
   }
 
   private async resolveItemId(itemRef: string, tx?: Prisma.TransactionClient) {
@@ -212,6 +393,23 @@ export class PosService {
       where: { username: 'cashier' },
       update: {},
       create: { username: 'cashier', password: 'password', role: UserRole.CASHIER, branchId: branch.id }
+    });
+
+    const users = await this.prisma.user.findMany({ select: { id: true, branchId: true } });
+    await Promise.all(
+      users.map((user) =>
+        this.prisma.userBranchAccess.upsert({
+          where: { userId_branchId: { userId: user.id, branchId: user.branchId } },
+          update: {},
+          create: { userId: user.id, branchId: user.branchId }
+        })
+      )
+    );
+
+    await this.prisma.businessSettings.upsert({
+      where: { id: 'default' },
+      update: {},
+      create: { id: 'default', name: branch.name }
     });
 
     await this.ensureWalkInCustomer(branch.id);
@@ -296,7 +494,15 @@ export class PosService {
   }
 
   async login(username: string, password: string) {
-    const user = await this.prisma.user.findUnique({ where: { username } });
+    const user = await this.prisma.user.findUnique({
+      where: { username },
+      include: {
+        branchAccesses: {
+          include: { branch: { select: this.branchSummarySelect } },
+          orderBy: { createdAt: 'asc' }
+        }
+      }
+    });
     if (!user || user.password !== password) {
       throw new BadRequestException('Invalid credentials');
     }
@@ -304,19 +510,159 @@ export class PosService {
       throw new BadRequestException('Account is inactive');
     }
 
-    const token = Buffer.from(`${user.id}:${user.role}:${user.branchId}`).toString('base64');
-    return { token, userId: user.id, username: user.username, role: user.role, branchId: user.branchId };
+    const token = this.buildToken({ userId: user.id, role: user.role });
+    return {
+      token,
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      branchId: null,
+      registerId: null,
+      branches: user.branchAccesses.map((access) => access.branch)
+    };
   }
 
   async me(session: SessionUser) {
     const user = await this.prisma.user.findUnique({
       where: { id: session.userId },
-      select: { username: true }
+      include: {
+        branchAccesses: {
+          include: { branch: { select: this.branchSummarySelect } },
+          orderBy: { createdAt: 'asc' }
+        }
+      }
     });
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    return { ...session, username: user.username };
+    return {
+      ...session,
+      username: user.username,
+      branches: user.branchAccesses.map((access) => access.branch)
+    };
+  }
+
+  async listAccessibleBranches(session: SessionUser) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: session.userId },
+      include: {
+        branchAccesses: {
+          include: { branch: { select: this.branchSummarySelect } },
+          orderBy: { createdAt: 'asc' }
+        }
+      }
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    return user.branchAccesses.map((access) => access.branch);
+  }
+
+  async openRegister(session: SessionUser, branchId: string, openingBalance: number) {
+    if (!Number.isFinite(openingBalance) || openingBalance < 0) {
+      throw new BadRequestException('Opening balance must be 0 or more');
+    }
+    await this.ensureBranchExists(branchId);
+    await this.ensureUserHasBranchAccess(session.userId, branchId);
+
+    const openRegister = await this.prisma.registerSession.findFirst({
+      where: { userId: session.userId, closedAt: null },
+      select: { id: true }
+    });
+    if (openRegister) {
+      throw new BadRequestException('You already have an open register. Close it before opening a new one.');
+    }
+
+    const register = await this.prisma.registerSession.create({
+      data: {
+        userId: session.userId,
+        branchId,
+        openingBalance
+      }
+    });
+
+    return {
+      token: this.buildToken({ userId: session.userId, role: session.role, branchId, registerId: register.id }),
+      register: {
+        id: register.id,
+        branchId: register.branchId,
+        openingBalance: this.toNumber(register.openingBalance),
+        closingBalance: register.closingBalance ? this.toNumber(register.closingBalance) : null,
+        openedAt: register.openedAt,
+        closedAt: register.closedAt
+      }
+    };
+  }
+
+  async getCurrentRegister(session: SessionUser) {
+    if (!session.registerId) {
+      return null;
+    }
+    const register = await this.prisma.registerSession.findFirst({
+      where: { id: session.registerId, userId: session.userId, closedAt: null },
+      select: {
+        id: true,
+        branchId: true,
+        openingBalance: true,
+        closingBalance: true,
+        openedAt: true,
+        closedAt: true
+      }
+    });
+    if (!register) {
+      return null;
+    }
+    return {
+      id: register.id,
+      branchId: register.branchId,
+      openingBalance: this.toNumber(register.openingBalance),
+      closingBalance: register.closingBalance ? this.toNumber(register.closingBalance) : null,
+      openedAt: register.openedAt,
+      closedAt: register.closedAt
+    };
+  }
+
+  async closeRegister(session: SessionUser, closingBalance: number) {
+    if (!Number.isFinite(closingBalance) || closingBalance < 0) {
+      throw new BadRequestException('Closing balance must be 0 or more');
+    }
+    const registerId = this.requireSessionRegisterId(session);
+    const branchId = this.requireSessionBranchId(session);
+    const register = await this.prisma.registerSession.findFirst({
+      where: { id: registerId, userId: session.userId, branchId, closedAt: null },
+      select: { id: true, branchId: true, openingBalance: true, openedAt: true }
+    });
+    if (!register) {
+      throw new NotFoundException('Open register not found');
+    }
+
+    const updated = await this.prisma.registerSession.update({
+      where: { id: register.id },
+      data: {
+        closingBalance,
+        closedAt: new Date()
+      },
+      select: {
+        id: true,
+        branchId: true,
+        openingBalance: true,
+        closingBalance: true,
+        openedAt: true,
+        closedAt: true
+      }
+    });
+
+    return {
+      token: this.buildToken({ userId: session.userId, role: session.role }),
+      register: {
+        id: updated.id,
+        branchId: updated.branchId,
+        openingBalance: this.toNumber(updated.openingBalance),
+        closingBalance: updated.closingBalance ? this.toNumber(updated.closingBalance) : null,
+        openedAt: updated.openedAt,
+        closedAt: updated.closedAt
+      }
+    };
   }
 
   async listCustomers(branchId: string) {
@@ -563,7 +909,8 @@ export class PosService {
     session: SessionUser,
     input: { branchId: string; customerId: string; lines: Array<{ itemId: string; qty: number; rate: number; discountAmount?: number; taxRate: number }> }
   ) {
-    if (session.branchId !== input.branchId) {
+    const sessionBranchId = this.requireSessionBranchId(session);
+    if (sessionBranchId !== input.branchId) {
       throw new BadRequestException('Branch mismatch');
     }
 
@@ -648,6 +995,7 @@ export class PosService {
   }
 
   async settleSale(session: SessionUser, invoiceId: string, payments: PaymentInput[]) {
+    const sessionBranchId = this.requireSessionBranchId(session);
     return this.prisma.$transaction(async (tx) => {
       const invoice = await tx.saleInvoice.findUnique({
         where: { id: invoiceId },
@@ -655,7 +1003,7 @@ export class PosService {
       });
 
       if (!invoice) throw new NotFoundException('Invoice not found');
-      if (invoice.branchId !== session.branchId) throw new BadRequestException('Branch mismatch');
+      if (invoice.branchId !== sessionBranchId) throw new BadRequestException('Branch mismatch');
 
       const payTotal = this.round2(payments.reduce((acc, p) => acc + p.amount, 0));
       const pending = this.round2(this.toNumber(invoice.grandTotal) - this.toNumber(invoice.paidTotal));
@@ -775,6 +1123,7 @@ export class PosService {
     saleInvoiceId: string,
     input: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET' }
   ) {
+    const sessionBranchId = this.requireSessionBranchId(session);
     return this.prisma.$transaction(async (tx) => {
       if (input.refundMode !== PaymentMode.CASH && input.refundMode !== PaymentMode.WALLET) {
         throw new BadRequestException('Return refund mode must be CASH or WALLET');
@@ -786,7 +1135,7 @@ export class PosService {
       });
 
       if (!invoice) throw new NotFoundException('Invoice not found');
-      if (invoice.branchId !== session.branchId) throw new BadRequestException('Branch mismatch');
+      if (invoice.branchId !== sessionBranchId) throw new BadRequestException('Branch mismatch');
 
       let totalAmount = 0;
       const returnLineCreates: Array<{ saleLineId: string; qty: number; amount: number }> = [];
@@ -931,7 +1280,8 @@ export class PosService {
     });
 
     if (!returnInvoice) throw new NotFoundException('Return invoice not found');
-    if (returnInvoice.saleInvoice.branchId !== session.branchId) throw new BadRequestException('Branch mismatch');
+    const sessionBranchId = this.requireSessionBranchId(session);
+    if (returnInvoice.saleInvoice.branchId !== sessionBranchId) throw new BadRequestException('Branch mismatch');
 
     return {
       id: returnInvoice.id,
@@ -1044,7 +1394,7 @@ export class PosService {
   }
 
   async getSalesSummary(session: SessionUser, branchId: string) {
-    if (session.branchId !== branchId) {
+    if (session.branchId && session.branchId !== branchId) {
       throw new BadRequestException('Branch mismatch');
     }
     await this.ensureBranchExists(branchId);

@@ -2,7 +2,8 @@ import { PaymentMode, UserRole } from '@prisma/client';
 
 export type SessionUser = {
   userId: string;
-  branchId: string;
+  branchId?: string;
+  registerId?: string;
   role: UserRole;
 };
 

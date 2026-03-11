@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, authHeaders } from "../lib/api";
-import { money, requireSession } from "./route-helpers";
+import { money, requireOperationalSession } from "./route-helpers";
 
 type StockModalType = "opening" | "adjustment" | null;
 
@@ -16,7 +16,7 @@ function formatDateTime(value: string) {
 }
 
 export function StockPage() {
-  const session = requireSession();
+  const session = requireOperationalSession();
   const queryClient = useQueryClient();
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [modalType, setModalType] = useState<StockModalType>(null);
@@ -40,7 +40,7 @@ export function StockPage() {
   const items = useQuery({
     queryKey: ["items-stock-list"],
     queryFn: async () => {
-      const res = await api.items.list({ query: { activeOnly: true } });
+      const res = await api.items.list({ query: { activeOnly: true }, extraHeaders: authHeaders() });
       if (res.status !== 200) throw new Error("Failed to fetch items");
       return res.body;
     },
@@ -51,6 +51,7 @@ export function StockPage() {
     queryFn: async () => {
       const res = await api.stock.onHand({
         query: { branchId: session.branchId },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to fetch stock");
       return res.body;
@@ -64,6 +65,7 @@ export function StockPage() {
       if (!selectedItemId) return [];
       const res = await api.stock.ledger({
         query: { branchId: session.branchId, itemId: selectedItemId },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to fetch stock history");
       return res.body;

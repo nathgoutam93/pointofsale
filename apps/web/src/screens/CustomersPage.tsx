@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, authHeaders } from "../lib/api";
-import { money, requireSession } from "./route-helpers";
+import { money, requireOperationalSession } from "./route-helpers";
 
 export function CustomersPage() {
-  const session = requireSession();
+  const session = requireOperationalSession();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -19,6 +19,7 @@ export function CustomersPage() {
     queryFn: async () => {
       const res = await api.customers.list({
         query: { branchId: session.branchId },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to fetch customers");
       return res.body;
@@ -73,6 +74,7 @@ export function CustomersPage() {
       }
       const res = await api.customers.getWallet({
         params: { id: selectedCustomer.id },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to fetch wallet balance");
       return res.body;
@@ -84,6 +86,7 @@ export function CustomersPage() {
     queryFn: async () => {
       const res = await api.sales.list({
         query: { branchId: session.branchId },
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to fetch sales");
       return res.body;
