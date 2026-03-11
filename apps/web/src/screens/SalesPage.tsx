@@ -51,6 +51,11 @@ export function SalesPage() {
   const [settledSummary, setSettledSummary] = useState<SettledSummary | null>(
     null,
   );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [paymentFilter, setPaymentFilter] = useState<
+    "ALL" | "PENDING" | "SETTLED"
+  >("ALL");
 
   const branchSettings = useQuery({
     queryKey: ["branch-settings", session.branchId],
@@ -174,6 +179,14 @@ export function SalesPage() {
     }
     return map;
   }, [items.data]);
+
+  const customerNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const customer of customers.data ?? []) {
+      map.set(customer.id, customer.name);
+    }
+    return map;
+  }, [customers.data]);
 
   const selectedInvoice = useMemo(() => {
     if (!selectedInvoiceId) return null;
@@ -454,12 +467,65 @@ export function SalesPage() {
     },
   });
 
-  const pendingInvoices = useMemo(
+  const statusOptions = useMemo(() => {
+    const statuses = new Set<string>();
+    for (const invoice of sales.data ?? []) {
+      if (invoice.status) statuses.add(invoice.status);
+    }
+    return ["ALL", ...Array.from(statuses).sort((a, b) => a.localeCompare(b))];
+  }, [sales.data]);
+
+  const filteredSales = useMemo(() => {
+    let list = sales.data ?? [];
+    if (paymentFilter !== "ALL") {
+      list = list.filter((invoice) => {
+        const pending =
+          Number(invoice.grandTotal) - Number(invoice.paidTotal) > 0;
+        return paymentFilter === "PENDING" ? pending : !pending;
+      });
+    }
+    if (statusFilter !== "ALL") {
+      list = list.filter((invoice) => invoice.status === statusFilter);
+    }
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return list;
+    return list.filter((invoice) => {
+      const customerName =
+        customerNameById.get(invoice.customerId)?.toLowerCase() ?? "";
+      const createdByNameRaw =
+        invoice.createdByName?.trim() || invoice.createdBy || "";
+      const createdByName =
+        invoice.createdBy === session.userId
+          ? session.username?.trim() || createdByNameRaw
+          : createdByNameRaw;
+      const haystack = [
+        invoice.invoiceNo,
+        invoice.status,
+        invoice.createdBy,
+        createdByName,
+        customerName,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [
+    sales.data,
+    paymentFilter,
+    statusFilter,
+    searchQuery,
+    customerNameById,
+    session.userId,
+    session.username,
+  ]);
+
+  const filteredPendingInvoices = useMemo(
     () =>
-      (sales.data ?? []).filter(
+      filteredSales.filter(
         (invoice) => Number(invoice.grandTotal) - Number(invoice.paidTotal) > 0,
       ),
-    [sales.data],
+    [filteredSales],
   );
 
   const saleLines =
@@ -580,20 +646,57 @@ export function SalesPage() {
                 <div className="rounded bg-slate-100 p-2 text-slate-700">
                   Pending Invoices:{" "}
                   <span className="font-semibold text-slate-900">
-                    {pendingInvoices.length}
+                    {filteredPendingInvoices.length}
                   </span>
                 </div>
                 <div className="rounded bg-slate-100 p-2 text-slate-700">
                   Total Invoices:{" "}
                   <span className="font-semibold text-slate-900">
-                    {(sales.data ?? []).length}
+                    {filteredSales.length}
                   </span>
                 </div>
+              </div>
+              <div className="mt-3 grid gap-2 text-sm">
+                <input
+                  className="w-full rounded border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-fuchsia-400"
+                  placeholder="Search by invoice, customer, status, or staff"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    className="w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm text-slate-700"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    {statusOptions.map((status) => (
+                      <option key={status} value={status}>
+                        {status === "ALL" ? "All Statuses" : status}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm text-slate-700"
+                    value={paymentFilter}
+                    onChange={(e) =>
+                      setPaymentFilter(
+                        e.target.value as "ALL" | "PENDING" | "SETTLED",
+                      )
+                    }
+                  >
+                    <option value="ALL">All Payments</option>
+                    <option value="PENDING">Pending Only</option>
+                    <option value="SETTLED">Settled Only</option>
+                  </select>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Showing {filteredSales.length} of {(sales.data ?? []).length}
+                </p>
               </div>
             </div>
 
             <div className="flex-1 space-y-2 overflow-y-auto p-3">
-              {(sales.data ?? []).map((invoice) => {
+              {filteredSales.map((invoice) => {
                 const pending =
                   Number(invoice.grandTotal) - Number(invoice.paidTotal);
                 const isSelected = selectedInvoiceId === invoice.id;
@@ -637,6 +740,11 @@ export function SalesPage() {
                   </button>
                 );
               })}
+              {filteredSales.length === 0 ? (
+                <div className="rounded border border-dashed border-slate-300 bg-white p-4 text-center text-sm text-slate-500">
+                  No invoices match the current filters.
+                </div>
+              ) : null}
             </div>
           </>
         )}
