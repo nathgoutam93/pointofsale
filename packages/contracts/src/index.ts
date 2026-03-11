@@ -193,6 +193,7 @@ export const appContract = c.router({
       path: '/branches/:id',
       body: z.object({
         name: z.string().optional(),
+        code: z.string().optional(),
         logoUrl: z.string().nullable().optional(),
         invoicePrefix: z.string().optional(),
         receiptPrefix: z.string().optional(),

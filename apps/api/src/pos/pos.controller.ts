@@ -82,6 +82,7 @@ export class PosController {
     @Body()
     body: {
       name?: string;
+      code?: string;
       logoUrl?: string | null;
       invoicePrefix?: string;
       receiptPrefix?: string;

@@ -5,6 +5,7 @@ import { requireAdmin } from "./route-helpers";
 
 type SettingsForm = {
   name: string;
+  code: string;
   logoUrl: string | null;
   invoicePrefix: string;
   receiptPrefix: string;
@@ -59,6 +60,7 @@ export function BranchSettingsPage() {
 
   const [form, setForm] = useState<SettingsForm>({
     name: "",
+    code: "",
     logoUrl: null,
     invoicePrefix: "INV",
     receiptPrefix: "RCPT",
@@ -75,6 +77,7 @@ export function BranchSettingsPage() {
     if (!branchSettings.data) return;
     setForm({
       name: branchSettings.data.name,
+      code: branchSettings.data.code,
       logoUrl: branchSettings.data.logoUrl,
       invoicePrefix: branchSettings.data.invoicePrefix,
       receiptPrefix: branchSettings.data.receiptPrefix,
@@ -99,10 +102,15 @@ export function BranchSettingsPage() {
   const saveSettings = useMutation({
     mutationFn: async () => {
       const emptyToNull = (value: string) => (value.trim() ? value : null);
+      const trimmedCode = form.code.trim();
+      if (!trimmedCode) {
+        throw new Error("Branch code is required.");
+      }
       const res = await api.branches.update({
         params: { id: session.branchId },
         body: {
           name: form.name.trim(),
+          code: trimmedCode,
           logoUrl: form.logoUrl,
           invoicePrefix: form.invoicePrefix.trim(),
           receiptPrefix: form.receiptPrefix.trim(),
@@ -139,6 +147,7 @@ export function BranchSettingsPage() {
     if (!res.ok) throw new Error("Failed to upload logo");
     return (await res.json()) as {
       name: string;
+      code: string;
       logoUrl: string | null;
       invoicePrefix: string;
       receiptPrefix: string;
@@ -158,6 +167,7 @@ export function BranchSettingsPage() {
       setForm((prev) => ({
         ...prev,
         name: updated.name ?? prev.name,
+        code: updated.code ?? prev.code,
         logoUrl: updated.logoUrl ?? null,
         invoicePrefix: updated.invoicePrefix ?? prev.invoicePrefix,
         receiptPrefix: updated.receiptPrefix ?? prev.receiptPrefix,
@@ -234,6 +244,15 @@ export function BranchSettingsPage() {
                 value={form.name}
                 onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
               />
+            </div>
+            <div>
+              <label className="text-sm text-slate-600">Branch code</label>
+              <input
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={form.code}
+                onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value }))}
+              />
+              <p className="mt-1 text-xs text-slate-500">Used in invoice/receipt numbers. Changing affects future numbers only.</p>
             </div>
 
             <div>

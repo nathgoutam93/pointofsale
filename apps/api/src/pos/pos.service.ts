@@ -73,6 +73,7 @@ export class PosService {
     branchId: string,
     input: {
       name?: string;
+      code?: string;
       logoUrl?: string | null;
       invoicePrefix?: string;
       receiptPrefix?: string;
@@ -90,6 +91,7 @@ export class PosService {
       where: { id: branchId },
       data: {
         name: input.name,
+        code: input.code,
         logoUrl: input.logoUrl,
         invoicePrefix: input.invoicePrefix,
         receiptPrefix: input.receiptPrefix,
