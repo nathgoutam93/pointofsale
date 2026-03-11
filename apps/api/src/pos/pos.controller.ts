@@ -340,7 +340,7 @@ export class PosController {
 
   @Get('/items')
   listItems(@Query('activeOnly') activeOnly: string | undefined, @Headers() headers: Record<string, string | string[] | undefined>) {
-    this.requireOpenRegisterSession(headers);
+    this.getSession(headers);
     return this.posService.listItems(activeOnly === 'true');
   }
 
@@ -359,7 +359,7 @@ export class PosController {
     })
   )
   uploadItemImage(@UploadedFile() file: { filename: string } | undefined, @Headers() headers: Record<string, string | string[] | undefined>) {
-    this.requireAdmin(this.requireOpenRegisterSession(headers));
+    this.requireAdminSession(headers);
     if (!file) {
       throw new BadRequestException('Image file is required');
     }
@@ -383,7 +383,7 @@ export class PosController {
     },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    this.requireAdmin(this.requireOpenRegisterSession(headers));
+    this.requireAdminSession(headers);
     return this.posService.createItem(body);
   }
 
@@ -404,13 +404,13 @@ export class PosController {
     },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    this.requireAdmin(this.requireOpenRegisterSession(headers));
+    this.requireAdminSession(headers);
     return this.posService.updateItem(id, body);
   }
 
   @Delete('/items/:id')
   deleteItem(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
-    this.requireAdmin(this.requireOpenRegisterSession(headers));
+    this.requireAdminSession(headers);
     return this.posService.deleteItem(id);
   }
 

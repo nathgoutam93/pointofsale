@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL, api, authHeaders } from "../lib/api";
-import { requireOperationalSession } from "./route-helpers";
+import { requireSession } from "./route-helpers";
 
 type ItemFormState = {
   code: string;
@@ -36,7 +36,7 @@ function money(value: number | string) {
 }
 
 export function ItemsPage() {
-  requireOperationalSession();
+  requireSession();
   const queryClient = useQueryClient();
   const normalizedApiBaseUrl = API_BASE_URL.replace(/\/$/, "");
   const [form, setForm] = useState(initialForm);

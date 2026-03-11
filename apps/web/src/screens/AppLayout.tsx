@@ -8,16 +8,17 @@ export function AppLayout() {
   const location = useRouterState({ select: (s) => s.location.pathname });
   const session = getSession();
   const [open, setOpen] = useState(false);
-  const userLabel = session
-    ? session.username?.trim() || session.role
+  const userLabel = session ? session.username?.trim() || session.role : "";
+  const branchLabel = session?.branchId
+    ? (session.branches.find((branch) => branch.id === session.branchId)
+        ?.name ?? "Selected Branch")
     : "";
-  const branchLabel = session?.branchId ? session.branches.find((branch) => branch.id === session.branchId)?.name ?? "Selected Branch" : "";
 
   const closeRegister = useMutation({
     mutationFn: async (closingBalance: number) => {
       const res = await api.registers.close({
         body: { closingBalance },
-        extraHeaders: authHeaders()
+        extraHeaders: authHeaders(),
       });
       if (res.status !== 200) {
         throw new Error("Failed to close register");
@@ -27,7 +28,7 @@ export function AppLayout() {
     onSuccess: (data) => {
       updateSession({ token: data.token, branchId: null, registerId: null });
       window.location.href = "/open-register";
-    }
+    },
   });
 
   if (!session && location === "/") {
@@ -47,8 +48,16 @@ export function AppLayout() {
         <div className="flex items-center gap-3">
           {session ? (
             <p className="text-right text-xs text-slate-600">
-              Logged in: <span className="font-semibold text-slate-900">{userLabel}</span>
-              {branchLabel ? <span className="ml-2">| Branch: <span className="font-semibold text-slate-900">{branchLabel}</span></span> : null}
+              Logged in:{" "}
+              <span className="font-semibold text-slate-900">{userLabel}</span>
+              {branchLabel ? (
+                <span className="ml-2">
+                  | Branch:{" "}
+                  <span className="font-semibold text-slate-900">
+                    {branchLabel}
+                  </span>
+                </span>
+              ) : null}
             </p>
           ) : null}
           <button
@@ -88,13 +97,7 @@ export function AppLayout() {
           >
             Returns
           </Link>
-          <Link
-            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"
-            to="/items"
-            onClick={() => setOpen(false)}
-          >
-            Items
-          </Link>
+
           <Link
             className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"
             to="/customers"
@@ -108,6 +111,13 @@ export function AppLayout() {
             onClick={() => setOpen(false)}
           >
             Inventory
+          </Link>
+          <Link
+            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"
+            to="/items"
+            onClick={() => setOpen(false)}
+          >
+            Items
           </Link>
           {session?.role === "ADMIN" ? (
             <>

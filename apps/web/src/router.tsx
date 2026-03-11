@@ -61,7 +61,7 @@ const returnsRoute = createRoute({
 const itemsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/items',
-  beforeLoad: () => requireOperationalSession(),
+  beforeLoad: () => requireSession(),
   component: ItemsPage
 });
 

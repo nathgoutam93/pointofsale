@@ -1,27 +1,27 @@
-import { useNavigate } from '@tanstack/react-router';
-import { useMutation } from '@tanstack/react-query';
-import { FormEvent, useState } from 'react';
-import { api } from '../lib/api';
-import { setSession } from '../lib/session';
+import { useNavigate } from "@tanstack/react-router";
+import { useMutation } from "@tanstack/react-query";
+import { FormEvent, useState } from "react";
+import { api } from "../lib/api";
+import { setSession } from "../lib/session";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('password');
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
   const login = useMutation({
     mutationFn: async () => {
       const res = await api.auth.login({ body: { username, password } });
-      if (res.status !== 200) throw new Error('Login failed');
+      if (res.status !== 200) throw new Error("Login failed");
       return res.body;
-    }
+    },
   });
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const data = await login.mutateAsync();
     setSession(data);
-    navigate({ to: '/open-register' });
+    navigate({ to: "/open-register" });
   };
 
   return (
@@ -42,12 +42,19 @@ export function LoginPage() {
           placeholder="Password"
           type="password"
         />
-        <button className="rounded-lg bg-teal-700 px-3 py-2 font-semibold text-white" type="submit" disabled={login.isPending}>
+        <button
+          className="rounded-lg bg-teal-700 px-3 py-2 font-semibold text-white"
+          type="submit"
+          disabled={login.isPending}
+        >
           Login
         </button>
       </form>
-      <small className="mt-3 block text-xs text-slate-500">Default: admin/password, cashier/password</small>
-      {login.error ? <p className="mt-2 text-sm text-red-700">{(login.error as Error).message}</p> : null}
+      {login.error ? (
+        <p className="mt-2 text-sm text-red-700">
+          {(login.error as Error).message}
+        </p>
+      ) : null}
     </section>
   );
 }
