@@ -82,13 +82,22 @@ export function AppLayout() {
             Inventory
           </Link>
           {session?.role === "ADMIN" ? (
-            <Link
-              className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"
-              to="/reports"
-              onClick={() => setOpen(false)}
-            >
-              Reports
-            </Link>
+            <>
+              <Link
+                className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"
+                to="/reports"
+                onClick={() => setOpen(false)}
+              >
+                Reports
+              </Link>
+              <Link
+                className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2"
+                to="/settings"
+                onClick={() => setOpen(false)}
+              >
+                Settings
+              </Link>
+            </>
           ) : null}
           <button
             className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-left"

@@ -8,7 +8,8 @@ import { ItemsPage } from './screens/ItemsPage';
 import { CustomersPage } from './screens/CustomersPage';
 import { StockPage } from './screens/StockPage';
 import { ReportsPage } from './screens/ReportsPage';
-import { requireSession } from './screens/route-helpers';
+import { BranchSettingsPage } from './screens/BranchSettingsPage';
+import { requireAdmin, requireSession } from './screens/route-helpers';
 
 const rootRoute = createRootRoute({ component: AppLayout });
 
@@ -65,6 +66,13 @@ const reportsRoute = createRoute({
   component: ReportsPage
 });
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings',
+  beforeLoad: () => requireAdmin(),
+  component: BranchSettingsPage
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   posRoute,
@@ -72,7 +80,8 @@ const routeTree = rootRoute.addChildren([
   itemsRoute,
   customersRoute,
   stockRoute,
-  reportsRoute
+  reportsRoute,
+  settingsRoute
 ]);
 
 export const router = createRouter({ routeTree });

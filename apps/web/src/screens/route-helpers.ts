@@ -14,3 +14,11 @@ export function requireSession() {
   }
   return session;
 }
+
+export function requireAdmin() {
+  const session = requireSession();
+  if (session.role !== 'ADMIN') {
+    throw redirect({ to: '/pos' });
+  }
+  return session;
+}

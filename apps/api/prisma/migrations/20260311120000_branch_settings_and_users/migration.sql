@@ -1,0 +1,14 @@
+ALTER TABLE "Branch"
+ADD COLUMN "logoUrl" TEXT,
+ADD COLUMN "invoicePrefix" TEXT NOT NULL DEFAULT 'INV',
+ADD COLUMN "receiptPrefix" TEXT NOT NULL DEFAULT 'RCPT',
+ADD COLUMN "returnPrefix" TEXT NOT NULL DEFAULT 'RTN',
+ADD COLUMN "invoiceHeader" TEXT,
+ADD COLUMN "invoiceFooter" TEXT,
+ADD COLUMN "receiptHeader" TEXT,
+ADD COLUMN "receiptFooter" TEXT,
+ADD COLUMN "invoiceCss" TEXT,
+ADD COLUMN "receiptCss" TEXT;
+
+ALTER TABLE "User"
+ADD COLUMN "isActive" BOOLEAN NOT NULL DEFAULT TRUE;

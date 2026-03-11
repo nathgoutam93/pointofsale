@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { api, authHeaders } from "../lib/api";
+import { API_BASE_URL, api, authHeaders } from "../lib/api";
 import { money, requireSession } from "./route-helpers";
 
 type CartLine = {
@@ -58,6 +58,37 @@ export function PosPage() {
   const printableGrandTotal = postPayment?.grandTotal ?? 0;
   const [receiptContact, setReceiptContact] = useState("");
 
+  const branchSettings = useQuery({
+    queryKey: ["branch-settings", session.branchId],
+    queryFn: async () => {
+      const res = await api.branches.get({
+        params: { id: session.branchId },
+        extraHeaders: authHeaders()
+      });
+      if (res.status !== 200) throw new Error("Failed to load branch settings");
+      return res.body;
+    }
+  });
+
+  const invoiceHeaderLines = useMemo(() => {
+    const raw = branchSettings.data?.invoiceHeader ?? "";
+    return raw.split("\n").map((line) => line.trim()).filter(Boolean);
+  }, [branchSettings.data?.invoiceHeader]);
+
+  const invoiceFooterLines = useMemo(() => {
+    const raw = branchSettings.data?.invoiceFooter ?? "";
+    return raw.split("\n").map((line) => line.trim()).filter(Boolean);
+  }, [branchSettings.data?.invoiceFooter]);
+
+  const invoiceLogoSrc = useMemo(() => {
+    const logoUrl = branchSettings.data?.logoUrl;
+    if (!logoUrl) return null;
+    if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
+      return logoUrl;
+    }
+    return `${API_BASE_URL.replace(/\/$/, "")}${logoUrl.startsWith("/") ? "" : "/"}${logoUrl}`;
+  }, [branchSettings.data?.logoUrl]);
+
   const buildPrintableInvoiceDocument = () => {
     if (!postPayment) {
       return null;
@@ -66,7 +97,8 @@ export function PosPage() {
     if (!invoiceElement) {
       return null;
     }
-    return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${postPayment.invoiceNo}</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#fff;color:#1f2937;}@media print{body{margin:0;}}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
+    const customCss = branchSettings.data?.invoiceCss ?? "";
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${postPayment.invoiceNo}</title><style>body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#fff;color:#1f2937;}@media print{body{margin:0;}}${customCss}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
   };
 
   const exportPrintableInvoice = () => {
@@ -563,6 +595,7 @@ export function PosPage() {
             print-color-adjust: exact;
           }
         }
+        ${branchSettings.data?.invoiceCss ?? ""}
       `}</style>
       <aside className="flex h-full flex-col overflow-hidden bg-white">
         {postPayment ? (
@@ -885,9 +918,22 @@ export function PosPage() {
                 id="printable-invoice"
                 className="w-full rounded border border-slate-200 bg-white p-6 shadow-sm"
               >
-                <p className="text-center text-4xl font-semibold text-fuchsia-800">
-                  Your logo
-                </p>
+                <div className="flex flex-col items-center gap-2">
+                  {invoiceLogoSrc ? (
+                    <img src={invoiceLogoSrc} alt="Branch logo" className="h-16 w-auto object-contain" />
+                  ) : (
+                    <p className="text-center text-4xl font-semibold text-fuchsia-800">
+                      {branchSettings.data?.name ?? "Branch"}
+                    </p>
+                  )}
+                  {invoiceHeaderLines.length > 0 ? (
+                    <div className="text-center text-xs text-slate-600">
+                      {invoiceHeaderLines.map((line, idx) => (
+                        <p key={`${line}-${idx}`}>{line}</p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
                 <p className="text-center text-xs text-slate-600">
                   {new Date(postPayment.createdAt).toLocaleString()}
                 </p>
@@ -941,6 +987,14 @@ export function PosPage() {
                     </div>
                   ))}
                 </div>
+
+                {invoiceFooterLines.length > 0 ? (
+                  <div className="mt-4 border-t border-slate-200 pt-3 text-center text-xs text-slate-600">
+                    {invoiceFooterLines.map((line, idx) => (
+                      <p key={`${line}-${idx}`}>{line}</p>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>

@@ -67,6 +67,72 @@ export class PosController {
     return this.posService.me(this.getSession(headers));
   }
 
+  @Get('/branches/:id')
+  getBranch(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    const session = this.getSession(headers);
+    if (session.branchId !== id) {
+      throw new BadRequestException('Branch mismatch');
+    }
+    return this.posService.getBranchSettings(id);
+  }
+
+  @Patch('/branches/:id')
+  updateBranch(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      name?: string;
+      logoUrl?: string | null;
+      invoicePrefix?: string;
+      receiptPrefix?: string;
+      returnPrefix?: string;
+      invoiceHeader?: string | null;
+      invoiceFooter?: string | null;
+      receiptHeader?: string | null;
+      receiptFooter?: string | null;
+      invoiceCss?: string | null;
+      receiptCss?: string | null;
+    },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    const session = this.getSession(headers);
+    this.requireAdmin(session);
+    if (session.branchId !== id) {
+      throw new BadRequestException('Branch mismatch');
+    }
+    return this.posService.updateBranchSettings(id, body);
+  }
+
+  @Post('/branches/:id/logo')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      dest: join(process.cwd(), 'uploads', 'branches'),
+      fileFilter: (_req: unknown, file: { mimetype: string }, cb: (error: Error | null, acceptFile: boolean) => void) => {
+        if (!file.mimetype?.startsWith('image/')) {
+          cb(new BadRequestException('Only image files are allowed'), false);
+          return;
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 5 * 1024 * 1024 }
+    })
+  )
+  uploadBranchLogo(
+    @Param('id') id: string,
+    @UploadedFile() file: { filename: string } | undefined,
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    const session = this.getSession(headers);
+    this.requireAdmin(session);
+    if (session.branchId !== id) {
+      throw new BadRequestException('Branch mismatch');
+    }
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+    return this.posService.updateBranchSettings(id, { logoUrl: `/uploads/branches/${file.filename}` });
+  }
+
   @Get('/customers')
   listCustomers(@Query('branchId') branchId: string) {
     return this.posService.listCustomers(branchId);
@@ -100,6 +166,40 @@ export class PosController {
   ) {
     this.requireAdmin(this.getSession(headers));
     return this.posService.topupWallet(customerId, body.amount, body.reference);
+  }
+
+  @Get('/users')
+  listUsers(@Query('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    const session = this.getSession(headers);
+    this.requireAdmin(session);
+    if (session.branchId !== branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
+    return this.posService.listUsers(branchId);
+  }
+
+  @Post('/users')
+  createUser(
+    @Body() body: { branchId: string; username: string; password: string },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    const session = this.getSession(headers);
+    this.requireAdmin(session);
+    if (session.branchId !== body.branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
+    return this.posService.createUser(body.branchId, body);
+  }
+
+  @Patch('/users/:id')
+  updateUser(
+    @Param('id') id: string,
+    @Body() body: { username?: string; password?: string; isActive?: boolean },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    const session = this.getSession(headers);
+    this.requireAdmin(session);
+    return this.posService.updateUser(session, id, body);
   }
 
   @Get('/items')

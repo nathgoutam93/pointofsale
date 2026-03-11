@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { api, authHeaders } from "../lib/api";
+import { API_BASE_URL, api, authHeaders } from "../lib/api";
 import { money, requireSession } from "./route-helpers";
 
 type PaymentMode = "CASH" | "CARD" | "WALLET";
@@ -51,6 +51,37 @@ export function SalesPage() {
   const [settledSummary, setSettledSummary] = useState<SettledSummary | null>(
     null,
   );
+
+  const branchSettings = useQuery({
+    queryKey: ["branch-settings", session.branchId],
+    queryFn: async () => {
+      const res = await api.branches.get({
+        params: { id: session.branchId },
+        extraHeaders: authHeaders()
+      });
+      if (res.status !== 200) throw new Error("Failed to load branch settings");
+      return res.body;
+    }
+  });
+
+  const receiptHeaderLines = useMemo(() => {
+    const raw = branchSettings.data?.receiptHeader ?? "";
+    return raw.split("\n").map((line) => line.trim()).filter(Boolean);
+  }, [branchSettings.data?.receiptHeader]);
+
+  const receiptFooterLines = useMemo(() => {
+    const raw = branchSettings.data?.receiptFooter ?? "";
+    return raw.split("\n").map((line) => line.trim()).filter(Boolean);
+  }, [branchSettings.data?.receiptFooter]);
+
+  const receiptLogoSrc = useMemo(() => {
+    const logoUrl = branchSettings.data?.logoUrl;
+    if (!logoUrl) return null;
+    if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
+      return logoUrl;
+    }
+    return `${API_BASE_URL.replace(/\/$/, "")}${logoUrl.startsWith("/") ? "" : "/"}${logoUrl}`;
+  }, [branchSettings.data?.logoUrl]);
 
   const sales = useQuery({
     queryKey: ["sales-module", session.branchId],
@@ -483,6 +514,7 @@ export function SalesPage() {
             print-color-adjust: exact;
           }
         }
+        ${branchSettings.data?.receiptCss ?? ""}
       `}</style>
       <aside className="flex flex-col overflow-hidden border-r border-slate-200 bg-white">
         {settledSummary ? (
@@ -786,9 +818,22 @@ export function SalesPage() {
             id="printable-invoice"
             className="w-full rounded border border-slate-200 bg-white p-5 shadow-sm"
           >
-            <p className="text-center text-3xl font-semibold text-fuchsia-800">
-              Your logo
-            </p>
+            <div className="flex flex-col items-center gap-2">
+              {receiptLogoSrc ? (
+                <img src={receiptLogoSrc} alt="Branch logo" className="h-14 w-auto object-contain" />
+              ) : (
+                <p className="text-center text-3xl font-semibold text-fuchsia-800">
+                  {branchSettings.data?.name ?? "Branch"}
+                </p>
+              )}
+              {receiptHeaderLines.length > 0 ? (
+                <div className="text-center text-xs text-slate-600">
+                  {receiptHeaderLines.map((line, idx) => (
+                    <p key={`${line}-${idx}`}>{line}</p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <p className="text-center text-xs text-slate-600">
               {new Date(
                 previewReceipt?.createdAt ?? Date.now(),
@@ -847,6 +892,14 @@ export function SalesPage() {
                 </div>
               ))}
             </div>
+
+            {receiptFooterLines.length > 0 ? (
+              <div className="mt-4 border-t border-slate-200 pt-3 text-center text-xs text-slate-600">
+                {receiptFooterLines.map((line, idx) => (
+                  <p key={`${line}-${idx}`}>{line}</p>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

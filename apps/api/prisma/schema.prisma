@@ -49,6 +49,16 @@ model Branch {
   id          String       @id @default(uuid())
   name        String
   code        String       @unique
+  logoUrl     String?
+  invoicePrefix String     @default("INV")
+  receiptPrefix String     @default("RCPT")
+  returnPrefix  String     @default("RTN")
+  invoiceHeader String?
+  invoiceFooter String?
+  receiptHeader String?
+  receiptFooter String?
+  invoiceCss   String?
+  receiptCss   String?
   invoiceSeq  Int          @default(0)
   receiptSeq  Int          @default(0)
   returnSeq   Int          @default(0)
@@ -67,6 +77,7 @@ model User {
   role      UserRole
   branchId  String
   branch    Branch   @relation(fields: [branchId], references: [id])
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 }
 

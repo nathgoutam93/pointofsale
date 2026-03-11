@@ -44,6 +44,139 @@ export class PosService {
     }
   }
 
+  async getBranchSettings(branchId: string) {
+    const branch = await this.prisma.branch.findUnique({
+      where: { id: branchId },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        logoUrl: true,
+        invoicePrefix: true,
+        receiptPrefix: true,
+        returnPrefix: true,
+        invoiceHeader: true,
+        invoiceFooter: true,
+        receiptHeader: true,
+        receiptFooter: true,
+        invoiceCss: true,
+        receiptCss: true
+      }
+    });
+    if (!branch) {
+      throw new NotFoundException('Branch not found');
+    }
+    return branch;
+  }
+
+  async updateBranchSettings(
+    branchId: string,
+    input: {
+      name?: string;
+      logoUrl?: string | null;
+      invoicePrefix?: string;
+      receiptPrefix?: string;
+      returnPrefix?: string;
+      invoiceHeader?: string | null;
+      invoiceFooter?: string | null;
+      receiptHeader?: string | null;
+      receiptFooter?: string | null;
+      invoiceCss?: string | null;
+      receiptCss?: string | null;
+    }
+  ) {
+    await this.ensureBranchExists(branchId);
+    return this.prisma.branch.update({
+      where: { id: branchId },
+      data: {
+        name: input.name,
+        logoUrl: input.logoUrl,
+        invoicePrefix: input.invoicePrefix,
+        receiptPrefix: input.receiptPrefix,
+        returnPrefix: input.returnPrefix,
+        invoiceHeader: input.invoiceHeader,
+        invoiceFooter: input.invoiceFooter,
+        receiptHeader: input.receiptHeader,
+        receiptFooter: input.receiptFooter,
+        invoiceCss: input.invoiceCss,
+        receiptCss: input.receiptCss
+      },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        logoUrl: true,
+        invoicePrefix: true,
+        receiptPrefix: true,
+        returnPrefix: true,
+        invoiceHeader: true,
+        invoiceFooter: true,
+        receiptHeader: true,
+        receiptFooter: true,
+        invoiceCss: true,
+        receiptCss: true
+      }
+    });
+  }
+
+  async listUsers(branchId: string) {
+    await this.ensureBranchExists(branchId);
+    return this.prisma.user.findMany({
+      where: { branchId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, username: true, role: true, branchId: true, isActive: true, createdAt: true }
+    });
+  }
+
+  async createUser(
+    branchId: string,
+    input: { username: string; password: string; role?: UserRole }
+  ) {
+    await this.ensureBranchExists(branchId);
+    if (input.role && input.role !== UserRole.CASHIER) {
+      throw new BadRequestException('Only cashier accounts can be created here');
+    }
+    return this.prisma.user.create({
+      data: {
+        branchId,
+        username: input.username,
+        password: input.password,
+        role: UserRole.CASHIER
+      },
+      select: { id: true, username: true, role: true, branchId: true, isActive: true, createdAt: true }
+    });
+  }
+
+  async updateUser(
+    session: SessionUser,
+    userId: string,
+    input: { username?: string; password?: string; isActive?: boolean; role?: UserRole }
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    if (user.branchId !== session.branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
+    if (input.role && input.role !== UserRole.CASHIER) {
+      throw new BadRequestException('Only cashier role updates are allowed');
+    }
+    if (input.isActive === false && user.id === session.userId) {
+      throw new BadRequestException('Cannot deactivate your own account');
+    }
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        username: input.username,
+        password: input.password,
+        isActive: input.isActive
+      },
+      select: { id: true, username: true, role: true, branchId: true, isActive: true, createdAt: true }
+    });
+  }
+
   private async resolveItemId(itemRef: string, tx?: Prisma.TransactionClient) {
     const client = tx ?? this.prisma;
     const item = await client.item.findFirst({
@@ -102,12 +235,32 @@ export class PosService {
 
     const branch = await tx.branch.update({
       where: { id: branchId },
-      data: { [field]: { increment: 1 } }
+      data: { [field]: { increment: 1 } },
+      select: {
+        code: true,
+        invoiceSeq: true,
+        receiptSeq: true,
+        returnSeq: true,
+        customerSeq: true,
+        invoicePrefix: true,
+        receiptPrefix: true,
+        returnPrefix: true
+      }
     });
+
+    const prefix =
+      type === 'invoice'
+        ? branch.invoicePrefix
+        : type === 'receipt'
+          ? branch.receiptPrefix
+          : type === 'return'
+            ? branch.returnPrefix
+            : 'CUST';
 
     return {
       branchCode: branch.code,
-      seq: (branch as any)[field] as number
+      seq: (branch as any)[field] as number,
+      prefix
     };
   }
 
@@ -144,6 +297,9 @@ export class PosService {
     const user = await this.prisma.user.findUnique({ where: { username } });
     if (!user || user.password !== password) {
       throw new BadRequestException('Invalid credentials');
+    }
+    if (!user.isActive) {
+      throw new BadRequestException('Account is inactive');
     }
 
     const token = Buffer.from(`${user.id}:${user.role}:${user.branchId}`).toString('base64');
@@ -423,7 +579,7 @@ export class PosService {
       }
 
       const seq = await this.nextSequence(input.branchId, 'invoice', tx);
-      const invoiceNo = `INV-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
+      const invoiceNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
 
       const computedLines = normalizedLines.map((line) => {
         const gross = line.qty * line.rate;
@@ -547,7 +703,7 @@ export class PosService {
       });
 
       const seq = await this.nextSequence(invoice.branchId, 'receipt', tx);
-      const receiptNo = `RCPT-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
+      const receiptNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
 
       const receipt = await tx.receipt.create({
         data: {
@@ -625,7 +781,7 @@ export class PosService {
       }
 
       const seq = await this.nextSequence(invoice.branchId, 'return', tx);
-      const returnNo = `RTN-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
+      const returnNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
 
       const returnInvoice = await tx.returnInvoice.create({
         data: {

@@ -18,6 +18,28 @@ export const branchSchema = z.object({
   code: z.string()
 });
 
+export const branchSettingsSchema = branchSchema.extend({
+  logoUrl: z.string().nullable(),
+  invoicePrefix: z.string(),
+  receiptPrefix: z.string(),
+  returnPrefix: z.string(),
+  invoiceHeader: z.string().nullable(),
+  invoiceFooter: z.string().nullable(),
+  receiptHeader: z.string().nullable(),
+  receiptFooter: z.string().nullable(),
+  invoiceCss: z.string().nullable(),
+  receiptCss: z.string().nullable()
+});
+
+export const userSchema = z.object({
+  id: z.string().uuid(),
+  username: z.string(),
+  role: roleSchema,
+  branchId: z.string().uuid(),
+  isActive: z.boolean(),
+  createdAt: z.string().datetime()
+});
+
 export const customerSchema = z.object({
   id: z.string().uuid(),
   branchId: z.string().uuid(),
@@ -160,6 +182,31 @@ export const appContract = c.router({
       responses: { 200: z.object({ userId: z.string().uuid(), username: z.string(), role: roleSchema, branchId: z.string().uuid() }) }
     }
   },
+  branches: {
+    get: {
+      method: 'GET',
+      path: '/branches/:id',
+      responses: { 200: branchSettingsSchema }
+    },
+    update: {
+      method: 'PATCH',
+      path: '/branches/:id',
+      body: z.object({
+        name: z.string().optional(),
+        logoUrl: z.string().nullable().optional(),
+        invoicePrefix: z.string().optional(),
+        receiptPrefix: z.string().optional(),
+        returnPrefix: z.string().optional(),
+        invoiceHeader: z.string().nullable().optional(),
+        invoiceFooter: z.string().nullable().optional(),
+        receiptHeader: z.string().nullable().optional(),
+        receiptFooter: z.string().nullable().optional(),
+        invoiceCss: z.string().nullable().optional(),
+        receiptCss: z.string().nullable().optional()
+      }),
+      responses: { 200: branchSettingsSchema }
+    }
+  },
   customers: {
     list: {
       method: 'GET',
@@ -188,6 +235,30 @@ export const appContract = c.router({
       path: '/customers/:id/wallet/topup',
       body: z.object({ amount: moneySchema.positive(), reference: z.string().optional() }),
       responses: { 200: walletTxnSchema }
+    }
+  },
+  users: {
+    list: {
+      method: 'GET',
+      path: '/users',
+      query: z.object({ branchId: z.string().uuid() }),
+      responses: { 200: z.array(userSchema) }
+    },
+    create: {
+      method: 'POST',
+      path: '/users',
+      body: z.object({ branchId: z.string().uuid(), username: z.string(), password: z.string() }),
+      responses: { 201: userSchema }
+    },
+    update: {
+      method: 'PATCH',
+      path: '/users/:id',
+      body: z.object({
+        username: z.string().optional(),
+        password: z.string().optional(),
+        isActive: z.boolean().optional()
+      }),
+      responses: { 200: userSchema }
     }
   },
   items: {
