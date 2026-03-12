@@ -10,7 +10,9 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableCors();
 
-  const uploadsDir = join(process.cwd(), 'uploads');
+  const uploadsDir = process.env.UPLOADS_DIR
+    ? process.env.UPLOADS_DIR
+    : join(process.cwd(), 'uploads');
   if (!existsSync(uploadsDir)) {
     mkdirSync(uploadsDir, { recursive: true });
   }

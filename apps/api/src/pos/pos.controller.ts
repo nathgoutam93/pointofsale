@@ -20,6 +20,8 @@ import { PaymentMode, UserRole } from '@prisma/client';
 import { PosService } from './pos.service';
 import { SessionUser } from './pos.types';
 
+const uploadsDir = process.env.UPLOADS_DIR ? process.env.UPLOADS_DIR : join(process.cwd(), 'uploads');
+
 @Controller()
 export class PosController {
   constructor(private readonly posService: PosService) {}
@@ -151,7 +153,7 @@ export class PosController {
   @Post('/business/logo')
   @UseInterceptors(
     FileInterceptor('file', {
-      dest: join(process.cwd(), 'uploads', 'business'),
+      dest: join(uploadsDir, 'business'),
       fileFilter: (_req: unknown, file: { mimetype: string }, cb: (error: Error | null, acceptFile: boolean) => void) => {
         if (!file.mimetype?.startsWith('image/')) {
           cb(new BadRequestException('Only image files are allowed'), false);
@@ -212,7 +214,7 @@ export class PosController {
   @Post('/branches/:id/logo')
   @UseInterceptors(
     FileInterceptor('file', {
-      dest: join(process.cwd(), 'uploads', 'branches'),
+      dest: join(uploadsDir, 'branches'),
       fileFilter: (_req: unknown, file: { mimetype: string }, cb: (error: Error | null, acceptFile: boolean) => void) => {
         if (!file.mimetype?.startsWith('image/')) {
           cb(new BadRequestException('Only image files are allowed'), false);
@@ -347,7 +349,7 @@ export class PosController {
   @Post('/items/upload-image')
   @UseInterceptors(
     FileInterceptor('file', {
-      dest: join(process.cwd(), 'uploads', 'items'),
+      dest: join(uploadsDir, 'items'),
       fileFilter: (_req: unknown, file: { mimetype: string }, cb: (error: Error | null, acceptFile: boolean) => void) => {
         if (!file.mimetype?.startsWith('image/')) {
           cb(new BadRequestException('Only image files are allowed'), false);
