@@ -82,7 +82,8 @@ export function SalesPage() {
       const res = await api.business.get({
         extraHeaders: authHeaders(),
       });
-      if (res.status !== 200) throw new Error("Failed to load business settings");
+      if (res.status !== 200)
+        throw new Error("Failed to load business settings");
       return res.body;
     },
   });
@@ -112,7 +113,8 @@ export function SalesPage() {
   }, [branchSettings.data?.invoiceFooter]);
 
   const receiptLogoSrc = useMemo(() => {
-    const logoUrl = branchSettings.data?.logoUrl ?? businessSettings.data?.logoUrl;
+    const logoUrl =
+      branchSettings.data?.logoUrl ?? businessSettings.data?.logoUrl;
     if (!logoUrl) return null;
     if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
       return logoUrl;
@@ -1115,73 +1117,7 @@ export function SalesPage() {
 
       {paymentModalOpen ? (
         <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/40 p-4">
-          <div className="grid w-full max-w-6xl grid-cols-1 overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl lg:grid-cols-[480px_1fr]">
-            <div className="border-r border-slate-200 p-3">
-              <div className="mb-3 grid gap-2">
-                {availablePaymentMethods.map((method) => (
-                  <button
-                    key={method.key}
-                    className={`rounded px-3 py-4 text-left text-3xl ${paymentMethod === method.key ? "bg-indigo-100 text-indigo-900" : "bg-slate-100 text-slate-700"}`}
-                    onClick={() => setPaymentMethod(method.key)}
-                  >
-                    {method.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-4 gap-1">
-                {[
-                  "1",
-                  "2",
-                  "3",
-                  "+10",
-                  "4",
-                  "5",
-                  "6",
-                  "+20",
-                  "7",
-                  "8",
-                  "9",
-                  "+50",
-                  "+/-",
-                  "0",
-                  ".",
-                  "<",
-                ].map((key) => (
-                  <button
-                    key={key}
-                    className={`rounded px-2 py-4 text-2xl font-semibold ${key.startsWith("+") && key.length > 1 ? "bg-emerald-200 text-emerald-900" : "bg-slate-100 text-slate-800"}`}
-                    onClick={() => paymentKeypadPress(key)}
-                  >
-                    {key}
-                  </button>
-                ))}
-
-                <button
-                  className="col-span-3 rounded bg-indigo-600 px-2 py-4 text-xl font-bold text-white"
-                  onClick={applyPaymentLine}
-                >
-                  Add / Update {paymentMethod}
-                </button>
-                <button
-                  className="col-span-1 rounded bg-rose-200 px-2 py-4 text-2xl font-semibold text-rose-800"
-                  onClick={() => paymentKeypadPress("C")}
-                >
-                  Clear
-                </button>
-
-                <button
-                  className="col-span-4 rounded bg-slate-200 px-2 py-4 text-2xl font-semibold text-slate-800"
-                  onClick={() => {
-                    setPaymentModalOpen(false);
-                    setPaymentModalError("");
-                  }}
-                >
-                  Back
-                </button>
-              </div>
-            </div>
-
+          <div className="grid w-full max-w-6xl grid-cols-2 overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
             <div className="flex flex-col bg-slate-50 p-3">
               <div className="flex-1">
                 <div className="text-center">
@@ -1281,6 +1217,72 @@ export function SalesPage() {
                   {paymentModalError}
                 </p>
               ) : null}
+            </div>
+
+            <div className="border-r border-slate-200 p-3">
+              <div className="mb-3 grid gap-2">
+                {availablePaymentMethods.map((method) => (
+                  <button
+                    key={method.key}
+                    className={`rounded px-3 py-4 text-left text-3xl ${paymentMethod === method.key ? "bg-indigo-100 text-indigo-900" : "bg-slate-100 text-slate-700"}`}
+                    onClick={() => setPaymentMethod(method.key)}
+                  >
+                    {method.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  "1",
+                  "2",
+                  "3",
+                  "+10",
+                  "4",
+                  "5",
+                  "6",
+                  "+20",
+                  "7",
+                  "8",
+                  "9",
+                  "+50",
+                  "+/-",
+                  "0",
+                  ".",
+                  "<",
+                ].map((key) => (
+                  <button
+                    key={key}
+                    className={`rounded px-2 py-4 text-2xl font-semibold ${key.startsWith("+") && key.length > 1 ? "bg-emerald-200 text-emerald-900" : "bg-slate-100 text-slate-800"}`}
+                    onClick={() => paymentKeypadPress(key)}
+                  >
+                    {key}
+                  </button>
+                ))}
+
+                <button
+                  className="col-span-3 rounded bg-indigo-600 px-2 py-4 text-xl font-bold text-white"
+                  onClick={applyPaymentLine}
+                >
+                  Add / Update {paymentMethod}
+                </button>
+                <button
+                  className="col-span-1 rounded bg-rose-200 px-2 py-4 text-2xl font-semibold text-rose-800"
+                  onClick={() => paymentKeypadPress("C")}
+                >
+                  Clear
+                </button>
+
+                <button
+                  className="col-span-4 rounded bg-slate-200 px-2 py-4 text-2xl font-semibold text-slate-800"
+                  onClick={() => {
+                    setPaymentModalOpen(false);
+                    setPaymentModalError("");
+                  }}
+                >
+                  Back
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -494,7 +494,13 @@ export class PosController {
 
   @Post('/sales')
   createSale(
-    @Body() body: { branchId: string; customerId: string; lines: Array<{ itemId: string; qty: number; rate: number; discountAmount?: number; taxRate: number }> },
+    @Body()
+    body: {
+      branchId: string;
+      customerId: string;
+      lines: Array<{ itemId: string; qty: number; rate: number; discountAmount?: number; taxRate: number }>;
+      orderDiscountAmount?: number;
+    },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     return this.posService.createSale(this.requireOpenRegisterSession(headers), body);

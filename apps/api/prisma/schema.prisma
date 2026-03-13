@@ -204,6 +204,7 @@ model SaleInvoice {
   status        InvoiceStatus
   subTotal      Decimal          @db.Decimal(14, 2)
   discountTotal Decimal          @db.Decimal(14, 2)
+  orderDiscountAmount Decimal     @default(0) @db.Decimal(14, 2)
   taxTotal      Decimal          @db.Decimal(14, 2)
   grandTotal    Decimal          @db.Decimal(14, 2)
   paidTotal     Decimal          @db.Decimal(14, 2)

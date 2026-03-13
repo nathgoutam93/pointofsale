@@ -143,6 +143,7 @@ const saleInvoiceSchema = z.object({
   customerId: z.string().uuid(),
   subTotal: moneySchema,
   discountTotal: moneySchema,
+  orderDiscountAmount: moneySchema.default(0),
   taxTotal: moneySchema,
   grandTotal: moneySchema,
   paidTotal: moneySchema,
@@ -530,7 +531,12 @@ export const appContract = c.router({
     create: {
       method: 'POST',
       path: '/sales',
-      body: z.object({ branchId: z.string().uuid(), customerId: z.string().uuid(), lines: z.array(saleLineInput).min(1) }),
+      body: z.object({
+        branchId: z.string().uuid(),
+        customerId: z.string().uuid(),
+        lines: z.array(saleLineInput).min(1),
+        orderDiscountAmount: moneySchema.default(0)
+      }),
       responses: { 201: saleInvoiceWithLinesSchema }
     },
     settle: {

@@ -717,6 +717,7 @@ export declare const appContract: {
                     rate: number;
                     discountAmount?: number | undefined;
                 }>, "many">;
+                orderDiscountAmount: z.ZodDefault<z.ZodNumber>;
             }, "strip", z.ZodTypeAny, {
                 branchId: string;
                 customerId: string;
@@ -727,6 +728,7 @@ export declare const appContract: {
                     rate: number;
                     discountAmount: number;
                 }[];
+                orderDiscountAmount: number;
             }, {
                 branchId: string;
                 customerId: string;
@@ -737,6 +739,7 @@ export declare const appContract: {
                     rate: number;
                     discountAmount?: number | undefined;
                 }[];
+                orderDiscountAmount?: number | undefined;
             }>;
             method: "POST";
             path: "/sales";
@@ -748,6 +751,7 @@ export declare const appContract: {
                     customerId: z.ZodString;
                     subTotal: z.ZodNumber;
                     discountTotal: z.ZodNumber;
+                    orderDiscountAmount: z.ZodDefault<z.ZodNumber>;
                     taxTotal: z.ZodNumber;
                     grandTotal: z.ZodNumber;
                     paidTotal: z.ZodNumber;
@@ -818,6 +822,7 @@ export declare const appContract: {
                     invoiceNo: string;
                     subTotal: number;
                     discountTotal: number;
+                    orderDiscountAmount: number;
                     taxTotal: number;
                     grandTotal: number;
                     paidTotal: number;
@@ -850,6 +855,7 @@ export declare const appContract: {
                     invoiceNo: string;
                     subTotal: number;
                     discountTotal: number;
+                    orderDiscountAmount: number;
                     taxTotal: number;
                     grandTotal: number;
                     paidTotal: number;
@@ -915,6 +921,7 @@ export declare const appContract: {
                         customerId: z.ZodString;
                         subTotal: z.ZodNumber;
                         discountTotal: z.ZodNumber;
+                        orderDiscountAmount: z.ZodDefault<z.ZodNumber>;
                         taxTotal: z.ZodNumber;
                         grandTotal: z.ZodNumber;
                         paidTotal: z.ZodNumber;
@@ -985,6 +992,7 @@ export declare const appContract: {
                         invoiceNo: string;
                         subTotal: number;
                         discountTotal: number;
+                        orderDiscountAmount: number;
                         taxTotal: number;
                         grandTotal: number;
                         paidTotal: number;
@@ -1017,6 +1025,7 @@ export declare const appContract: {
                         invoiceNo: string;
                         subTotal: number;
                         discountTotal: number;
+                        orderDiscountAmount: number;
                         taxTotal: number;
                         grandTotal: number;
                         paidTotal: number;
@@ -1070,6 +1079,7 @@ export declare const appContract: {
                         invoiceNo: string;
                         subTotal: number;
                         discountTotal: number;
+                        orderDiscountAmount: number;
                         taxTotal: number;
                         grandTotal: number;
                         paidTotal: number;
@@ -1111,6 +1121,7 @@ export declare const appContract: {
                         invoiceNo: string;
                         subTotal: number;
                         discountTotal: number;
+                        orderDiscountAmount: number;
                         taxTotal: number;
                         grandTotal: number;
                         paidTotal: number;
@@ -1163,6 +1174,7 @@ export declare const appContract: {
                     customerId: z.ZodString;
                     subTotal: z.ZodNumber;
                     discountTotal: z.ZodNumber;
+                    orderDiscountAmount: z.ZodDefault<z.ZodNumber>;
                     taxTotal: z.ZodNumber;
                     grandTotal: z.ZodNumber;
                     paidTotal: z.ZodNumber;
@@ -1178,6 +1190,7 @@ export declare const appContract: {
                     invoiceNo: string;
                     subTotal: number;
                     discountTotal: number;
+                    orderDiscountAmount: number;
                     taxTotal: number;
                     grandTotal: number;
                     paidTotal: number;
@@ -1191,6 +1204,7 @@ export declare const appContract: {
                     invoiceNo: string;
                     subTotal: number;
                     discountTotal: number;
+                    orderDiscountAmount: number;
                     taxTotal: number;
                     grandTotal: number;
                     paidTotal: number;
@@ -1209,6 +1223,7 @@ export declare const appContract: {
                     customerId: z.ZodString;
                     subTotal: z.ZodNumber;
                     discountTotal: z.ZodNumber;
+                    orderDiscountAmount: z.ZodDefault<z.ZodNumber>;
                     taxTotal: z.ZodNumber;
                     grandTotal: z.ZodNumber;
                     paidTotal: z.ZodNumber;
@@ -1279,6 +1294,7 @@ export declare const appContract: {
                     invoiceNo: string;
                     subTotal: number;
                     discountTotal: number;
+                    orderDiscountAmount: number;
                     taxTotal: number;
                     grandTotal: number;
                     paidTotal: number;
@@ -1311,6 +1327,7 @@ export declare const appContract: {
                     invoiceNo: string;
                     subTotal: number;
                     discountTotal: number;
+                    orderDiscountAmount: number;
                     taxTotal: number;
                     grandTotal: number;
                     paidTotal: number;

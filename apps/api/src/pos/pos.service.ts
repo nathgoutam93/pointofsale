@@ -1040,7 +1040,12 @@ export class PosService {
 
   async createSale(
     session: SessionUser,
-    input: { branchId: string; customerId: string; lines: Array<{ itemId: string; qty: number; rate: number; discountAmount?: number; taxRate: number }> }
+    input: {
+      branchId: string;
+      customerId: string;
+      lines: Array<{ itemId: string; qty: number; rate: number; discountAmount?: number; taxRate: number }>;
+      orderDiscountAmount?: number;
+    }
   ) {
     const sessionBranchId = this.requireSessionBranchId(session);
     if (sessionBranchId !== input.branchId) {
@@ -1079,6 +1084,7 @@ export class PosService {
       });
 
       const subTotal = this.round2(computedLines.reduce((acc, l) => acc + l.qty * l.rate, 0));
+      const orderDiscountAmount = this.round2(Math.max(0, input.orderDiscountAmount ?? 0));
       const discountTotal = this.round2(computedLines.reduce((acc, l) => acc + l.discountAmount, 0));
       const taxTotal = this.round2(computedLines.reduce((acc, l) => acc + l.taxAmount, 0));
       const grandTotal = this.round2(computedLines.reduce((acc, l) => acc + l.netAmount, 0));
@@ -1091,6 +1097,7 @@ export class PosService {
           status: InvoiceStatus.DRAFT,
           subTotal,
           discountTotal,
+          orderDiscountAmount,
           taxTotal,
           grandTotal,
           paidTotal: 0,

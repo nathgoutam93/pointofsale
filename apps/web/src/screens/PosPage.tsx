@@ -27,6 +27,7 @@ type PostPaymentSummary = {
   customerName: string;
   customerPhone: string;
   subTotal: number;
+  orderDiscountAmount: number;
   taxTotal: number;
   grandTotal: number;
   paymentLines: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
@@ -66,10 +67,16 @@ export function PosPage() {
     "AMOUNT",
   );
   const [draftLine, setDraftLine] = useState<CartLine | null>(null);
+  const [orderDiscountModalOpen, setOrderDiscountModalOpen] = useState(false);
+  const [orderDiscountMode, setOrderDiscountMode] = useState<
+    "AMOUNT" | "PERCENT"
+  >("AMOUNT");
+  const [orderDiscountValue, setOrderDiscountValue] = useState("0");
   const printableSaleLines = postPayment?.lines ?? [];
   const printableSubtotal = postPayment?.subTotal ?? 0;
   const printableTaxTotal = postPayment?.taxTotal ?? 0;
   const printableGrandTotal = postPayment?.grandTotal ?? 0;
+  const printableOrderDiscount = postPayment?.orderDiscountAmount ?? 0;
   const [receiptContact, setReceiptContact] = useState("");
 
   const branchSettings = useQuery({
@@ -188,9 +195,10 @@ export function PosPage() {
         line.taxRate > 0
           ? `@${line.taxRate}% ${line.taxMode === "INCLUSIVE" ? "Incl." : "Excl."}`
           : "";
+      const subLine = taxLabel;
       return {
         name: line.name,
-        subLine: taxLabel || undefined,
+        subLine: subLine || undefined,
         qty: line.qty,
         price: unitPrice,
         total: net.net,
@@ -199,6 +207,14 @@ export function PosPage() {
 
     const totals = [
       { label: "Subtotal", value: money(printableSubtotal) },
+      ...(printableOrderDiscount > 0
+        ? [
+            {
+              label: "Order Discount",
+              value: `- ${money(printableOrderDiscount)}`,
+            },
+          ]
+        : []),
       { label: "Tax", value: money(printableTaxTotal) },
       { label: "TOTAL", value: money(printableGrandTotal), isGrandTotal: true },
     ];
@@ -225,6 +241,7 @@ export function PosPage() {
     postPayment,
     printableSaleLines,
     printableSubtotal,
+    printableOrderDiscount,
     printableTaxTotal,
     printableGrandTotal,
     invoiceHeaderLines,
@@ -311,6 +328,8 @@ export function PosPage() {
     },
   });
 
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+
   function computeLineAmounts(
     line: Pick<
       CartLine,
@@ -330,6 +349,104 @@ export function PosPage() {
     const tax = (afterDiscount * line.taxRate) / 100;
     return { taxable: afterDiscount, tax, net: afterDiscount + tax };
   }
+
+  const orderDiscountBase = useMemo(
+    () =>
+      cart.reduce((acc, line) => {
+        const gross = line.qty * line.rate;
+        return acc + Math.max(0, gross - line.discountAmount);
+      }, 0),
+    [cart],
+  );
+
+  const resolvedOrderDiscountAmount = useMemo(() => {
+    const input = Number(orderDiscountValue);
+    if (!Number.isFinite(input) || input <= 0) return 0;
+    if (orderDiscountMode === "PERCENT") {
+      return Math.min(orderDiscountBase, (orderDiscountBase * input) / 100);
+    }
+    return Math.min(orderDiscountBase, input);
+  }, [orderDiscountBase, orderDiscountMode, orderDiscountValue]);
+
+  const orderDiscountAllocations = useMemo(() => {
+    if (resolvedOrderDiscountAmount <= 0 || cart.length === 0) {
+      return new Map<string, number>();
+    }
+
+    const bases = cart.map((line) =>
+      Math.max(0, line.qty * line.rate - line.discountAmount),
+    );
+    const totalBase = bases.reduce((acc, base) => acc + base, 0);
+    if (totalBase <= 0) return new Map<string, number>();
+
+    const rawShares = bases.map(
+      (base) => (base / totalBase) * resolvedOrderDiscountAmount,
+    );
+    const floored = rawShares.map((share) =>
+      round2(Math.floor(share * 100) / 100),
+    );
+    const fractions = rawShares.map((share, idx) => share - floored[idx]);
+    let remainingCents = Math.round(
+      round2(
+        resolvedOrderDiscountAmount -
+          floored.reduce((acc, val) => acc + val, 0),
+      ) * 100,
+    );
+
+    const order = fractions
+      .map((frac, idx) => ({
+        idx,
+        frac,
+        headroom: round2(bases[idx] - floored[idx]),
+      }))
+      .filter((entry) => entry.headroom >= 0.01)
+      .sort((a, b) => b.frac - a.frac || a.idx - b.idx);
+
+    while (remainingCents > 0) {
+      let progressed = false;
+      for (const entry of order) {
+        if (remainingCents <= 0) break;
+        if (round2(bases[entry.idx] - floored[entry.idx]) < 0.01) continue;
+        floored[entry.idx] = round2(floored[entry.idx] + 0.01);
+        remainingCents -= 1;
+        progressed = true;
+      }
+      if (!progressed) break;
+    }
+
+    const allocationMap = new Map<string, number>();
+    cart.forEach((line, idx) => {
+      allocationMap.set(line.itemId, floored[idx] ?? 0);
+    });
+    return allocationMap;
+  }, [cart, resolvedOrderDiscountAmount]);
+
+  const effectiveCart = useMemo(
+    () =>
+      cart.map((line) => ({
+        ...line,
+        discountAmount:
+          line.discountAmount +
+          (orderDiscountAllocations.get(line.itemId) ?? 0),
+      })),
+    [cart, orderDiscountAllocations],
+  );
+
+  const effectiveLineById = useMemo(() => {
+    return new Map(effectiveCart.map((line) => [line.itemId, line]));
+  }, [effectiveCart]);
+
+  const orderDiscountAmountTaxable = useMemo(() => {
+    const total = cart.reduce((acc, line) => {
+      const allocation = orderDiscountAllocations.get(line.itemId) ?? 0;
+      const conversionFactor =
+        line.taxMode === "INCLUSIVE" && line.taxRate > 0
+          ? 100 / (100 + line.taxRate)
+          : 1;
+      return acc + allocation * conversionFactor;
+    }, 0);
+    return round2(total);
+  }, [cart, orderDiscountAllocations]);
 
   const activeEditLine = useMemo(
     () => cart.find((line) => line.itemId === editLineId) ?? null,
@@ -501,6 +618,42 @@ export function PosPage() {
     });
   };
 
+  const orderDiscountKeypadPress = (key: string) => {
+    if (key === "C") {
+      setOrderDiscountValue("0");
+      return;
+    }
+    if (key === "<") {
+      setOrderDiscountValue((current) =>
+        current.length <= 1 ? "0" : current.slice(0, -1),
+      );
+      return;
+    }
+    if (key === "+/-") {
+      setOrderDiscountValue((current) => {
+        if (current === "0") return current;
+        return current.startsWith("-") ? current.slice(1) : `-${current}`;
+      });
+      return;
+    }
+    if (key === ".") {
+      setOrderDiscountValue((current) =>
+        current.includes(".") ? current : `${current}.`,
+      );
+      return;
+    }
+    if (key === "%") {
+      setOrderDiscountMode((current) =>
+        current === "AMOUNT" ? "PERCENT" : "AMOUNT",
+      );
+      return;
+    }
+    if (!/^\d$/.test(key)) return;
+    setOrderDiscountValue((current) =>
+      current === "0" ? key : `${current}${key}`,
+    );
+  };
+
   const applyLineEdits = () => {
     if (!activeEditLine) return;
     setCart((prev) =>
@@ -547,18 +700,18 @@ export function PosPage() {
   };
 
   const total = useMemo(() => {
-    return cart.reduce((acc, line) => {
+    return effectiveCart.reduce((acc, line) => {
       const { net } = computeLineAmounts(line);
       return acc + net;
     }, 0);
-  }, [cart]);
+  }, [effectiveCart]);
 
   const totalTax = useMemo(() => {
-    return cart.reduce((acc, line) => {
+    return effectiveCart.reduce((acc, line) => {
       const { tax } = computeLineAmounts(line);
       return acc + tax;
     }, 0);
-  }, [cart]);
+  }, [effectiveCart]);
 
   const totalItems = useMemo(
     () => cart.reduce((acc, line) => acc + line.qty, 0),
@@ -656,6 +809,9 @@ export function PosPage() {
     setMessage("");
     setReceiptContact("");
     setCart([]);
+    setOrderDiscountValue("0");
+    setOrderDiscountMode("AMOUNT");
+    setOrderDiscountModalOpen(false);
     setPaymentAmount("0");
     setPaymentLines([]);
     setPaymentModalError("");
@@ -774,7 +930,7 @@ export function PosPage() {
       body: {
         branchId: session.branchId,
         customerId: selected,
-        lines: cart.map((line) => {
+        lines: effectiveCart.map((line) => {
           const conversionFactor =
             line.taxMode === "INCLUSIVE" && line.taxRate > 0
               ? 100 / (100 + line.taxRate)
@@ -787,6 +943,7 @@ export function PosPage() {
             taxRate: line.taxRate,
           };
         }),
+        orderDiscountAmount: orderDiscountAmountTaxable,
       },
       extraHeaders: authHeaders(),
     });
@@ -802,6 +959,9 @@ export function PosPage() {
     mutationFn: async () => createInvoice(),
     onSuccess: (invoice) => {
       setCart([]);
+      setOrderDiscountValue("0");
+      setOrderDiscountMode("AMOUNT");
+      setOrderDiscountModalOpen(false);
       setMessage(
         `Draft saved: ${invoice.invoiceNo}. Open Sales module to settle later.`,
       );
@@ -851,6 +1011,7 @@ export function PosPage() {
         customerName,
         customerPhone,
         subTotal: Number(result.invoice.subTotal),
+        orderDiscountAmount: Number(result.invoice.orderDiscountAmount ?? 0),
         taxTotal: Number(result.invoice.taxTotal),
         grandTotal: Number(result.invoice.grandTotal),
         paymentLines: result.invoice.payments.map((line) => ({
@@ -905,7 +1066,7 @@ export function PosPage() {
   });
 
   return (
-    <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[390px_1fr]">
+    <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[450px_1fr]">
       <style>{`
         @media print {
           body * {
@@ -934,6 +1095,7 @@ export function PosPage() {
         ${receiptTemplateCss}
         ${branchSettings.data?.invoiceCss ?? ""}
       `}</style>
+
       <aside className="flex h-full flex-col overflow-hidden bg-white">
         {postPayment ? (
           <>
@@ -999,7 +1161,10 @@ export function PosPage() {
                 </p>
               ) : null}
               {cart.map((line) => {
-                const lineNet = computeLineAmounts(line).net;
+                const effectiveLine =
+                  effectiveLineById.get(line.itemId) ?? line;
+                const lineNet = computeLineAmounts(effectiveLine).net;
+                const itemDiscount = line.discountAmount;
                 return (
                   <div
                     className="flex cursor-pointer items-start justify-between border-b border-slate-100 px-3 py-2 hover:bg-slate-50"
@@ -1023,6 +1188,11 @@ export function PosPage() {
                         <p className="text-base text-slate-500">
                           {line.qty.toFixed(3)} x {money(line.rate)} / unit
                         </p>
+                        {itemDiscount > 0 ? (
+                          <p className="text-sm text-amber-700">
+                            Discount: ₹ {money(itemDiscount)}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     <div className="text-right">
@@ -1086,14 +1256,30 @@ export function PosPage() {
 
             <div className="border-b border-slate-200 px-3 py-4 text">
               <div className="flex items-center justify-between">
-                <p className="text-xl text-slate-500">Taxes:</p>
-                <p className="text-xl text-slate-500">{money(totalTax)} ₹</p>
+                <p className="text-lg text-slate-500">Taxes:</p>
+                <p className="text-lg text-slate-500">{money(totalTax)} ₹</p>
+              </div>
+              <div className="mt-1 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <p className="text-lg text-slate-500">Order Discount:</p>
+                  <button
+                    className="rounded bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700"
+                    onClick={() => setOrderDiscountModalOpen(true)}
+                  >
+                    Edit
+                  </button>
+                </div>
+                <p className="text-lg text-amber-700">
+                  {resolvedOrderDiscountAmount > 0
+                    ? `- ${money(resolvedOrderDiscountAmount)} ₹`
+                    : "—"}
+                </p>
               </div>
               <div className="flex items-center justify-between">
-                <p className="text-3xl font-semibold leading-none text-slate-700">
+                <p className="text-2xl font-semibold leading-none text-slate-700">
                   Total:
                 </p>
-                <p className="text-3xl font-semibold leading-none text-slate-700">
+                <p className="text-2xl font-semibold leading-none text-slate-700">
                   {money(total)} ₹
                 </p>
               </div>
@@ -1158,105 +1344,7 @@ export function PosPage() {
       <div className="bg-slate-100 p-6 print:bg-white print:p-0">
         {postPayment ? (
           <div className="grid min-h-full place-items-center">
-            <div className="mx-auto grid w-full max-w-6xl gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
-              <div className="space-y-4 rounded border border-slate-200 bg-white p-5 shadow-sm print:hidden">
-                <p className="text-center text-3xl font-semibold text-fuchsia-800">
-                  Payment summary
-                </p>
-                <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-                  <p>
-                    Invoice:{" "}
-                    <span className="font-semibold">
-                      {postPayment.invoiceNo}
-                    </span>
-                  </p>
-                  <p>
-                    Receipt:{" "}
-                    <span className="font-semibold">
-                      {postPayment.receiptNo}
-                    </span>
-                  </p>
-                  <p>
-                    Customer:{" "}
-                    <span className="font-semibold">
-                      {postPayment.customerName}
-                    </span>
-                  </p>
-                  <p>
-                    Phone:{" "}
-                    <span className="font-semibold">
-                      {postPayment.customerPhone || "—"}
-                    </span>
-                  </p>
-                  <p className="sm:col-span-2 text-xs text-slate-500">
-                    {new Date(postPayment.createdAt).toLocaleString()}
-                  </p>
-                </div>
-
-                <div className="rounded border border-slate-200">
-                  <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Items
-                  </div>
-                  <div className="space-y-2 px-3 py-3 text-sm text-slate-700">
-                    {postPayment.lines.map((line) => {
-                      const net = computeLineAmounts(line);
-                      return (
-                        <div
-                          key={line.itemId}
-                          className="flex items-start justify-between"
-                        >
-                          <p className="mr-3">
-                            {line.qty.toFixed(0)} x {line.name}
-                          </p>
-                          <p>₹ {money(net.net)}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-                  <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2">
-                    <p>Subtotal</p>
-                    <p>₹ {money(printableSubtotal)}</p>
-                  </div>
-                  <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2">
-                    <p>Tax</p>
-                    <p>₹ {money(printableTaxTotal)}</p>
-                  </div>
-                  <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2 sm:col-span-2">
-                    <p className="font-semibold">Grand Total</p>
-                    <p className="text-base font-semibold">
-                      ₹ {money(printableGrandTotal)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="rounded border border-slate-200">
-                  <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Payments
-                  </div>
-                  <div className="space-y-2 px-3 py-3 text-sm text-slate-700">
-                    {postPayment.paymentLines.map((line, idx) => (
-                      <div
-                        key={`${line.mode}-${idx}`}
-                        className="flex items-center justify-between"
-                      >
-                        <p>{line.mode}</p>
-                        <p>₹ {money(line.amount)}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  className="w-full rounded bg-emerald-600 px-3 py-3 text-base font-semibold text-white print:hidden"
-                  onClick={() => window.print()}
-                >
-                  Print Invoice
-                </button>
-              </div>
-
+            <div className="mx-auto">
               <div
                 id="printable-invoice"
                 className="w-full rounded border border-slate-200 bg-white p-6 shadow-sm"
@@ -1268,7 +1356,7 @@ export function PosPage() {
                     className="receipt-logo"
                   />
                 ) : null}
-                <div className="receipt-text">
+                <div className="receipt-text text-center">
                   {(printableInvoice?.lines ?? []).map((line, idx) => (
                     <div
                       key={`${line.text}-${idx}`}
@@ -1335,7 +1423,117 @@ export function PosPage() {
 
       {paymentModalOpen ? (
         <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/40 p-4">
-          <div className="grid w-full max-w-6xl grid-cols-1 overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl lg:grid-cols-[480px_1fr]">
+          <div className="grid w-full max-w-6xl grid-cols-2 overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
+            <div className="flex flex-col bg-slate-50 p-3">
+              <div className="flex-1">
+                <div className="text-center">
+                  <p className="text-3xl text-slate-500">{paymentMethod}</p>
+                  <p className="mt-3 text-7xl leading-none text-slate-900">
+                    ${money(paymentAmount)}
+                  </p>
+                  {paymentMethod === "WALLET" && !isWalkInSelected ? (
+                    <p className="mt-4 text-2xl text-slate-600">
+                      Wallet Balance: ₹ {money(walletBalance)}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="mx-auto mt-10 max-w-3xl space-y-3">
+                  {paymentLines.length === 0 ? (
+                    <p className="text-center text-lg text-slate-500">
+                      No payment lines yet. Add a payment mode from the left.
+                    </p>
+                  ) : null}
+
+                  {paymentLines.map((line) => (
+                    <div
+                      key={line.mode}
+                      className="flex items-center justify-between rounded-lg border border-cyan-200 bg-cyan-50 px-5 py-4"
+                    >
+                      <p className="text-4xl text-slate-800">
+                        {line.mode === "WALLET"
+                          ? "Customer Account"
+                          : line.mode}
+                      </p>
+                      <div className="flex items-center gap-6">
+                        <p className="text-4xl text-slate-700">
+                          $ {money(line.amount)}
+                        </p>
+                        <button
+                          className="text-4xl font-bold text-rose-600"
+                          onClick={() => removePaymentLine(line.mode)}
+                          title="Remove payment line"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-8 border-t border-slate-200 pt-5">
+                <div className="flex items-center justify-between text-3xl">
+                  <p className="text-emerald-600">Remaining</p>
+                  <p className="text-emerald-500">$ {money(remainingAmount)}</p>
+                </div>
+              </div>
+
+              <button
+                className="mt-2 w-full rounded bg-emerald-600 px-3 py-4 text-2xl font-bold text-white disabled:bg-emerald-300"
+                onClick={() =>
+                  checkout.mutate({
+                    payments: paymentLines,
+                    cartSnapshot: effectiveCart,
+                  })
+                }
+                disabled={
+                  checkout.isPending || walletOverused || !paymentCanValidate
+                }
+              >
+                Validate
+              </button>
+
+              {walletOverused ? (
+                <p className="mt-2 text-sm text-rose-700">
+                  Wallet payment exceeds available balance.
+                </p>
+              ) : null}
+
+              {!walletOverused &&
+              isWalkInSelected &&
+              paymentLines.length > 0 &&
+              !paymentMatchesTotal ? (
+                <p className="mt-2 text-sm text-rose-700">
+                  Walk-in payment must be exactly ₹ {money(total)}. Current: ₹{" "}
+                  {money(totalPaid)}.
+                </p>
+              ) : null}
+              {!walletOverused &&
+              !isWalkInSelected &&
+              paymentLines.length > 0 &&
+              totalPaid < total ? (
+                <p className="mt-2 text-sm text-amber-700">
+                  Partial payment selected. Remaining due: ₹{" "}
+                  {money(total - totalPaid)}.
+                </p>
+              ) : null}
+              {!walletOverused &&
+              !isWalkInSelected &&
+              paymentLines.length > 0 &&
+              excessAmount > 0 ? (
+                <p className="mt-2 text-sm text-emerald-700">
+                  Excess ₹ {money(excessAmount)} will be deposited to customer
+                  wallet.
+                </p>
+              ) : null}
+              {paymentModalError ? (
+                <p className="mt-2 text-sm text-rose-700">
+                  {paymentModalError}
+                </p>
+              ) : null}
+            </div>
+
             <div className="border-r border-slate-200 p-3">
               <div className="mb-3 grid gap-2">
                 {availablePaymentMethods.map((method) => (
@@ -1403,115 +1601,77 @@ export function PosPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      ) : null}
 
-            <div className="flex flex-col bg-slate-50 p-3">
-              <div className="flex-1">
-                <div className="text-center">
-                  <p className="text-3xl text-slate-500">{paymentMethod}</p>
-                  <p className="mt-3 text-7xl leading-none text-slate-900">
-                    ${money(paymentAmount)}
-                  </p>
-                  {paymentMethod === "WALLET" && !isWalkInSelected ? (
-                    <p className="mt-4 text-2xl text-slate-600">
-                      Wallet Balance: ₹ {money(walletBalance)}
-                    </p>
-                  ) : null}
+      {orderDiscountModalOpen ? (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-3xl overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 p-4">
+              <p className="text-2xl font-semibold text-slate-900">
+                Order Discount
+              </p>
+              <p className="text-sm text-slate-500">
+                Base eligible: ₹ {money(orderDiscountBase)}
+              </p>
+              <div className="mt-3 flex items-center gap-3">
+                <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-2xl font-semibold text-slate-800">
+                  {orderDiscountValue}{" "}
+                  {orderDiscountMode === "PERCENT" ? "%" : "₹"}
                 </div>
+                <div className="text-lg text-amber-700">
+                  Applied: ₹ {money(resolvedOrderDiscountAmount)}
+                </div>
+              </div>
+            </div>
 
-                <div className="mx-auto mt-10 max-w-3xl space-y-3">
-                  {paymentLines.length === 0 ? (
-                    <p className="text-center text-lg text-slate-500">
-                      No payment lines yet. Add a payment mode from the left.
-                    </p>
-                  ) : null}
-
-                  {paymentLines.map((line) => (
-                    <div
-                      key={line.mode}
-                      className="flex items-center justify-between rounded-lg border border-cyan-200 bg-cyan-50 px-5 py-4"
+            <div className="grid grid-cols-4 gap-1 p-4">
+              {[
+                "1",
+                "2",
+                "3",
+                "%",
+                "4",
+                "5",
+                "6",
+                "C",
+                "7",
+                "8",
+                "9",
+                "<",
+                "+/-",
+                "0",
+                ".",
+                "Done",
+              ].map((key) => {
+                if (key === "Done") {
+                  return (
+                    <button
+                      key={key}
+                      className="col-span-4 rounded bg-emerald-600 px-2 py-4 text-xl font-bold text-white"
+                      onClick={() => setOrderDiscountModalOpen(false)}
                     >
-                      <p className="text-4xl text-slate-800">
-                        {line.mode === "WALLET"
-                          ? "Customer Account"
-                          : line.mode}
-                      </p>
-                      <div className="flex items-center gap-6">
-                        <p className="text-4xl text-slate-700">
-                          $ {money(line.amount)}
-                        </p>
-                        <button
-                          className="text-4xl font-bold text-rose-600"
-                          onClick={() => removePaymentLine(line.mode)}
-                          title="Remove payment line"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-8 border-t border-slate-200 pt-5">
-                <div className="flex items-center justify-between text-3xl">
-                  <p className="text-emerald-600">Remaining</p>
-                  <p className="text-emerald-500">$ {money(remainingAmount)}</p>
-                </div>
-              </div>
-
-              <button
-                className="mt-2 w-full rounded bg-emerald-600 px-3 py-4 text-2xl font-bold text-white disabled:bg-emerald-300"
-                onClick={() =>
-                  checkout.mutate({
-                    payments: paymentLines,
-                    cartSnapshot: cart,
-                  })
+                      Done
+                    </button>
+                  );
                 }
-                disabled={
-                  checkout.isPending || walletOverused || !paymentCanValidate
-                }
-              >
-                Validate
-              </button>
-
-              {walletOverused ? (
-                <p className="mt-2 text-sm text-rose-700">
-                  Wallet payment exceeds available balance.
-                </p>
-              ) : null}
-
-              {!walletOverused &&
-              isWalkInSelected &&
-              paymentLines.length > 0 &&
-              !paymentMatchesTotal ? (
-                <p className="mt-2 text-sm text-rose-700">
-                  Walk-in payment must be exactly ₹ {money(total)}. Current: ₹{" "}
-                  {money(totalPaid)}.
-                </p>
-              ) : null}
-              {!walletOverused &&
-              !isWalkInSelected &&
-              paymentLines.length > 0 &&
-              totalPaid < total ? (
-                <p className="mt-2 text-sm text-amber-700">
-                  Partial payment selected. Remaining due: ₹{" "}
-                  {money(total - totalPaid)}.
-                </p>
-              ) : null}
-              {!walletOverused &&
-              !isWalkInSelected &&
-              paymentLines.length > 0 &&
-              excessAmount > 0 ? (
-                <p className="mt-2 text-sm text-emerald-700">
-                  Excess ₹ {money(excessAmount)} will be deposited to customer
-                  wallet.
-                </p>
-              ) : null}
-              {paymentModalError ? (
-                <p className="mt-2 text-sm text-rose-700">
-                  {paymentModalError}
-                </p>
-              ) : null}
+                return (
+                  <button
+                    key={key}
+                    className={`rounded px-2 py-4 text-2xl font-semibold ${
+                      key === "%"
+                        ? "bg-amber-200 text-amber-900"
+                        : key === "C"
+                          ? "bg-rose-200 text-rose-800"
+                          : "bg-slate-100 text-slate-800"
+                    }`}
+                    onClick={() => orderDiscountKeypadPress(key)}
+                  >
+                    {key}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
