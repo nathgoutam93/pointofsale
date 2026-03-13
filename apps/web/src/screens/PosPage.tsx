@@ -57,6 +57,15 @@ export function PosPage() {
   const [postPayment, setPostPayment] = useState<PostPaymentSummary | null>(
     null,
   );
+  const [editLineId, setEditLineId] = useState<string | null>(null);
+  const [editField, setEditField] = useState<"QTY" | "DISCOUNT" | "PRICE">(
+    "QTY",
+  );
+  const [editValue, setEditValue] = useState("1");
+  const [discountMode, setDiscountMode] = useState<"AMOUNT" | "PERCENT">(
+    "AMOUNT",
+  );
+  const [draftLine, setDraftLine] = useState<CartLine | null>(null);
   const printableSaleLines = postPayment?.lines ?? [];
   const printableSubtotal = postPayment?.subTotal ?? 0;
   const printableTaxTotal = postPayment?.taxTotal ?? 0;
@@ -80,7 +89,8 @@ export function PosPage() {
       const res = await api.business.get({
         extraHeaders: authHeaders(),
       });
-      if (res.status !== 200) throw new Error("Failed to load business settings");
+      if (res.status !== 200)
+        throw new Error("Failed to load business settings");
       return res.body;
     },
   });
@@ -110,7 +120,8 @@ export function PosPage() {
   }, [branchSettings.data?.receiptFooter]);
 
   const invoiceLogoSrc = useMemo(() => {
-    const logoUrl = branchSettings.data?.logoUrl ?? businessSettings.data?.logoUrl;
+    const logoUrl =
+      branchSettings.data?.logoUrl ?? businessSettings.data?.logoUrl;
     if (!logoUrl) return null;
     if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
       return logoUrl;
@@ -319,6 +330,187 @@ export function PosPage() {
     const tax = (afterDiscount * line.taxRate) / 100;
     return { taxable: afterDiscount, tax, net: afterDiscount + tax };
   }
+
+  const activeEditLine = useMemo(
+    () => cart.find((line) => line.itemId === editLineId) ?? null,
+    [cart, editLineId],
+  );
+  const displayEditLine = draftLine ?? activeEditLine;
+
+  const getDiscountPercent = (line: CartLine) => {
+    const gross = line.qty * line.rate;
+    if (gross <= 0) return 0;
+    return (line.discountAmount / gross) * 100;
+  };
+
+  const formatPercentValue = (value: number) => {
+    if (!Number.isFinite(value)) return "0";
+    const fixed = value.toFixed(2);
+    return fixed.replace(/\.?0+$/, "");
+  };
+
+  const buildEditedLine = (
+    line: CartLine,
+    field: "QTY" | "DISCOUNT" | "PRICE",
+    value: string,
+    mode: "AMOUNT" | "PERCENT",
+  ) => {
+    const input = Number(value);
+    if (!Number.isFinite(input)) return line;
+    let qty = line.qty;
+    let rate = line.rate;
+    let discountAmount = line.discountAmount;
+    if (field === "QTY") {
+      qty = Math.max(0, input);
+    }
+    if (field === "PRICE") {
+      rate = Math.max(0, input);
+    }
+    if (field === "DISCOUNT") {
+      if (mode === "PERCENT") {
+        const gross = line.qty * line.rate;
+        discountAmount = Math.max(0, (gross * input) / 100);
+      } else {
+        discountAmount = Math.max(0, input);
+      }
+    }
+    const gross = qty * rate;
+    if (discountAmount > gross) discountAmount = gross;
+    return { ...line, qty, rate, discountAmount };
+  };
+
+  const setEditFieldWithValue = (
+    field: "QTY" | "DISCOUNT" | "PRICE",
+    line: CartLine,
+    mode: "AMOUNT" | "PERCENT" = discountMode,
+  ) => {
+    setEditField(field);
+    if (field === "QTY") {
+      setEditValue(String(line.qty));
+      return;
+    }
+    if (field === "PRICE") {
+      setEditValue(String(line.rate));
+      return;
+    }
+    if (mode === "PERCENT") {
+      setEditValue(formatPercentValue(getDiscountPercent(line)));
+      return;
+    }
+    setEditValue(String(line.discountAmount));
+  };
+
+  const openLineEditor = (line: CartLine) => {
+    setEditLineId(line.itemId);
+    setDiscountMode("AMOUNT");
+    setEditFieldWithValue("QTY", line, "AMOUNT");
+    setDraftLine({ ...line });
+  };
+
+  const closeLineEditor = () => {
+    setEditLineId(null);
+    setEditValue("1");
+    setEditField("QTY");
+    setDiscountMode("AMOUNT");
+    setDraftLine(null);
+  };
+
+  const updateDraftLine = (
+    line: CartLine,
+    field: "QTY" | "DISCOUNT" | "PRICE",
+    value: string,
+    mode: "AMOUNT" | "PERCENT",
+  ) => {
+    const next = buildEditedLine(line, field, value, mode);
+    setDraftLine(next);
+  };
+
+  const lineEditKeypadPress = (key: string) => {
+    if (key === "C") {
+      setEditValue("0");
+      if (draftLine) {
+        updateDraftLine(draftLine, editField, "0", discountMode);
+      }
+      return;
+    }
+    if (key === "<") {
+      setEditValue((current) => {
+        const next = current.length <= 1 ? "0" : current.slice(0, -1);
+        if (draftLine) {
+          updateDraftLine(draftLine, editField, next, discountMode);
+        }
+        return next;
+      });
+      return;
+    }
+    if (key === "+/-") {
+      setEditValue((current) => {
+        if (current === "0") return current;
+        const next = current.startsWith("-") ? current.slice(1) : `-${current}`;
+        if (draftLine) {
+          updateDraftLine(draftLine, editField, next, discountMode);
+        }
+        return next;
+      });
+      return;
+    }
+    if (key === ".") {
+      setEditValue((current) => {
+        const next = current.includes(".") ? current : `${current}.`;
+        if (draftLine) {
+          updateDraftLine(draftLine, editField, next, discountMode);
+        }
+        return next;
+      });
+      return;
+    }
+    if (key === "QTY" || key === "PRICE") {
+      if (draftLine) {
+        setEditFieldWithValue(key, draftLine);
+      }
+      return;
+    }
+    if (key === "%") {
+      if (editField !== "DISCOUNT") {
+        if (draftLine) {
+          setEditFieldWithValue("DISCOUNT", draftLine);
+        }
+        return;
+      }
+      const nextMode = discountMode === "AMOUNT" ? "PERCENT" : "AMOUNT";
+      setDiscountMode(nextMode);
+      if (draftLine) {
+        setEditFieldWithValue("DISCOUNT", draftLine, nextMode);
+      }
+      return;
+    }
+    if (key === "DISCOUNT") {
+      if (draftLine) {
+        setEditFieldWithValue("DISCOUNT", draftLine);
+      }
+      return;
+    }
+
+    if (!/^\d$/.test(key)) return;
+    setEditValue((current) => {
+      const next = current === "0" ? key : `${current}${key}`;
+      if (draftLine) {
+        updateDraftLine(draftLine, editField, next, discountMode);
+      }
+      return next;
+    });
+  };
+
+  const applyLineEdits = () => {
+    if (!activeEditLine) return;
+    setCart((prev) =>
+      prev.map((line) => {
+        if (line.itemId !== activeEditLine.itemId) return line;
+        return draftLine ?? line;
+      }),
+    );
+    closeLineEditor();
+  };
 
   const addItem = (item: {
     id: string;
@@ -810,8 +1002,9 @@ export function PosPage() {
                 const lineNet = computeLineAmounts(line).net;
                 return (
                   <div
-                    className="flex items-start justify-between border-b border-slate-100 px-3 py-2"
+                    className="flex cursor-pointer items-start justify-between border-b border-slate-100 px-3 py-2 hover:bg-slate-50"
                     key={line.itemId}
+                    onClick={() => openLineEditor(line)}
                   >
                     <div className="flex gap-2">
                       <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-slate-100">
@@ -839,7 +1032,8 @@ export function PosPage() {
                       <div className="mt-1 flex justify-end gap-1">
                         <button
                           className="h-7 w-7 rounded bg-slate-200 p-0 text-sm text-slate-700"
-                          onClick={() =>
+                          onClick={(event) => {
+                            event.stopPropagation();
                             setCart((prev) =>
                               prev
                                 .map((x) =>
@@ -848,32 +1042,37 @@ export function PosPage() {
                                     : x,
                                 )
                                 .filter((x) => x.qty > 0),
-                            )
-                          }
+                            );
+                          }}
                         >
                           -
                         </button>
                         <button
                           className="h-7 w-7 rounded bg-slate-200 p-0 text-sm text-slate-700"
-                          onClick={() =>
+                          onClick={(event) => {
+                            event.stopPropagation();
                             setCart((prev) =>
                               prev.map((x) =>
                                 x.itemId === line.itemId
                                   ? { ...x, qty: x.qty + 1 }
                                   : x,
                               ),
-                            )
-                          }
+                            );
+                          }}
                         >
                           +
                         </button>
                         <button
                           className="h-7 w-7 rounded bg-rose-200 p-0 text-sm font-bold text-rose-700"
-                          onClick={() =>
+                          onClick={(event) => {
+                            event.stopPropagation();
                             setCart((prev) =>
                               prev.filter((x) => x.itemId !== line.itemId),
-                            )
-                          }
+                            );
+                            if (editLineId === line.itemId) {
+                              closeLineEditor();
+                            }
+                          }}
                           title="Remove item"
                         >
                           x
@@ -925,8 +1124,7 @@ export function PosPage() {
                 </button>
                 {!isWalkInSelected ? (
                   <p className="mt-1 text-xs text-slate-600">
-                    Account Balance: ₹{" "}
-                    {money(customerWallet.data?.balance ?? 0)}
+                    Wallet Balance: ₹ {money(customerWallet.data?.balance ?? 0)}
                   </p>
                 ) : null}
 
@@ -1314,6 +1512,188 @@ export function PosPage() {
                   {paymentModalError}
                 </p>
               ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {activeEditLine ? (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-5xl overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px]">
+              <div className="border-r border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-2xl font-semibold text-slate-900">
+                      {displayEditLine?.name}
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      Item ID: {displayEditLine?.itemId}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <button
+                    className={`rounded border px-3 py-3 text-left ${editField === "QTY" ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-white"}`}
+                    onClick={() =>
+                      displayEditLine
+                        ? setEditFieldWithValue("QTY", displayEditLine)
+                        : null
+                    }
+                  >
+                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                      Qty
+                    </p>
+                    <p className="text-2xl font-semibold text-slate-800">
+                      {displayEditLine?.qty.toFixed(3)}
+                    </p>
+                  </button>
+                  <button
+                    className={`rounded border px-3 py-3 text-left ${editField === "DISCOUNT" ? "border-amber-400 bg-amber-50" : "border-slate-200 bg-white"}`}
+                    onClick={() =>
+                      displayEditLine
+                        ? setEditFieldWithValue("DISCOUNT", displayEditLine)
+                        : null
+                    }
+                  >
+                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                      Discount
+                    </p>
+                    <p className="text-2xl font-semibold text-slate-800">
+                      ₹ {money(displayEditLine?.discountAmount ?? 0)}
+                    </p>
+                  </button>
+                  <button
+                    className={`rounded border px-3 py-3 text-left ${editField === "PRICE" ? "border-indigo-400 bg-indigo-50" : "border-slate-200 bg-white"}`}
+                    onClick={() =>
+                      displayEditLine
+                        ? setEditFieldWithValue("PRICE", displayEditLine)
+                        : null
+                    }
+                  >
+                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                      Price / Unit
+                    </p>
+                    <p className="text-2xl font-semibold text-slate-800">
+                      ₹ {money(displayEditLine?.rate ?? 0)}
+                    </p>
+                  </button>
+                </div>
+
+                <div className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">
+                    Editing
+                  </p>
+                  <div className="mt-2 flex items-end justify-between">
+                    <div>
+                      <p className="text-sm text-slate-500">
+                        {editField === "QTY"
+                          ? "Quantity"
+                          : editField === "PRICE"
+                            ? "Unit Price"
+                            : discountMode === "PERCENT"
+                              ? "Discount (%)"
+                              : "Discount Amount"}
+                      </p>
+                      <p className="text-5xl font-semibold text-slate-900">
+                        {editValue}
+                        {editField === "DISCOUNT" && discountMode === "PERCENT"
+                          ? "%"
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs uppercase tracking-wide text-slate-500">
+                        Line Total
+                      </p>
+                      <p className="text-3xl font-semibold text-slate-800">
+                        ₹{" "}
+                        {money(
+                          computeLineAmounts(displayEditLine ?? activeEditLine)
+                            .net,
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  {editField === "DISCOUNT" ? (
+                    <p className="mt-2 text-xs text-slate-500">
+                      {discountMode === "PERCENT"
+                        ? "Press % to switch to amount."
+                        : "Press % to switch to percentage."}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="bg-slate-900 p-4 space-y-2">
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    "1",
+                    "2",
+                    "3",
+                    "QTY",
+                    "4",
+                    "5",
+                    "6",
+                    "%",
+                    "7",
+                    "8",
+                    "9",
+                    "PRICE",
+                    "+/-",
+                    "0",
+                    ".",
+                    "<",
+                  ].map((key) => (
+                    <button
+                      key={key}
+                      className={`rounded px-2 py-4 text-xl font-semibold ${
+                        key === "QTY" || key === "PRICE" || key === "%"
+                          ? "bg-slate-700 text-white"
+                          : key === "<"
+                            ? "bg-rose-500 text-white"
+                            : "bg-slate-100 text-slate-900"
+                      }`}
+                      onClick={() => lineEditKeypadPress(key)}
+                    >
+                      {key}
+                    </button>
+                  ))}
+
+                  <button
+                    className="col-span-3 rounded bg-emerald-600 px-4 py-3 text-base font-semibold text-white"
+                    onClick={applyLineEdits}
+                  >
+                    Apply
+                  </button>
+                  <button
+                    className="col-span-1 rounded bg-amber-200 px-2 py-4 text-xl font-semibold text-amber-900"
+                    onClick={() => lineEditKeypadPress("C")}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    className="rounded bg-slate-200 px-2 py-4 text-xl font-semibold text-slate-800"
+                    onClick={closeLineEditor}
+                  >
+                    Back
+                  </button>
+                  <button
+                    className="rounded bg-rose-200 px-4 py-3 text-base font-semibold text-rose-800"
+                    onClick={() => {
+                      setCart((prev) =>
+                        prev.filter((x) => x.itemId !== activeEditLine.itemId),
+                      );
+                      closeLineEditor();
+                    }}
+                  >
+                    Remove Item
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
