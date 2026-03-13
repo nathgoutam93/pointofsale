@@ -28,7 +28,10 @@ type SettledSummary = {
     itemId: string;
     qty: number;
     rate: number;
+    discountAmount: number;
     taxRate: number;
+    taxAmount: number;
+    taxableAmount: number;
     netAmount: number;
   }>;
   payments: Array<{ mode: PaymentMode; amount: number }>;
@@ -44,6 +47,13 @@ export function SalesPage() {
     }
     return name;
   };
+  const formatPercent = (value: number) => {
+    if (!Number.isFinite(value)) return "0";
+    const rounded = Number(value.toFixed(2));
+    return rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2);
+  };
+  const formatQtyLabel = (qty: number) =>
+    Number.isInteger(qty) ? qty.toFixed(0) : qty.toFixed(3);
 
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -520,7 +530,10 @@ export function SalesPage() {
           itemId: line.itemId,
           qty: Number(line.qty),
           rate: Number(line.rate),
+          discountAmount: Number(line.discountAmount ?? 0),
           taxRate: Number(line.taxRate),
+          taxAmount: Number(line.taxAmount ?? 0),
+          taxableAmount: Number(line.taxableAmount ?? 0),
           netAmount: Number(line.netAmount),
         })),
         payments: result.invoice.payments.map((line) => ({
@@ -617,7 +630,10 @@ export function SalesPage() {
       itemId: line.itemId,
       qty: Number(line.qty),
       rate: Number(line.rate),
+      discountAmount: Number(line.discountAmount ?? 0),
       taxRate: Number(line.taxRate),
+      taxAmount: Number(line.taxAmount ?? 0),
+      taxableAmount: Number(line.taxableAmount ?? 0),
       netAmount: Number(line.netAmount),
     })) ??
     [];
@@ -662,13 +678,24 @@ export function SalesPage() {
       const name =
         itemById.get(line.itemId)?.name ?? `Item ${line.itemId.slice(0, 6)}`;
       const taxMode = itemById.get(line.itemId)?.taxMode ?? "EXCLUSIVE";
+      const gross = line.qty * line.rate;
+      const discountAmount = Math.max(0, line.discountAmount ?? 0);
+      const discountPercent = gross > 0 ? (discountAmount / gross) * 100 : 0;
+      const taxAmount = Math.max(0, line.taxAmount ?? 0);
+      const taxRate = line.taxRate ?? 0;
       const taxLabel =
-        line.taxRate && line.taxRate > 0
-          ? `@${line.taxRate}% ${taxMode === "INCLUSIVE" ? "Incl." : "Excl."}`
+        taxRate > 0 || taxAmount > 0
+          ? `tax ${money(taxAmount)} @${formatPercent(taxRate)}% ${taxMode === "INCLUSIVE" ? "Incl." : "Excl."}`
           : "";
+      const discountLabel =
+        discountAmount > 0
+          ? `disc ${money(discountAmount)} @${formatPercent(discountPercent)}%`
+          : "";
+      const qtyRateLine = `${formatQtyLabel(line.qty)} x ${money(line.rate)} = ${money(gross)}`;
+      const subLines = [taxLabel, discountLabel, qtyRateLine].filter(Boolean);
       return {
         name,
-        subLine: taxLabel || undefined,
+        subLines: subLines.length > 0 ? subLines : undefined,
         qty: line.qty,
         price: line.rate,
         total: line.netAmount,
@@ -718,6 +745,8 @@ export function SalesPage() {
     invoiceFooterLines,
     receiptCharWidth,
     paymentBreakdown,
+    formatPercent,
+    formatQtyLabel,
   ]);
 
   return (
@@ -750,7 +779,8 @@ export function SalesPage() {
         ${receiptTemplateCss}
         ${branchSettings.data?.receiptCss ?? ""}
       `}</style>
-      <aside className="flex flex-col overflow-hidden border-r border-slate-200 bg-white">
+
+      <aside className="flex h-full flex-col overflow-hidden border-r border-slate-200 bg-white">
         {settledSummary ? (
           <>
             <div className="flex-1 space-y-4 overflow-y-auto border-b border-slate-200 p-4">
@@ -807,9 +837,6 @@ export function SalesPage() {
           <>
             <div className="border-b border-slate-200 p-4">
               <h2 className="text-2xl font-semibold text-slate-900">Sales</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Settle draft or on-credit invoices with split payments.
-              </p>
               <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                 <div className="rounded bg-slate-100 p-2 text-slate-700">
                   Pending Invoices:{" "}
@@ -942,8 +969,8 @@ export function SalesPage() {
         ) : null}
       </aside>
 
-      <div className="bg-slate-100 p-4 print:bg-white print:p-0">
-        <div className="mb-3 flex w-full items-center justify-between p-2 print:hidden">
+      <div className="bg-slate-100 print:bg-white print:p-0 px-2">
+        <div className="flex w-full items-center justify-between p-2 print:hidden">
           <div></div>
           <div className="flex items-center gap-2">
             <button
@@ -963,7 +990,8 @@ export function SalesPage() {
             </button>
           </div>
         </div>
-        <div className="mx-auto grid w-full max-w-6xl gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+
+        <div className="h-[calc(100vh-102px)] mx-auto grid w-full max-w-6xl gap-4 lg:grid-cols-[minmax(0,1fr)_380px] overflow-y-scroll">
           <div className="rounded border border-slate-200 bg-white p-5 shadow-sm print:hidden">
             <h3 className="text-lg font-semibold text-slate-900">
               Sale Details
@@ -1101,7 +1129,7 @@ export function SalesPage() {
                 className="receipt-logo"
               />
             ) : null}
-            <div className="receipt-text">
+            <div className="receipt-text text-center">
               {(printableReceipt?.lines ?? []).map((line, idx) => (
                 <div
                   key={`${line.text}-${idx}`}

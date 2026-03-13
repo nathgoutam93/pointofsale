@@ -3,6 +3,24 @@ import { InvoiceStatus, PaymentMode, Prisma, StockTxnType, UserRole, WalletTxnTy
 import { PrismaService } from '../prisma.service';
 import { PaymentInput, SessionUser } from './pos.types';
 
+type SaleLineInput = {
+  itemId: string;
+  qty: number;
+  rate: number;
+  discountAmount?: number;
+  taxRate: number;
+};
+
+type ComputedSaleLine = SaleLineInput & {
+  discountAmount: number;
+  taxableAmount: number;
+  taxAmount: number;
+  netAmount: number;
+  grossAmount: number;
+  itemDiscountAmount: number;
+  orderDiscountAmount: number;
+};
+
 @Injectable()
 export class PosService {
   constructor(private readonly prisma: PrismaService) {}
@@ -461,6 +479,82 @@ export class PosService {
 
   private round2(value: number) {
     return Math.round(value * 100) / 100;
+  }
+
+  private allocateOrderDiscount(bases: number[], orderDiscountAmount: number) {
+    const totalBase = this.round2(bases.reduce((acc, base) => acc + base, 0));
+    const cappedDiscount = this.round2(Math.min(Math.max(0, orderDiscountAmount), totalBase));
+    if (totalBase <= 0 || cappedDiscount <= 0) {
+      return new Array(bases.length).fill(0);
+    }
+
+    const rawShares = bases.map((base) => (base / totalBase) * cappedDiscount);
+    const floored = rawShares.map((share) => this.round2(Math.floor(share * 100) / 100));
+    const fractions = rawShares.map((share, idx) => share - floored[idx]);
+    let remainingCents = Math.round(this.round2(cappedDiscount - floored.reduce((acc, share) => acc + share, 0)) * 100);
+
+    const order = bases
+      .map((base, idx) => ({
+        idx,
+        frac: fractions[idx] ?? 0,
+        headroom: this.round2(base - floored[idx])
+      }))
+      .filter((entry) => entry.headroom >= 0.01)
+      .sort((a, b) => b.frac - a.frac || a.idx - b.idx);
+
+    while (remainingCents > 0 && order.length > 0) {
+      let progressed = false;
+      for (const entry of order) {
+        if (remainingCents <= 0) break;
+        if (this.round2(bases[entry.idx] - floored[entry.idx]) < 0.01) continue;
+        floored[entry.idx] = this.round2(floored[entry.idx] + 0.01);
+        remainingCents -= 1;
+        progressed = true;
+      }
+      if (!progressed) break;
+    }
+
+    return floored;
+  }
+
+  private calculateSaleTotals(lines: SaleLineInput[], orderDiscountAmount: number) {
+    const normalized = lines.map((line) => {
+      const gross = this.round2(line.qty * line.rate);
+      const itemDiscount = this.round2(Math.min(Math.max(0, line.discountAmount ?? 0), gross));
+      const base = this.round2(Math.max(0, gross - itemDiscount));
+      return { line, gross, itemDiscount, base };
+    });
+
+    const allocations = this.allocateOrderDiscount(
+      normalized.map((entry) => entry.base),
+      orderDiscountAmount
+    );
+
+    const computedLines: ComputedSaleLine[] = normalized.map((entry, idx) => {
+      const orderDiscount = this.round2(allocations[idx] ?? 0);
+      const discountTotal = this.round2(entry.itemDiscount + orderDiscount);
+      const taxable = this.round2(Math.max(0, entry.gross - discountTotal));
+      const tax = this.round2((taxable * entry.line.taxRate) / 100);
+      const net = this.round2(taxable + tax);
+      return {
+        ...entry.line,
+        discountAmount: discountTotal,
+        taxableAmount: taxable,
+        taxAmount: tax,
+        netAmount: net,
+        grossAmount: entry.gross,
+        itemDiscountAmount: entry.itemDiscount,
+        orderDiscountAmount: orderDiscount
+      };
+    });
+
+    const subTotal = this.round2(computedLines.reduce((acc, l) => acc + l.grossAmount, 0));
+    const discountTotal = this.round2(computedLines.reduce((acc, l) => acc + l.discountAmount, 0));
+    const orderDiscountTotal = this.round2(computedLines.reduce((acc, l) => acc + l.orderDiscountAmount, 0));
+    const taxTotal = this.round2(computedLines.reduce((acc, l) => acc + l.taxAmount, 0));
+    const grandTotal = this.round2(computedLines.reduce((acc, l) => acc + l.netAmount, 0));
+
+    return { computedLines, subTotal, discountTotal, orderDiscountTotal, taxTotal, grandTotal };
   }
 
   private async nextSequence(branchId: string, type: 'invoice' | 'receipt' | 'return' | 'customer', tx: Prisma.TransactionClient) {
@@ -1043,7 +1137,7 @@ export class PosService {
     input: {
       branchId: string;
       customerId: string;
-      lines: Array<{ itemId: string; qty: number; rate: number; discountAmount?: number; taxRate: number }>;
+      lines: SaleLineInput[];
       orderDiscountAmount?: number;
     }
   ) {
@@ -1068,26 +1162,14 @@ export class PosService {
       const seq = await this.nextSequence(input.branchId, 'invoice', tx);
       const invoiceNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
 
-      const computedLines = normalizedLines.map((line) => {
-        const gross = line.qty * line.rate;
-        const discount = line.discountAmount ?? 0;
-        const taxable = this.round2(gross - discount);
-        const tax = this.round2((taxable * line.taxRate) / 100);
-        const net = this.round2(taxable + tax);
-        return {
-          ...line,
-          discountAmount: discount,
-          taxableAmount: taxable,
-          taxAmount: tax,
-          netAmount: net
-        };
-      });
-
-      const subTotal = this.round2(computedLines.reduce((acc, l) => acc + l.qty * l.rate, 0));
-      const orderDiscountAmount = this.round2(Math.max(0, input.orderDiscountAmount ?? 0));
-      const discountTotal = this.round2(computedLines.reduce((acc, l) => acc + l.discountAmount, 0));
-      const taxTotal = this.round2(computedLines.reduce((acc, l) => acc + l.taxAmount, 0));
-      const grandTotal = this.round2(computedLines.reduce((acc, l) => acc + l.netAmount, 0));
+      const {
+        computedLines,
+        subTotal,
+        discountTotal,
+        orderDiscountTotal,
+        taxTotal,
+        grandTotal
+      } = this.calculateSaleTotals(normalizedLines, input.orderDiscountAmount ?? 0);
 
       const invoice = await tx.saleInvoice.create({
         data: {
@@ -1097,7 +1179,7 @@ export class PosService {
           status: InvoiceStatus.DRAFT,
           subTotal,
           discountTotal,
-          orderDiscountAmount,
+          orderDiscountAmount: orderDiscountTotal,
           taxTotal,
           grandTotal,
           paidTotal: 0,

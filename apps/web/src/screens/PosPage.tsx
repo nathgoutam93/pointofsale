@@ -930,7 +930,7 @@ export function PosPage() {
       body: {
         branchId: session.branchId,
         customerId: selected,
-        lines: effectiveCart.map((line) => {
+        lines: cart.map((line) => {
           const conversionFactor =
             line.taxMode === "INCLUSIVE" && line.taxRate > 0
               ? 100 / (100 + line.taxRate)
@@ -1391,14 +1391,14 @@ export function PosPage() {
               />
             </div>
 
-            <div className="grid max-h-[calc(100vh-150px)] grid-cols-2 gap-2 overflow-auto p-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
+            <div className="grid max-h-[calc(100vh-150px)] grid-cols-2 gap-2 overflow-auto p-2 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8">
               {filteredItems.map((item) => (
                 <button
                   key={item.id}
                   className="rounded border border-slate-200 bg-white p-2 text-left hover:bg-slate-50"
                   onClick={() => addItem(item)}
                 >
-                  <div className="mb-2 h-30 overflow-hidden rounded bg-slate-100">
+                  <div className="mb-2 h-20 overflow-hidden rounded bg-slate-100">
                     {item.imageUrl ? (
                       <img
                         src={item.imageUrl}
@@ -1411,9 +1411,9 @@ export function PosPage() {
                     {item.name}
                   </p>
                   <p className="truncate text-xs text-slate-500">{item.code}</p>
-                  <p className="text-xs font-semibold text-indigo-700">
+                  {/* <p className="text-xs font-semibold text-indigo-700">
                     {money(item.sellPrice)} ₹
-                  </p>
+                  </p> */}
                 </button>
               ))}
             </div>

@@ -14,6 +14,7 @@ export type ReceiptItem = {
   price: number;
   total: number;
   subLine?: string;
+  subLines?: string[];
 };
 
 export type ReceiptTotal = {
@@ -155,12 +156,17 @@ const formatItemRow = (layout: ReceiptLayout, item: ReceiptItem) => {
     }
   });
 
-  if (item.subLine) {
-    const subLines = wrapText(item.subLine, layout.item);
-    subLines.forEach((subLine) => {
-      lines.push(fitLeft(subLine, layout.width));
-    });
+  const extraLines: string[] = [];
+  if (item.subLine) extraLines.push(item.subLine);
+  if (item.subLines && item.subLines.length > 0) {
+    extraLines.push(...item.subLines.filter(Boolean));
   }
+  extraLines.forEach((text) => {
+    const wrapped = wrapText(text, layout.width);
+    wrapped.forEach((wrappedLine) => {
+      lines.push(fitLeft(wrappedLine, layout.width));
+    });
+  });
 
   return lines;
 };
