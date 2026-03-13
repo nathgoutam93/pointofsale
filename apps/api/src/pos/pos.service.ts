@@ -672,6 +672,86 @@ export class PosService {
     };
   }
 
+  async getRegisterSummaries(session: SessionUser) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: session.userId },
+      include: {
+        branchAccesses: {
+          include: { branch: { select: this.branchSummarySelect } },
+          orderBy: { createdAt: 'asc' }
+        }
+      }
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const branchIds = user.branchAccesses.map((access) => access.branch.id);
+    if (branchIds.length === 0) {
+      return [];
+    }
+
+    const openRegisters = await this.prisma.registerSession.findMany({
+      where: { branchId: { in: branchIds }, closedAt: null },
+      select: {
+        id: true,
+        branchId: true,
+        openingBalance: true,
+        closingBalance: true,
+        openedAt: true,
+        closedAt: true
+      }
+    });
+
+    const lastClosedRegisters = await this.prisma.registerSession.findMany({
+      where: { branchId: { in: branchIds }, closedAt: { not: null } },
+      orderBy: { closedAt: 'desc' },
+      distinct: ['branchId'],
+      select: {
+        id: true,
+        branchId: true,
+        openingBalance: true,
+        closingBalance: true,
+        openedAt: true,
+        closedAt: true
+      }
+    });
+
+    const openByBranch = new Map(openRegisters.map((register) => [register.branchId, register]));
+    const lastClosedByBranch = new Map(
+      lastClosedRegisters.map((register) => [register.branchId, register])
+    );
+
+    const toDto = (
+      register:
+        | {
+            id: string;
+            branchId: string;
+            openingBalance: Prisma.Decimal;
+            closingBalance: Prisma.Decimal | null;
+            openedAt: Date;
+            closedAt: Date | null;
+          }
+        | undefined
+    ) => {
+      if (!register) return null;
+      return {
+        id: register.id,
+        branchId: register.branchId,
+        openingBalance: this.toNumber(register.openingBalance),
+        closingBalance: register.closingBalance ? this.toNumber(register.closingBalance) : null,
+        openedAt: register.openedAt,
+        closedAt: register.closedAt
+      };
+    };
+
+    return branchIds.map((branchId) => ({
+      branchId,
+      current: toDto(openByBranch.get(branchId)),
+      lastClosed: toDto(lastClosedByBranch.get(branchId))
+    }));
+  }
+
   async closeRegister(session: SessionUser, closingBalance: number) {
     if (!Number.isFinite(closingBalance) || closingBalance < 0) {
       throw new BadRequestException('Closing balance must be 0 or more');

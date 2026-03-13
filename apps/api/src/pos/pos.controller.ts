@@ -126,6 +126,11 @@ export class PosController {
     return this.posService.getCurrentRegister(this.getSession(headers));
   }
 
+  @Get('/registers/summary')
+  registerSummary(@Headers() headers: Record<string, string | string[] | undefined>) {
+    return this.posService.getRegisterSummaries(this.getSession(headers));
+  }
+
   @Post('/registers/close')
   @HttpCode(200)
   closeRegister(

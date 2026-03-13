@@ -28,6 +28,12 @@ export const registerSessionSchema = z.object({
   closedAt: z.string().datetime().nullable()
 });
 
+export const registerSummarySchema = z.object({
+  branchId: z.string().uuid(),
+  current: registerSessionSchema.nullable(),
+  lastClosed: registerSessionSchema.nullable()
+});
+
 export const branchSettingsSchema = branchSchema.extend({
   logoUrl: z.string().nullable(),
   invoicePrefix: z.string(),
@@ -393,6 +399,13 @@ export const appContract = c.router({
           token: z.string(),
           register: registerSessionSchema
         })
+      }
+    },
+    summary: {
+      method: 'GET',
+      path: '/registers/summary',
+      responses: {
+        200: z.array(registerSummarySchema)
       }
     },
     current: {
