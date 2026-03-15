@@ -476,10 +476,6 @@ export function PosPage() {
     };
   }, [cart, resolvedOrderDiscountAmount, taxCalculationMode]);
 
-  const computedLineById = useMemo(() => {
-    return new Map(computedCart.lines.map((line) => [line.itemId, line]));
-  }, [computedCart.lines]);
-
   const activeEditLine = useMemo(
     () => cart.find((line) => line.itemId === editLineId) ?? null,
     [cart, editLineId],
@@ -1222,11 +1218,7 @@ export function PosPage() {
                 </p>
               ) : null}
               {cart.map((line) => {
-                const computedLine = computedLineById.get(line.itemId);
-                const lineNet =
-                  computedLine?.net ??
-                  line.netAmount ??
-                  computeLineAmounts(line).net;
+                const lineNet = computeLineAmounts(line).net;
                 const itemDiscount =
                   line.itemDiscountAmount ?? line.discountAmount;
                 return (
