@@ -15,6 +15,11 @@ export type ReceiptItem = {
   total: number;
   subLine?: string;
   subLines?: string[];
+  detailRows?: Array<{
+    label: string;
+    value: string;
+  }>;
+  totalLabel?: string;
 };
 
 export type ReceiptTotal = {
@@ -142,12 +147,48 @@ const formatHeaderRow = (layout: ReceiptLayout) => {
 };
 
 const formatItemRow = (layout: ReceiptLayout, item: ReceiptItem) => {
+  const lines: string[] = [];
+  const detailRows = item.detailRows ?? [];
+
+  if (detailRows.length > 0) {
+    wrapText(item.name, layout.width).forEach((nameLine) => {
+      lines.push(fitLeft(nameLine, layout.width));
+    });
+
+    detailRows.forEach((row) => {
+      const label = row.label.trim();
+      const value = row.value.trim();
+      const valueWidth = Math.min(
+        Math.max(value.length, Math.floor(layout.width * 0.22)),
+        Math.floor(layout.width * 0.45),
+      );
+      const labelWidth = layout.width - valueWidth;
+      lines.push(
+        fitLeft(`  ${label}`, labelWidth) + fitRight(value, valueWidth),
+      );
+    });
+
+    // const valueWidth = Math.min(
+    //   Math.max(
+    //     String(item.total.toFixed(2)).length,
+    //     Math.floor(layout.width * 0.22),
+    //   ),
+    //   Math.floor(layout.width * 0.45),
+    // );
+    // const labelWidth = layout.width - valueWidth;
+    // lines.push(fitLeft("", labelWidth) + fitRight("-----", valueWidth));
+    // lines.push(
+    //   fitLeft(item.totalLabel ?? "line total", labelWidth) +
+    //     fitRight(item.total.toFixed(2), valueWidth),
+    // );
+    return lines;
+  }
+
   const nameLines = wrapText(item.name, layout.item);
   const qty = fitRight(item.qty.toFixed(0), layout.qty);
   const price = fitRight(item.price.toFixed(2), layout.price);
   const total = fitRight(item.total.toFixed(2), layout.total);
 
-  const lines: string[] = [];
   nameLines.forEach((nameLine, index) => {
     if (index === 0) {
       lines.push(fitLeft(nameLine, layout.item) + qty + price + total);
@@ -231,10 +272,17 @@ export const buildReceiptLines = (params: {
     pushLine(separator);
   }
 
-  pushLine(formatHeaderRow(layout));
-  pushLine(separator);
+  const items = params.items ?? [];
+  const hasDetailedItems = items.some(
+    (item) => (item.detailRows?.length ?? 0) > 0,
+  );
 
-  (params.items ?? []).forEach((item) => {
+  if (!hasDetailedItems) {
+    pushLine(formatHeaderRow(layout));
+    pushLine(separator);
+  }
+
+  items.forEach((item) => {
     formatItemRow(layout, item).forEach((line) => pushLine(line));
   });
 

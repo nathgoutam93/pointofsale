@@ -22,6 +22,7 @@ type BusinessSettingsForm = {
   name: string;
   logoUrl: string | null;
   gstNumber: string;
+  taxCalculationMode: "AFTER_DISCOUNT" | "BEFORE_DISCOUNT";
 };
 
 type CashierForm = {
@@ -120,7 +121,8 @@ export function BranchSettingsPage() {
   const [businessForm, setBusinessForm] = useState<BusinessSettingsForm>({
     name: "",
     logoUrl: null,
-    gstNumber: ""
+    gstNumber: "",
+    taxCalculationMode: "AFTER_DISCOUNT"
   });
 
   useEffect(() => {
@@ -144,7 +146,8 @@ export function BranchSettingsPage() {
     setBusinessForm({
       name: businessSettings.data.name,
       logoUrl: businessSettings.data.logoUrl,
-      gstNumber: businessSettings.data.gstNumber ?? ""
+      gstNumber: businessSettings.data.gstNumber ?? "",
+      taxCalculationMode: businessSettings.data.taxCalculationMode
     });
   }, [businessSettings.data]);
 
@@ -193,7 +196,8 @@ export function BranchSettingsPage() {
         body: {
           name: trimmedName,
           logoUrl: businessForm.logoUrl,
-          gstNumber: emptyToNull(businessForm.gstNumber)
+          gstNumber: emptyToNull(businessForm.gstNumber),
+          taxCalculationMode: businessForm.taxCalculationMode
         },
         extraHeaders: authHeaders()
       });
@@ -218,7 +222,13 @@ export function BranchSettingsPage() {
       body
     });
     if (!res.ok) throw new Error("Failed to upload business logo");
-    return (await res.json()) as { id: string; name: string; logoUrl: string | null; gstNumber: string | null };
+    return (await res.json()) as {
+      id: string;
+      name: string;
+      logoUrl: string | null;
+      gstNumber: string | null;
+      taxCalculationMode: "AFTER_DISCOUNT" | "BEFORE_DISCOUNT";
+    };
   };
 
   const uploadBusinessLogoMutation = useMutation({
@@ -228,7 +238,8 @@ export function BranchSettingsPage() {
         ...prev,
         name: updated.name ?? prev.name,
         logoUrl: updated.logoUrl ?? null,
-        gstNumber: updated.gstNumber ?? ""
+        gstNumber: updated.gstNumber ?? "",
+        taxCalculationMode: updated.taxCalculationMode ?? prev.taxCalculationMode
       }));
       queryClient.invalidateQueries({ queryKey: ["business-settings"] });
       setBusinessMessage("Business logo updated.");
@@ -502,6 +513,25 @@ export function BranchSettingsPage() {
                   onChange={(e) => setBusinessForm((prev) => ({ ...prev, gstNumber: e.target.value }))}
                   placeholder="e.g. 29ABCDE1234F2Z5"
                 />
+              </div>
+              <div>
+                <label className="text-sm text-slate-600">Tax calculation mode</label>
+                <select
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                  value={businessForm.taxCalculationMode}
+                  onChange={(e) =>
+                    setBusinessForm((prev) => ({
+                      ...prev,
+                      taxCalculationMode: e.target.value as "AFTER_DISCOUNT" | "BEFORE_DISCOUNT",
+                    }))
+                  }
+                >
+                  <option value="AFTER_DISCOUNT">After discount</option>
+                  <option value="BEFORE_DISCOUNT">Before discount</option>
+                </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Controls whether tax is recomputed after discounts or held on the original pre-discount base.
+                </p>
               </div>
             </div>
 

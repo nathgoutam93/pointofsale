@@ -26,9 +26,13 @@ type SettledSummary = {
   lines: Array<{
     id: string;
     itemId: string;
+    itemName: string;
     qty: number;
     rate: number;
     discountAmount: number;
+    itemDiscountAmount?: number;
+    orderDiscountAmount?: number;
+    taxMode?: "INCLUSIVE" | "EXCLUSIVE";
     taxRate: number;
     taxAmount: number;
     taxableAmount: number;
@@ -54,6 +58,28 @@ export function SalesPage() {
   };
   const formatQtyLabel = (qty: number) =>
     Number.isInteger(qty) ? qty.toFixed(0) : qty.toFixed(3);
+  const getItemDiscountAmount = (
+    line: {
+      discountAllocations?: Array<{
+        discountId: string;
+        amount: number | string;
+      }>;
+    },
+    discounts?: Array<{ id: string; scope: "ITEM" | "ORDER" }>,
+  ) => {
+    const itemDiscountIds = new Set(
+      (discounts ?? [])
+        .filter((discount) => discount.scope === "ITEM")
+        .map((discount) => discount.id),
+    );
+    return (line.discountAllocations ?? []).reduce(
+      (acc, allocation) =>
+        itemDiscountIds.has(allocation.discountId)
+          ? acc + Number(allocation.amount ?? 0)
+          : acc,
+      0,
+    );
+  };
 
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -258,25 +284,6 @@ export function SalesPage() {
     }
   }, [selectedInvoiceId, selectedReceiptId, selectedReceipts.data]);
 
-  const itemById = useMemo(() => {
-    const map = new Map<
-      string,
-      { name: string; taxMode: "INCLUSIVE" | "EXCLUSIVE" }
-    >();
-    for (const item of items.data ?? []) {
-      map.set(item.id, { name: item.name, taxMode: item.taxMode });
-    }
-    return map;
-  }, [items.data]);
-
-  const customerNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const customer of customers.data ?? []) {
-      map.set(customer.id, customer.name);
-    }
-    return map;
-  }, [customers.data]);
-
   const selectedInvoice = useMemo(() => {
     if (!selectedInvoiceId) return null;
     return (
@@ -290,6 +297,7 @@ export function SalesPage() {
     settledSummary?.createdBy ?? currentInvoice?.createdBy ?? "";
   const currentSaleCreatorName =
     settledSummary?.createdByName ?? currentInvoice?.createdByName ?? "";
+  const currentCustomerName = currentInvoice?.customerName ?? "Walk-in";
   const selectedCustomer = useMemo(() => {
     if (!currentInvoice) return null;
     return (
@@ -530,7 +538,16 @@ export function SalesPage() {
           itemId: line.itemId,
           qty: Number(line.qty),
           rate: Number(line.rate),
+          itemName: line.itemName,
           discountAmount: Number(line.discountAmount ?? 0),
+          itemDiscountAmount: getItemDiscountAmount(
+            line,
+            result.invoice.discounts,
+          ),
+          orderDiscountAmount:
+            Number(line.discountAmount ?? 0) -
+            getItemDiscountAmount(line, result.invoice.discounts),
+          taxMode: line.taxMode ?? "EXCLUSIVE",
           taxRate: Number(line.taxRate),
           taxAmount: Number(line.taxAmount ?? 0),
           taxableAmount: Number(line.taxableAmount ?? 0),
@@ -582,11 +599,10 @@ export function SalesPage() {
     if (statusFilter !== "ALL") {
       list = list.filter((invoice) => invoice.status === statusFilter);
     }
-    const query = searchQuery.trim().toLowerCase();
+      const query = searchQuery.trim().toLowerCase();
     if (!query) return list;
     return list.filter((invoice) => {
-      const customerName =
-        customerNameById.get(invoice.customerId)?.toLowerCase() ?? "";
+      const customerName = invoice.customerName?.toLowerCase() ?? "";
       const createdByNameRaw =
         invoice.createdByName?.trim() || invoice.createdBy || "";
       const createdByName =
@@ -610,7 +626,6 @@ export function SalesPage() {
     paymentFilter,
     statusFilter,
     searchQuery,
-    customerNameById,
     session.userId,
     session.username,
   ]);
@@ -630,7 +645,16 @@ export function SalesPage() {
       itemId: line.itemId,
       qty: Number(line.qty),
       rate: Number(line.rate),
+      itemName: line.itemName,
       discountAmount: Number(line.discountAmount ?? 0),
+      itemDiscountAmount: getItemDiscountAmount(
+        line,
+        selectedInvoiceDetails.data?.discounts,
+      ),
+      orderDiscountAmount:
+        Number(line.discountAmount ?? 0) -
+        getItemDiscountAmount(line, selectedInvoiceDetails.data?.discounts),
+      taxMode: line.taxMode ?? "EXCLUSIVE",
       taxRate: Number(line.taxRate),
       taxAmount: Number(line.taxAmount ?? 0),
       taxableAmount: Number(line.taxableAmount ?? 0),
@@ -670,41 +694,60 @@ export function SalesPage() {
       { label: "Date", value: formatReceiptDate(createdAt) },
       { label: "Time", value: formatReceiptTime(createdAt) },
       { label: "Cashier", value: cashier },
-      { label: "Customer", value: selectedCustomer?.name ?? "" },
+      { label: "Customer", value: currentInvoice.customerName ?? "" },
       { label: "GSTIN", value: businessSettings.data?.gstNumber ?? "" },
     ];
 
     const items = saleLines.map((line) => {
-      const name =
-        itemById.get(line.itemId)?.name ?? `Item ${line.itemId.slice(0, 6)}`;
-      const taxMode = itemById.get(line.itemId)?.taxMode ?? "EXCLUSIVE";
+      const name = line.itemName ?? `Item ${line.itemId.slice(0, 6)}`;
+      const taxMode = line.taxMode ?? "EXCLUSIVE";
       const gross = line.qty * line.rate;
-      const discountAmount = Math.max(0, line.discountAmount ?? 0);
-      const discountPercent = gross > 0 ? (discountAmount / gross) * 100 : 0;
+      const discountAmount = Math.max(
+        0,
+        line.itemDiscountAmount ?? line.discountAmount ?? 0,
+      );
       const taxAmount = Math.max(0, line.taxAmount ?? 0);
-      const taxRate = line.taxRate ?? 0;
-      const taxLabel =
-        taxRate > 0 || taxAmount > 0
-          ? `tax ${money(taxAmount)} @${formatPercent(taxRate)}% ${taxMode === "INCLUSIVE" ? "Incl." : "Excl."}`
-          : "";
-      const discountLabel =
-        discountAmount > 0
-          ? `disc ${money(discountAmount)} @${formatPercent(discountPercent)}%`
-          : "";
-      const qtyRateLine = `${formatQtyLabel(line.qty)} x ${money(line.rate)} = ${money(gross)}`;
-      const subLines = [taxLabel, discountLabel, qtyRateLine].filter(Boolean);
+      const baseExclusive =
+        taxMode === "INCLUSIVE" && Number(line.taxRate ?? 0) > 0
+          ? (gross * 100) / (100 + Number(line.taxRate ?? 0))
+          : gross;
+      const baseUnitRate = line.qty > 0 ? baseExclusive / line.qty : 0;
+      const displayTotal =
+        Number(line.netAmount ?? 0) + Number(line.orderDiscountAmount ?? 0);
       return {
         name,
-        subLines: subLines.length > 0 ? subLines : undefined,
+        detailRows: [
+          {
+            label: `${formatQtyLabel(line.qty)} x ${money(baseUnitRate)}`,
+            value: money(baseExclusive),
+          },
+          ...(line.taxRate > 0 || taxAmount > 0
+            ? [{ label: `tax ${formatPercent(line.taxRate ?? 0)}%`, value: money(taxAmount) }]
+            : []),
+          ...(discountAmount > 0
+            ? [{ label: "discount", value: `-${money(discountAmount)}` }]
+            : []),
+        ],
+        totalLabel: "line total",
         qty: line.qty,
         price: line.rate,
-        total: line.netAmount,
+        total: displayTotal,
       };
     });
 
     const totals = [
-      { label: "Subtotal", value: money(invoiceSubTotal) },
-      { label: "Tax", value: money(invoiceTaxTotal) },
+      {
+        label: "Items Total",
+        value: money(invoiceGrandTotal + Number(currentInvoice.orderDiscountAmount ?? 0)),
+      },
+      ...(Number(currentInvoice.orderDiscountAmount ?? 0) > 0
+        ? [
+            {
+              label: "Order Discount",
+              value: `- ${money(Number(currentInvoice.orderDiscountAmount ?? 0))}`,
+            },
+          ]
+        : []),
       { label: "TOTAL", value: money(invoiceGrandTotal), isGrandTotal: true },
     ];
 
@@ -732,11 +775,7 @@ export function SalesPage() {
     previewReceipt?.createdAt,
     currentSaleCreatorId,
     currentSaleCreatorName,
-    selectedCustomer?.name,
     saleLines,
-    itemById,
-    invoiceSubTotal,
-    invoiceTaxTotal,
     invoiceGrandTotal,
     businessSettings.data?.gstNumber,
     storeDisplayName,
@@ -1010,7 +1049,7 @@ export function SalesPage() {
               <p>
                 Customer:{" "}
                 <span className="font-semibold">
-                  {selectedCustomer?.name ?? "Walk-in"}
+                  {currentCustomerName}
                 </span>
               </p>
               <p>
@@ -1040,8 +1079,7 @@ export function SalesPage() {
                   >
                     <p className="mr-3">
                       {line.qty.toFixed(0)} x{" "}
-                      {itemById.get(line.itemId)?.name ??
-                        `Item ${line.itemId.slice(0, 6)}`}
+                      {line.itemName ?? `Item ${line.itemId.slice(0, 6)}`}
                     </p>
                     <p>₹ {money(line.netAmount)}</p>
                   </div>

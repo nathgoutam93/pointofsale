@@ -10,6 +10,9 @@ const invoiceStatusSchema = z.enum(['DRAFT', 'SETTLED', 'PARTIALLY_SETTLED', 'CA
 const stockTxnTypeSchema = z.enum(['OPENING', 'ADJUSTMENT_PLUS', 'ADJUSTMENT_MINUS', 'SALE', 'RETURN']);
 const walletTxnTypeSchema = z.enum(['TOPUP', 'DEBIT_SALE', 'REFUND_RETURN', 'ADJUSTMENT']);
 const taxModeSchema = z.enum(['INCLUSIVE', 'EXCLUSIVE']);
+const taxCalculationModeSchema = z.enum(['AFTER_DISCOUNT', 'BEFORE_DISCOUNT']);
+const discountScopeSchema = z.enum(['ITEM', 'ORDER']);
+const discountTypeSchema = z.enum(['PERCENTAGE', 'FIXED']);
 
 export const moneySchema = z.number().finite();
 
@@ -51,7 +54,8 @@ export const businessSettingsSchema = z.object({
   id: z.string(),
   name: z.string(),
   logoUrl: z.string().nullable(),
-  gstNumber: z.string().nullable()
+  gstNumber: z.string().nullable(),
+  taxCalculationMode: taxCalculationModeSchema
 });
 
 export const userSchema = z.object({
@@ -105,19 +109,41 @@ export const itemSchema = z.object({
   createdAt: z.string().datetime()
 });
 
+const discountInputSchema = z.object({
+  type: discountTypeSchema,
+  value: moneySchema.nonnegative()
+});
+
+const discountSchema = z.object({
+  id: z.string().uuid(),
+  scope: discountScopeSchema,
+  type: discountTypeSchema,
+  value: moneySchema.nonnegative()
+});
+
+const discountAllocationSchema = z.object({
+  id: z.string().uuid(),
+  discountId: z.string().uuid(),
+  amount: moneySchema.nonnegative()
+});
+
 const saleLineInput = z.object({
   itemId: z.string().uuid(),
   qty: z.number().positive(),
   rate: moneySchema,
-  discountAmount: moneySchema.default(0),
-  taxRate: z.number().min(0)
+  taxRate: z.number().min(0),
+  taxMode: taxModeSchema.optional(),
+  discounts: z.array(discountInputSchema).default([])
 });
 
-const saleLineSchema = saleLineInput.extend({
+const saleLineSchema = saleLineInput.omit({ discounts: true }).extend({
   id: z.string().uuid(),
+  itemName: z.string(),
+  discountAmount: moneySchema,
   taxableAmount: moneySchema,
   taxAmount: moneySchema,
-  netAmount: moneySchema
+  netAmount: moneySchema,
+  discountAllocations: z.array(discountAllocationSchema)
 });
 
 const returnLineForSaleLineSchema = z.object({
@@ -141,6 +167,8 @@ const saleInvoiceSchema = z.object({
   branchId: z.string().uuid(),
   invoiceNo: z.string(),
   customerId: z.string().uuid(),
+  customerName: z.string(),
+  customerPhone: z.string().nullable(),
   subTotal: moneySchema,
   discountTotal: moneySchema,
   orderDiscountAmount: moneySchema.default(0),
@@ -150,7 +178,8 @@ const saleInvoiceSchema = z.object({
   status: invoiceStatusSchema,
   createdBy: z.string().uuid(),
   createdByName: z.string(),
-  createdAt: z.string().datetime()
+  createdAt: z.string().datetime(),
+  discounts: z.array(discountSchema)
 });
 
 const saleInvoiceWithLinesSchema = saleInvoiceSchema.extend({
@@ -271,7 +300,8 @@ export const appContract = c.router({
       body: z.object({
         name: z.string().optional(),
         logoUrl: z.string().nullable().optional(),
-        gstNumber: z.string().nullable().optional()
+        gstNumber: z.string().nullable().optional(),
+        taxCalculationMode: taxCalculationModeSchema.optional()
       }),
       responses: { 200: businessSettingsSchema }
     }
@@ -535,7 +565,7 @@ export const appContract = c.router({
         branchId: z.string().uuid(),
         customerId: z.string().uuid(),
         lines: z.array(saleLineInput).min(1),
-        orderDiscountAmount: moneySchema.default(0)
+        discounts: z.array(discountInputSchema).default([])
       }),
       responses: { 201: saleInvoiceWithLinesSchema }
     },

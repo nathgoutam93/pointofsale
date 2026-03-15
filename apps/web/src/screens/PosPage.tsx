@@ -15,9 +15,13 @@ type CartLine = {
   qty: number;
   rate: number;
   discountAmount: number;
+  itemDiscountAmount?: number;
+  orderDiscountAmount?: number;
   taxRate: number;
+  taxAmount?: number;
   taxMode: "INCLUSIVE" | "EXCLUSIVE";
   imageUrl?: string | null;
+  netAmount?: number;
 };
 
 type PostPaymentSummary = {
@@ -73,8 +77,6 @@ export function PosPage() {
   >("AMOUNT");
   const [orderDiscountValue, setOrderDiscountValue] = useState("0");
   const printableSaleLines = postPayment?.lines ?? [];
-  const printableSubtotal = postPayment?.subTotal ?? 0;
-  const printableTaxTotal = postPayment?.taxTotal ?? 0;
   const printableGrandTotal = postPayment?.grandTotal ?? 0;
   const printableOrderDiscount = postPayment?.orderDiscountAmount ?? 0;
   const [receiptContact, setReceiptContact] = useState("");
@@ -189,24 +191,35 @@ export function PosPage() {
     ];
 
     const items = printableSaleLines.map((line) => {
-      const net = computeLineAmounts(line);
-      const unitPrice = line.rate ?? (net.net / line.qty || 0);
-      const taxLabel =
-        line.taxRate > 0
-          ? `@${line.taxRate}% ${line.taxMode === "INCLUSIVE" ? "Incl." : "Excl."}`
-          : "";
-      const subLine = taxLabel;
+      const netAmount = line.netAmount ?? computeLineAmounts(line).net;
+      const displayTotal = netAmount + Number(line.orderDiscountAmount ?? 0);
+      const itemDiscount = Number(line.itemDiscountAmount ?? 0);
+      const taxAmount = Number(line.taxAmount ?? 0);
+      const baseExclusive = getBaseExclusive(line);
+      const baseUnitRate = line.qty > 0 ? baseExclusive / line.qty : 0;
       return {
         name: line.name,
-        subLine: subLine || undefined,
+        detailRows: [
+          {
+            label: `${line.qty} x ${money(baseUnitRate)}`,
+            value: money(baseExclusive),
+          },
+          ...(line.taxRate > 0 || taxAmount > 0
+            ? [{ label: `tax ${line.taxRate}%`, value: money(taxAmount) }]
+            : []),
+          ...(itemDiscount > 0
+            ? [{ label: "discount", value: `-${money(itemDiscount)}` }]
+            : []),
+        ],
+        totalLabel: "line total",
         qty: line.qty,
-        price: unitPrice,
-        total: net.net,
+        price: line.rate,
+        total: displayTotal,
       };
     });
 
     const totals = [
-      { label: "Subtotal", value: money(printableSubtotal) },
+      { label: "Items Total", value: money(printableGrandTotal + printableOrderDiscount) },
       ...(printableOrderDiscount > 0
         ? [
             {
@@ -215,7 +228,6 @@ export function PosPage() {
             },
           ]
         : []),
-      { label: "Tax", value: money(printableTaxTotal) },
       { label: "TOTAL", value: money(printableGrandTotal), isGrandTotal: true },
     ];
 
@@ -240,9 +252,7 @@ export function PosPage() {
   }, [
     postPayment,
     printableSaleLines,
-    printableSubtotal,
     printableOrderDiscount,
-    printableTaxTotal,
     printableGrandTotal,
     invoiceHeaderLines,
     invoiceFooterLines,
@@ -328,69 +338,41 @@ export function PosPage() {
     },
   });
 
-  const round2 = (value: number) => Math.round(value * 100) / 100;
-
-  function computeLineAmounts(
-    line: Pick<
-      CartLine,
-      "qty" | "rate" | "discountAmount" | "taxRate" | "taxMode"
-    >,
-  ) {
-    const gross = line.qty * line.rate;
-    const afterDiscount = gross - line.discountAmount;
-    if (line.taxMode === "INCLUSIVE") {
-      const taxable =
-        line.taxRate > 0
-          ? (afterDiscount * 100) / (100 + line.taxRate)
-          : afterDiscount;
-      const tax = afterDiscount - taxable;
-      return { taxable, tax, net: afterDiscount };
-    }
-    const tax = (afterDiscount * line.taxRate) / 100;
-    return { taxable: afterDiscount, tax, net: afterDiscount + tax };
+  function round2(value: number) {
+    return Math.round(value * 100) / 100;
   }
 
-  const orderDiscountBase = useMemo(
-    () =>
-      cart.reduce((acc, line) => {
-        const gross = line.qty * line.rate;
-        return acc + Math.max(0, gross - line.discountAmount);
-      }, 0),
-    [cart],
-  );
+  const taxCalculationMode =
+    businessSettings.data?.taxCalculationMode ?? "AFTER_DISCOUNT";
 
-  const resolvedOrderDiscountAmount = useMemo(() => {
-    const input = Number(orderDiscountValue);
-    if (!Number.isFinite(input) || input <= 0) return 0;
-    if (orderDiscountMode === "PERCENT") {
-      return Math.min(orderDiscountBase, (orderDiscountBase * input) / 100);
-    }
-    return Math.min(orderDiscountBase, input);
-  }, [orderDiscountBase, orderDiscountMode, orderDiscountValue]);
-
-  const orderDiscountAllocations = useMemo(() => {
-    if (resolvedOrderDiscountAmount <= 0 || cart.length === 0) {
-      return new Map<string, number>();
-    }
-
-    const bases = cart.map((line) =>
-      Math.max(0, line.qty * line.rate - line.discountAmount),
+  function getBaseExclusive(
+    line: Pick<CartLine, "qty" | "rate" | "taxRate" | "taxMode">,
+  ) {
+    const gross = round2(line.qty * line.rate);
+    return round2(
+      line.taxMode === "INCLUSIVE" && line.taxRate > 0
+        ? (gross * 100) / (100 + line.taxRate)
+        : gross,
     );
-    const totalBase = bases.reduce((acc, base) => acc + base, 0);
-    if (totalBase <= 0) return new Map<string, number>();
+  }
 
-    const rawShares = bases.map(
-      (base) => (base / totalBase) * resolvedOrderDiscountAmount,
-    );
+  function allocateDiscountAcrossBases(
+    bases: number[],
+    discountAmount: number,
+  ) {
+    const totalBase = round2(bases.reduce((acc, base) => acc + base, 0));
+    const cappedDiscount = round2(Math.min(Math.max(0, discountAmount), totalBase));
+    if (totalBase <= 0 || cappedDiscount <= 0) {
+      return new Array(bases.length).fill(0);
+    }
+
+    const rawShares = bases.map((base) => (base / totalBase) * cappedDiscount);
     const floored = rawShares.map((share) =>
       round2(Math.floor(share * 100) / 100),
     );
     const fractions = rawShares.map((share, idx) => share - floored[idx]);
     let remainingCents = Math.round(
-      round2(
-        resolvedOrderDiscountAmount -
-          floored.reduce((acc, val) => acc + val, 0),
-      ) * 100,
+      round2(cappedDiscount - floored.reduce((acc, val) => acc + val, 0)) * 100,
     );
 
     const order = fractions
@@ -414,39 +396,89 @@ export function PosPage() {
       if (!progressed) break;
     }
 
-    const allocationMap = new Map<string, number>();
-    cart.forEach((line, idx) => {
-      allocationMap.set(line.itemId, floored[idx] ?? 0);
-    });
-    return allocationMap;
-  }, [cart, resolvedOrderDiscountAmount]);
+    return floored;
+  }
 
-  const effectiveCart = useMemo(
+  function computeLineAmounts(
+    line: Pick<
+      CartLine,
+      "qty" | "rate" | "discountAmount" | "taxRate" | "taxMode"
+    >,
+  ) {
+    const baseExclusive = getBaseExclusive(line);
+    const discountAmount = round2(Math.min(Math.max(0, line.discountAmount), baseExclusive));
+    const taxable = round2(Math.max(0, baseExclusive - discountAmount));
+    const taxBase =
+      taxCalculationMode === "BEFORE_DISCOUNT" ? baseExclusive : taxable;
+    const tax = round2((taxBase * line.taxRate) / 100);
+    return { taxable, tax, net: round2(taxable + tax) };
+  }
+
+  const orderDiscountBase = useMemo(
     () =>
-      cart.map((line) => ({
-        ...line,
-        discountAmount:
-          line.discountAmount +
-          (orderDiscountAllocations.get(line.itemId) ?? 0),
-      })),
-    [cart, orderDiscountAllocations],
+      cart.reduce((acc, line) => {
+        const baseExclusive = getBaseExclusive(line);
+        return acc + Math.max(0, baseExclusive - line.discountAmount);
+      }, 0),
+    [cart],
   );
 
-  const effectiveLineById = useMemo(() => {
-    return new Map(effectiveCart.map((line) => [line.itemId, line]));
-  }, [effectiveCart]);
+  const resolvedOrderDiscountAmount = useMemo(() => {
+    const input = Number(orderDiscountValue);
+    if (!Number.isFinite(input) || input <= 0) return 0;
+    if (orderDiscountMode === "PERCENT") {
+      return Math.min(orderDiscountBase, (orderDiscountBase * input) / 100);
+    }
+    return Math.min(orderDiscountBase, input);
+  }, [orderDiscountBase, orderDiscountMode, orderDiscountValue]);
 
-  const orderDiscountAmountTaxable = useMemo(() => {
-    const total = cart.reduce((acc, line) => {
-      const allocation = orderDiscountAllocations.get(line.itemId) ?? 0;
-      const conversionFactor =
-        line.taxMode === "INCLUSIVE" && line.taxRate > 0
-          ? 100 / (100 + line.taxRate)
-          : 1;
-      return acc + allocation * conversionFactor;
-    }, 0);
-    return round2(total);
-  }, [cart, orderDiscountAllocations]);
+  const computedCart = useMemo(() => {
+    const normalized = cart.map((line) => {
+      const gross = round2(line.qty * line.rate);
+      const baseExclusive = getBaseExclusive(line);
+      const itemDiscount = round2(Math.min(Math.max(0, line.discountAmount), baseExclusive));
+      const baseAfterItem = round2(Math.max(0, baseExclusive - itemDiscount));
+      return { line, gross, baseExclusive, itemDiscount, baseAfterItem };
+    });
+
+    const bases = normalized.map((entry) => entry.baseAfterItem);
+    const allocations = allocateDiscountAcrossBases(bases, resolvedOrderDiscountAmount);
+
+    const lines = normalized.map((entry, idx) => {
+      const orderDiscount = round2(allocations[idx] ?? 0);
+      const discountAmount = round2(entry.itemDiscount + orderDiscount);
+      const taxable = round2(Math.max(0, entry.baseExclusive - discountAmount));
+      const taxBase =
+        taxCalculationMode === "BEFORE_DISCOUNT"
+          ? entry.baseExclusive
+          : taxable;
+      const tax = round2((taxBase * entry.line.taxRate) / 100);
+      const net = round2(taxable + tax);
+      return {
+        ...entry.line,
+        gross: entry.gross,
+        baseExclusive: entry.baseExclusive,
+        itemDiscount: entry.itemDiscount,
+        orderDiscount,
+        discountAmount,
+        taxable,
+        tax,
+        net,
+      };
+    });
+
+    return {
+      lines,
+      subTotal: round2(lines.reduce((acc, line) => acc + line.baseExclusive, 0)),
+      taxTotal: round2(lines.reduce((acc, line) => acc + line.tax, 0)),
+      grandTotal: round2(lines.reduce((acc, line) => acc + line.net, 0)),
+      orderDiscountTotal: round2(lines.reduce((acc, line) => acc + line.orderDiscount, 0)),
+    };
+  }, [cart, resolvedOrderDiscountAmount, taxCalculationMode]);
+
+  const computedLineById = useMemo(() => {
+    return new Map(computedCart.lines.map((line) => [line.itemId, line]));
+  }, [computedCart.lines]);
 
   const activeEditLine = useMemo(
     () => cart.find((line) => line.itemId === editLineId) ?? null,
@@ -455,9 +487,9 @@ export function PosPage() {
   const displayEditLine = draftLine ?? activeEditLine;
 
   const getDiscountPercent = (line: CartLine) => {
-    const gross = line.qty * line.rate;
-    if (gross <= 0) return 0;
-    return (line.discountAmount / gross) * 100;
+    const baseExclusive = getBaseExclusive(line);
+    if (baseExclusive <= 0) return 0;
+    return (line.discountAmount / baseExclusive) * 100;
   };
 
   const formatPercentValue = (value: number) => {
@@ -485,14 +517,14 @@ export function PosPage() {
     }
     if (field === "DISCOUNT") {
       if (mode === "PERCENT") {
-        const gross = line.qty * line.rate;
-        discountAmount = Math.max(0, (gross * input) / 100);
+        const baseExclusive = getBaseExclusive({ ...line, qty, rate });
+        discountAmount = Math.max(0, (baseExclusive * input) / 100);
       } else {
         discountAmount = Math.max(0, input);
       }
     }
-    const gross = qty * rate;
-    if (discountAmount > gross) discountAmount = gross;
+    const baseExclusive = getBaseExclusive({ ...line, qty, rate });
+    if (discountAmount > baseExclusive) discountAmount = baseExclusive;
     return { ...line, qty, rate, discountAmount };
   };
 
@@ -700,18 +732,12 @@ export function PosPage() {
   };
 
   const total = useMemo(() => {
-    return effectiveCart.reduce((acc, line) => {
-      const { net } = computeLineAmounts(line);
-      return acc + net;
-    }, 0);
-  }, [effectiveCart]);
+    return computedCart.grandTotal;
+  }, [computedCart.grandTotal]);
 
   const totalTax = useMemo(() => {
-    return effectiveCart.reduce((acc, line) => {
-      const { tax } = computeLineAmounts(line);
-      return acc + tax;
-    }, 0);
-  }, [effectiveCart]);
+    return computedCart.taxTotal;
+  }, [computedCart.taxTotal]);
 
   const totalItems = useMemo(
     () => cart.reduce((acc, line) => acc + line.qty, 0),
@@ -930,20 +956,29 @@ export function PosPage() {
       body: {
         branchId: session.branchId,
         customerId: selected,
-        lines: cart.map((line) => {
-          const conversionFactor =
-            line.taxMode === "INCLUSIVE" && line.taxRate > 0
-              ? 100 / (100 + line.taxRate)
-              : 1;
-          return {
-            itemId: line.itemId,
-            qty: line.qty,
-            rate: line.rate * conversionFactor,
-            discountAmount: line.discountAmount * conversionFactor,
-            taxRate: line.taxRate,
-          };
-        }),
-        orderDiscountAmount: orderDiscountAmountTaxable,
+        lines: cart.map((line) => ({
+          itemId: line.itemId,
+          qty: line.qty,
+          rate: line.rate,
+          taxRate: line.taxRate,
+          taxMode: line.taxMode,
+          discounts:
+            line.discountAmount > 0
+              ? [{ type: "FIXED" as const, value: line.discountAmount }]
+              : [],
+        })),
+        discounts:
+          Number(orderDiscountValue) > 0
+            ? [
+                {
+                  type:
+                    orderDiscountMode === "PERCENT"
+                      ? ("PERCENTAGE" as const)
+                      : ("FIXED" as const),
+                  value: Number(orderDiscountValue),
+                },
+              ]
+            : [],
       },
       extraHeaders: authHeaders(),
     });
@@ -974,7 +1009,6 @@ export function PosPage() {
   const checkout = useMutation({
     mutationFn: async (payload: {
       payments: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
-      cartSnapshot: CartLine[];
     }) => {
       const invoice = await createInvoice();
       const finalPayments =
@@ -997,19 +1031,21 @@ export function PosPage() {
       return {
         invoice: settleRes.body.invoice,
         receipt: settleRes.body.receipt,
-        cartSnapshot: payload.cartSnapshot,
       };
     },
     onSuccess: (result) => {
-      const selected = selectedCustomer ?? walkIn.data;
-      const customerName = selected?.name ?? "Walk In";
-      const customerPhone = selected?.phone ?? "";
+      const cartSnapshotById = new Map(cart.map((line) => [line.itemId, line]));
+      const itemDiscountIds = new Set(
+        (result.invoice.discounts ?? [])
+          .filter((discount) => discount.scope === "ITEM")
+          .map((discount) => discount.id),
+      );
       setPostPayment({
         invoiceNo: result.invoice.invoiceNo,
         receiptNo: result.receipt.receiptNo,
         createdAt: result.receipt.createdAt,
-        customerName,
-        customerPhone,
+        customerName: result.invoice.customerName,
+        customerPhone: result.invoice.customerPhone ?? "",
         subTotal: Number(result.invoice.subTotal),
         orderDiscountAmount: Number(result.invoice.orderDiscountAmount ?? 0),
         taxTotal: Number(result.invoice.taxTotal),
@@ -1018,9 +1054,34 @@ export function PosPage() {
           mode: line.mode,
           amount: Number(line.amount),
         })),
-        lines: result.cartSnapshot,
+        lines: result.invoice.lines.map((line) => {
+          const snapshot = cartSnapshotById.get(line.itemId);
+          const itemDiscountAmount = (line.discountAllocations ?? []).reduce(
+            (acc, allocation) =>
+              itemDiscountIds.has(allocation.discountId)
+                ? acc + Number(allocation.amount ?? 0)
+                : acc,
+            0,
+          );
+          const orderDiscountAmount =
+            Number(line.discountAmount ?? 0) - itemDiscountAmount;
+          return {
+            itemId: line.itemId,
+            name: line.itemName ?? snapshot?.name ?? `Item ${line.itemId.slice(0, 6)}`,
+            qty: Number(line.qty),
+            rate: Number(line.rate),
+            discountAmount: Number(line.discountAmount ?? 0),
+            itemDiscountAmount,
+            orderDiscountAmount,
+            taxRate: Number(line.taxRate),
+            taxAmount: Number(line.taxAmount ?? 0),
+            taxMode: line.taxMode ?? snapshot?.taxMode ?? "EXCLUSIVE",
+            imageUrl: snapshot?.imageUrl,
+            netAmount: Number(line.netAmount ?? 0),
+          };
+        }),
       });
-      setReceiptContact(customerPhone);
+      setReceiptContact(result.invoice.customerPhone ?? "");
       setCart([]);
       setPaymentAmount("0");
       setPaymentLines([]);
@@ -1161,10 +1222,13 @@ export function PosPage() {
                 </p>
               ) : null}
               {cart.map((line) => {
-                const effectiveLine =
-                  effectiveLineById.get(line.itemId) ?? line;
-                const lineNet = computeLineAmounts(effectiveLine).net;
-                const itemDiscount = line.discountAmount;
+                const computedLine = computedLineById.get(line.itemId);
+                const lineNet =
+                  computedLine?.net ??
+                  line.netAmount ??
+                  computeLineAmounts(line).net;
+                const itemDiscount =
+                  line.itemDiscountAmount ?? line.discountAmount;
                 return (
                   <div
                     className="flex cursor-pointer items-start justify-between border-b border-slate-100 px-3 py-2 hover:bg-slate-50"
@@ -1190,7 +1254,7 @@ export function PosPage() {
                         </p>
                         {itemDiscount > 0 ? (
                           <p className="text-sm text-amber-700">
-                            Discount: ₹ {money(itemDiscount)}
+                            Item Discount: ₹ {money(itemDiscount)}
                           </p>
                         ) : null}
                       </div>
@@ -1484,7 +1548,6 @@ export function PosPage() {
                 onClick={() =>
                   checkout.mutate({
                     payments: paymentLines,
-                    cartSnapshot: effectiveCart,
                   })
                 }
                 disabled={

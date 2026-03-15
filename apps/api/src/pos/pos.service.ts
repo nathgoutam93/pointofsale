@@ -1,14 +1,29 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InvoiceStatus, PaymentMode, Prisma, StockTxnType, UserRole, WalletTxnType } from '@prisma/client';
+import {
+  DiscountScope,
+  InvoiceStatus,
+  PaymentMode,
+  Prisma,
+  StockTxnType,
+  UserRole,
+  WalletTxnType
+} from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { PaymentInput, SessionUser } from './pos.types';
 
+type DiscountInput = {
+  type: 'PERCENTAGE' | 'FIXED';
+  value: number;
+};
+
 type SaleLineInput = {
   itemId: string;
+  itemName?: string;
   qty: number;
   rate: number;
-  discountAmount?: number;
   taxRate: number;
+  taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
+  discounts?: DiscountInput[];
 };
 
 type ComputedSaleLine = SaleLineInput & {
@@ -17,8 +32,22 @@ type ComputedSaleLine = SaleLineInput & {
   taxAmount: number;
   netAmount: number;
   grossAmount: number;
+  baseExclusive: number;
   itemDiscountAmount: number;
   orderDiscountAmount: number;
+};
+
+type ResolvedDiscount = {
+  type: 'PERCENTAGE' | 'FIXED';
+  value: number;
+  amount: number;
+};
+
+type DiscountAllocationPlan = {
+  type: 'PERCENTAGE' | 'FIXED';
+  value: number;
+  amount: number;
+  allocations: number[];
 };
 
 @Injectable()
@@ -34,7 +63,8 @@ export class PosService {
     id: true,
     name: true,
     logoUrl: true,
-    gstNumber: true
+    gstNumber: true,
+    taxCalculationMode: true
   } as const;
 
   private readonly branchSettingsSelect = {
@@ -53,33 +83,22 @@ export class PosService {
     receiptCss: true
   } as const;
 
-  private async withCreatedByName<T extends { createdBy: string }>(
-    invoice: T
-  ): Promise<T & { createdByName: string }> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: invoice.createdBy },
-      select: { username: true }
-    });
-    return {
-      ...invoice,
-      createdByName: user?.username ?? 'Unknown User'
-    };
+  private readonly saleInvoiceInclude = {
+    discounts: true,
+    lines: {
+      include: {
+        discountAllocations: true
+      }
+    },
+    payments: true
+  } satisfies Prisma.SaleInvoiceInclude;
+
+  private withCreatedByName<T extends { createdByName: string }>(invoice: T) {
+    return invoice;
   }
 
-  private async withCreatedByNames<T extends { createdBy: string }>(
-    invoices: T[]
-  ): Promise<Array<T & { createdByName: string }>> {
-    const userIds = Array.from(new Set(invoices.map((invoice) => invoice.createdBy)));
-    const users = await this.prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, username: true }
-    });
-    const usernameById = new Map(users.map((user) => [user.id, user.username]));
-
-    return invoices.map((invoice) => ({
-      ...invoice,
-      createdByName: usernameById.get(invoice.createdBy) ?? 'Unknown User'
-    }));
+  private withCreatedByNames<T extends { createdByName: string }>(invoices: T[]) {
+    return invoices;
   }
 
   private async ensureBranchExists(branchId: string, tx?: Prisma.TransactionClient) {
@@ -140,14 +159,20 @@ export class PosService {
     return this.ensureBusinessSettings();
   }
 
-  async updateBusinessSettings(input: { name?: string; logoUrl?: string | null; gstNumber?: string | null }) {
+  async updateBusinessSettings(input: {
+    name?: string;
+    logoUrl?: string | null;
+    gstNumber?: string | null;
+    taxCalculationMode?: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
+  }) {
     await this.ensureBusinessSettings();
     return this.prisma.businessSettings.update({
       where: { id: 'default' },
       data: {
         name: input.name,
         logoUrl: input.logoUrl,
-        gstNumber: input.gstNumber
+        gstNumber: input.gstNumber,
+        taxCalculationMode: input.taxCalculationMode
       },
       select: this.businessSettingsSelect
     });
@@ -481,9 +506,76 @@ export class PosService {
     return Math.round(value * 100) / 100;
   }
 
-  private allocateOrderDiscount(bases: number[], orderDiscountAmount: number) {
+  private resolveDiscountAmounts(discounts: DiscountInput[] | undefined, base: number): ResolvedDiscount[] {
+    const normalizedBase = this.round2(Math.max(0, base));
+    if (normalizedBase <= 0 || !discounts || discounts.length === 0) {
+      return [];
+    }
+
+    const rawDiscounts = discounts.map((discount) => ({
+      type: discount.type,
+      value: this.round2(Math.max(0, discount.value)),
+      amount: this.round2(
+        discount.type === 'PERCENTAGE'
+          ? (normalizedBase * Math.max(0, discount.value)) / 100
+          : Math.max(0, discount.value)
+      )
+    }));
+
+    const totalRaw = this.round2(rawDiscounts.reduce((acc, discount) => acc + discount.amount, 0));
+    if (totalRaw <= normalizedBase) {
+      return rawDiscounts;
+    }
+
+    const scale = normalizedBase / totalRaw;
+    const scaled = rawDiscounts.map((discount) => ({
+      ...discount,
+      amount: this.round2(discount.amount * scale)
+    }));
+    let scaledTotal = this.round2(scaled.reduce((acc, discount) => acc + discount.amount, 0));
+    if (scaledTotal > normalizedBase) {
+      let excessCents = Math.round(this.round2(scaledTotal - normalizedBase) * 100);
+      const descending = scaled
+        .map((discount, idx) => ({ idx, amount: discount.amount }))
+        .sort((a, b) => b.amount - a.amount || a.idx - b.idx);
+      while (excessCents > 0 && descending.length > 0) {
+        for (const entry of descending) {
+          if (excessCents <= 0) break;
+          if (scaled[entry.idx].amount < 0.01) continue;
+          scaled[entry.idx] = {
+            ...scaled[entry.idx],
+            amount: this.round2(scaled[entry.idx].amount - 0.01)
+          };
+          excessCents -= 1;
+        }
+      }
+      scaledTotal = this.round2(scaled.reduce((acc, discount) => acc + discount.amount, 0));
+    }
+
+    let remainingCents = Math.round(this.round2(normalizedBase - scaledTotal) * 100);
+
+    const fractions = rawDiscounts.map((discount, idx) => discount.amount * scale - scaled[idx].amount);
+    const order = scaled
+      .map((discount, idx) => ({ idx, frac: fractions[idx] ?? 0 }))
+      .sort((a, b) => b.frac - a.frac || a.idx - b.idx);
+
+    while (remainingCents > 0 && order.length > 0) {
+      for (const entry of order) {
+        if (remainingCents <= 0) break;
+        scaled[entry.idx] = {
+          ...scaled[entry.idx],
+          amount: this.round2(scaled[entry.idx].amount + 0.01)
+        };
+        remainingCents -= 1;
+      }
+    }
+
+    return scaled;
+  }
+
+  private allocateDiscountAcrossBases(bases: number[], discountAmount: number) {
     const totalBase = this.round2(bases.reduce((acc, base) => acc + base, 0));
-    const cappedDiscount = this.round2(Math.min(Math.max(0, orderDiscountAmount), totalBase));
+    const cappedDiscount = this.round2(Math.min(Math.max(0, discountAmount), totalBase));
     if (totalBase <= 0 || cappedDiscount <= 0) {
       return new Array(bases.length).fill(0);
     }
@@ -517,24 +609,41 @@ export class PosService {
     return floored;
   }
 
-  private calculateSaleTotals(lines: SaleLineInput[], orderDiscountAmount: number) {
+  private buildOrderDiscountPlans(lines: Array<{ baseAfterItem: number }>, discounts: DiscountInput[] | undefined) {
+    const bases = lines.map((line) => line.baseAfterItem);
+    const totalBase = this.round2(bases.reduce((acc, base) => acc + base, 0));
+    return this.resolveDiscountAmounts(discounts, totalBase).map((discount) => ({
+      ...discount,
+      allocations: this.allocateDiscountAcrossBases(bases, discount.amount)
+    }));
+  }
+
+  private calculateSaleTotals(
+    lines: SaleLineInput[],
+    orderDiscounts: DiscountInput[] | undefined,
+    taxCalculationMode: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT'
+  ) {
     const normalized = lines.map((line) => {
       const gross = this.round2(line.qty * line.rate);
-      const itemDiscount = this.round2(Math.min(Math.max(0, line.discountAmount ?? 0), gross));
-      const base = this.round2(Math.max(0, gross - itemDiscount));
-      return { line, gross, itemDiscount, base };
+      const baseExclusive = this.round2(
+        line.taxMode === 'INCLUSIVE' && line.taxRate > 0 ? (gross * 100) / (100 + line.taxRate) : gross
+      );
+      const itemDiscounts = this.resolveDiscountAmounts(line.discounts, baseExclusive);
+      const itemDiscount = this.round2(itemDiscounts.reduce((acc, discount) => acc + discount.amount, 0));
+      const baseAfterItem = this.round2(Math.max(0, baseExclusive - itemDiscount));
+      return { line, gross, baseExclusive, itemDiscounts, itemDiscount, baseAfterItem };
     });
 
-    const allocations = this.allocateOrderDiscount(
-      normalized.map((entry) => entry.base),
-      orderDiscountAmount
-    );
+    const orderDiscountPlans = this.buildOrderDiscountPlans(normalized, orderDiscounts);
 
     const computedLines: ComputedSaleLine[] = normalized.map((entry, idx) => {
-      const orderDiscount = this.round2(allocations[idx] ?? 0);
+      const orderDiscount = this.round2(
+        orderDiscountPlans.reduce((acc, discount) => acc + (discount.allocations[idx] ?? 0), 0)
+      );
       const discountTotal = this.round2(entry.itemDiscount + orderDiscount);
-      const taxable = this.round2(Math.max(0, entry.gross - discountTotal));
-      const tax = this.round2((taxable * entry.line.taxRate) / 100);
+      const taxable = this.round2(Math.max(0, entry.baseExclusive - discountTotal));
+      const taxBase = taxCalculationMode === 'BEFORE_DISCOUNT' ? entry.baseExclusive : taxable;
+      const tax = this.round2((taxBase * entry.line.taxRate) / 100);
       const net = this.round2(taxable + tax);
       return {
         ...entry.line,
@@ -543,18 +652,19 @@ export class PosService {
         taxAmount: tax,
         netAmount: net,
         grossAmount: entry.gross,
+        baseExclusive: entry.baseExclusive,
         itemDiscountAmount: entry.itemDiscount,
         orderDiscountAmount: orderDiscount
       };
     });
 
-    const subTotal = this.round2(computedLines.reduce((acc, l) => acc + l.grossAmount, 0));
+    const subTotal = this.round2(computedLines.reduce((acc, l) => acc + l.baseExclusive, 0));
     const discountTotal = this.round2(computedLines.reduce((acc, l) => acc + l.discountAmount, 0));
     const orderDiscountTotal = this.round2(computedLines.reduce((acc, l) => acc + l.orderDiscountAmount, 0));
     const taxTotal = this.round2(computedLines.reduce((acc, l) => acc + l.taxAmount, 0));
     const grandTotal = this.round2(computedLines.reduce((acc, l) => acc + l.netAmount, 0));
 
-    return { computedLines, subTotal, discountTotal, orderDiscountTotal, taxTotal, grandTotal };
+    return { computedLines, orderDiscountPlans, subTotal, discountTotal, orderDiscountTotal, taxTotal, grandTotal };
   }
 
   private async nextSequence(branchId: string, type: 'invoice' | 'receipt' | 'return' | 'customer', tx: Prisma.TransactionClient) {
@@ -1138,7 +1248,7 @@ export class PosService {
       branchId: string;
       customerId: string;
       lines: SaleLineInput[];
-      orderDiscountAmount?: number;
+      discounts?: DiscountInput[];
     }
   ) {
     const sessionBranchId = this.requireSessionBranchId(session);
@@ -1148,15 +1258,43 @@ export class PosService {
 
     return this.prisma.$transaction(async (tx) => {
       await this.ensureBranchExists(input.branchId, tx);
+      const businessSettings = await this.ensureBusinessSettings(tx);
+      const customer = await tx.customer.findUnique({
+        where: { id: input.customerId },
+        select: { id: true, name: true, phone: true }
+      });
+      if (!customer) {
+        throw new NotFoundException('Customer not found');
+      }
+      const createdByUser = await tx.user.findUnique({
+        where: { id: session.userId },
+        select: { username: true }
+      });
+      if (!createdByUser) {
+        throw new NotFoundException('User not found');
+      }
       const normalizedLines = [];
 
       for (const line of input.lines) {
         const normalizedItemId = await this.resolveItemId(line.itemId, tx);
+        const item = await tx.item.findUnique({
+          where: { id: normalizedItemId },
+          select: { name: true }
+        });
+        if (!item) {
+          throw new NotFoundException('Item not found');
+        }
         const onHand = await this.getOnHandForItem(input.branchId, normalizedItemId, tx);
         if (onHand < line.qty) {
           throw new BadRequestException(`Insufficient stock for item ${line.itemId}`);
         }
-        normalizedLines.push({ ...line, itemId: normalizedItemId });
+        normalizedLines.push({
+          ...line,
+          itemId: normalizedItemId,
+          itemName: item.name,
+          taxMode: line.taxMode ?? 'EXCLUSIVE',
+          discounts: line.discounts ?? []
+        });
       }
 
       const seq = await this.nextSequence(input.branchId, 'invoice', tx);
@@ -1164,18 +1302,25 @@ export class PosService {
 
       const {
         computedLines,
+        orderDiscountPlans,
         subTotal,
         discountTotal,
         orderDiscountTotal,
         taxTotal,
         grandTotal
-      } = this.calculateSaleTotals(normalizedLines, input.orderDiscountAmount ?? 0);
+      } = this.calculateSaleTotals(
+        normalizedLines,
+        input.discounts ?? [],
+        businessSettings.taxCalculationMode
+      );
 
       const invoice = await tx.saleInvoice.create({
         data: {
           branchId: input.branchId,
           invoiceNo,
           customerId: input.customerId,
+          customerName: customer.name,
+          customerPhone: customer.phone,
           status: InvoiceStatus.DRAFT,
           subTotal,
           discountTotal,
@@ -1184,21 +1329,88 @@ export class PosService {
           grandTotal,
           paidTotal: 0,
           createdBy: session.userId,
-          lines: {
-            create: computedLines.map((l) => ({
-              itemId: l.itemId,
-              qty: l.qty,
-              rate: l.rate,
-              discountAmount: l.discountAmount,
-              taxRate: l.taxRate,
-              taxableAmount: l.taxableAmount,
-              taxAmount: l.taxAmount,
-              netAmount: l.netAmount
-            }))
-          }
+          createdByName: createdByUser.username
         },
-        include: { lines: true, payments: true }
+        select: { id: true }
       });
+
+      const createdLines = [];
+      for (const line of computedLines) {
+        createdLines.push(
+          await tx.saleInvoiceLine.create({
+            data: {
+              invoiceId: invoice.id,
+              itemId: line.itemId,
+              itemName: line.itemName ?? 'Unknown Item',
+              qty: line.qty,
+              rate: line.rate,
+              discountAmount: line.discountAmount,
+              taxMode: line.taxMode ?? 'EXCLUSIVE',
+              taxRate: line.taxRate,
+              taxableAmount: line.taxableAmount,
+              taxAmount: line.taxAmount,
+              netAmount: line.netAmount
+            },
+            select: { id: true, itemId: true }
+          })
+        );
+      }
+
+      for (let lineIdx = 0; lineIdx < computedLines.length; lineIdx += 1) {
+        const line = computedLines[lineIdx];
+        const persistedLine = createdLines[lineIdx];
+        const itemDiscounts = this.resolveDiscountAmounts(line.discounts, line.baseExclusive);
+        for (const discount of itemDiscounts) {
+          const createdDiscount = await tx.discount.create({
+            data: {
+              saleInvoiceId: invoice.id,
+              scope: DiscountScope.ITEM,
+              type: discount.type,
+              value: discount.value
+            },
+            select: { id: true }
+          });
+          await tx.discountAllocation.create({
+            data: {
+              discountId: createdDiscount.id,
+              saleInvoiceLineId: persistedLine.id,
+              amount: discount.amount
+            }
+          });
+        }
+      }
+
+      for (const orderDiscount of orderDiscountPlans) {
+        const createdDiscount = await tx.discount.create({
+          data: {
+            saleInvoiceId: invoice.id,
+            scope: DiscountScope.ORDER,
+            type: orderDiscount.type,
+            value: orderDiscount.value
+          },
+          select: { id: true }
+        });
+
+        for (let lineIdx = 0; lineIdx < createdLines.length; lineIdx += 1) {
+          const amount = this.round2(orderDiscount.allocations[lineIdx] ?? 0);
+          if (amount <= 0) continue;
+          await tx.discountAllocation.create({
+            data: {
+              discountId: createdDiscount.id,
+              saleInvoiceLineId: createdLines[lineIdx].id,
+              amount
+            }
+          });
+        }
+      }
+
+      const createdInvoice = await tx.saleInvoice.findUnique({
+        where: { id: invoice.id },
+        include: this.saleInvoiceInclude
+      });
+      if (!createdInvoice) {
+        throw new NotFoundException('Invoice not found after creation');
+      }
 
       await tx.stockLedger.createMany({
         data: computedLines.map((line) => ({
@@ -1212,7 +1424,7 @@ export class PosService {
         }))
       });
 
-      return this.withCreatedByName(invoice);
+      return this.withCreatedByName(createdInvoice);
     });
   }
 
@@ -1221,7 +1433,10 @@ export class PosService {
     return this.prisma.$transaction(async (tx) => {
       const invoice = await tx.saleInvoice.findUnique({
         where: { id: invoiceId },
-        include: { lines: true, payments: true, customer: true }
+        include: {
+          ...this.saleInvoiceInclude,
+          customer: true
+        }
       });
 
       if (!invoice) throw new NotFoundException('Invoice not found');
@@ -1271,7 +1486,7 @@ export class PosService {
       const updated = await tx.saleInvoice.update({
         where: { id: invoice.id },
         data: { paidTotal: updatedPaid, status },
-        include: { lines: true, payments: true }
+        include: this.saleInvoiceInclude
       });
 
       const seq = await this.nextSequence(invoice.branchId, 'receipt', tx);
@@ -1312,7 +1527,10 @@ export class PosService {
   async listSales(branchId: string) {
     const invoices = await this.prisma.saleInvoice.findMany({
       where: { branchId },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      include: {
+        discounts: true
+      }
     });
     return this.withCreatedByNames(invoices);
   }
@@ -1323,6 +1541,7 @@ export class PosService {
       include: {
         lines: {
           include: {
+            discountAllocations: true,
             returnLines: {
               select: {
                 id: true,
@@ -1333,7 +1552,8 @@ export class PosService {
             }
           }
         },
-        payments: true
+        payments: true,
+        discounts: true
       }
     });
     if (!invoice) throw new NotFoundException('Invoice not found');

@@ -1,0 +1,2 @@
+ALTER TABLE "SaleInvoiceLine"
+ADD COLUMN "taxMode" "TaxMode" NOT NULL DEFAULT 'EXCLUSIVE';

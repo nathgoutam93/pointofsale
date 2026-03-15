@@ -148,7 +148,13 @@ export class PosController {
 
   @Patch('/business/settings')
   updateBusinessSettings(
-    @Body() body: { name?: string; logoUrl?: string | null; gstNumber?: string | null },
+    @Body()
+    body: {
+      name?: string;
+      logoUrl?: string | null;
+      gstNumber?: string | null;
+      taxCalculationMode?: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
+    },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     this.requireAdmin(this.getSession(headers));
@@ -498,8 +504,15 @@ export class PosController {
     body: {
       branchId: string;
       customerId: string;
-      lines: Array<{ itemId: string; qty: number; rate: number; discountAmount?: number; taxRate: number }>;
-      orderDiscountAmount?: number;
+      lines: Array<{
+        itemId: string;
+        qty: number;
+        rate: number;
+        taxRate: number;
+        taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
+        discounts?: Array<{ type: 'PERCENTAGE' | 'FIXED'; value: number }>;
+      }>;
+      discounts?: Array<{ type: 'PERCENTAGE' | 'FIXED'; value: number }>;
     },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {

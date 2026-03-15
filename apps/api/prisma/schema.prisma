@@ -45,6 +45,21 @@ enum TaxMode {
   EXCLUSIVE
 }
 
+enum TaxCalculationMode {
+  AFTER_DISCOUNT
+  BEFORE_DISCOUNT
+}
+
+enum DiscountScope {
+  ITEM
+  ORDER
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
 model Branch {
   id          String       @id @default(uuid())
   name        String
@@ -73,12 +88,13 @@ model Branch {
 }
 
 model BusinessSettings {
-  id        String   @id @default("default")
-  name      String
-  logoUrl   String?
-  gstNumber String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String             @id @default("default")
+  name               String
+  logoUrl            String?
+  gstNumber          String?
+  taxCalculationMode TaxCalculationMode @default(AFTER_DISCOUNT)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 }
 
 model User {
@@ -195,41 +211,73 @@ model StockLedger {
 }
 
 model SaleInvoice {
-  id            String           @id @default(uuid())
-  branchId      String
-  branch        Branch           @relation(fields: [branchId], references: [id])
-  invoiceNo     String           @unique
-  customerId    String
-  customer      Customer         @relation(fields: [customerId], references: [id])
-  status        InvoiceStatus
-  subTotal      Decimal          @db.Decimal(14, 2)
-  discountTotal Decimal          @db.Decimal(14, 2)
+  id                  String           @id @default(uuid())
+  branchId            String
+  branch              Branch           @relation(fields: [branchId], references: [id])
+  invoiceNo           String           @unique
+  customerId          String
+  customer            Customer         @relation(fields: [customerId], references: [id])
+  customerName        String
+  customerPhone       String?
+  status              InvoiceStatus
+  subTotal            Decimal          @db.Decimal(14, 2)
+  discountTotal       Decimal          @db.Decimal(14, 2)
   orderDiscountAmount Decimal     @default(0) @db.Decimal(14, 2)
-  taxTotal      Decimal          @db.Decimal(14, 2)
-  grandTotal    Decimal          @db.Decimal(14, 2)
-  paidTotal     Decimal          @db.Decimal(14, 2)
-  createdBy     String
-  lines         SaleInvoiceLine[]
-  payments      Payment[]
-  receipts      Receipt[]
-  returns       ReturnInvoice[]
-  createdAt     DateTime         @default(now())
+  taxTotal            Decimal          @db.Decimal(14, 2)
+  grandTotal          Decimal          @db.Decimal(14, 2)
+  paidTotal           Decimal          @db.Decimal(14, 2)
+  createdBy           String
+  createdByName       String
+  lines               SaleInvoiceLine[]
+  discounts           Discount[]
+  payments            Payment[]
+  receipts            Receipt[]
+  returns             ReturnInvoice[]
+  createdAt           DateTime         @default(now())
 }
 
 model SaleInvoiceLine {
-  id            String        @id @default(uuid())
-  invoiceId     String
-  invoice       SaleInvoice   @relation(fields: [invoiceId], references: [id])
-  itemId        String
-  item          Item          @relation(fields: [itemId], references: [id])
-  qty           Decimal       @db.Decimal(14, 3)
-  rate          Decimal       @db.Decimal(14, 2)
-  discountAmount Decimal      @db.Decimal(14, 2)
-  taxRate       Decimal       @db.Decimal(5, 2)
-  taxableAmount Decimal       @db.Decimal(14, 2)
-  taxAmount     Decimal       @db.Decimal(14, 2)
-  netAmount     Decimal       @db.Decimal(14, 2)
-  returnLines   ReturnInvoiceLine[]
+  id                  String               @id @default(uuid())
+  invoiceId           String
+  invoice             SaleInvoice          @relation(fields: [invoiceId], references: [id])
+  itemId              String
+  item                Item                 @relation(fields: [itemId], references: [id])
+  itemName            String
+  qty                 Decimal              @db.Decimal(14, 3)
+  rate                Decimal              @db.Decimal(14, 2)
+  discountAmount      Decimal              @db.Decimal(14, 2)
+  taxMode             TaxMode              @default(EXCLUSIVE)
+  taxRate             Decimal              @db.Decimal(5, 2)
+  taxableAmount       Decimal              @db.Decimal(14, 2)
+  taxAmount           Decimal              @db.Decimal(14, 2)
+  netAmount           Decimal              @db.Decimal(14, 2)
+  discountAllocations DiscountAllocation[]
+  returnLines         ReturnInvoiceLine[]
+}
+
+model Discount {
+  id            String               @id @default(uuid())
+  saleInvoiceId String
+  saleInvoice   SaleInvoice          @relation(fields: [saleInvoiceId], references: [id])
+  scope         DiscountScope
+  type          DiscountType
+  value         Decimal              @db.Decimal(14, 2)
+  allocations   DiscountAllocation[]
+  createdAt     DateTime             @default(now())
+
+  @@index([saleInvoiceId, scope])
+}
+
+model DiscountAllocation {
+  id                String          @id @default(uuid())
+  discountId        String
+  discount          Discount        @relation(fields: [discountId], references: [id])
+  saleInvoiceLineId String
+  saleInvoiceLine   SaleInvoiceLine @relation(fields: [saleInvoiceLineId], references: [id])
+  amount            Decimal         @db.Decimal(14, 2)
+
+  @@index([discountId])
+  @@index([saleInvoiceLineId])
 }
 
 model Payment {
