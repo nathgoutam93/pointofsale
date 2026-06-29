@@ -35,6 +35,7 @@ type PostPaymentSummary = {
   orderDiscountAmount: number;
   taxTotal: number;
   grandTotal: number;
+  paidTotal: number;
   paymentLines: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
   lines: CartLine[];
 };
@@ -324,6 +325,14 @@ export function PosPage() {
       label: `Paid by ${line.mode}`,
       value: money(line.amount),
     }));
+    const remainingDue = Math.max(
+      0,
+      postPayment.grandTotal - postPayment.paidTotal,
+    );
+    const paymentSummary = [
+      ...payments,
+      { label: "Remaining Due", value: money(remainingDue) },
+    ];
 
     const footerLines =
       invoiceFooterLines.length > 0 ? invoiceFooterLines : receiptFooterLines;
@@ -335,7 +344,7 @@ export function PosPage() {
       metadata,
       items,
       totals,
-      payments,
+      payments: paymentSummary,
       footerLines,
     });
   }, [
@@ -792,6 +801,92 @@ export function PosPage() {
     );
     closeLineEditor();
   };
+
+  const shouldIgnoreDialogKey = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return false;
+    const tagName = target.tagName;
+    return (
+      target.isContentEditable ||
+      tagName === "INPUT" ||
+      tagName === "TEXTAREA" ||
+      tagName === "SELECT"
+    );
+  };
+
+  const keypadKeyFromEvent = (event: KeyboardEvent) => {
+    if (/^\d$/.test(event.key)) return event.key;
+    if (event.key === "." || event.key === "Decimal") return ".";
+    if (event.key === "Backspace") return "<";
+    if (event.key === "Delete" || event.key.toLowerCase() === "c") return "C";
+    if (event.key === "-") return "+/-";
+    if (event.key === "%") return "%";
+    return null;
+  };
+
+  useEffect(() => {
+    if (!activeEditLine) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (shouldIgnoreDialogKey(event)) return;
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        applyLineEdits();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeLineEditor();
+        return;
+      }
+      if (event.key.toLowerCase() === "q") {
+        event.preventDefault();
+        lineEditKeypadPress("QTY");
+        return;
+      }
+      if (event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        lineEditKeypadPress("PRICE");
+        return;
+      }
+      if (event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        lineEditKeypadPress("DISCOUNT");
+        return;
+      }
+
+      const keypadKey = keypadKeyFromEvent(event);
+      if (!keypadKey) return;
+      event.preventDefault();
+      lineEditKeypadPress(keypadKey);
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [activeEditLine, applyLineEdits, closeLineEditor, lineEditKeypadPress]);
+
+  useEffect(() => {
+    if (!orderDiscountModalOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (shouldIgnoreDialogKey(event)) return;
+
+      if (event.key === "Enter" || event.key === "Escape") {
+        event.preventDefault();
+        setOrderDiscountModalOpen(false);
+        return;
+      }
+
+      const keypadKey = keypadKeyFromEvent(event);
+      if (!keypadKey) return;
+      event.preventDefault();
+      orderDiscountKeypadPress(keypadKey);
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [orderDiscountModalOpen, orderDiscountKeypadPress]);
 
   const addItem = (item: {
     id: string;
@@ -1271,6 +1366,7 @@ export function PosPage() {
         orderDiscountAmount: Number(result.invoice.orderDiscountAmount ?? 0),
         taxTotal: Number(result.invoice.taxTotal),
         grandTotal: Number(result.invoice.grandTotal),
+        paidTotal: Number(result.invoice.paidTotal ?? 0),
         paymentLines: result.invoice.payments.map((line) => ({
           mode: line.mode,
           amount: Number(line.amount),
@@ -1321,6 +1417,48 @@ export function PosPage() {
       });
     },
   });
+
+  useEffect(() => {
+    if (!paymentModalOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (shouldIgnoreDialogKey(event)) return;
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (event.ctrlKey || event.metaKey) {
+          if (!checkout.isPending && !walletOverused && paymentCanValidate) {
+            checkout.mutate({ payments: paymentLines });
+          }
+          return;
+        }
+        applyPaymentLine();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setPaymentModalOpen(false);
+        setPaymentModalError("");
+        return;
+      }
+
+      const keypadKey = keypadKeyFromEvent(event);
+      if (!keypadKey) return;
+      event.preventDefault();
+      paymentKeypadPress(keypadKey);
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [
+    paymentModalOpen,
+    applyPaymentLine,
+    checkout,
+    paymentCanValidate,
+    paymentKeypadPress,
+    paymentLines,
+    walletOverused,
+  ]);
 
   const createCustomerFromModal = useMutation({
     mutationFn: async () => {

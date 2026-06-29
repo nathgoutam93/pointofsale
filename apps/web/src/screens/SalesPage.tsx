@@ -511,6 +511,27 @@ export function SalesPage() {
     setPaymentLines((prev) => prev.filter((line) => line.mode !== mode));
   };
 
+  const shouldIgnoreDialogKey = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return false;
+    const tagName = target.tagName;
+    return (
+      target.isContentEditable ||
+      tagName === "INPUT" ||
+      tagName === "TEXTAREA" ||
+      tagName === "SELECT"
+    );
+  };
+
+  const keypadKeyFromEvent = (event: KeyboardEvent) => {
+    if (/^\d$/.test(event.key)) return event.key;
+    if (event.key === "." || event.key === "Decimal") return ".";
+    if (event.key === "Backspace") return "<";
+    if (event.key === "Delete" || event.key.toLowerCase() === "c") return "C";
+    if (event.key === "-") return "+/-";
+    return null;
+  };
+
   const openSettleModal = () => {
     if (!currentInvoice || pendingAmount <= 0) {
       setMessage("This invoice is already fully settled.");
@@ -603,6 +624,58 @@ export function SalesPage() {
       });
     },
   });
+
+  useEffect(() => {
+    if (!paymentModalOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (shouldIgnoreDialogKey(event)) return;
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (event.ctrlKey || event.metaKey) {
+          if (
+            !settleInvoice.isPending &&
+            !walletOverused &&
+            currentInvoice &&
+            paymentLines.length > 0 &&
+            paymentCanSubmit
+          ) {
+            settleInvoice.mutate({
+              invoiceId: currentInvoice.id,
+              payments: paymentLines,
+            });
+          }
+          return;
+        }
+        applyPaymentLine();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setPaymentModalOpen(false);
+        setPaymentModalError("");
+        return;
+      }
+
+      const keypadKey = keypadKeyFromEvent(event);
+      if (!keypadKey) return;
+      event.preventDefault();
+      paymentKeypadPress(keypadKey);
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [
+    paymentModalOpen,
+    applyPaymentLine,
+    currentInvoice,
+    paymentCanSubmit,
+    paymentKeypadPress,
+    paymentLines,
+    settleInvoice,
+    walletOverused,
+  ]);
 
   const statusOptions = useMemo(() => {
     const statuses = new Set<string>();
@@ -716,6 +789,8 @@ export function SalesPage() {
     settledSummary?.taxTotal ?? Number(currentInvoice?.taxTotal ?? 0);
   const invoiceGrandTotal =
     settledSummary?.grandTotal ?? Number(currentInvoice?.grandTotal ?? 0);
+  const invoicePaidTotal =
+    settledSummary?.paidTotal ?? Number(currentInvoice?.paidTotal ?? 0);
 
   const printableReceipt = useMemo(() => {
     if (!currentInvoice) return null;
@@ -795,6 +870,11 @@ export function SalesPage() {
       label: `Paid by ${line.mode}`,
       value: money(line.amount),
     }));
+    const remainingDue = Math.max(0, invoiceGrandTotal - invoicePaidTotal);
+    const paymentSummary = [
+      ...payments,
+      { label: "Remaining Due", value: money(remainingDue) },
+    ];
 
     const footerLines =
       receiptFooterLines.length > 0 ? receiptFooterLines : invoiceFooterLines;
@@ -806,7 +886,7 @@ export function SalesPage() {
       metadata,
       items,
       totals,
-      payments,
+      payments: paymentSummary,
       footerLines,
     });
   }, [
@@ -817,6 +897,7 @@ export function SalesPage() {
     currentSaleCreatorName,
     saleLines,
     invoiceGrandTotal,
+    invoicePaidTotal,
     businessSettings.data?.gstNumber,
     storeDisplayName,
     receiptHeaderLines,
