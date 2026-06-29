@@ -1339,6 +1339,8 @@ export class PosService {
     input: {
       branchId: string;
       customerId: string;
+      walkInCustomerName?: string | null;
+      walkInCustomerPhone?: string | null;
       lines: SaleLineInput[];
       discounts?: DiscountInput[];
     }
@@ -1353,11 +1355,20 @@ export class PosService {
       const businessSettings = await this.ensureBusinessSettings(tx);
       const customer = await tx.customer.findUnique({
         where: { id: input.customerId },
-        select: { id: true, name: true, phone: true }
+        select: { id: true, branchId: true, name: true, phone: true, isWalkIn: true }
       });
       if (!customer) {
         throw new NotFoundException('Customer not found');
       }
+      if (customer.branchId !== input.branchId) {
+        throw new BadRequestException('Customer does not belong to this branch');
+      }
+      const walkInCustomerName = input.walkInCustomerName?.trim();
+      const walkInCustomerPhone = input.walkInCustomerPhone?.trim();
+      const invoiceCustomerName =
+        customer.isWalkIn && walkInCustomerName ? walkInCustomerName : customer.name;
+      const invoiceCustomerPhone =
+        customer.isWalkIn && walkInCustomerPhone ? walkInCustomerPhone : customer.phone;
       const createdByUser = await tx.user.findUnique({
         where: { id: session.userId },
         select: { username: true }
@@ -1412,8 +1423,8 @@ export class PosService {
           branchId: input.branchId,
           invoiceNo,
           customerId: input.customerId,
-          customerName: customer.name,
-          customerPhone: customer.phone,
+          customerName: invoiceCustomerName,
+          customerPhone: invoiceCustomerPhone,
           status: InvoiceStatus.DRAFT,
           subTotal,
           discountTotal,

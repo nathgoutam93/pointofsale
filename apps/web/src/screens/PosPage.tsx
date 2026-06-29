@@ -48,6 +48,8 @@ type LocalSaleDraft = {
   customerId: string;
   customerName: string;
   customerPhone?: string | null;
+  walkInCustomerName?: string | null;
+  walkInCustomerPhone?: string | null;
   cart: CartLine[];
   orderDiscountMode: "AMOUNT" | "PERCENT";
   orderDiscountValue: string;
@@ -64,6 +66,8 @@ export function PosPage() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
+  const [walkInCustomerName, setWalkInCustomerName] = useState("");
+  const [walkInCustomerPhone, setWalkInCustomerPhone] = useState("");
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [newCustomerName, setNewCustomerName] = useState("");
   const [customerModalError, setCustomerModalError] = useState("");
@@ -892,6 +896,16 @@ export function PosPage() {
   }, [customerId, customers.data, walkIn.data]);
 
   const isWalkInSelected = !customerId || !!selectedCustomer?.isWalkIn;
+  const normalizedWalkInCustomerName = walkInCustomerName.trim();
+  const normalizedWalkInCustomerPhone = walkInCustomerPhone.trim();
+  const displayCustomerName =
+    isWalkInSelected && normalizedWalkInCustomerName
+      ? normalizedWalkInCustomerName
+      : (selectedCustomer?.name ?? "Walk In");
+  const displayCustomerPhone =
+    isWalkInSelected && normalizedWalkInCustomerPhone
+      ? normalizedWalkInCustomerPhone
+      : (selectedCustomer?.phone ?? null);
 
   const customerWallet = useQuery({
     queryKey: ["customer-wallet", customerId],
@@ -949,6 +963,8 @@ export function PosPage() {
     setMessage("");
     setReceiptContact("");
     setCustomerId("");
+    setWalkInCustomerName("");
+    setWalkInCustomerPhone("");
     setCart([]);
     closeLineEditor();
     setOrderDiscountValue("0");
@@ -976,8 +992,10 @@ export function PosPage() {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       savedAt: now,
       customerId,
-      customerName: selectedCustomer?.name ?? "Walk In",
-      customerPhone: selectedCustomer?.phone ?? null,
+      customerName: displayCustomerName,
+      customerPhone: displayCustomerPhone,
+      walkInCustomerName: isWalkInSelected ? normalizedWalkInCustomerName : null,
+      walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone : null,
       cart: cart.map((line) => ({ ...line })),
       orderDiscountMode,
       orderDiscountValue,
@@ -1027,6 +1045,8 @@ export function PosPage() {
     setIsOrderOpen(true);
     setReceiptContact("");
     setCustomerId(draft.customerId);
+    setWalkInCustomerName(draft.walkInCustomerName ?? "");
+    setWalkInCustomerPhone(draft.walkInCustomerPhone ?? "");
     setCart(draft.cart.map((line) => ({ ...line })));
     closeLineEditor();
     setOrderDiscountValue(draft.orderDiscountValue);
@@ -1172,6 +1192,8 @@ export function PosPage() {
       body: {
         branchId: session.branchId,
         customerId: selected,
+        walkInCustomerName: isWalkInSelected ? normalizedWalkInCustomerName || null : null,
+        walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone || null : null,
         lines: cart.map((line) => ({
           itemId: line.itemId,
           qty: line.qty,
@@ -1318,6 +1340,8 @@ export function PosPage() {
         queryKey: ["customers-pos", session.branchId],
       });
       setCustomerId(customer.id);
+      setWalkInCustomerName("");
+      setWalkInCustomerPhone("");
       setCustomerModalOpen(false);
       setCustomerSearchQuery("");
       setNewCustomerPhone("");
@@ -1651,7 +1675,11 @@ export function PosPage() {
                   <label className="text-sm text-slate-600">Customer</label>
                   <button
                     className="rounded bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
-                    onClick={() => setCustomerId("")}
+                    onClick={() => {
+                      setCustomerId("");
+                      setWalkInCustomerName("");
+                      setWalkInCustomerPhone("");
+                    }}
                     title="Reset to walk in customer"
                   >
                     Walk In
@@ -1668,6 +1696,22 @@ export function PosPage() {
                     ? `${selectedCustomer.name} (${selectedCustomer.phone ?? "No phone"})`
                     : "Select Customer"}
                 </button>
+                {isWalkInSelected ? (
+                  <div className="mt-2 grid grid-cols-1 gap-2">
+                    <input
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                      placeholder="Walk-in customer name (optional)"
+                      value={walkInCustomerName}
+                      onChange={(event) => setWalkInCustomerName(event.target.value)}
+                    />
+                    <input
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                      placeholder="Walk-in contact details (optional)"
+                      value={walkInCustomerPhone}
+                      onChange={(event) => setWalkInCustomerPhone(event.target.value)}
+                    />
+                  </div>
+                ) : null}
                 {!isWalkInSelected ? (
                   <p className="mt-1 text-xs text-slate-600">
                     Wallet Balance: ₹ {money(customerWallet.data?.balance ?? 0)}
@@ -2275,6 +2319,8 @@ export function PosPage() {
                   className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100"
                   onClick={() => {
                     setCustomerId(c.id);
+                    setWalkInCustomerName("");
+                    setWalkInCustomerPhone("");
                     setCustomerModalOpen(false);
                     setCustomerSearchQuery("");
                     setNewCustomerPhone("");

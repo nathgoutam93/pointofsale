@@ -576,6 +576,8 @@ export const appContract = c.router({
       body: z.object({
         branchId: z.string().uuid(),
         customerId: z.string().uuid(),
+        walkInCustomerName: z.string().trim().optional().nullable(),
+        walkInCustomerPhone: z.string().trim().optional().nullable(),
         lines: z.array(saleLineInput).min(1),
         discounts: z.array(discountInputSchema).default([])
       }),

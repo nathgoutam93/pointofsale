@@ -521,6 +521,8 @@ export class PosController {
     body: {
       branchId: string;
       customerId: string;
+      walkInCustomerName?: string | null;
+      walkInCustomerPhone?: string | null;
       lines: Array<{
         itemId: string;
         qty: number;
