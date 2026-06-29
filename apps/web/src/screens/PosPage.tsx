@@ -1536,30 +1536,37 @@ export function PosPage() {
             </div>
 
             <div className="grid max-h-[calc(100vh-150px)] grid-cols-2 gap-2 overflow-auto p-2 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8">
-              {filteredItems.map((item) => (
-                <button
-                  key={item.id}
-                  className="rounded border border-slate-200 bg-white p-2 text-left hover:bg-slate-50"
-                  onClick={() => addItem(item)}
-                >
-                  <div className="mb-2 h-20 overflow-hidden rounded bg-slate-100">
-                    {item.imageUrl ? (
-                      <img
-                        src={item.imageUrl}
-                        alt={item.name}
-                        className="h-full w-full object-scale-down"
-                      />
-                    ) : null}
-                  </div>
-                  <p className="truncate text-sm font-semibold text-slate-800">
-                    {item.name}
-                  </p>
-                  <p className="truncate text-xs text-slate-500">{item.code}</p>
-                  {/* <p className="text-xs font-semibold text-indigo-700">
-                    {money(item.sellPrice)} ₹
-                  </p> */}
-                </button>
-              ))}
+              {filteredItems.map((item) => {
+                const availableStock = onHandByItem.get(item.id) ?? 0;
+                return (
+                  <button
+                    key={item.id}
+                    className="rounded border border-slate-200 bg-white p-2 text-left hover:bg-slate-50"
+                    onClick={() => addItem(item)}
+                  >
+                    <div className="mb-2 h-20 overflow-hidden rounded bg-slate-100">
+                      {item.imageUrl ? (
+                        <img
+                          src={item.imageUrl}
+                          alt={item.name}
+                          className="h-full w-full object-scale-down"
+                        />
+                      ) : null}
+                    </div>
+                    <p className="truncate text-sm font-semibold text-slate-800">
+                      {item.name}
+                    </p>
+                    <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+                      <span className="font-semibold text-emerald-700">
+                        Rs {money(item.sellPrice)}
+                      </span>
+                      <span className="truncate text-slate-500">
+                        Stock: {formatStockOnHand(availableStock)}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </>
         )}
