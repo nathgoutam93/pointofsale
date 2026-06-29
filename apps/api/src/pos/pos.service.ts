@@ -21,6 +21,9 @@ type SaleLineInput = {
   itemName?: string;
   qty: number;
   rate: number;
+  saleUom?: string;
+  saleUomQty?: number;
+  saleUomConversionQty?: number;
   taxRate: number;
   taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
   discounts?: DiscountInput[];
@@ -48,6 +51,13 @@ type DiscountAllocationPlan = {
   value: number;
   amount: number;
   allocations: number[];
+};
+
+type ItemSaleUomInput = {
+  uom: string;
+  conversionQty: number;
+  sellPrice: number;
+  mrp?: number;
 };
 
 @Injectable()
@@ -521,6 +531,47 @@ export class PosService {
     return normalized;
   }
 
+  private normalizeItemSaleUoms(input: {
+    uom: string;
+    sellPrice: number;
+    mrp?: number;
+    saleUoms?: ItemSaleUomInput[];
+  }) {
+    const baseUom = input.uom.trim();
+    if (!baseUom) {
+      throw new BadRequestException('UOM is required');
+    }
+
+    const normalized = [
+      {
+        uom: baseUom,
+        conversionQty: 1,
+        sellPrice: this.round2(input.sellPrice),
+        mrp: this.round2(input.mrp ?? input.sellPrice),
+        isDefault: true,
+        sortOrder: 0
+      }
+    ];
+    const seen = new Set([baseUom.toLowerCase()]);
+
+    for (const variant of input.saleUoms ?? []) {
+      const uom = variant.uom.trim();
+      if (!uom || seen.has(uom.toLowerCase())) continue;
+      const conversionQty = this.normalizeLeastCount(variant.conversionQty);
+      normalized.push({
+        uom,
+        conversionQty,
+        sellPrice: this.round2(variant.sellPrice),
+        mrp: this.round2(variant.mrp ?? variant.sellPrice),
+        isDefault: false,
+        sortOrder: normalized.length
+      });
+      seen.add(uom.toLowerCase());
+    }
+
+    return normalized;
+  }
+
   private assertQtyRespectsLeastCount(qty: number, leastCount: number, context: string) {
     const normalizedQty = this.round3(qty);
     if (!Number.isFinite(normalizedQty) || normalizedQty <= 0) {
@@ -654,7 +705,8 @@ export class PosService {
     taxCalculationMode: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT'
   ) {
     const normalized = lines.map((line) => {
-      const gross = this.round2(line.qty * line.rate);
+      const pricingQty = line.saleUomQty ?? line.qty;
+      const gross = this.round2(pricingQty * line.rate);
       const baseExclusive = this.round2(
         line.taxMode === 'INCLUSIVE' && line.taxRate > 0 ? (gross * 100) / (100 + line.taxRate) : gross
       );
@@ -1126,7 +1178,11 @@ export class PosService {
   }
 
   async listItems(activeOnly?: boolean) {
-    return this.prisma.item.findMany({ where: activeOnly ? { isActive: true } : undefined, orderBy: { createdAt: 'desc' } });
+    return this.prisma.item.findMany({
+      where: activeOnly ? { isActive: true } : undefined,
+      include: { saleUoms: { orderBy: { sortOrder: 'asc' } } },
+      orderBy: { createdAt: 'desc' }
+    });
   }
 
   async createItem(input: {
@@ -1138,19 +1194,29 @@ export class PosService {
     costPrice?: number;
     sellPrice: number;
     mrp?: number;
+    saleUoms?: ItemSaleUomInput[];
     taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
     taxRate: number;
     imageUrl?: string;
   }) {
     const leastCount = this.normalizeLeastCount(input.leastCount ?? 1);
+    const saleUoms = this.normalizeItemSaleUoms(input);
     return this.prisma.item.create({
       data: {
-        ...input,
+        code: input.code,
+        name: input.name,
+        category: input.category,
+        uom: input.uom,
         leastCount,
         costPrice: input.costPrice ?? 0,
+        sellPrice: input.sellPrice,
         mrp: input.mrp ?? input.sellPrice,
-        taxMode: input.taxMode ?? 'EXCLUSIVE'
-      }
+        taxMode: input.taxMode ?? 'EXCLUSIVE',
+        taxRate: input.taxRate,
+        imageUrl: input.imageUrl,
+        saleUoms: { create: saleUoms }
+      },
+      include: { saleUoms: { orderBy: { sortOrder: 'asc' } } }
     });
   }
 
@@ -1164,17 +1230,42 @@ export class PosService {
       costPrice?: number;
       sellPrice?: number;
       mrp?: number;
+      saleUoms?: ItemSaleUomInput[];
       taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
       taxRate?: number;
       imageUrl?: string | null;
       isActive?: boolean;
     }
   ) {
-    const data: typeof input = { ...input };
+    const { saleUoms: saleUomInput, ...data } = input;
     if (data.leastCount !== undefined) {
       data.leastCount = this.normalizeLeastCount(data.leastCount);
     }
-    return this.prisma.item.update({ where: { id }, data });
+    return this.prisma.$transaction(async (tx) => {
+      if (saleUomInput !== undefined) {
+        const current = await tx.item.findUnique({
+          where: { id },
+          select: { uom: true, sellPrice: true, mrp: true }
+        });
+        if (!current) throw new NotFoundException('Item not found');
+        const nextSaleUoms = this.normalizeItemSaleUoms({
+          uom: data.uom ?? current.uom,
+          sellPrice: data.sellPrice ?? this.toNumber(current.sellPrice),
+          mrp: data.mrp ?? this.toNumber(current.mrp),
+          saleUoms: saleUomInput
+        });
+        await tx.itemSaleUom.deleteMany({ where: { itemId: id } });
+        await tx.itemSaleUom.createMany({
+          data: nextSaleUoms.map((variant) => ({ ...variant, itemId: id }))
+        });
+      }
+
+      return tx.item.update({
+        where: { id },
+        data,
+        include: { saleUoms: { orderBy: { sortOrder: 'asc' } } }
+      });
+    });
   }
 
   async deleteItem(id: string) {
@@ -1387,6 +1478,15 @@ export class PosService {
         if (!item) {
           throw new NotFoundException('Item not found');
         }
+        if (line.saleUom || line.saleUomQty !== undefined || line.saleUomConversionQty !== undefined) {
+          if (!line.saleUom || line.saleUomQty === undefined || line.saleUomConversionQty === undefined) {
+            throw new BadRequestException(`Sale line ${line.itemId} has incomplete UOM details`);
+          }
+          const expectedQty = this.round3(line.saleUomQty * line.saleUomConversionQty);
+          if (Math.abs(expectedQty - this.round3(line.qty)) > 1e-6) {
+            throw new BadRequestException(`Sale line ${line.itemId} UOM quantity does not match stock quantity`);
+          }
+        }
         this.assertQtyRespectsLeastCount(line.qty, this.toNumber(item.leastCount), `Sale line ${line.itemId}`);
         const onHand = await this.getOnHandForItem(input.branchId, normalizedItemId, tx);
         if (onHand < line.qty) {
@@ -1448,6 +1548,9 @@ export class PosService {
               itemName: line.itemName ?? 'Unknown Item',
               qty: line.qty,
               rate: line.rate,
+              saleUom: line.saleUom,
+              saleUomQty: line.saleUomQty,
+              saleUomConversionQty: line.saleUomConversionQty,
               discountAmount: line.discountAmount,
               taxMode: line.taxMode ?? 'EXCLUSIVE',
               taxRate: line.taxRate,

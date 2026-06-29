@@ -191,7 +191,24 @@ model Item {
   isActive    Boolean         @default(true)
   lines       SaleInvoiceLine[]
   stockLedgers StockLedger[]
+  saleUoms    ItemSaleUom[]
   createdAt   DateTime        @default(now())
+}
+
+model ItemSaleUom {
+  id              String   @id @default(uuid())
+  itemId          String
+  item            Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  uom             String
+  conversionQty   Decimal  @db.Decimal(14, 3)
+  sellPrice       Decimal  @db.Decimal(14, 2)
+  mrp             Decimal  @default(0) @db.Decimal(14, 2)
+  isDefault       Boolean  @default(false)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@unique([itemId, uom])
+  @@index([itemId, sortOrder])
 }
 
 model StockLedger {
@@ -247,6 +264,9 @@ model SaleInvoiceLine {
   itemName            String
   qty                 Decimal              @db.Decimal(14, 3)
   rate                Decimal              @db.Decimal(14, 2)
+  saleUom             String?
+  saleUomQty          Decimal?             @db.Decimal(14, 3)
+  saleUomConversionQty Decimal?            @db.Decimal(14, 3)
   discountAmount      Decimal              @db.Decimal(14, 2)
   taxMode             TaxMode              @default(EXCLUSIVE)
   taxRate             Decimal              @db.Decimal(5, 2)

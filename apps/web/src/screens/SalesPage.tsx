@@ -33,6 +33,9 @@ type SettledSummary = {
     itemName: string;
     qty: number;
     rate: number;
+    saleUom?: string | null;
+    saleUomQty?: number | null;
+    saleUomConversionQty?: number | null;
     discountAmount: number;
     itemDiscountAmount?: number;
     orderDiscountAmount?: number;
@@ -63,6 +66,18 @@ export function SalesPage() {
   };
   const formatQtyLabel = (qty: number) =>
     Number.isInteger(qty) ? qty.toFixed(0) : qty.toFixed(3);
+  const getPricingQty = (line: { qty: number; saleUomQty?: number | null }) =>
+    line.saleUomQty ?? line.qty;
+  const getSaleQtyLabel = (line: {
+    itemId: string;
+    qty: number;
+    saleUom?: string | null;
+    saleUomQty?: number | null;
+  }) => {
+    const uom = line.saleUom ?? itemUomById.get(line.itemId);
+    const qty = line.saleUom ? line.saleUomQty ?? getPricingQty(line) : line.qty;
+    return uom ? `${formatQtyLabel(qty)} ${uom}` : formatQtyLabel(qty);
+  };
   const getItemDiscountAmount = (
     line: {
       discountAllocations?: Array<{
@@ -228,6 +243,14 @@ export function SalesPage() {
       return res.body;
     },
   });
+
+  const itemUomById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of items.data ?? []) {
+      map.set(item.id, item.uom);
+    }
+    return map;
+  }, [items.data]);
 
   const customers = useQuery({
     queryKey: ["customers-sales", session.branchId],
@@ -584,6 +607,13 @@ export function SalesPage() {
           itemId: line.itemId,
           qty: Number(line.qty),
           rate: Number(line.rate),
+          saleUom: line.saleUom,
+          saleUomQty:
+            line.saleUomQty === null ? null : Number(line.saleUomQty ?? 0) || null,
+          saleUomConversionQty:
+            line.saleUomConversionQty === null
+              ? null
+              : Number(line.saleUomConversionQty ?? 0) || null,
           itemName: line.itemName,
           discountAmount: Number(line.discountAmount ?? 0),
           itemDiscountAmount: getItemDiscountAmount(
@@ -758,6 +788,13 @@ export function SalesPage() {
       itemId: line.itemId,
       qty: Number(line.qty),
       rate: Number(line.rate),
+      saleUom: line.saleUom,
+      saleUomQty:
+        line.saleUomQty === null ? null : Number(line.saleUomQty ?? 0) || null,
+      saleUomConversionQty:
+        line.saleUomConversionQty === null
+          ? null
+          : Number(line.saleUomConversionQty ?? 0) || null,
       itemName: line.itemName,
       discountAmount: Number(line.discountAmount ?? 0),
       itemDiscountAmount: getItemDiscountAmount(
@@ -816,7 +853,8 @@ export function SalesPage() {
     const items = saleLines.map((line) => {
       const name = line.itemName ?? `Item ${line.itemId.slice(0, 6)}`;
       const taxMode = line.taxMode ?? "EXCLUSIVE";
-      const gross = line.qty * line.rate;
+      const pricingQty = getPricingQty(line);
+      const gross = pricingQty * line.rate;
       const discountAmount = Math.max(
         0,
         line.itemDiscountAmount ?? line.discountAmount ?? 0,
@@ -826,14 +864,15 @@ export function SalesPage() {
         taxMode === "INCLUSIVE" && Number(line.taxRate ?? 0) > 0
           ? (gross * 100) / (100 + Number(line.taxRate ?? 0))
           : gross;
-      const baseUnitRate = line.qty > 0 ? baseExclusive / line.qty : 0;
+      const baseUnitRate = pricingQty > 0 ? baseExclusive / pricingQty : 0;
+      const qtyLabel = getSaleQtyLabel(line);
       const displayTotal =
         Number(line.netAmount ?? 0) + Number(line.orderDiscountAmount ?? 0);
       return {
         name,
         detailRows: [
           {
-            label: `${formatQtyLabel(line.qty)} x ${money(baseUnitRate)}`,
+            label: `${qtyLabel} x ${money(baseUnitRate)}`,
             value: money(baseExclusive),
           },
           ...(line.taxRate > 0 || taxAmount > 0
@@ -896,6 +935,7 @@ export function SalesPage() {
     currentSaleCreatorId,
     currentSaleCreatorName,
     saleLines,
+    itemUomById,
     invoiceGrandTotal,
     invoicePaidTotal,
     businessSettings.data?.gstNumber,
@@ -1229,8 +1269,13 @@ export function SalesPage() {
                     className="flex items-start justify-between"
                   >
                     <p className="mr-3">
-                      {line.qty.toFixed(0)} x{" "}
+                      {getSaleQtyLabel(line)} x{" "}
                       {line.itemName ?? `Item ${line.itemId.slice(0, 6)}`}
+                      {line.saleUom ? (
+                        <span className="ml-1 text-xs text-slate-500">
+                          ({formatQtyLabel(line.qty)} base)
+                        </span>
+                      ) : null}
                     </p>
                     <p>₹ {money(line.netAmount)}</p>
                   </div>

@@ -111,6 +111,26 @@ export const itemSchema = z.object({
   createdAt: z.string().datetime()
 });
 
+const itemSaleUomInputSchema = z.object({
+  uom: z.string().min(1),
+  conversionQty: z.number().positive(),
+  sellPrice: moneySchema.nonnegative(),
+  mrp: moneySchema.nonnegative().optional()
+});
+
+const itemSaleUomSchema = itemSaleUomInputSchema.extend({
+  id: z.string().uuid(),
+  itemId: z.string().uuid(),
+  mrp: moneySchema,
+  isDefault: z.boolean(),
+  sortOrder: z.number(),
+  createdAt: z.string().datetime()
+});
+
+export const itemWithSaleUomsSchema = itemSchema.extend({
+  saleUoms: z.array(itemSaleUomSchema)
+});
+
 const discountInputSchema = z.object({
   type: discountTypeSchema,
   value: moneySchema.nonnegative()
@@ -133,6 +153,9 @@ const saleLineInput = z.object({
   itemId: z.string().uuid(),
   qty: z.number().positive(),
   rate: moneySchema,
+  saleUom: z.string().optional(),
+  saleUomQty: z.number().positive().optional(),
+  saleUomConversionQty: z.number().positive().optional(),
   taxRate: z.number().min(0),
   taxMode: taxModeSchema.optional(),
   discounts: z.array(discountInputSchema).default([])
@@ -142,6 +165,9 @@ const saleLineSchema = saleLineInput.omit({ discounts: true }).extend({
   id: z.string().uuid(),
   itemName: z.string(),
   discountAmount: moneySchema,
+  saleUom: z.string().nullable(),
+  saleUomQty: z.number().positive().nullable(),
+  saleUomConversionQty: z.number().positive().nullable(),
   taxableAmount: moneySchema,
   taxAmount: moneySchema,
   netAmount: moneySchema,
@@ -473,7 +499,7 @@ export const appContract = c.router({
       method: 'GET',
       path: '/items',
       query: z.object({ activeOnly: z.coerce.boolean().optional() }),
-      responses: { 200: z.array(itemSchema) }
+      responses: { 200: z.array(itemWithSaleUomsSchema) }
     },
     create: {
       method: 'POST',
@@ -487,11 +513,12 @@ export const appContract = c.router({
         costPrice: moneySchema.nonnegative().optional(),
         sellPrice: moneySchema.nonnegative(),
         mrp: moneySchema.nonnegative().optional(),
+        saleUoms: z.array(itemSaleUomInputSchema).optional(),
         taxMode: taxModeSchema.optional(),
         taxRate: z.number().min(0),
         imageUrl: z.string().url().optional()
       }),
-      responses: { 201: itemSchema }
+      responses: { 201: itemWithSaleUomsSchema }
     },
     update: {
       method: 'PATCH',
@@ -504,12 +531,13 @@ export const appContract = c.router({
         costPrice: moneySchema.nonnegative().optional(),
         sellPrice: moneySchema.nonnegative().optional(),
         mrp: moneySchema.nonnegative().optional(),
+        saleUoms: z.array(itemSaleUomInputSchema).optional(),
         taxMode: taxModeSchema.optional(),
         taxRate: z.number().min(0).optional(),
         imageUrl: z.string().url().nullable().optional(),
         isActive: z.boolean().optional()
       }),
-      responses: { 200: itemSchema }
+      responses: { 200: itemWithSaleUomsSchema }
     },
     delete: {
       method: 'DELETE',

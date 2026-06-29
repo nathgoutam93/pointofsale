@@ -10,11 +10,16 @@ import {
 import { money, requireOperationalSession } from "./route-helpers";
 
 type CartLine = {
+  cartKey: string;
   itemId: string;
   name: string;
   qty: number;
   leastCount: number;
   rate: number;
+  baseUom?: string;
+  saleUom?: string;
+  saleUomQty?: number;
+  saleUomConversionQty?: number;
   discountAmount: number;
   itemDiscountAmount?: number;
   orderDiscountAmount?: number;
@@ -264,6 +269,21 @@ export function PosPage() {
   const taxCalculationMode =
     businessSettings.data?.taxCalculationMode ?? "AFTER_DISCOUNT";
 
+  function getPricingQty(line: Pick<CartLine, "qty" | "saleUomQty">) {
+    return line.saleUomQty ?? line.qty;
+  }
+
+  function getBaseExclusive(
+    line: Pick<CartLine, "qty" | "rate" | "taxRate" | "taxMode" | "saleUomQty">,
+  ) {
+    const gross = round2(getPricingQty(line) * line.rate);
+    return round2(
+      line.taxMode === "INCLUSIVE" && line.taxRate > 0
+        ? (gross * 100) / (100 + line.taxRate)
+        : gross,
+    );
+  }
+
   const printableInvoice = useMemo(() => {
     if (!postPayment) return null;
 
@@ -286,12 +306,16 @@ export function PosPage() {
       const itemDiscount = Number(line.itemDiscountAmount ?? 0);
       const taxAmount = Number(line.taxAmount ?? 0);
       const baseExclusive = getBaseExclusive(line);
-      const baseUnitRate = line.qty > 0 ? baseExclusive / line.qty : 0;
+      const pricingQty = getPricingQty(line);
+      const baseUnitRate = pricingQty > 0 ? baseExclusive / pricingQty : 0;
+      const qtyLabel = line.saleUom
+        ? `${line.saleUomQty ?? pricingQty} ${line.saleUom}`
+        : `${formatQty(line.qty, line.leastCount)}${line.baseUom ? ` ${line.baseUom}` : ""}`;
       return {
         name: line.name,
         detailRows: [
           {
-            label: `${formatQty(line.qty, line.leastCount)} x ${money(baseUnitRate)}`,
+            label: `${qtyLabel} x ${money(baseUnitRate)}`,
             value: money(baseExclusive),
           },
           ...(line.taxRate > 0 || taxAmount > 0
@@ -454,17 +478,6 @@ export function PosPage() {
     return round3(Math.max(unit, steps * unit));
   };
 
-  function getBaseExclusive(
-    line: Pick<CartLine, "qty" | "rate" | "taxRate" | "taxMode">,
-  ) {
-    const gross = round2(line.qty * line.rate);
-    return round2(
-      line.taxMode === "INCLUSIVE" && line.taxRate > 0
-        ? (gross * 100) / (100 + line.taxRate)
-        : gross,
-    );
-  }
-
   function allocateDiscountAcrossBases(
     bases: number[],
     discountAmount: number,
@@ -511,7 +524,7 @@ export function PosPage() {
   function computeLineAmounts(
     line: Pick<
       CartLine,
-      "qty" | "rate" | "discountAmount" | "taxRate" | "taxMode"
+      "qty" | "rate" | "discountAmount" | "taxRate" | "taxMode" | "saleUomQty"
     >,
   ) {
     const baseExclusive = getBaseExclusive(line);
@@ -543,7 +556,7 @@ export function PosPage() {
 
   const computedCart = useMemo(() => {
     const normalized = cart.map((line) => {
-      const gross = round2(line.qty * line.rate);
+      const gross = round2(getPricingQty(line) * line.rate);
       const baseExclusive = getBaseExclusive(line);
       const itemDiscount = round2(Math.min(Math.max(0, line.discountAmount), baseExclusive));
       const baseAfterItem = round2(Math.max(0, baseExclusive - itemDiscount));
@@ -585,8 +598,11 @@ export function PosPage() {
     };
   }, [cart, resolvedOrderDiscountAmount, taxCalculationMode]);
 
+  const getCartLineKey = (line: Pick<CartLine, "cartKey" | "itemId" | "saleUom">) =>
+    line.cartKey || `${line.itemId}:${line.saleUom ?? "BASE"}`;
+
   const activeEditLine = useMemo(
-    () => cart.find((line) => line.itemId === editLineId) ?? null,
+    () => cart.find((line) => getCartLineKey(line) === editLineId) ?? null,
     [cart, editLineId],
   );
   const displayEditLine = draftLine ?? activeEditLine;
@@ -612,25 +628,31 @@ export function PosPage() {
     const input = Number(value);
     if (!Number.isFinite(input)) return line;
     let qty = line.qty;
+    let saleUomQty = line.saleUomQty;
     let rate = line.rate;
     let discountAmount = line.discountAmount;
     if (field === "QTY") {
-      qty = snapQtyToLeastCount(input, line.leastCount);
+      if (line.saleUomConversionQty) {
+        saleUomQty = Math.max(1, Math.round(input));
+        qty = snapQtyToLeastCount(saleUomQty * line.saleUomConversionQty, line.leastCount);
+      } else {
+        qty = snapQtyToLeastCount(input, line.leastCount);
+      }
     }
     if (field === "PRICE") {
       rate = Math.max(0, input);
     }
     if (field === "DISCOUNT") {
       if (mode === "PERCENT") {
-        const baseExclusive = getBaseExclusive({ ...line, qty, rate });
+        const baseExclusive = getBaseExclusive({ ...line, qty, saleUomQty, rate });
         discountAmount = Math.max(0, (baseExclusive * input) / 100);
       } else {
         discountAmount = Math.max(0, input);
       }
     }
-    const baseExclusive = getBaseExclusive({ ...line, qty, rate });
+    const baseExclusive = getBaseExclusive({ ...line, qty, saleUomQty, rate });
     if (discountAmount > baseExclusive) discountAmount = baseExclusive;
-    return { ...line, qty, rate, discountAmount };
+    return { ...line, qty, saleUomQty, rate, discountAmount };
   };
 
   const setEditFieldWithValue = (
@@ -640,7 +662,7 @@ export function PosPage() {
   ) => {
     setEditField(field);
     if (field === "QTY") {
-      setEditValue(formatQty(line.qty, line.leastCount));
+      setEditValue(String(line.saleUomQty ?? formatQty(line.qty, line.leastCount)));
       return;
     }
     if (field === "PRICE") {
@@ -655,7 +677,7 @@ export function PosPage() {
   };
 
   const openLineEditor = (line: CartLine) => {
-    setEditLineId(line.itemId);
+    setEditLineId(getCartLineKey(line));
     setDiscountMode("AMOUNT");
     setEditFieldWithValue("QTY", line, "AMOUNT");
     setDraftLine({ ...line });
@@ -891,28 +913,43 @@ export function PosPage() {
   const addItem = (item: {
     id: string;
     name: string;
+    uom?: string;
     sellPrice: number | string;
     taxRate: number | string;
     taxMode?: "INCLUSIVE" | "EXCLUSIVE";
     leastCount?: number | string;
     imageUrl?: string | null;
+    saleUom?: string;
+    saleUomQty?: number;
+    saleUomConversionQty?: number;
   }) => {
     setIsOrderOpen(true);
     const rate = Number(item.sellPrice) || 0;
     const taxRate = Number(item.taxRate) || 0;
     const taxMode = item.taxMode ?? "EXCLUSIVE";
     const leastCount = normalizeLeastCount(item.leastCount);
+    const displayUom = item.saleUom ?? item.uom;
+    const saleUom = item.saleUom;
+    const saleUomQty = item.saleUomQty ?? 1;
+    const saleUomConversionQty = normalizeLeastCount(item.saleUomConversionQty ?? leastCount);
+    const qty = item.saleUom ? snapQtyToLeastCount(saleUomQty * saleUomConversionQty, leastCount) : leastCount;
+    const cartKey = `${item.id}:${displayUom ?? "BASE"}`;
     setCart((prev) => {
-      const idx = prev.findIndex((l) => l.itemId === item.id);
+      const idx = prev.findIndex((l) => getCartLineKey(l) === cartKey);
       if (idx === -1) {
         return [
           ...prev,
           {
+            cartKey,
             itemId: item.id,
             name: item.name,
-            qty: leastCount,
+            qty,
             leastCount,
             rate,
+            baseUom: item.uom,
+            saleUom,
+            saleUomQty: item.saleUom ? saleUomQty : undefined,
+            saleUomConversionQty: item.saleUom ? saleUomConversionQty : undefined,
             discountAmount: 0,
             taxRate,
             taxMode,
@@ -923,7 +960,8 @@ export function PosPage() {
       const next = [...prev];
       next[idx] = {
         ...next[idx],
-        qty: round3(next[idx].qty + normalizeLeastCount(next[idx].leastCount)),
+        qty: round3(next[idx].qty + qty),
+        saleUomQty: next[idx].saleUomQty === undefined ? undefined : round3(next[idx].saleUomQty + saleUomQty),
       };
       return next;
     });
@@ -956,14 +994,48 @@ export function PosPage() {
       const category = item.category || "Uncategorized";
       const categoryMatch =
         activeCategory === "All" || category === activeCategory;
+      const saleUomText = (item.saleUoms ?? []).map((variant) => variant.uom).join(" ");
       const textMatch =
         keyword.length === 0 ||
         item.name.toLowerCase().includes(keyword) ||
         item.code.toLowerCase().includes(keyword) ||
-        category.toLowerCase().includes(keyword);
+        category.toLowerCase().includes(keyword) ||
+        saleUomText.toLowerCase().includes(keyword);
       return categoryMatch && textMatch;
     });
   }, [items.data, search, activeCategory]);
+
+  const saleItemChoices = useMemo(() => {
+    return filteredItems.flatMap((item) => {
+      const variants = item.saleUoms?.length
+        ? item.saleUoms
+        : [
+            {
+              id: `${item.id}-base`,
+              uom: item.uom,
+              conversionQty: 1,
+              sellPrice: item.sellPrice,
+              isDefault: true,
+            },
+          ];
+      return variants.map((variant) => ({
+        id: item.id,
+        choiceKey: `${item.id}:${variant.uom}`,
+        name: item.name,
+        code: item.code,
+        uom: item.uom,
+        sellPrice: variant.sellPrice,
+        taxRate: item.taxRate,
+        taxMode: item.taxMode,
+        leastCount: item.leastCount,
+        imageUrl: item.imageUrl,
+        saleUom: variant.isDefault ? undefined : variant.uom,
+        displayUom: variant.uom,
+        saleUomQty: 1,
+        saleUomConversionQty: variant.conversionQty,
+      }));
+    });
+  }, [filteredItems]);
 
   const onHandByItem = useMemo(() => {
     const map = new Map<string, number>();
@@ -1293,6 +1365,9 @@ export function PosPage() {
           itemId: line.itemId,
           qty: line.qty,
           rate: line.rate,
+          saleUom: line.saleUom,
+          saleUomQty: line.saleUomQty,
+          saleUomConversionQty: line.saleUomConversionQty,
           taxRate: line.taxRate,
           taxMode: line.taxMode,
           discounts:
@@ -1350,7 +1425,8 @@ export function PosPage() {
       };
     },
     onSuccess: (result) => {
-      const cartSnapshotById = new Map(cart.map((line) => [line.itemId, line]));
+      const cartSnapshotByKey = new Map(cart.map((line) => [getCartLineKey(line), line]));
+      const cartSnapshotByItemId = new Map(cart.map((line) => [line.itemId, line]));
       const itemDiscountIds = new Set(
         (result.invoice.discounts ?? [])
           .filter((discount) => discount.scope === "ITEM")
@@ -1372,7 +1448,9 @@ export function PosPage() {
           amount: Number(line.amount),
         })),
         lines: result.invoice.lines.map((line) => {
-          const snapshot = cartSnapshotById.get(line.itemId);
+          const snapshot = cartSnapshotByKey.get(
+            `${line.itemId}:${line.saleUom ?? "BASE"}`,
+          ) ?? cartSnapshotByItemId.get(line.itemId);
           const itemDiscountAmount = (line.discountAllocations ?? []).reduce(
             (acc, allocation) =>
               itemDiscountIds.has(allocation.discountId)
@@ -1384,10 +1462,18 @@ export function PosPage() {
             Number(line.discountAmount ?? 0) - itemDiscountAmount;
           return {
             itemId: line.itemId,
+            cartKey: snapshot?.cartKey ?? `${line.itemId}:${line.saleUom ?? "BASE"}`,
             name: line.itemName ?? snapshot?.name ?? `Item ${line.itemId.slice(0, 6)}`,
             qty: Number(line.qty),
             leastCount: snapshot?.leastCount ?? 1,
             rate: Number(line.rate),
+            baseUom: snapshot?.baseUom,
+            saleUom: line.saleUom ?? undefined,
+            saleUomQty: line.saleUomQty === null ? undefined : Number(line.saleUomQty ?? 0) || undefined,
+            saleUomConversionQty:
+              line.saleUomConversionQty === null
+                ? undefined
+                : Number(line.saleUomConversionQty ?? 0) || undefined,
             discountAmount: Number(line.discountAmount ?? 0),
             itemDiscountAmount,
             orderDiscountAmount,
@@ -1672,7 +1758,7 @@ export function PosPage() {
                 return (
                   <div
                     className="flex cursor-pointer items-start justify-between border-b border-slate-100 px-3 py-2 hover:bg-slate-50"
-                    key={line.itemId}
+                    key={getCartLineKey(line)}
                     onClick={() => openLineEditor(line)}
                   >
                     <div className="flex gap-2">
@@ -1690,7 +1776,10 @@ export function PosPage() {
                           {line.name}
                         </p>
                         <p className="text-base text-slate-500">
-                          {formatQty(line.qty, line.leastCount)} x {money(line.rate)} / unit
+                          {line.saleUom
+                            ? `${line.saleUomQty ?? 1} ${line.saleUom} (${formatQty(line.qty, line.leastCount)})`
+                            : formatQty(line.qty, line.leastCount)}{" "}
+                          x {money(line.rate)}
                         </p>
                         {isLowStock ? (
                           <p className="text-sm font-semibold text-red-600">
@@ -1716,13 +1805,22 @@ export function PosPage() {
                             setCart((prev) =>
                               prev
                                 .map((x) =>
-                                  x.itemId === line.itemId
+                                  getCartLineKey(x) === getCartLineKey(line)
                                     ? {
                                         ...x,
+                                        saleUomQty:
+                                          x.saleUomQty === undefined
+                                            ? undefined
+                                            : Math.max(1, x.saleUomQty - 1),
                                         qty: round3(
                                           Math.max(
-                                            x.leastCount,
-                                            x.qty - normalizeLeastCount(x.leastCount),
+                                            normalizeLeastCount(
+                                              x.saleUomConversionQty ?? x.leastCount,
+                                            ),
+                                            x.qty -
+                                              normalizeLeastCount(
+                                                x.saleUomConversionQty ?? x.leastCount,
+                                              ),
                                           ),
                                         ),
                                       }
@@ -1740,11 +1838,18 @@ export function PosPage() {
                             event.stopPropagation();
                             setCart((prev) =>
                               prev.map((x) =>
-                                x.itemId === line.itemId
+                                getCartLineKey(x) === getCartLineKey(line)
                                   ? {
                                       ...x,
+                                      saleUomQty:
+                                        x.saleUomQty === undefined
+                                          ? undefined
+                                          : x.saleUomQty + 1,
                                       qty: round3(
-                                        x.qty + normalizeLeastCount(x.leastCount),
+                                        x.qty +
+                                          normalizeLeastCount(
+                                            x.saleUomConversionQty ?? x.leastCount,
+                                          ),
                                       ),
                                     }
                                   : x,
@@ -1759,9 +1864,9 @@ export function PosPage() {
                           onClick={(event) => {
                             event.stopPropagation();
                             setCart((prev) =>
-                              prev.filter((x) => x.itemId !== line.itemId),
+                              prev.filter((x) => getCartLineKey(x) !== getCartLineKey(line)),
                             );
-                            if (editLineId === line.itemId) {
+                            if (editLineId === getCartLineKey(line)) {
                               closeLineEditor();
                             }
                           }}
@@ -1936,11 +2041,11 @@ export function PosPage() {
             </div>
 
             <div className="grid max-h-[calc(100vh-150px)] grid-cols-2 gap-2 overflow-auto p-2 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8">
-              {filteredItems.map((item) => {
+              {saleItemChoices.map((item) => {
                 const availableStock = onHandByItem.get(item.id) ?? 0;
                 return (
                   <button
-                    key={item.id}
+                    key={item.choiceKey}
                     className="rounded border border-slate-200 bg-white p-2 text-left hover:bg-slate-50"
                     onClick={() => addItem(item)}
                   >
@@ -1955,6 +2060,10 @@ export function PosPage() {
                     </div>
                     <p className="truncate text-sm font-semibold text-slate-800">
                       {item.name}
+                    </p>
+                    <p className="truncate text-xs font-medium text-slate-500">
+                      {item.displayUom}
+                      {item.saleUom ? ` = ${item.saleUomConversionQty} ${item.uom}` : ""}
                     </p>
                     <div className="mt-1 flex items-center justify-between gap-2 text-xs">
                       <span className="font-semibold text-emerald-700">
@@ -2260,7 +2369,9 @@ export function PosPage() {
                     </p>
                     <p className="text-2xl font-semibold text-slate-800">
                       {displayEditLine
-                        ? formatQty(displayEditLine.qty, displayEditLine.leastCount)
+                        ? displayEditLine.saleUom
+                          ? `${displayEditLine.saleUomQty ?? 1} ${displayEditLine.saleUom}`
+                          : formatQty(displayEditLine.qty, displayEditLine.leastCount)
                         : "0"}
                     </p>
                   </button>
@@ -2400,7 +2511,7 @@ export function PosPage() {
                     className="rounded bg-rose-200 px-4 py-3 text-base font-semibold text-rose-800"
                     onClick={() => {
                       setCart((prev) =>
-                        prev.filter((x) => x.itemId !== activeEditLine.itemId),
+                        prev.filter((x) => getCartLineKey(x) !== getCartLineKey(activeEditLine)),
                       );
                       closeLineEditor();
                     }}

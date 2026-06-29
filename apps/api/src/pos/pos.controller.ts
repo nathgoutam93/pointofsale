@@ -405,6 +405,7 @@ export class PosController {
       costPrice?: number;
       sellPrice: number;
       mrp?: number;
+      saleUoms?: Array<{ uom: string; conversionQty: number; sellPrice: number; mrp?: number }>;
       taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
       taxRate: number;
       imageUrl?: string;
@@ -427,6 +428,7 @@ export class PosController {
       costPrice?: number;
       sellPrice?: number;
       mrp?: number;
+      saleUoms?: Array<{ uom: string; conversionQty: number; sellPrice: number; mrp?: number }>;
       taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
       taxRate?: number;
       imageUrl?: string | null;
@@ -527,6 +529,9 @@ export class PosController {
         itemId: string;
         qty: number;
         rate: number;
+        saleUom?: string;
+        saleUomQty?: number;
+        saleUomConversionQty?: number;
         taxRate: number;
         taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
         discounts?: Array<{ type: 'PERCENTAGE' | 'FIXED'; value: number }>;

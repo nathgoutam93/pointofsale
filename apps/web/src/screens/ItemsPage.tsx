@@ -17,6 +17,13 @@ type ItemFormState = {
   imageFile: File | null;
 };
 
+type SaleUomFormState = {
+  uom: string;
+  conversionQty: string;
+  sellPrice: string;
+  mrp: string;
+};
+
 const initialForm: ItemFormState = {
   code: "",
   name: "",
@@ -31,6 +38,13 @@ const initialForm: ItemFormState = {
   imageFile: null,
 };
 
+const emptySaleUom = (): SaleUomFormState => ({
+  uom: "",
+  conversionQty: "1",
+  sellPrice: "0",
+  mrp: "0",
+});
+
 function money(value: number | string) {
   const num = Number(value) || 0;
   return new Intl.NumberFormat("en-IN", {
@@ -39,11 +53,38 @@ function money(value: number | string) {
   }).format(num);
 }
 
+function normalizeSaleUomRows(rows: SaleUomFormState[], baseUom: string) {
+  const seen = new Set([baseUom.trim().toLowerCase()]);
+  return rows
+    .map((row) => ({
+      uom: row.uom.trim(),
+      conversionQty: Number(row.conversionQty),
+      sellPrice: Number(row.sellPrice),
+      mrp: Number(row.mrp),
+    }))
+    .filter((row) => {
+      const key = row.uom.toLowerCase();
+      if (!row.uom || seen.has(key)) return false;
+      seen.add(key);
+      return row.conversionQty > 0 && row.sellPrice >= 0 && row.mrp >= 0;
+    });
+}
+
+function apiErrorMessage(body: unknown, fallback: string) {
+  if (body && typeof body === "object" && "message" in body) {
+    const message = (body as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+    if (Array.isArray(message) && message.length) return message.join(", ");
+  }
+  return fallback;
+}
+
 export function ItemsPage() {
   requireSession();
   const queryClient = useQueryClient();
   const normalizedApiBaseUrl = API_BASE_URL.replace(/\/$/, "");
   const [form, setForm] = useState(initialForm);
+  const [saleUomRows, setSaleUomRows] = useState<SaleUomFormState[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [panelMode, setPanelMode] = useState<"view" | "create" | "edit">(
     "view",
@@ -76,6 +117,7 @@ export function ItemsPage() {
         item.code,
         item.category ?? "",
         item.uom,
+        ...(item.saleUoms ?? []).map((variant) => variant.uom),
       ]
         .join(" ")
         .toLowerCase();
@@ -140,18 +182,22 @@ export function ItemsPage() {
           costPrice: Number(form.costPrice),
           sellPrice: Number(form.sellPrice),
           mrp: Number(form.mrp),
+          saleUoms: normalizeSaleUomRows(saleUomRows, form.uom),
           taxMode: form.taxMode,
           taxRate: Number(form.taxRate),
           imageUrl,
         } as Parameters<typeof api.items.create>[0]["body"],
         extraHeaders: authHeaders(),
       });
-      if (res.status !== 201) throw new Error("Failed to create item");
+      if (res.status !== 201) {
+        throw new Error(apiErrorMessage(res.body, "Failed to create item"));
+      }
       return res.body;
     },
     onSuccess: (createdItem) => {
       queryClient.invalidateQueries({ queryKey: ["items-module"] });
       setForm(initialForm);
+      setSaleUomRows([]);
       setPanelMode("view");
       setSelectedItemId(createdItem.id);
     },
@@ -177,13 +223,16 @@ export function ItemsPage() {
           costPrice: Number(form.costPrice),
           sellPrice: Number(form.sellPrice),
           mrp: Number(form.mrp),
+          saleUoms: normalizeSaleUomRows(saleUomRows, form.uom),
           taxMode: form.taxMode,
           taxRate: Number(form.taxRate),
           imageUrl,
         } as Parameters<typeof api.items.update>[0]["body"],
         extraHeaders: authHeaders(),
       });
-      if (res.status !== 200) throw new Error("Failed to update item");
+      if (res.status !== 200) {
+        throw new Error(apiErrorMessage(res.body, "Failed to update item"));
+      }
       return res.body;
     },
     onSuccess: (updatedItem) => {
@@ -191,6 +240,7 @@ export function ItemsPage() {
       setPanelMode("view");
       setRemoveImageOnEdit(false);
       setForm(initialForm);
+      setSaleUomRows([]);
       setSelectedItemId(updatedItem.id);
     },
   });
@@ -203,7 +253,7 @@ export function ItemsPage() {
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) {
-        throw new Error("Failed to delete item");
+        throw new Error(apiErrorMessage(res.body, "Failed to delete item"));
       }
       return res.body;
     },
@@ -217,6 +267,139 @@ export function ItemsPage() {
   const hasMutationError =
     createItem.isError || updateItem.isError || deleteItem.isError;
 
+  const resetMutationErrors = () => {
+    createItem.reset();
+    updateItem.reset();
+    deleteItem.reset();
+  };
+
+  const mutationErrorMessage =
+    createItem.error instanceof Error
+      ? createItem.error.message
+      : updateItem.error instanceof Error
+        ? updateItem.error.message
+        : deleteItem.error instanceof Error
+          ? deleteItem.error.message
+          : "Action failed.";
+
+  const renderSaleUomEditor = () => (
+    <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
+            Alternate Sale UOM
+          </p>
+          <p className="text-xs text-slate-500">
+            Example: BOX converts to 10 {form.uom || "base units"} with its own price.
+          </p>
+        </div>
+        <button
+          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700"
+          type="button"
+          onClick={() => {
+            resetMutationErrors();
+            setSaleUomRows((rows) => [...rows, emptySaleUom()]);
+          }}
+        >
+          Add UOM
+        </button>
+      </div>
+
+      {saleUomRows.length === 0 ? (
+        <p className="text-sm text-slate-500">No alternate sale UOMs.</p>
+      ) : (
+        <div className="space-y-2">
+          {saleUomRows.map((row, index) => (
+            <div
+              key={index}
+              className="grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-2 md:grid-cols-[1fr_1fr_1fr_1fr_auto]"
+            >
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-slate-500">UOM</span>
+                <input
+                  className="rounded-md border border-slate-300 px-2 py-1.5"
+                  placeholder="BOX"
+                  value={row.uom}
+                  onChange={(e) =>
+                    setSaleUomRows((rows) =>
+                      rows.map((item, rowIndex) =>
+                        rowIndex === index ? { ...item, uom: e.target.value } : item,
+                      ),
+                    )
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-slate-500">Base Qty</span>
+                <input
+                  className="rounded-md border border-slate-300 px-2 py-1.5"
+                  type="number"
+                  min="0.001"
+                  step="0.001"
+                  value={row.conversionQty}
+                  onChange={(e) =>
+                    setSaleUomRows((rows) =>
+                      rows.map((item, rowIndex) =>
+                        rowIndex === index
+                          ? { ...item, conversionQty: e.target.value }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-slate-500">Sell Price</span>
+                <input
+                  className="rounded-md border border-slate-300 px-2 py-1.5"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={row.sellPrice}
+                  onChange={(e) =>
+                    setSaleUomRows((rows) =>
+                      rows.map((item, rowIndex) =>
+                        rowIndex === index
+                          ? { ...item, sellPrice: e.target.value }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-slate-500">MRP</span>
+                <input
+                  className="rounded-md border border-slate-300 px-2 py-1.5"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={row.mrp}
+                  onChange={(e) =>
+                    setSaleUomRows((rows) =>
+                      rows.map((item, rowIndex) =>
+                        rowIndex === index ? { ...item, mrp: e.target.value } : item,
+                      ),
+                    )
+                  }
+                />
+              </label>
+              <button
+                className="self-end rounded-md border border-rose-200 px-2 py-1.5 text-xs text-rose-700"
+                type="button"
+                onClick={() =>
+                  setSaleUomRows((rows) => rows.filter((_, rowIndex) => rowIndex !== index))
+                }
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[390px_1fr]">
       <aside className="flex flex-col border-r border-slate-200 bg-white p-3">
@@ -228,7 +411,9 @@ export function ItemsPage() {
             className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white"
             type="button"
             onClick={() => {
+              resetMutationErrors();
               setForm(initialForm);
+              setSaleUomRows([]);
               setPanelMode("create");
               setRemoveImageOnEdit(false);
             }}
@@ -261,6 +446,7 @@ export function ItemsPage() {
                 key={item.id}
                 type="button"
                 onClick={() => {
+                  resetMutationErrors();
                   setSelectedItemId(item.id);
                   setPanelMode("view");
                   setRemoveImageOnEdit(false);
@@ -284,6 +470,11 @@ export function ItemsPage() {
                 <p className="text-xs text-slate-500">
                   MRP: Rs {money((item as { mrp?: number }).mrp ?? item.sellPrice)}
                 </p>
+                {!!item.saleUoms?.length && (
+                  <p className="text-xs text-slate-500">
+                    UOMs: {item.saleUoms.map((variant) => variant.uom).join(", ")}
+                  </p>
+                )}
               </button>
             );
           })}
@@ -311,7 +502,11 @@ export function ItemsPage() {
               <button
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 type="button"
-                onClick={() => setPanelMode("view")}
+                onClick={() => {
+                  resetMutationErrors();
+                  setSaleUomRows([]);
+                  setPanelMode("view");
+                }}
               >
                 Cancel
               </button>
@@ -320,6 +515,7 @@ export function ItemsPage() {
               className="grid grid-cols-1 gap-2 md:grid-cols-2"
               onSubmit={(e) => {
                 e.preventDefault();
+                resetMutationErrors();
                 createItem.mutate();
               }}
             >
@@ -459,6 +655,7 @@ export function ItemsPage() {
                   }
                 />
               </label>
+              {renderSaleUomEditor()}
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
                   Tax Mode
@@ -510,9 +707,11 @@ export function ItemsPage() {
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 type="button"
                 onClick={() => {
+                  resetMutationErrors();
                   setPanelMode("view");
                   setRemoveImageOnEdit(false);
                   setForm(initialForm);
+                  setSaleUomRows([]);
                 }}
               >
                 Cancel
@@ -522,6 +721,7 @@ export function ItemsPage() {
               className="grid grid-cols-1 gap-2 md:grid-cols-2"
               onSubmit={(e) => {
                 e.preventDefault();
+                resetMutationErrors();
                 updateItem.mutate();
               }}
             >
@@ -718,6 +918,7 @@ export function ItemsPage() {
                   }
                 />
               </label>
+              {renderSaleUomEditor()}
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
                   Tax Mode
@@ -770,6 +971,7 @@ export function ItemsPage() {
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   type="button"
                   onClick={() => {
+                    resetMutationErrors();
                     setForm({
                       code: selectedItem.code,
                       name: selectedItem.name,
@@ -786,6 +988,16 @@ export function ItemsPage() {
                       taxRate: String(selectedItem.taxRate),
                       imageFile: null,
                     });
+                    setSaleUomRows(
+                      (selectedItem.saleUoms ?? [])
+                        .filter((variant) => !variant.isDefault)
+                        .map((variant) => ({
+                          uom: variant.uom,
+                          conversionQty: String(variant.conversionQty),
+                          sellPrice: String(variant.sellPrice),
+                          mrp: String(variant.mrp),
+                        })),
+                    );
                     setRemoveImageOnEdit(false);
                     setPanelMode("edit");
                   }}
@@ -796,6 +1008,7 @@ export function ItemsPage() {
                   className="rounded-lg border border-rose-300 px-3 py-2 text-sm text-rose-700"
                   type="button"
                   onClick={() => {
+                    resetMutationErrors();
                     if (
                       !window.confirm(
                         "Delete this item? This only works if the item has no sales.",
@@ -886,6 +1099,48 @@ export function ItemsPage() {
                   </dd>
                 </div>
               </dl>
+              <div className="md:col-span-2 rounded-lg border border-slate-200">
+                <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                    Sale UOM Pricing
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">UOM</th>
+                        <th className="px-3 py-2">Base Qty</th>
+                        <th className="px-3 py-2">Sell Price</th>
+                        <th className="px-3 py-2">MRP</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedItem.saleUoms ?? []).map((variant) => (
+                        <tr key={variant.id} className="border-t border-slate-100">
+                          <td className="px-3 py-2 font-medium text-slate-900">
+                            {variant.uom}
+                            {variant.isDefault ? (
+                              <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs font-normal text-slate-600">
+                                Default
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700">
+                            {variant.conversionQty} {selectedItem.uom}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700">
+                            Rs {money(variant.sellPrice)}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700">
+                            Rs {money(variant.mrp)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </>
         ) : (
@@ -896,7 +1151,7 @@ export function ItemsPage() {
 
         {hasMutationError && (
           <p className="mt-3 text-sm text-rose-600">
-            Action failed. Delete is blocked when the item has sales history.
+            {mutationErrorMessage}
           </p>
         )}
       </div>
