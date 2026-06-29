@@ -39,6 +39,19 @@ type PostPaymentSummary = {
   lines: CartLine[];
 };
 
+type LocalSaleDraft = {
+  id: string;
+  savedAt: string;
+  customerId: string;
+  customerName: string;
+  customerPhone?: string | null;
+  cart: CartLine[];
+  orderDiscountMode: "AMOUNT" | "PERCENT";
+  orderDiscountValue: string;
+  total: number;
+  totalItems: number;
+};
+
 export function PosPage() {
   const session = requireOperationalSession();
   const queryClient = useQueryClient();
@@ -82,6 +95,39 @@ export function PosPage() {
   const printableGrandTotal = postPayment?.grandTotal ?? 0;
   const printableOrderDiscount = postPayment?.orderDiscountAmount ?? 0;
   const [receiptContact, setReceiptContact] = useState("");
+  const draftStorageKey = useMemo(
+    () => `pos_sale_drafts:${session.branchId}:${session.userId}`,
+    [session.branchId, session.userId],
+  );
+  const [localDrafts, setLocalDrafts] = useState<LocalSaleDraft[]>([]);
+  const [isOrderOpen, setIsOrderOpen] = useState(false);
+
+  useEffect(() => {
+    const raw = localStorage.getItem(draftStorageKey);
+    if (!raw) {
+      setLocalDrafts([]);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        setLocalDrafts([]);
+        return;
+      }
+      setLocalDrafts(
+        parsed.filter((draft): draft is LocalSaleDraft => {
+          return (
+            !!draft &&
+            typeof draft.id === "string" &&
+            typeof draft.savedAt === "string" &&
+            Array.isArray(draft.cart)
+          );
+        }),
+      );
+    } catch {
+      setLocalDrafts([]);
+    }
+  }, [draftStorageKey]);
 
   const branchSettings = useQuery({
     queryKey: ["branch-settings", session.branchId],
@@ -749,6 +795,7 @@ export function PosPage() {
     leastCount?: number | string;
     imageUrl?: string | null;
   }) => {
+    setIsOrderOpen(true);
     const rate = Number(item.sellPrice) || 0;
     const taxRate = Number(item.taxRate) || 0;
     const taxMode = item.taxMode ?? "EXCLUSIVE";
@@ -891,11 +938,13 @@ export function PosPage() {
     setPaymentModalOpen(true);
   };
 
-  const startNewOrder = () => {
+  const resetCurrentOrder = () => {
     setPostPayment(null);
     setMessage("");
     setReceiptContact("");
+    setCustomerId("");
     setCart([]);
+    closeLineEditor();
     setOrderDiscountValue("0");
     setOrderDiscountMode("AMOUNT");
     setOrderDiscountModalOpen(false);
@@ -903,6 +952,105 @@ export function PosPage() {
     setPaymentLines([]);
     setPaymentModalError("");
     setPaymentModalOpen(false);
+  };
+
+  const startNewOrder = () => {
+    resetCurrentOrder();
+    setIsOrderOpen(true);
+  };
+
+  const persistLocalDrafts = (drafts: LocalSaleDraft[]) => {
+    localStorage.setItem(draftStorageKey, JSON.stringify(drafts));
+    setLocalDrafts(drafts);
+  };
+
+  const buildLocalDraft = () => {
+    const now = new Date().toISOString();
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      savedAt: now,
+      customerId,
+      customerName: selectedCustomer?.name ?? "Walk In",
+      customerPhone: selectedCustomer?.phone ?? null,
+      cart: cart.map((line) => ({ ...line })),
+      orderDiscountMode,
+      orderDiscountValue,
+      total,
+      totalItems,
+    };
+  };
+
+  const saveCurrentCartAsLocalDraft = () => {
+    const draft = buildLocalDraft();
+    const nextDrafts = [draft, ...localDrafts].slice(0, 20);
+    persistLocalDrafts(nextDrafts);
+    resetCurrentOrder();
+    setIsOrderOpen(false);
+    return draft;
+  };
+
+  const backToOrders = () => {
+    if (cart.length === 0) {
+      resetCurrentOrder();
+      setIsOrderOpen(false);
+      return;
+    }
+    try {
+      const draft = saveCurrentCartAsLocalDraft();
+      setMessage(`Local draft saved: ${draft.customerName}, ₹ ${money(draft.total)}`);
+    } catch {
+      setMessage("Could not save draft locally. The current cart was kept.");
+    }
+  };
+
+  const restoreLocalDraft = (draft: LocalSaleDraft) => {
+    if (
+      cart.length > 0 &&
+      !window.confirm("Replace the current cart with this saved draft?")
+    ) {
+      return;
+    }
+    const nextDrafts = localDrafts.filter((item) => item.id !== draft.id);
+    try {
+      persistLocalDrafts(nextDrafts);
+    } catch {
+      setLocalDrafts(nextDrafts);
+    }
+    setPostPayment(null);
+    setMessage(`Draft restored: ${draft.customerName}`);
+    setIsOrderOpen(true);
+    setReceiptContact("");
+    setCustomerId(draft.customerId);
+    setCart(draft.cart.map((line) => ({ ...line })));
+    closeLineEditor();
+    setOrderDiscountValue(draft.orderDiscountValue);
+    setOrderDiscountMode(draft.orderDiscountMode);
+    setOrderDiscountModalOpen(false);
+    setPaymentAmount("0");
+    setPaymentLines([]);
+    setPaymentModalError("");
+    setPaymentModalOpen(false);
+  };
+
+  const deleteLocalDraft = (draftId: string) => {
+    const nextDrafts = localDrafts.filter((draft) => draft.id !== draftId);
+    try {
+      persistLocalDrafts(nextDrafts);
+      setMessage("Local draft deleted.");
+    } catch {
+      setMessage("Could not delete local draft.");
+    }
+  };
+
+  const formatDraftSavedAt = (savedAt: string) => {
+    const date = new Date(savedAt);
+    if (Number.isNaN(date.getTime())) return "Saved locally";
+    return date.toLocaleString(undefined, {
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   const paymentKeypadPress = (key: string) => {
@@ -1050,22 +1198,6 @@ export function PosPage() {
 
     return createRes.body;
   };
-
-  const saveDraft = useMutation({
-    mutationFn: async () => createInvoice(),
-    onSuccess: (invoice) => {
-      setCart([]);
-      setOrderDiscountValue("0");
-      setOrderDiscountMode("AMOUNT");
-      setOrderDiscountModalOpen(false);
-      setMessage(
-        `Draft saved: ${invoice.invoiceNo}. Open Sales module to settle later.`,
-      );
-      queryClient.invalidateQueries({
-        queryKey: ["sales-module", session.branchId],
-      });
-    },
-  });
 
   const checkout = useMutation({
     mutationFn: async (payload: {
@@ -1276,6 +1408,74 @@ export function PosPage() {
               New Order
             </button>
           </>
+        ) : !isOrderOpen ? (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="border-b border-slate-200 p-3">
+              <button
+                className="w-full rounded bg-fuchsia-900 px-3 py-5 text-4xl font-semibold text-white"
+                onClick={startNewOrder}
+              >
+                New Order
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-lg font-semibold text-slate-900">
+                  Ongoing Draft Bills
+                </p>
+                <p className="text-sm text-slate-500">
+                  {localDrafts.length} saved
+                </p>
+              </div>
+
+              {localDrafts.length === 0 ? (
+                <div className="rounded border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                  No local drafts yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1">
+                  {localDrafts.map((draft) => (
+                    <div
+                      key={draft.id}
+                      className="rounded border border-amber-200 bg-amber-50 p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-base font-semibold text-slate-900">
+                          {draft.customerName}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          {formatDraftSavedAt(draft.savedAt)}
+                        </p>
+                        <div className="mt-2 flex items-center justify-between text-sm">
+                          <span className="text-slate-600">
+                            {formatQty(draft.totalItems, 1)} items
+                          </span>
+                          <span className="font-semibold text-slate-900">
+                            ₹ {money(draft.total)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                          className="rounded bg-emerald-600 px-2 py-2 text-sm font-semibold text-white"
+                          onClick={() => restoreLocalDraft(draft)}
+                        >
+                          Resume
+                        </button>
+                        <button
+                          className="rounded bg-rose-100 px-2 py-2 text-sm font-semibold text-rose-700"
+                          onClick={() => deleteLocalDraft(draft.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         ) : (
           <>
             <div className="flex-1 overflow-y-scroll border-b border-slate-200">
@@ -1461,20 +1661,22 @@ export function PosPage() {
                 <button
                   className="mt-2 w-full rounded bg-emerald-600 px-2 py-2 text-xl font-bold text-white disabled:bg-emerald-300"
                   onClick={openPayment}
-                  disabled={checkout.isPending || saveDraft.isPending}
+                  disabled={checkout.isPending}
                 >
                   Payment
+                </button>
+                <button
+                  className="mt-2 w-full rounded bg-slate-200 px-2 py-2 text-lg font-bold text-slate-800 disabled:bg-slate-100 disabled:text-slate-400"
+                  onClick={backToOrders}
+                  disabled={checkout.isPending}
+                >
+                  Back to Orders
                 </button>
               </div>
             </div>
           </>
         )}
 
-        {saveDraft.error ? (
-          <p className="px-3 pb-1 text-sm text-red-700">
-            {(saveDraft.error as Error).message}
-          </p>
-        ) : null}
         {checkout.error ? (
           <p className="px-3 pb-1 text-sm text-red-700">
             {(checkout.error as Error).message}
