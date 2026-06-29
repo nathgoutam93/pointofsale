@@ -8,8 +8,10 @@ type ItemFormState = {
   name: string;
   category: string;
   uom: string;
+  leastCount: string;
   costPrice: string;
   sellPrice: string;
+  mrp: string;
   taxMode: "INCLUSIVE" | "EXCLUSIVE";
   taxRate: string;
   imageFile: File | null;
@@ -20,8 +22,10 @@ const initialForm: ItemFormState = {
   name: "",
   category: "",
   uom: "PCS",
+  leastCount: "1",
   costPrice: "0",
   sellPrice: "0",
+  mrp: "0",
   taxMode: "EXCLUSIVE",
   taxRate: "0",
   imageFile: null,
@@ -46,6 +50,7 @@ export function ItemsPage() {
   );
   const [removeImageOnEdit, setRemoveImageOnEdit] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
   const items = useQuery({
     queryKey: ["items-module"],
@@ -92,6 +97,17 @@ export function ItemsPage() {
     }
   }, [filteredItems, selectedItemId]);
 
+  useEffect(() => {
+    if (!form.imageFile) {
+      setImagePreviewUrl(null);
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(form.imageFile);
+    setImagePreviewUrl(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [form.imageFile]);
+
   const uploadImage = async (file: File) => {
     const body = new FormData();
     body.append("file", file);
@@ -120,12 +136,14 @@ export function ItemsPage() {
           name: form.name,
           category: form.category || undefined,
           uom: form.uom,
+          leastCount: Number(form.leastCount),
           costPrice: Number(form.costPrice),
           sellPrice: Number(form.sellPrice),
+          mrp: Number(form.mrp),
           taxMode: form.taxMode,
           taxRate: Number(form.taxRate),
           imageUrl,
-        },
+        } as Parameters<typeof api.items.create>[0]["body"],
         extraHeaders: authHeaders(),
       });
       if (res.status !== 201) throw new Error("Failed to create item");
@@ -155,12 +173,14 @@ export function ItemsPage() {
           name: form.name,
           category: form.category || null,
           uom: form.uom,
+          leastCount: Number(form.leastCount),
           costPrice: Number(form.costPrice),
           sellPrice: Number(form.sellPrice),
+          mrp: Number(form.mrp),
           taxMode: form.taxMode,
           taxRate: Number(form.taxRate),
           imageUrl,
-        },
+        } as Parameters<typeof api.items.update>[0]["body"],
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to update item");
@@ -261,6 +281,9 @@ export function ItemsPage() {
                 <p className="text-sm text-slate-700">
                   Sell: Rs {money(item.sellPrice)}
                 </p>
+                <p className="text-xs text-slate-500">
+                  MRP: Rs {money((item as { mrp?: number }).mrp ?? item.sellPrice)}
+                </p>
               </button>
             );
           })}
@@ -300,102 +323,175 @@ export function ItemsPage() {
                 createItem.mutate();
               }}
             >
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2 md:col-span-2"
-                type="file"
-                accept="image/*"
-                onChange={(e) =>
-                  setForm((s) => ({
-                    ...s,
-                    imageFile: e.target.files?.[0] ?? null,
-                  }))
-                }
-              />
+              <label className="flex flex-col gap-1 md:col-span-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Item Image
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) =>
+                    setForm((s) => ({
+                      ...s,
+                      imageFile: e.target.files?.[0] ?? null,
+                    }))
+                  }
+                />
+              </label>
               {form.imageFile && (
                 <p className="text-xs text-slate-600 md:col-span-2">
                   Selected image: {form.imageFile.name}
                 </p>
               )}
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="Code"
-                value={form.code}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, code: e.target.value }))
-                }
-                required
-              />
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="Name"
-                value={form.name}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, name: e.target.value }))
-                }
-                required
-              />
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="Category"
-                value={form.category}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, category: e.target.value }))
-                }
-              />
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="UOM"
-                value={form.uom}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, uom: e.target.value }))
-                }
-              />
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="Cost"
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.costPrice}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, costPrice: e.target.value }))
-                }
-              />
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="Sell Price"
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.sellPrice}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, sellPrice: e.target.value }))
-                }
-              />
-              <select
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                value={form.taxMode}
-                onChange={(e) =>
-                  setForm((s) => ({
-                    ...s,
-                    taxMode: e.target.value as "INCLUSIVE" | "EXCLUSIVE",
-                  }))
-                }
-              >
-                <option value="EXCLUSIVE">Tax Exclusive</option>
-                <option value="INCLUSIVE">Tax Inclusive</option>
-              </select>
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="Tax %"
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.taxRate}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, taxRate: e.target.value }))
-                }
-              />
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Code
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder="e.g. SKU-1001"
+                  value={form.code}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, code: e.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Name
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder="e.g. Classic T-Shirt"
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, name: e.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Category
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder="Optional"
+                  value={form.category}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, category: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  UOM
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder="PCS"
+                  value={form.uom}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, uom: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Least Count
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  type="number"
+                  min="0.001"
+                  step="0.001"
+                  value={form.leastCount}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, leastCount: e.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Cost Price
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.costPrice}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, costPrice: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Sell Price
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.sellPrice}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, sellPrice: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  MRP
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.mrp}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, mrp: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Tax Mode
+                </span>
+                <select
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  value={form.taxMode}
+                  onChange={(e) =>
+                    setForm((s) => ({
+                      ...s,
+                      taxMode: e.target.value as "INCLUSIVE" | "EXCLUSIVE",
+                    }))
+                  }
+                >
+                  <option value="EXCLUSIVE">Tax Exclusive</option>
+                  <option value="INCLUSIVE">Tax Inclusive</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Tax %
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.taxRate}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, taxRate: e.target.value }))
+                  }
+                />
+              </label>
 
               <button
                 className="rounded-lg bg-teal-700 px-3 py-2 font-semibold text-white md:col-span-2"
@@ -429,101 +525,232 @@ export function ItemsPage() {
                 updateItem.mutate();
               }}
             >
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2 md:col-span-2"
-                type="file"
-                accept="image/*"
-                onChange={(e) =>
-                  setForm((s) => ({
-                    ...s,
-                    imageFile: e.target.files?.[0] ?? null,
-                  }))
-                }
-              />
-              <label className="flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
+              <div className="md:col-span-2">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Item Image
+                </p>
+                <div className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[180px_minmax(0,1fr)]">
+                  <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+                    {removeImageOnEdit ? (
+                      <div className="flex h-36 items-center justify-center text-xs text-slate-500">
+                        Image will be removed
+                      </div>
+                    ) : imagePreviewUrl ? (
+                      <img
+                        src={imagePreviewUrl}
+                        alt="New item upload preview"
+                        className="h-36 w-full object-scale-down"
+                      />
+                    ) : selectedItem.imageUrl ? (
+                      <img
+                        src={selectedItem.imageUrl}
+                        alt={selectedItem.name}
+                        className="h-36 w-full object-scale-down"
+                      />
+                    ) : (
+                      <div className="flex h-36 items-center justify-center text-xs text-slate-500">
+                        No image
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-slate-600">
+                        Replace image
+                      </span>
+                      <input
+                        className="rounded-lg border border-slate-300 px-3 py-2"
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) =>
+                          setForm((s) => {
+                            const nextFile = e.target.files?.[0] ?? null;
+                            if (nextFile) setRemoveImageOnEdit(false);
+                            return {
+                              ...s,
+                              imageFile: nextFile,
+                            };
+                          })
+                        }
+                      />
+                    </label>
+                    {form.imageFile && (
+                      <p className="text-xs text-slate-600">
+                        New image: {form.imageFile.name}
+                      </p>
+                    )}
+                    {form.imageFile && (
+                      <button
+                        className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700"
+                        type="button"
+                        onClick={() =>
+                          setForm((s) => ({
+                            ...s,
+                            imageFile: null,
+                          }))
+                        }
+                      >
+                        Clear selected image
+                      </button>
+                    )}
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={removeImageOnEdit}
+                        onChange={(e) => {
+                          const shouldRemove = e.target.checked;
+                          setRemoveImageOnEdit(shouldRemove);
+                          if (shouldRemove) {
+                            setForm((s) => ({ ...s, imageFile: null }));
+                          }
+                        }}
+                      />
+                      Remove existing image
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Code
+                </span>
                 <input
-                  type="checkbox"
-                  checked={removeImageOnEdit}
-                  onChange={(e) => setRemoveImageOnEdit(e.target.checked)}
+                  className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-slate-600"
+                  value={selectedItem.code}
+                  disabled
                 />
-                Remove existing image
               </label>
-              <input
-                className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-slate-600"
-                value={selectedItem.code}
-                disabled
-              />
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="Name"
-                value={form.name}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, name: e.target.value }))
-                }
-                required
-              />
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="Category"
-                value={form.category}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, category: e.target.value }))
-                }
-              />
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="UOM"
-                value={form.uom}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, uom: e.target.value }))
-                }
-              />
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="Cost"
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.costPrice}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, costPrice: e.target.value }))
-                }
-              />
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="Sell Price"
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.sellPrice}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, sellPrice: e.target.value }))
-                }
-              />
-              <select
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                value={form.taxMode}
-                onChange={(e) =>
-                  setForm((s) => ({
-                    ...s,
-                    taxMode: e.target.value as "INCLUSIVE" | "EXCLUSIVE",
-                  }))
-                }
-              >
-                <option value="EXCLUSIVE">Tax Exclusive</option>
-                <option value="INCLUSIVE">Tax Inclusive</option>
-              </select>
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2"
-                placeholder="Tax %"
-                type="number"
-                step="0.01"
-                min="0"
-                value={form.taxRate}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, taxRate: e.target.value }))
-                }
-              />
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Name
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  value={form.name}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, name: e.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Category
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  value={form.category}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, category: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  UOM
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  value={form.uom}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, uom: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Least Count
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  type="number"
+                  min="0.001"
+                  step="0.001"
+                  value={form.leastCount}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, leastCount: e.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Cost Price
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.costPrice}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, costPrice: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Sell Price
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.sellPrice}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, sellPrice: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  MRP
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.mrp}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, mrp: e.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Tax Mode
+                </span>
+                <select
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  value={form.taxMode}
+                  onChange={(e) =>
+                    setForm((s) => ({
+                      ...s,
+                      taxMode: e.target.value as "INCLUSIVE" | "EXCLUSIVE",
+                    }))
+                  }
+                >
+                  <option value="EXCLUSIVE">Tax Exclusive</option>
+                  <option value="INCLUSIVE">Tax Inclusive</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  Tax %
+                </span>
+                <input
+                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.taxRate}
+                  onChange={(e) =>
+                    setForm((s) => ({ ...s, taxRate: e.target.value }))
+                  }
+                />
+              </label>
 
               <button
                 className="rounded-lg bg-teal-700 px-3 py-2 font-semibold text-white md:col-span-2"
@@ -548,8 +775,13 @@ export function ItemsPage() {
                       name: selectedItem.name,
                       category: selectedItem.category || "",
                       uom: selectedItem.uom,
+                      leastCount: String(selectedItem.leastCount ?? 1),
                       costPrice: String(selectedItem.costPrice),
                       sellPrice: String(selectedItem.sellPrice),
+                      mrp: String(
+                        (selectedItem as { mrp?: number }).mrp ??
+                          selectedItem.sellPrice,
+                      ),
                       taxMode: selectedItem.taxMode,
                       taxRate: String(selectedItem.taxRate),
                       imageFile: null,
@@ -618,6 +850,12 @@ export function ItemsPage() {
                   </dd>
                 </div>
                 <div>
+                  <dt className="text-slate-500">Least Count</dt>
+                  <dd className="font-medium text-slate-900">
+                    {selectedItem.leastCount}
+                  </dd>
+                </div>
+                <div>
                   <dt className="text-slate-500">Cost</dt>
                   <dd className="font-medium text-slate-900">
                     Rs {money(selectedItem.costPrice)}
@@ -627,6 +865,12 @@ export function ItemsPage() {
                   <dt className="text-slate-500">Sell Price</dt>
                   <dd className="font-medium text-slate-900">
                     Rs {money(selectedItem.sellPrice)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">MRP</dt>
+                  <dd className="font-medium text-slate-900">
+                    Rs {money((selectedItem as { mrp?: number }).mrp ?? selectedItem.sellPrice)}
                   </dd>
                 </div>
                 <div>

@@ -181,8 +181,10 @@ model Item {
   name        String
   category    String?
   uom         String
+  leastCount  Decimal         @default(1) @db.Decimal(14, 3)
   costPrice   Decimal         @default(0) @db.Decimal(14, 2)
   sellPrice   Decimal         @db.Decimal(14, 2)
+  mrp         Decimal         @default(0) @db.Decimal(14, 2)
   taxMode     TaxMode         @default(EXCLUSIVE)
   taxRate     Decimal         @db.Decimal(5, 2)
   imageUrl    String?

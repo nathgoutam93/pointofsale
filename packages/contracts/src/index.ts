@@ -100,8 +100,10 @@ export const itemSchema = z.object({
   name: z.string(),
   category: z.string().nullable(),
   uom: z.string(),
+  leastCount: z.number().positive(),
   costPrice: moneySchema,
   sellPrice: moneySchema,
+  mrp: moneySchema,
   taxMode: taxModeSchema,
   taxRate: z.number().min(0),
   imageUrl: z.string().url().nullable(),
@@ -359,6 +361,12 @@ export const appContract = c.router({
       body: z.object({ branchId: z.string().uuid(), name: z.string(), phone: z.string().optional() }),
       responses: { 201: customerSchema }
     },
+    update: {
+      method: 'PATCH',
+      path: '/customers/:id',
+      body: z.object({ name: z.string().optional(), phone: z.string().nullable().optional() }),
+      responses: { 200: customerSchema }
+    },
     getWalkIn: {
       method: 'GET',
       path: '/customers/walk-in/:branchId',
@@ -475,8 +483,10 @@ export const appContract = c.router({
         name: z.string(),
         category: z.string().optional(),
         uom: z.string(),
+        leastCount: z.number().positive().optional(),
         costPrice: moneySchema.nonnegative().optional(),
         sellPrice: moneySchema.nonnegative(),
+        mrp: moneySchema.nonnegative().optional(),
         taxMode: taxModeSchema.optional(),
         taxRate: z.number().min(0),
         imageUrl: z.string().url().optional()
@@ -490,8 +500,10 @@ export const appContract = c.router({
         name: z.string().optional(),
         category: z.string().nullable().optional(),
         uom: z.string().optional(),
+        leastCount: z.number().positive().optional(),
         costPrice: moneySchema.nonnegative().optional(),
         sellPrice: moneySchema.nonnegative().optional(),
+        mrp: moneySchema.nonnegative().optional(),
         taxMode: taxModeSchema.optional(),
         taxRate: z.number().min(0).optional(),
         imageUrl: z.string().url().nullable().optional(),

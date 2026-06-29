@@ -13,6 +13,7 @@ type CartLine = {
   itemId: string;
   name: string;
   qty: number;
+  leastCount: number;
   rate: number;
   discountAmount: number;
   itemDiscountAmount?: number;
@@ -46,7 +47,8 @@ export function PosPage() {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
-  const [customerPhoneQuery, setCustomerPhoneQuery] = useState("");
+  const [customerSearchQuery, setCustomerSearchQuery] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [newCustomerName, setNewCustomerName] = useState("");
   const [customerModalError, setCustomerModalError] = useState("");
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -176,6 +178,40 @@ export function PosPage() {
     }
   `;
 
+  function round2(value: number) {
+    return Math.round(value * 100) / 100;
+  }
+
+  function round3(value: number) {
+    return Math.round(value * 1000) / 1000;
+  }
+
+  function normalizeLeastCount(value: number | string | null | undefined) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+    const rounded = round3(parsed);
+    return rounded >= 0.001 ? rounded : 1;
+  }
+
+  function getQtyDecimals(leastCount: number) {
+    const normalized = normalizeLeastCount(leastCount);
+    const asText = normalized.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+    const decimals = asText.includes(".") ? asText.split(".")[1].length : 0;
+    return Math.min(3, Math.max(0, decimals));
+  }
+
+  function formatQty(qty: number, leastCount: number) {
+    const decimals = getQtyDecimals(leastCount);
+    return qty.toFixed(decimals);
+  }
+
+  function formatStockOnHand(qty: number) {
+    return round3(qty).toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+  }
+
+  const taxCalculationMode =
+    businessSettings.data?.taxCalculationMode ?? "AFTER_DISCOUNT";
+
   const printableInvoice = useMemo(() => {
     if (!postPayment) return null;
 
@@ -201,7 +237,7 @@ export function PosPage() {
         name: line.name,
         detailRows: [
           {
-            label: `${line.qty} x ${money(baseUnitRate)}`,
+            label: `${formatQty(line.qty, line.leastCount)} x ${money(baseUnitRate)}`,
             value: money(baseExclusive),
           },
           ...(line.taxRate > 0 || taxAmount > 0
@@ -313,6 +349,18 @@ export function PosPage() {
     },
   });
 
+  const onHand = useQuery({
+    queryKey: ["stock-module", session.branchId],
+    queryFn: async () => {
+      const res = await api.stock.onHand({
+        query: { branchId: session.branchId },
+        extraHeaders: authHeaders(),
+      });
+      if (res.status !== 200) throw new Error("Failed to load stock");
+      return res.body;
+    },
+  });
+
   const customers = useQuery({
     queryKey: ["customers-pos", session.branchId],
     queryFn: async () => {
@@ -338,12 +386,11 @@ export function PosPage() {
     },
   });
 
-  function round2(value: number) {
-    return Math.round(value * 100) / 100;
-  }
-
-  const taxCalculationMode =
-    businessSettings.data?.taxCalculationMode ?? "AFTER_DISCOUNT";
+  const snapQtyToLeastCount = (qty: number, leastCount: number) => {
+    const unit = normalizeLeastCount(leastCount);
+    const steps = Math.round(qty / unit);
+    return round3(Math.max(unit, steps * unit));
+  };
 
   function getBaseExclusive(
     line: Pick<CartLine, "qty" | "rate" | "taxRate" | "taxMode">,
@@ -506,7 +553,7 @@ export function PosPage() {
     let rate = line.rate;
     let discountAmount = line.discountAmount;
     if (field === "QTY") {
-      qty = Math.max(0, input);
+      qty = snapQtyToLeastCount(input, line.leastCount);
     }
     if (field === "PRICE") {
       rate = Math.max(0, input);
@@ -531,7 +578,7 @@ export function PosPage() {
   ) => {
     setEditField(field);
     if (field === "QTY") {
-      setEditValue(String(line.qty));
+      setEditValue(formatQty(line.qty, line.leastCount));
       return;
     }
     if (field === "PRICE") {
@@ -699,11 +746,13 @@ export function PosPage() {
     sellPrice: number | string;
     taxRate: number | string;
     taxMode?: "INCLUSIVE" | "EXCLUSIVE";
+    leastCount?: number | string;
     imageUrl?: string | null;
   }) => {
     const rate = Number(item.sellPrice) || 0;
     const taxRate = Number(item.taxRate) || 0;
     const taxMode = item.taxMode ?? "EXCLUSIVE";
+    const leastCount = normalizeLeastCount(item.leastCount);
     setCart((prev) => {
       const idx = prev.findIndex((l) => l.itemId === item.id);
       if (idx === -1) {
@@ -712,7 +761,8 @@ export function PosPage() {
           {
             itemId: item.id,
             name: item.name,
-            qty: 1,
+            qty: leastCount,
+            leastCount,
             rate,
             discountAmount: 0,
             taxRate,
@@ -722,7 +772,10 @@ export function PosPage() {
         ];
       }
       const next = [...prev];
-      next[idx] = { ...next[idx], qty: next[idx].qty + 1 };
+      next[idx] = {
+        ...next[idx],
+        qty: round3(next[idx].qty + normalizeLeastCount(next[idx].leastCount)),
+      };
       return next;
     });
   };
@@ -763,11 +816,23 @@ export function PosPage() {
     });
   }, [items.data, search, activeCategory]);
 
+  const onHandByItem = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of onHand.data ?? []) {
+      map.set(row.itemId, Number(row.onHand) || 0);
+    }
+    return map;
+  }, [onHand.data]);
+
   const matchingCustomers = useMemo(() => {
-    const q = customerPhoneQuery.trim();
+    const q = customerSearchQuery.trim().toLowerCase();
     if (!q) return [];
-    return (customers.data ?? []).filter((c) => (c.phone ?? "").includes(q));
-  }, [customers.data, customerPhoneQuery]);
+    return (customers.data ?? []).filter((c) => {
+      const name = (c.name ?? "").toLowerCase();
+      const phone = (c.phone ?? "").toLowerCase();
+      return name.includes(q) || phone.includes(q);
+    });
+  }, [customers.data, customerSearchQuery]);
 
   const selectedCustomer = useMemo(() => {
     if (!customerId) return walkIn.data;
@@ -1065,6 +1130,7 @@ export function PosPage() {
             itemId: line.itemId,
             name: line.itemName ?? snapshot?.name ?? `Item ${line.itemId.slice(0, 6)}`,
             qty: Number(line.qty),
+            leastCount: snapshot?.leastCount ?? 1,
             rate: Number(line.rate),
             discountAmount: Number(line.discountAmount ?? 0),
             itemDiscountAmount,
@@ -1096,7 +1162,7 @@ export function PosPage() {
 
   const createCustomerFromModal = useMutation({
     mutationFn: async () => {
-      const phone = customerPhoneQuery.trim();
+      const phone = newCustomerPhone.trim();
       const name = newCustomerName.trim() || `Customer ${phone}`;
       if (!phone) throw new Error("Phone number is required");
 
@@ -1113,7 +1179,8 @@ export function PosPage() {
       });
       setCustomerId(customer.id);
       setCustomerModalOpen(false);
-      setCustomerPhoneQuery("");
+      setCustomerSearchQuery("");
+      setNewCustomerPhone("");
       setNewCustomerName("");
       setCustomerModalError("");
     },
@@ -1221,6 +1288,9 @@ export function PosPage() {
                 const lineNet = computeLineAmounts(line).net;
                 const itemDiscount =
                   line.itemDiscountAmount ?? line.discountAmount;
+                const availableStock = onHandByItem.get(line.itemId);
+                const isLowStock =
+                  availableStock !== undefined && line.qty > availableStock;
                 return (
                   <div
                     className="flex cursor-pointer items-start justify-between border-b border-slate-100 px-3 py-2 hover:bg-slate-50"
@@ -1242,8 +1312,13 @@ export function PosPage() {
                           {line.name}
                         </p>
                         <p className="text-base text-slate-500">
-                          {line.qty.toFixed(3)} x {money(line.rate)} / unit
+                          {formatQty(line.qty, line.leastCount)} x {money(line.rate)} / unit
                         </p>
+                        {isLowStock ? (
+                          <p className="text-sm font-semibold text-red-600">
+                            Stock on hand {formatStockOnHand(availableStock ?? 0)}
+                          </p>
+                        ) : null}
                         {itemDiscount > 0 ? (
                           <p className="text-sm text-amber-700">
                             Item Discount: ₹ {money(itemDiscount)}
@@ -1264,7 +1339,15 @@ export function PosPage() {
                               prev
                                 .map((x) =>
                                   x.itemId === line.itemId
-                                    ? { ...x, qty: Math.max(1, x.qty - 1) }
+                                    ? {
+                                        ...x,
+                                        qty: round3(
+                                          Math.max(
+                                            x.leastCount,
+                                            x.qty - normalizeLeastCount(x.leastCount),
+                                          ),
+                                        ),
+                                      }
                                     : x,
                                 )
                                 .filter((x) => x.qty > 0),
@@ -1280,7 +1363,12 @@ export function PosPage() {
                             setCart((prev) =>
                               prev.map((x) =>
                                 x.itemId === line.itemId
-                                  ? { ...x, qty: x.qty + 1 }
+                                  ? {
+                                      ...x,
+                                      qty: round3(
+                                        x.qty + normalizeLeastCount(x.leastCount),
+                                      ),
+                                    }
                                   : x,
                               ),
                             );
@@ -1761,7 +1849,9 @@ export function PosPage() {
                       Qty
                     </p>
                     <p className="text-2xl font-semibold text-slate-800">
-                      {displayEditLine?.qty.toFixed(3)}
+                      {displayEditLine
+                        ? formatQty(displayEditLine.qty, displayEditLine.leastCount)
+                        : "0"}
                     </p>
                   </button>
                   <button
@@ -1921,23 +2011,28 @@ export function PosPage() {
               <h3 className="text-xl font-semibold text-slate-900">
                 Select or Create Customer
               </h3>
-              <button
-                className="rounded bg-slate-200 px-2 py-1 text-sm text-slate-700"
-                onClick={() => {
-                  setCustomerModalOpen(false);
-                  setCustomerModalError("");
-                }}
-              >
-                Close
-              </button>
-            </div>
+                <button
+                  className="rounded bg-slate-200 px-2 py-1 text-sm text-slate-700"
+                  onClick={() => {
+                    setCustomerModalOpen(false);
+                    setCustomerModalError("");
+                    setCustomerSearchQuery("");
+                    setNewCustomerPhone("");
+                    setNewCustomerName("");
+                  }}
+                >
+                  Close
+                </button>
+              </div>
 
-            <label className="text-sm text-slate-600">Phone Number</label>
+            <label className="text-sm text-slate-600">
+              Search Customer by Name or Phone
+            </label>
             <input
               className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-              value={customerPhoneQuery}
-              onChange={(e) => setCustomerPhoneQuery(e.target.value)}
-              placeholder="Enter phone number"
+              value={customerSearchQuery}
+              onChange={(e) => setCustomerSearchQuery(e.target.value)}
+              placeholder="Enter customer name or phone"
             />
 
             <div className="mt-3 max-h-52 space-y-2 overflow-auto rounded border border-slate-200 p-2">
@@ -1953,7 +2048,8 @@ export function PosPage() {
                   onClick={() => {
                     setCustomerId(c.id);
                     setCustomerModalOpen(false);
-                    setCustomerPhoneQuery("");
+                    setCustomerSearchQuery("");
+                    setNewCustomerPhone("");
                     setNewCustomerName("");
                     setCustomerModalError("");
                   }}
@@ -1966,11 +2062,17 @@ export function PosPage() {
               ))}
             </div>
 
-            {customerPhoneQuery.trim() && matchingCustomers.length === 0 ? (
+            {customerSearchQuery.trim() && matchingCustomers.length === 0 ? (
               <div className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3">
                 <p className="text-sm font-semibold text-emerald-800">
                   Create new customer
                 </p>
+                <input
+                  className="mt-2 w-full rounded border border-slate-300 px-3 py-2"
+                  value={newCustomerPhone}
+                  onChange={(e) => setNewCustomerPhone(e.target.value)}
+                  placeholder="Customer phone number"
+                />
                 <input
                   className="mt-2 w-full rounded border border-slate-300 px-3 py-2"
                   value={newCustomerName}

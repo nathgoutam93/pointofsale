@@ -15,6 +15,20 @@ function formatDateTime(value: string) {
   });
 }
 
+function normalizeLeastCount(value: number | string | null | undefined) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  const rounded = Math.round(parsed * 1000) / 1000;
+  return rounded >= 0.001 ? rounded : 1;
+}
+
+function leastCountStepText(value: number) {
+  return normalizeLeastCount(value)
+    .toFixed(3)
+    .replace(/0+$/, "")
+    .replace(/\.$/, "");
+}
+
 export function StockPage() {
   const session = requireOperationalSession();
   const queryClient = useQueryClient();
@@ -110,6 +124,8 @@ export function StockPage() {
   const selectedOnHand = selectedItem
     ? (onHandByItem.get(selectedItem.id) ?? 0)
     : 0;
+  const selectedLeastCount = normalizeLeastCount(selectedItem?.leastCount ?? 1);
+  const selectedLeastCountStep = leastCountStepText(selectedLeastCount);
 
   const openingHistory = useMemo(
     () => (ledger.data ?? []).filter((entry) => entry.txnType === "OPENING"),
@@ -542,8 +558,8 @@ export function StockPage() {
                     value={openingQty}
                     onChange={(e) => setOpeningQty(e.target.value)}
                     type="number"
-                    min="0.001"
-                    step="0.001"
+                    min={selectedLeastCountStep}
+                    step={selectedLeastCountStep}
                     required
                   />
                 </label>
@@ -615,8 +631,8 @@ export function StockPage() {
                     value={adjustmentQty}
                     onChange={(e) => setAdjustmentQty(e.target.value)}
                     type="number"
-                    min="0.001"
-                    step="0.001"
+                    min={selectedLeastCountStep}
+                    step={selectedLeastCountStep}
                     required
                   />
                 </label>

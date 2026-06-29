@@ -506,6 +506,36 @@ export class PosService {
     return Math.round(value * 100) / 100;
   }
 
+  private round3(value: number) {
+    return Math.round(value * 1000) / 1000;
+  }
+
+  private normalizeLeastCount(value: number) {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new BadRequestException('Least count must be greater than zero');
+    }
+    const normalized = this.round3(value);
+    if (normalized < 0.001) {
+      throw new BadRequestException('Least count cannot be less than 0.001');
+    }
+    return normalized;
+  }
+
+  private assertQtyRespectsLeastCount(qty: number, leastCount: number, context: string) {
+    const normalizedQty = this.round3(qty);
+    if (!Number.isFinite(normalizedQty) || normalizedQty <= 0) {
+      throw new BadRequestException(`${context} qty must be greater than zero`);
+    }
+    const normalizedLeastCount = this.normalizeLeastCount(leastCount);
+    const quotient = normalizedQty / normalizedLeastCount;
+    const nearestInteger = Math.round(quotient);
+    if (Math.abs(quotient - nearestInteger) > 1e-6) {
+      throw new BadRequestException(
+        `${context} qty must be in multiples of ${normalizedLeastCount}`,
+      );
+    }
+  }
+
   private resolveDiscountAmounts(discounts: DiscountInput[] | undefined, base: number): ResolvedDiscount[] {
     const normalizedBase = this.round2(Math.max(0, base));
     if (normalizedBase <= 0 || !discounts || discounts.length === 0) {
@@ -1030,6 +1060,39 @@ export class PosService {
     });
   }
 
+  async updateCustomer(branchId: string, customerId: string, input: { name?: string; phone?: string | null }) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { id: true, branchId: true, isWalkIn: true }
+    });
+    if (!customer || customer.branchId !== branchId) {
+      throw new NotFoundException('Customer not found');
+    }
+    if (customer.isWalkIn) {
+      throw new BadRequestException('Walk-in customer cannot be edited');
+    }
+
+    const updates: { name?: string; phone?: string | null } = {};
+    if (input.name !== undefined) {
+      updates.name = input.name.trim();
+    }
+    if (input.phone !== undefined) {
+      const nextPhone = input.phone?.trim() ?? '';
+      updates.phone = nextPhone.length ? nextPhone : null;
+    }
+    if (Object.keys(updates).length === 0) {
+      throw new BadRequestException('No customer fields provided to update');
+    }
+    if (updates.name !== undefined && updates.name.length === 0) {
+      throw new BadRequestException('Customer name is required');
+    }
+
+    return this.prisma.customer.update({
+      where: { id: customerId },
+      data: updates
+    });
+  }
+
   async getWalkIn(branchId: string) {
     return this.ensureWalkInCustomer(branchId);
   }
@@ -1071,16 +1134,21 @@ export class PosService {
     name: string;
     category?: string;
     uom: string;
+    leastCount?: number;
     costPrice?: number;
     sellPrice: number;
+    mrp?: number;
     taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
     taxRate: number;
     imageUrl?: string;
   }) {
+    const leastCount = this.normalizeLeastCount(input.leastCount ?? 1);
     return this.prisma.item.create({
       data: {
         ...input,
+        leastCount,
         costPrice: input.costPrice ?? 0,
+        mrp: input.mrp ?? input.sellPrice,
         taxMode: input.taxMode ?? 'EXCLUSIVE'
       }
     });
@@ -1092,15 +1160,21 @@ export class PosService {
       name?: string;
       category?: string | null;
       uom?: string;
+      leastCount?: number;
       costPrice?: number;
       sellPrice?: number;
+      mrp?: number;
       taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
       taxRate?: number;
       imageUrl?: string | null;
       isActive?: boolean;
     }
   ) {
-    return this.prisma.item.update({ where: { id }, data: input });
+    const data: typeof input = { ...input };
+    if (data.leastCount !== undefined) {
+      data.leastCount = this.normalizeLeastCount(data.leastCount);
+    }
+    return this.prisma.item.update({ where: { id }, data });
   }
 
   async deleteItem(id: string) {
@@ -1118,6 +1192,12 @@ export class PosService {
   async createStockOpening(branchId: string, itemId: string, qty: number, costPrice?: number, reason?: string) {
     await this.ensureBranchExists(branchId);
     const normalizedItemId = await this.resolveItemId(itemId);
+    const item = await this.prisma.item.findUnique({
+      where: { id: normalizedItemId },
+      select: { leastCount: true }
+    });
+    if (!item) throw new NotFoundException('Item not found');
+    this.assertQtyRespectsLeastCount(qty, this.toNumber(item.leastCount), 'Opening stock');
 
     const existingOpening = await this.prisma.stockLedger.findFirst({
       where: {
@@ -1154,6 +1234,12 @@ export class PosService {
   async updateStockOpening(branchId: string, itemId: string, qty: number, costPrice?: number, reason?: string) {
     await this.ensureBranchExists(branchId);
     const normalizedItemId = await this.resolveItemId(itemId);
+    const item = await this.prisma.item.findUnique({
+      where: { id: normalizedItemId },
+      select: { leastCount: true }
+    });
+    if (!item) throw new NotFoundException('Item not found');
+    this.assertQtyRespectsLeastCount(qty, this.toNumber(item.leastCount), 'Opening stock');
 
     return this.prisma.$transaction(async (tx) => {
       const opening = await tx.stockLedger.findFirst({
@@ -1191,6 +1277,12 @@ export class PosService {
   async createStockAdjustment(branchId: string, itemId: string, qty: number, direction: 'IN' | 'OUT', costPrice: number | undefined, reason: string) {
     await this.ensureBranchExists(branchId);
     const normalizedItemId = await this.resolveItemId(itemId);
+    const item = await this.prisma.item.findUnique({
+      where: { id: normalizedItemId },
+      select: { leastCount: true }
+    });
+    if (!item) throw new NotFoundException('Item not found');
+    this.assertQtyRespectsLeastCount(qty, this.toNumber(item.leastCount), 'Stock adjustment');
 
     if (direction === 'OUT') {
       const onHand = await this.getOnHandForItem(branchId, normalizedItemId);
@@ -1279,11 +1371,12 @@ export class PosService {
         const normalizedItemId = await this.resolveItemId(line.itemId, tx);
         const item = await tx.item.findUnique({
           where: { id: normalizedItemId },
-          select: { name: true }
+          select: { name: true, leastCount: true }
         });
         if (!item) {
           throw new NotFoundException('Item not found');
         }
+        this.assertQtyRespectsLeastCount(line.qty, this.toNumber(item.leastCount), `Sale line ${line.itemId}`);
         const onHand = await this.getOnHandForItem(input.branchId, normalizedItemId, tx);
         if (onHand < line.qty) {
           throw new BadRequestException(`Insufficient stock for item ${line.itemId}`);
@@ -1581,10 +1674,23 @@ export class PosService {
 
       let totalAmount = 0;
       const returnLineCreates: Array<{ saleLineId: string; qty: number; amount: number }> = [];
+      const itemIds = Array.from(new Set(invoice.lines.map((line) => line.itemId)));
+      const itemLeastCounts = new Map<string, number>();
+      if (itemIds.length > 0) {
+        const saleItems = await tx.item.findMany({
+          where: { id: { in: itemIds } },
+          select: { id: true, leastCount: true }
+        });
+        for (const saleItem of saleItems) {
+          itemLeastCounts.set(saleItem.id, this.toNumber(saleItem.leastCount));
+        }
+      }
 
       for (const reqLine of input.lines) {
         const saleLine = invoice.lines.find((l) => l.id === reqLine.saleLineId);
         if (!saleLine) throw new BadRequestException(`Sale line not found: ${reqLine.saleLineId}`);
+        const leastCount = itemLeastCounts.get(saleLine.itemId) ?? 1;
+        this.assertQtyRespectsLeastCount(reqLine.qty, leastCount, `Return line ${saleLine.id}`);
 
         const alreadyReturned = saleLine.returnLines.reduce((acc, rl) => acc + this.toNumber(rl.qty), 0);
         const soldQty = this.toNumber(saleLine.qty);

@@ -4,6 +4,32 @@ import { api, authHeaders } from "../lib/api";
 import { money, requireOperationalSession } from "./route-helpers";
 
 type ReturnRefundMode = "CASH" | "WALLET";
+const round2 = (value: number) => Math.round(value * 100) / 100;
+const round3 = (value: number) => Math.round(value * 1000) / 1000;
+
+const normalizeLeastCount = (value: number | string | null | undefined) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  const rounded = round3(parsed);
+  return rounded >= 0.001 ? rounded : 1;
+};
+
+const leastCountStepText = (leastCount: number) =>
+  normalizeLeastCount(leastCount).toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+
+const formatQty = (qty: number, leastCount: number) => {
+  const normalized = normalizeLeastCount(leastCount);
+  const stepText = leastCountStepText(normalized);
+  const decimals = stepText.includes(".") ? stepText.split(".")[1].length : 0;
+  return qty.toFixed(decimals);
+};
+
+const isMultipleOfLeastCount = (qty: number, leastCount: number) => {
+  const normalizedQty = round3(qty);
+  const normalizedLeastCount = normalizeLeastCount(leastCount);
+  const quotient = normalizedQty / normalizedLeastCount;
+  return Math.abs(quotient - Math.round(quotient)) <= 1e-6;
+};
 
 export function ReturnsPage() {
   const session = requireOperationalSession();
@@ -101,6 +127,14 @@ export function ReturnsPage() {
     return map;
   }, [items.data]);
 
+  const itemLeastCountById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of items.data ?? []) {
+      map.set(item.id, normalizeLeastCount(item.leastCount));
+    }
+    return map;
+  }, [items.data]);
+
   const customerById = useMemo(() => {
     const map = new Map<string, { name: string; isWalkIn: boolean }>();
     for (const customer of customers.data ?? []) {
@@ -144,25 +178,29 @@ export function ReturnsPage() {
       );
       const availableQty = Math.max(0, soldQty - alreadyReturned);
       const netAmount = Number(line.netAmount);
-      const unitRate = soldQty > 0 ? netAmount / soldQty : 0;
+      const unitRate = soldQty > 0 ? round2(netAmount / soldQty) : 0;
       const returnQty = Number(lineQtyMap[line.id] ?? 0);
-      const amount = returnQty > 0 ? returnQty * unitRate : 0;
+      const amount = returnQty > 0 ? round2(returnQty * unitRate) : 0;
+      const leastCount = itemLeastCountById.get(line.itemId) ?? 1;
 
       return {
         lineId: line.id,
+        itemId: line.itemId,
         itemName: itemNameById.get(line.itemId) ?? `Item ${line.itemId.slice(0, 6)}`,
         soldQty,
         alreadyReturned,
         availableQty,
+        leastCount,
+        leastCountStep: leastCountStepText(leastCount),
         rate: Number(line.rate),
         returnQty,
         amount,
       };
     });
-  }, [itemNameById, lineQtyMap, selectedInvoiceDetails.data?.lines]);
+  }, [itemLeastCountById, itemNameById, lineQtyMap, selectedInvoiceDetails.data?.lines]);
 
   const totalReturnAmount = useMemo(
-    () => returnLines.reduce((acc, line) => acc + line.amount, 0),
+    () => returnLines.reduce((acc, line) => round2(acc + line.amount), 0),
     [returnLines],
   );
 
@@ -177,10 +215,13 @@ export function ReturnsPage() {
       if (lines.length === 0) throw new Error("Enter return quantity for at least one line");
 
       const hasInvalidQty = returnLines.some(
-        (line) => line.returnQty < 0 || line.returnQty > line.availableQty,
+        (line) =>
+          line.returnQty < 0 ||
+          line.returnQty > line.availableQty ||
+          (line.returnQty > 0 && !isMultipleOfLeastCount(line.returnQty, line.leastCount)),
       );
       if (hasInvalidQty) {
-        throw new Error("Return qty exceeds available qty after previous returns");
+        throw new Error("Return qty must be valid, within available qty, and match least count");
       }
 
       const res = await api.sales.returns({
@@ -374,16 +415,16 @@ export function ReturnsPage() {
                     {returnLines.map((line) => (
                       <tr key={line.lineId}>
                         <td className="px-2 py-2 text-slate-800">{line.itemName}</td>
-                        <td className="px-2 py-2">{line.soldQty.toFixed(3)}</td>
-                        <td className="px-2 py-2">{line.alreadyReturned.toFixed(3)}</td>
-                        <td className="px-2 py-2 font-semibold">{line.availableQty.toFixed(3)}</td>
+                        <td className="px-2 py-2">{formatQty(line.soldQty, line.leastCount)}</td>
+                        <td className="px-2 py-2">{formatQty(line.alreadyReturned, line.leastCount)}</td>
+                        <td className="px-2 py-2 font-semibold">{formatQty(line.availableQty, line.leastCount)}</td>
                         <td className="px-2 py-2">
                           <input
                             className="w-28 rounded border border-slate-300 px-2 py-1"
                             type="number"
                             min={0}
                             max={line.availableQty}
-                            step="0.001"
+                            step={line.leastCountStep}
                             value={lineQtyMap[line.lineId] ?? ""}
                             onChange={(e) => {
                               setLineQtyMap((prev) => ({ ...prev, [line.lineId]: e.target.value }));

@@ -272,6 +272,19 @@ export class PosController {
     return this.posService.createCustomer(body.branchId, body.name, body.phone);
   }
 
+  @Patch('/customers/:id')
+  updateCustomer(
+    @Param('id') id: string,
+    @Body() body: { name?: string; phone?: string | null },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    const session = this.requireOpenRegisterSession(headers);
+    if (!session.branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
+    return this.posService.updateCustomer(session.branchId, id, body);
+  }
+
   @Get('/customers/walk-in/:branchId')
   getWalkIn(@Param('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
     const session = this.requireOpenRegisterSession(headers);
@@ -388,8 +401,10 @@ export class PosController {
       name: string;
       category?: string;
       uom: string;
+      leastCount?: number;
       costPrice?: number;
       sellPrice: number;
+      mrp?: number;
       taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
       taxRate: number;
       imageUrl?: string;
@@ -408,8 +423,10 @@ export class PosController {
       name?: string;
       category?: string | null;
       uom?: string;
+      leastCount?: number;
       costPrice?: number;
       sellPrice?: number;
+      mrp?: number;
       taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
       taxRate?: number;
       imageUrl?: string | null;
