@@ -22,6 +22,8 @@ type SettledSummary = {
   receiptNo: string;
   receiptAmount: number;
   createdAt: string;
+  status: string;
+  paidTotal: number;
   subTotal: number;
   taxTotal: number;
   grandTotal: number;
@@ -401,7 +403,10 @@ export function SalesPage() {
     () => Math.max(0, pendingAmount - totalPaid),
     [pendingAmount, totalPaid],
   );
-  const paymentMatchesPending = Math.abs(totalPaid - pendingAmount) < 0.005;
+  const paymentCanSubmit =
+    totalPaid > 0 &&
+    totalPaid <= pendingAmount + 0.005 &&
+    Math.abs(pendingAmount) >= 0.005;
   const walletBalance = Number(customerWallet.data?.balance ?? 0);
   const walletLineAmount = useMemo(
     () =>
@@ -548,6 +553,8 @@ export function SalesPage() {
         receiptNo: result.receipt.receiptNo,
         receiptAmount: Number(result.receipt.amount),
         createdAt: result.receipt.createdAt,
+        status: result.invoice.status,
+        paidTotal: Number(result.invoice.paidTotal),
         subTotal: Number(result.invoice.subTotal),
         taxTotal: Number(result.invoice.taxTotal),
         grandTotal: Number(result.invoice.grandTotal),
@@ -583,7 +590,7 @@ export function SalesPage() {
       setSelectedInvoiceId(result.invoice.id);
       setSelectedReceiptId(result.receipt.id);
       setMessage(
-        `Done: ${result.invoice.invoiceNo}, Receipt: ${result.receipt.receiptNo}`,
+        `${result.invoice.status === "SETTLED" ? "Settled" : "Payment recorded"}: ${result.invoice.invoiceNo}, Receipt: ${result.receipt.receiptNo}`,
       );
       queryClient.invalidateQueries({
         queryKey: ["sales-module", session.branchId],
@@ -861,15 +868,22 @@ export function SalesPage() {
                   ✓
                 </div>
                 <p className="text-3xl font-semibold text-emerald-700">
-                  Payment Successful
+                  {settledSummary.status === "SETTLED"
+                    ? "Payment Successful"
+                    : "Payment Recorded"}
                 </p>
                 <p className="mt-1 text-2xl font-bold text-emerald-800">
-                  ₹ {money(settledSummary.grandTotal)}
+                  ₹ {money(settledSummary.receiptAmount)}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-emerald-800">
+                  {settledSummary.status === "SETTLED"
+                    ? "Invoice settled"
+                    : `Remaining ₹ ${money(Math.max(0, settledSummary.grandTotal - settledSummary.paidTotal))}`}
                 </p>
                 <button
                   className="mt-2 rounded bg-emerald-500 px-3 py-1 text-xs font-semibold text-white"
                   onClick={() =>
-                    setMessage("Payment already settled. Pick another invoice.")
+                    setMessage("Payment receipt already recorded.")
                   }
                 >
                   Edit Payment
@@ -902,7 +916,7 @@ export function SalesPage() {
               className="m-3 rounded bg-fuchsia-900 px-3 py-4 text-2xl font-semibold text-white"
               onClick={() => setSettledSummary(null)}
             >
-              Settle Another Invoice
+              Back To Invoices
             </button>
           </>
         ) : (
@@ -1003,6 +1017,9 @@ export function SalesPage() {
                         </p>
                         <p className="text-xs text-slate-500">
                           {invoice.status}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Date: {formatReceiptDate(invoice.createdAt)}
                         </p>
                         <p className="text-xs text-slate-500">
                           By:{" "}
@@ -1314,7 +1331,7 @@ export function SalesPage() {
                   walletOverused ||
                   !currentInvoice ||
                   paymentLines.length === 0 ||
-                  !paymentMatchesPending
+                  !paymentCanSubmit
                 }
               >
                 Validate
@@ -1325,9 +1342,9 @@ export function SalesPage() {
                   Wallet payment exceeds available balance.
                 </p>
               ) : null}
-              {paymentLines.length > 0 && !paymentMatchesPending ? (
+              {paymentLines.length > 0 && totalPaid > pendingAmount + 0.005 ? (
                 <p className="mt-2 text-sm text-rose-700">
-                  Payment total must be exactly ₹ {money(pendingAmount)}.
+                  Payment total cannot exceed ₹ {money(pendingAmount)}.
                   Current: ₹ {money(totalPaid)}.
                 </p>
               ) : null}
