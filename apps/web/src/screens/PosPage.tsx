@@ -27,7 +27,7 @@ type CartLine = {
 
 type PostPaymentSummary = {
   invoiceNo: string;
-  receiptNo: string;
+  receiptNo?: string | null;
   createdAt: string;
   customerName: string;
   customerPhone: string;
@@ -38,6 +38,9 @@ type PostPaymentSummary = {
   paymentLines: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
   lines: CartLine[];
 };
+
+type PaymentMode = "CASH" | "CARD" | "WALLET";
+type PaymentMethod = PaymentMode | "CREDIT";
 
 type LocalSaleDraft = {
   id: string;
@@ -65,12 +68,10 @@ export function PosPage() {
   const [newCustomerName, setNewCustomerName] = useState("");
   const [customerModalError, setCustomerModalError] = useState("");
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<
-    "CASH" | "CARD" | "WALLET"
-  >("CASH");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
   const [paymentAmount, setPaymentAmount] = useState("0");
   const [paymentLines, setPaymentLines] = useState<
-    Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>
+    Array<{ mode: PaymentMode; amount: number }>
   >([]);
   const [paymentModalError, setPaymentModalError] = useState("");
   const [message, setMessage] = useState("");
@@ -264,7 +265,9 @@ export function PosPage() {
     const createdAt = postPayment.createdAt;
     const metadata = [
       { label: "Invoice", value: postPayment.invoiceNo },
-      { label: "Receipt", value: postPayment.receiptNo },
+      ...(postPayment.receiptNo
+        ? [{ label: "Receipt", value: postPayment.receiptNo }]
+        : []),
       { label: "Date", value: formatReceiptDate(createdAt) },
       { label: "Time", value: formatReceiptTime(createdAt) },
       { label: "Cashier", value: session.username ?? "" },
@@ -904,7 +907,7 @@ export function PosPage() {
   });
 
   const availablePaymentMethods = useMemo<
-    Array<{ key: "CASH" | "CARD" | "WALLET"; label: string }>
+    Array<{ key: PaymentMethod; label: string }>
   >(() => {
     if (isWalkInSelected) {
       return [
@@ -916,13 +919,16 @@ export function PosPage() {
       { key: "CASH", label: "Cash" },
       { key: "CARD", label: "Card" },
       { key: "WALLET", label: "Customer Wallet" },
+      { key: "CREDIT", label: "Credit" },
     ];
   }, [isWalkInSelected]);
 
   useEffect(() => {
     if (isWalkInSelected) {
       setPaymentLines((prev) => prev.filter((line) => line.mode !== "WALLET"));
-      if (paymentMethod === "WALLET") setPaymentMethod("CASH");
+      if (paymentMethod === "WALLET" || paymentMethod === "CREDIT") {
+        setPaymentMethod("CASH");
+      }
     }
   }, [isWalkInSelected, paymentMethod]);
 
@@ -1089,6 +1095,7 @@ export function PosPage() {
   };
 
   const applyPaymentLine = () => {
+    if (paymentMethod === "CREDIT") return;
     const amount = Number(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) return;
     if (paymentMethod === "WALLET") {
@@ -1125,7 +1132,7 @@ export function PosPage() {
     });
   };
 
-  const removePaymentLine = (mode: "CASH" | "CARD" | "WALLET") => {
+  const removePaymentLine = (mode: PaymentMode) => {
     setPaymentLines((prev) => prev.filter((line) => line.mode !== mode));
   };
 
@@ -1153,7 +1160,7 @@ export function PosPage() {
   );
   const paymentCanValidate = isWalkInSelected
     ? paymentLines.length > 0 && paymentMatchesTotal
-    : paymentLines.length > 0;
+    : paymentLines.length > 0 || paymentMethod === "CREDIT";
 
   const createInvoice = async () => {
     if (cart.length === 0) throw new Error("Cart is empty");
@@ -1204,14 +1211,13 @@ export function PosPage() {
       payments: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
     }) => {
       const invoice = await createInvoice();
-      const finalPayments =
-        payload.payments.length > 0
-          ? payload.payments
-          : [{ mode: "CASH" as const, amount: Number(invoice.grandTotal) }];
+      if (payload.payments.length === 0) {
+        return { invoice, receipt: null };
+      }
 
       const settleRes = await api.sales.settle({
         params: { id: invoice.id },
-        body: { payments: finalPayments },
+        body: { payments: payload.payments },
         extraHeaders: authHeaders(),
       });
 
@@ -1235,8 +1241,8 @@ export function PosPage() {
       );
       setPostPayment({
         invoiceNo: result.invoice.invoiceNo,
-        receiptNo: result.receipt.receiptNo,
-        createdAt: result.receipt.createdAt,
+        receiptNo: result.receipt?.receiptNo ?? null,
+        createdAt: result.receipt?.createdAt ?? result.invoice.createdAt,
         customerName: result.invoice.customerName,
         customerPhone: result.invoice.customerPhone ?? "",
         subTotal: Number(result.invoice.subTotal),
@@ -1281,7 +1287,9 @@ export function PosPage() {
       setPaymentLines([]);
       setPaymentModalOpen(false);
       setMessage(
-        `Done: ${result.invoice.invoiceNo}, Receipt: ${result.receipt.receiptNo}, Status: ${result.invoice.status}`,
+        result.receipt
+          ? `Done: ${result.invoice.invoiceNo}, Receipt: ${result.receipt.receiptNo}, Status: ${result.invoice.status}`
+          : `Done: ${result.invoice.invoiceNo}, Full credit, Status: ${result.invoice.status}`,
       );
       queryClient.invalidateQueries({
         queryKey: ["sales-module", session.branchId],
@@ -1361,7 +1369,9 @@ export function PosPage() {
                   ✓
                 </div>
                 <p className="text-4xl font-semibold text-emerald-700">
-                  Payment Successful
+                  {postPayment.paymentLines.length > 0
+                    ? "Payment Successful"
+                    : "Credit Sale Created"}
                 </p>
                 <div className="mt-2 flex items-center justify-center gap-3">
                   <p className="text-3xl font-bold text-emerald-800">
@@ -1370,7 +1380,11 @@ export function PosPage() {
                   <button
                     className="rounded bg-emerald-500 px-3 py-1 text-sm font-semibold text-white"
                     onClick={() =>
-                      setMessage("Payment already settled. Start a new order.")
+                      setMessage(
+                        postPayment.paymentLines.length > 0
+                          ? "Payment already settled. Start a new order."
+                          : "Sale saved on full credit. Settle it from Sales.",
+                      )
                     }
                   >
                     Edit Payment
@@ -1382,7 +1396,9 @@ export function PosPage() {
                 className="w-full rounded border border-slate-200 bg-slate-50 px-4 py-4 text-3xl text-slate-700 print:hidden"
                 onClick={() => window.print()}
               >
-                Print Full Receipt
+                {postPayment.paymentLines.length > 0
+                  ? "Print Full Receipt"
+                  : "Print Invoice"}
               </button>
 
               <div className="flex overflow-hidden rounded border border-slate-300">
@@ -1794,7 +1810,9 @@ export function PosPage() {
                 <div className="mx-auto mt-10 max-w-3xl space-y-3">
                   {paymentLines.length === 0 ? (
                     <p className="text-center text-lg text-slate-500">
-                      No payment lines yet. Add a payment mode from the left.
+                      {paymentMethod === "CREDIT"
+                        ? "Full amount will remain due on customer credit."
+                        : "No payment lines yet. Add a payment mode from the left."}
                     </p>
                   ) : null}
 
@@ -1887,14 +1905,12 @@ export function PosPage() {
             </div>
 
             <div className="border-r border-slate-200 p-3">
-              <div className="mb-3 grid gap-2">
+              <div className="mb-3 grid grid-cols-2 gap-2">
                 {availablePaymentMethods.map((method) => (
                   <button
                     key={method.key}
-                    className={`rounded px-3 py-4 text-left text-3xl ${paymentMethod === method.key ? "bg-indigo-100 text-indigo-900" : "bg-slate-100 text-slate-700"}`}
-                    onClick={() =>
-                      setPaymentMethod(method.key as "CASH" | "CARD" | "WALLET")
-                    }
+                    className={`rounded px-3 py-4 text-left text-2xl ${paymentMethod === method.key ? "bg-indigo-100 text-indigo-900" : "bg-slate-100 text-slate-700"}`}
+                    onClick={() => setPaymentMethod(method.key)}
                   >
                     {method.label}
                   </button>
@@ -1930,10 +1946,13 @@ export function PosPage() {
                 ))}
 
                 <button
-                  className="col-span-3 rounded bg-indigo-600 px-2 py-4 text-xl font-bold text-white"
+                  className="col-span-3 rounded bg-indigo-600 px-2 py-4 text-xl font-bold text-white disabled:bg-indigo-300"
                   onClick={applyPaymentLine}
+                  disabled={paymentMethod === "CREDIT"}
                 >
-                  Add / Update {paymentMethod}
+                  {paymentMethod === "CREDIT"
+                    ? "Credit Selected"
+                    : `Add / Update ${paymentMethod}`}
                 </button>
                 <button
                   className="col-span-1 rounded bg-rose-200 px-2 py-4 text-2xl font-semibold text-rose-800"
