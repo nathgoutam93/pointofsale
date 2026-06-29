@@ -15,6 +15,13 @@ import { requireAdmin, requireOperationalSession, requireSession } from './scree
 
 const rootRoute = createRootRoute({ component: AppLayout });
 
+type SalesSearch = {
+  paymentFilter?: 'PENDING' | 'SETTLED';
+  customerId?: string;
+  q?: string;
+  status?: string;
+};
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
@@ -48,6 +55,16 @@ const salesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/sales',
   beforeLoad: () => requireOperationalSession(),
+  validateSearch: (search: Record<string, unknown>): SalesSearch => {
+    const parsed: SalesSearch = {};
+    if (search.paymentFilter === 'PENDING' || search.paymentFilter === 'SETTLED') {
+      parsed.paymentFilter = search.paymentFilter;
+    }
+    if (typeof search.customerId === 'string') parsed.customerId = search.customerId;
+    if (typeof search.q === 'string') parsed.q = search.q;
+    if (typeof search.status === 'string') parsed.status = search.status;
+    return parsed;
+  },
   component: SalesPage
 });
 

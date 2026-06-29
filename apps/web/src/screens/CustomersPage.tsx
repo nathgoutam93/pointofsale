@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { api, authHeaders } from "../lib/api";
 import { money, requireOperationalSession } from "./route-helpers";
@@ -184,23 +185,28 @@ export function CustomersPage() {
         });
     }, [search, visibleCustomers]);
 
+    const pendingByCustomerId = useMemo(() => {
+        const summary = new Map<string, { count: number; total: number }>();
+        for (const invoice of sales.data ?? []) {
+            if (!invoice.customerId) continue;
+            const pending = Number(invoice.grandTotal) - Number(invoice.paidTotal);
+            if (pending <= 0) continue;
+
+            const current = summary.get(invoice.customerId) ?? { count: 0, total: 0 };
+            summary.set(invoice.customerId, {
+                count: current.count + 1,
+                total: current.total + pending,
+            });
+        }
+        return summary;
+    }, [sales.data]);
+
     const pendingInvoiceSummary = useMemo(() => {
         if (!selectedCustomer) {
             return { count: 0, total: 0 };
         }
-        const invoices = sales.data ?? [];
-        let count = 0;
-        let total = 0;
-        for (const invoice of invoices) {
-            if (invoice.customerId !== selectedCustomer.id) continue;
-            const pending = Number(invoice.grandTotal) - Number(invoice.paidTotal);
-            if (pending > 0) {
-                count += 1;
-                total += pending;
-            }
-        }
-        return { count, total };
-    }, [sales.data, selectedCustomer]);
+        return pendingByCustomerId.get(selectedCustomer.id) ?? { count: 0, total: 0 };
+    }, [pendingByCustomerId, selectedCustomer]);
 
     const hasCustomerEdits = useMemo(() => {
         if (!selectedCustomer) return false;
@@ -267,6 +273,8 @@ export function CustomersPage() {
                 <div className="mt-3 max-h-[520px] space-y-2 overflow-auto pr-1">
                     {filteredCustomers.map((customer) => {
                         const selected = selectedCustomer?.id === customer.id;
+                        const pendingSummary = pendingByCustomerId.get(customer.id);
+                        const pendingTotal = pendingSummary?.total ?? 0;
                         return (
                             <button
                                 className={[
@@ -286,6 +294,15 @@ export function CustomersPage() {
                                         </p>
                                         <p className="truncate text-xs text-slate-500">
                                             {customer.phone ?? "No phone"}
+                                        </p>
+                                        <p
+                                            className={`mt-1 text-xs font-semibold ${pendingTotal > 0 ? "text-amber-700" : "text-emerald-700"}`}
+                                        >
+                                            {sales.isLoading
+                                                ? "Pending loading..."
+                                                : pendingTotal > 0
+                                                    ? `Pending ₹ ${money(pendingTotal)}`
+                                                    : "No pending amount"}
                                         </p>
                                     </div>
                                     <span className="rounded-md border border-slate-200 px-2 py-0.5 text-xs text-slate-600">
@@ -410,9 +427,23 @@ export function CustomersPage() {
                             <p className="text-xs uppercase tracking-wide text-slate-500">
                                 Pending Invoices
                             </p>
-                            <p className="mt-1 font-semibold text-slate-900">
-                                {sales.isLoading ? "Loading..." : pendingInvoiceSummary.count}
-                            </p>
+                            <div className="mt-1 flex items-center justify-between gap-2">
+                                <p className="font-semibold text-slate-900">
+                                    {sales.isLoading ? "Loading..." : pendingInvoiceSummary.count}
+                                </p>
+                                {!sales.isLoading && pendingInvoiceSummary.count > 0 ? (
+                                    <Link
+                                        className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                                        search={{
+                                            customerId: selectedCustomer.id,
+                                            paymentFilter: "PENDING",
+                                        }}
+                                        to="/sales"
+                                    >
+                                        View
+                                    </Link>
+                                ) : null}
+                            </div>
                         </div>
                         <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                             <p className="text-xs uppercase tracking-wide text-slate-500">

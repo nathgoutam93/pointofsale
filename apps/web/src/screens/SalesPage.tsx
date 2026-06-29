@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL, api, authHeaders } from "../lib/api";
 import {
@@ -10,6 +11,7 @@ import {
 import { money, requireOperationalSession } from "./route-helpers";
 
 type PaymentMode = "CASH" | "CARD" | "WALLET";
+type PaymentFilter = "ALL" | "PENDING" | "SETTLED";
 
 type SettledSummary = {
   invoiceId: string;
@@ -43,6 +45,7 @@ type SettledSummary = {
 
 export function SalesPage() {
   const session = requireOperationalSession();
+  const salesSearch = useSearch({ from: "/sales" });
   const queryClient = useQueryClient();
   const formatSaleCreator = (createdBy: string, createdByName?: string) => {
     const name = createdByName?.trim() || "Unknown User";
@@ -95,11 +98,12 @@ export function SalesPage() {
   const [settledSummary, setSettledSummary] = useState<SettledSummary | null>(
     null,
   );
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
-  const [paymentFilter, setPaymentFilter] = useState<
-    "ALL" | "PENDING" | "SETTLED"
-  >("ALL");
+  const [searchQuery, setSearchQuery] = useState(salesSearch.q ?? "");
+  const [statusFilter, setStatusFilter] = useState(salesSearch.status ?? "ALL");
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>(
+    salesSearch.paymentFilter ?? "ALL",
+  );
+  const linkedCustomerId = salesSearch.customerId ?? "";
 
   const branchSettings = useQuery({
     queryKey: ["branch-settings", session.branchId],
@@ -123,6 +127,12 @@ export function SalesPage() {
       return res.body;
     },
   });
+
+  useEffect(() => {
+    setSearchQuery(salesSearch.q ?? "");
+    setStatusFilter(salesSearch.status ?? "ALL");
+    setPaymentFilter(salesSearch.paymentFilter ?? "ALL");
+  }, [salesSearch.paymentFilter, salesSearch.q, salesSearch.status]);
 
   const receiptHeaderLines = useMemo(() => {
     const raw = branchSettings.data?.receiptHeader ?? "";
@@ -307,6 +317,14 @@ export function SalesPage() {
     );
   }, [currentInvoice, customers.data]);
   const isRegisteredCustomer = !!selectedCustomer && !selectedCustomer.isWalkIn;
+
+  const linkedCustomer = useMemo(() => {
+    if (!linkedCustomerId) return null;
+    return (
+      (customers.data ?? []).find((customer) => customer.id === linkedCustomerId) ??
+      null
+    );
+  }, [customers.data, linkedCustomerId]);
 
   const customerWallet = useQuery({
     queryKey: ["customer-wallet-sales", selectedCustomer?.id],
@@ -589,6 +607,9 @@ export function SalesPage() {
 
   const filteredSales = useMemo(() => {
     let list = sales.data ?? [];
+    if (linkedCustomerId) {
+      list = list.filter((invoice) => invoice.customerId === linkedCustomerId);
+    }
     if (paymentFilter !== "ALL") {
       list = list.filter((invoice) => {
         const pending =
@@ -623,6 +644,7 @@ export function SalesPage() {
     });
   }, [
     sales.data,
+    linkedCustomerId,
     paymentFilter,
     statusFilter,
     searchQuery,
@@ -637,6 +659,17 @@ export function SalesPage() {
       ),
     [filteredSales],
   );
+
+  useEffect(() => {
+    if (!filteredSales.length) return;
+    if (
+      selectedInvoiceId &&
+      filteredSales.some((invoice) => invoice.id === selectedInvoiceId)
+    ) {
+      return;
+    }
+    setSelectedInvoiceId(filteredSales[0].id);
+  }, [filteredSales, selectedInvoiceId]);
 
   const saleLines =
     settledSummary?.lines ??
@@ -913,9 +946,7 @@ export function SalesPage() {
                     className="w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm text-slate-700"
                     value={paymentFilter}
                     onChange={(e) =>
-                      setPaymentFilter(
-                        e.target.value as "ALL" | "PENDING" | "SETTLED",
-                      )
+                      setPaymentFilter(e.target.value as PaymentFilter)
                     }
                   >
                     <option value="ALL">All Payments</option>
@@ -923,6 +954,28 @@ export function SalesPage() {
                     <option value="SETTLED">Settled Only</option>
                   </select>
                 </div>
+                {linkedCustomerId ? (
+                  <div className="flex items-center justify-between gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <span className="min-w-0 truncate">
+                      Customer:{" "}
+                      <span className="font-semibold">
+                        {linkedCustomer?.name ?? "Selected customer"}
+                      </span>
+                    </span>
+                    <Link
+                      className="shrink-0 font-semibold text-amber-900 underline-offset-2 hover:underline"
+                      search={{
+                        paymentFilter:
+                          paymentFilter === "ALL" ? undefined : paymentFilter,
+                        q: searchQuery.trim() || undefined,
+                        status: statusFilter === "ALL" ? undefined : statusFilter,
+                      }}
+                      to="/sales"
+                    >
+                      Clear
+                    </Link>
+                  </div>
+                ) : null}
                 <p className="text-xs text-slate-500">
                   Showing {filteredSales.length} of {(sales.data ?? []).length}
                 </p>
