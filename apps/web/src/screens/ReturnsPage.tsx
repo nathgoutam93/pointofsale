@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { api, authHeaders } from "../lib/api";
+import { API_BASE_URL, api, authHeaders } from "../lib/api";
+import {
+  buildReceiptLines,
+  formatReceiptDate,
+  formatReceiptTime,
+  resolveReceiptWidth,
+} from "../lib/receiptFormat";
 import { money, requireOperationalSession } from "./route-helpers";
 
 type ReturnRefundMode = "CASH" | "WALLET";
@@ -23,6 +29,9 @@ const formatQty = (qty: number, leastCount: number) => {
   const decimals = stepText.includes(".") ? stepText.split(".")[1].length : 0;
   return qty.toFixed(decimals);
 };
+
+const formatReceiptQty = (qty: number) =>
+  qty.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 
 const isMultipleOfLeastCount = (qty: number, leastCount: number) => {
   const normalizedQty = round3(qty);
@@ -101,6 +110,29 @@ export function ReturnsPage() {
     },
   });
 
+  const branchSettings = useQuery({
+    queryKey: ["branch-settings", session.branchId],
+    queryFn: async () => {
+      const res = await api.branches.get({
+        params: { id: session.branchId },
+        extraHeaders: authHeaders(),
+      });
+      if (res.status !== 200) throw new Error("Failed to load branch settings");
+      return res.body;
+    },
+  });
+
+  const businessSettings = useQuery({
+    queryKey: ["business-settings"],
+    queryFn: async () => {
+      const res = await api.business.get({
+        extraHeaders: authHeaders(),
+      });
+      if (res.status !== 200) throw new Error("Failed to load business settings");
+      return res.body;
+    },
+  });
+
   const selectedInvoiceDetails = useQuery({
     queryKey: ["sales-by-id", selectedInvoiceId],
     enabled: createMode && !!selectedInvoiceId,
@@ -165,6 +197,66 @@ export function ReturnsPage() {
     : undefined;
   const walletAllowed = !!selectedCustomer && !selectedCustomer.isWalkIn;
 
+  const receiptHeaderLines = useMemo(() => {
+    const raw = branchSettings.data?.receiptHeader ?? "";
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }, [branchSettings.data?.receiptHeader]);
+
+  const receiptFooterLines = useMemo(() => {
+    const raw = branchSettings.data?.receiptFooter ?? "";
+    return raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }, [branchSettings.data?.receiptFooter]);
+
+  const receiptLogoSrc = useMemo(() => {
+    const logoUrl = branchSettings.data?.logoUrl ?? businessSettings.data?.logoUrl;
+    if (!logoUrl) return null;
+    if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
+      return logoUrl;
+    }
+    return `${API_BASE_URL.replace(/\/$/, "")}${logoUrl.startsWith("/") ? "" : "/"}${logoUrl}`;
+  }, [branchSettings.data?.logoUrl, businessSettings.data?.logoUrl]);
+
+  const storeDisplayName = useMemo(() => {
+    return (
+      businessSettings.data?.name?.trim() ||
+      branchSettings.data?.name?.trim() ||
+      "Store"
+    );
+  }, [businessSettings.data?.name, branchSettings.data?.name]);
+
+  const receiptCharWidth = resolveReceiptWidth(branchSettings.data?.receiptCss, 48);
+  const receiptTemplateCss = `
+    #printable-invoice {
+      font-family: "Courier New", Courier, monospace;
+      --receipt-ch: ${receiptCharWidth};
+      width: calc(var(--receipt-ch) * 1ch);
+      max-width: 100%;
+      margin: 0 auto;
+      color: #111827;
+    }
+    #printable-invoice .receipt-line {
+      white-space: pre;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+    #printable-invoice .receipt-strong {
+      font-weight: 700;
+    }
+    #printable-invoice .receipt-logo {
+      display: block;
+      margin: 0 auto 6px;
+      max-height: 64px;
+      max-width: 100%;
+      object-fit: contain;
+    }
+  `;
+
   useEffect(() => {
     if (refundMode === "WALLET" && !walletAllowed) setRefundMode("CASH");
   }, [refundMode, walletAllowed]);
@@ -203,6 +295,63 @@ export function ReturnsPage() {
     () => returnLines.reduce((acc, line) => round2(acc + line.amount), 0),
     [returnLines],
   );
+
+  const printableReturn = useMemo(() => {
+    if (!returnDetail.data) return null;
+
+    const createdAt = returnDetail.data.createdAt ?? new Date().toISOString();
+    const totalAmount = Number(returnDetail.data.totalAmount);
+    const items = returnDetail.data.lines.map((line) => {
+      const qty = Number(line.qty);
+      const amount = Number(line.amount);
+      const unitAmount = qty > 0 ? round2(amount / qty) : 0;
+
+      return {
+        name: line.itemName,
+        detailRows: [
+          {
+            label: `${formatReceiptQty(qty)} x ${money(unitAmount)}`,
+            value: money(amount),
+          },
+        ],
+        qty,
+        price: unitAmount,
+        total: amount,
+      };
+    });
+
+    return buildReceiptLines({
+      width: receiptCharWidth,
+      storeName: storeDisplayName,
+      headerLines: receiptHeaderLines,
+      metadata: [
+        { label: "Return", value: returnDetail.data.returnNo },
+        { label: "Invoice", value: returnDetail.data.saleInvoiceNo },
+        { label: "Date", value: formatReceiptDate(createdAt) },
+        { label: "Time", value: formatReceiptTime(createdAt) },
+        { label: "Customer", value: returnDetail.data.customerName },
+        { label: "Refund", value: returnDetail.data.refundMode },
+      ],
+      items,
+      totals: [{ label: "REFUND TOTAL", value: money(totalAmount), isGrandTotal: true }],
+      payments: [
+        {
+          label:
+            returnDetail.data.refundMode === "WALLET"
+              ? "Credited to Wallet"
+              : "Refunded by Cash",
+          value: money(totalAmount),
+        },
+      ],
+      footerLines: receiptFooterLines,
+    });
+  }, [
+    receiptCharWidth,
+    receiptFooterLines,
+    receiptHeaderLines,
+    returnDetail.data,
+    storeDisplayName,
+  ]);
 
   const createReturn = useMutation({
     mutationFn: async () => {
@@ -260,6 +409,34 @@ export function ReturnsPage() {
 
   return (
     <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[340px_1fr]">
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+
+          #printable-invoice,
+          #printable-invoice * {
+            visibility: visible !important;
+          }
+
+          #printable-invoice {
+            position: absolute;
+            inset: 0;
+            margin: 0;
+            width: 100%;
+            max-width: none;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+            padding: 16px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        }
+        ${receiptTemplateCss}
+        ${branchSettings.data?.receiptCss ?? ""}
+      `}</style>
       <aside className="overflow-y-auto border-r border-slate-200 bg-white p-4">
         <div className="mb-4 flex items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-slate-900">Returns</h2>
@@ -468,7 +645,18 @@ export function ReturnsPage() {
           </div>
         ) : (
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-900">Return Details</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-semibold text-slate-900">Return Details</h3>
+              {returnDetail.data ? (
+                <button
+                  type="button"
+                  className="rounded bg-slate-900 px-3 py-2 text-xs font-semibold text-white print:hidden"
+                  onClick={() => window.print()}
+                >
+                  Print Return Receipt
+                </button>
+              ) : null}
+            </div>
             {!selectedReturnId ? (
               <p className="mt-3 text-sm text-slate-500">Select a return from the left list.</p>
             ) : null}
@@ -514,6 +702,31 @@ export function ReturnsPage() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="mt-6 rounded border border-slate-200 bg-slate-50 p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 print:hidden">
+                    Printable Return Receipt
+                  </p>
+                  <div id="printable-invoice" className="bg-white p-4">
+                    {receiptLogoSrc ? (
+                      <img
+                        src={receiptLogoSrc}
+                        alt=""
+                        className="receipt-logo"
+                      />
+                    ) : null}
+                    <div className="receipt-text text-center">
+                      {(printableReturn?.lines ?? []).map((line, idx) => (
+                        <div
+                          key={`${idx}-${line.text}`}
+                          className={`receipt-line ${line.strong ? "receipt-strong" : ""}`}
+                        >
+                          {line.text}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </>
             ) : null}
