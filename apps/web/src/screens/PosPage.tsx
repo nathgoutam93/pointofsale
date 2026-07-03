@@ -69,6 +69,7 @@ export function PosPage() {
   const [customerId, setCustomerId] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [search, setSearch] = useState("");
+  const [scanCode, setScanCode] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
@@ -967,6 +968,30 @@ export function PosPage() {
     });
   };
 
+  const addScannedItem = () => {
+    const normalizedCode = scanCode.trim().toLowerCase();
+    if (!normalizedCode) return;
+
+    const codeMatches = allSaleItemChoices.filter(
+      (item) => item.code.trim().toLowerCase() === normalizedCode,
+    );
+    const match =
+      codeMatches.find((item) => !item.saleUom) ??
+      codeMatches[0] ??
+      allSaleItemChoices.find(
+        (item) => item.choiceKey.toLowerCase() === normalizedCode,
+      );
+
+    if (!match) {
+      setMessage(`No item found for code ${scanCode.trim()}`);
+      return;
+    }
+
+    addItem(match);
+    setScanCode("");
+    setMessage(`Added ${match.name} (${match.displayUom})`);
+  };
+
   const total = useMemo(() => {
     return computedCart.grandTotal;
   }, [computedCart.grandTotal]);
@@ -1005,8 +1030,8 @@ export function PosPage() {
     });
   }, [items.data, search, activeCategory]);
 
-  const saleItemChoices = useMemo(() => {
-    return filteredItems.flatMap((item) => {
+  const allSaleItemChoices = useMemo(() => {
+    return (items.data ?? []).flatMap((item) => {
       const variants = item.saleUoms?.length
         ? item.saleUoms
         : [
@@ -1035,7 +1060,12 @@ export function PosPage() {
         saleUomConversionQty: variant.conversionQty,
       }));
     });
-  }, [filteredItems]);
+  }, [items.data]);
+
+  const saleItemChoices = useMemo(() => {
+    const visibleItemIds = new Set(filteredItems.map((item) => item.id));
+    return allSaleItemChoices.filter((item) => visibleItemIds.has(item.id));
+  }, [allSaleItemChoices, filteredItems]);
 
   const onHandByItem = useMemo(() => {
     const map = new Map<string, number>();
@@ -2037,6 +2067,17 @@ export function PosPage() {
                 placeholder="Search Products"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+              />
+              <input
+                className="w-full max-w-72 rounded-full border border-emerald-300 px-4 py-2 text-sm outline-none focus:border-emerald-500"
+                placeholder="Scan barcode / code"
+                value={scanCode}
+                onChange={(e) => setScanCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  addScannedItem();
+                }}
               />
             </div>
 
