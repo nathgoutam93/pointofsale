@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useBlocker } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL, api, authHeaders } from "../lib/api";
 import {
@@ -113,6 +114,7 @@ export function PosPage() {
   );
   const [localDrafts, setLocalDrafts] = useState<LocalSaleDraft[]>([]);
   const [isOrderOpen, setIsOrderOpen] = useState(false);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
 
   useEffect(() => {
     const raw = localStorage.getItem(draftStorageKey);
@@ -1171,6 +1173,7 @@ export function PosPage() {
     setPaymentLines([]);
     setPaymentModalError("");
     setPaymentModalOpen(false);
+    setActiveDraftId(null);
   };
 
   const startNewOrder = () => {
@@ -1186,7 +1189,7 @@ export function PosPage() {
   const buildLocalDraft = () => {
     const now = new Date().toISOString();
     return {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: activeDraftId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       savedAt: now,
       customerId,
       customerName: displayCustomerName,
@@ -1201,12 +1204,22 @@ export function PosPage() {
     };
   };
 
-  const saveCurrentCartAsLocalDraft = () => {
+  const saveCurrentCartAsLocalDraft = (options?: { resetOrder?: boolean }) => {
     const draft = buildLocalDraft();
-    const nextDrafts = [draft, ...localDrafts].slice(0, 20);
+    const existingIndex = localDrafts.findIndex((item) => item.id === draft.id);
+    const nextDrafts =
+      existingIndex === -1
+        ? [draft, ...localDrafts].slice(0, 20)
+        : [
+            draft,
+            ...localDrafts.filter((item) => item.id !== draft.id),
+          ].slice(0, 20);
     persistLocalDrafts(nextDrafts);
-    resetCurrentOrder();
-    setIsOrderOpen(false);
+    setActiveDraftId(draft.id);
+    if (options?.resetOrder ?? true) {
+      resetCurrentOrder();
+      setIsOrderOpen(false);
+    }
     return draft;
   };
 
@@ -1231,15 +1244,10 @@ export function PosPage() {
     ) {
       return;
     }
-    const nextDrafts = localDrafts.filter((item) => item.id !== draft.id);
-    try {
-      persistLocalDrafts(nextDrafts);
-    } catch {
-      setLocalDrafts(nextDrafts);
-    }
     setPostPayment(null);
     setMessage(`Draft restored: ${draft.customerName}`);
     setIsOrderOpen(true);
+    setActiveDraftId(draft.id);
     setReceiptContact("");
     setCustomerId(draft.customerId);
     setWalkInCustomerName(draft.walkInCustomerName ?? "");
@@ -1259,11 +1267,63 @@ export function PosPage() {
     const nextDrafts = localDrafts.filter((draft) => draft.id !== draftId);
     try {
       persistLocalDrafts(nextDrafts);
+      if (activeDraftId === draftId) setActiveDraftId(null);
       setMessage("Local draft deleted.");
     } catch {
       setMessage("Could not delete local draft.");
     }
   };
+
+  useBlocker({
+    disabled: cart.length === 0,
+    enableBeforeUnload: cart.length > 0,
+    shouldBlockFn: ({ next }) => {
+      if (next.pathname === "/pos") return false;
+      const shouldSave = window.confirm(
+        "Save the current cart as a draft before leaving POS?",
+      );
+      if (!shouldSave) return true;
+
+      try {
+        saveCurrentCartAsLocalDraft({ resetOrder: false });
+        return false;
+      } catch {
+        window.alert("Could not save the current cart as a draft. Staying on POS.");
+        return true;
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (cart.length === 0) return;
+
+    const handleBeforeUnload = () => {
+      try {
+        saveCurrentCartAsLocalDraft({ resetOrder: false });
+      } catch {
+        // The router blocker handles in-app navigation failures; browser unload has no recovery path.
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [
+    activeDraftId,
+    cart,
+    customerId,
+    displayCustomerName,
+    displayCustomerPhone,
+    draftStorageKey,
+    isWalkInSelected,
+    localDrafts,
+    normalizedWalkInCustomerName,
+    normalizedWalkInCustomerPhone,
+    orderDiscountMode,
+    orderDiscountValue,
+    total,
+    totalItems,
+    walkIn.data?.id,
+  ]);
 
   const formatDraftSavedAt = (savedAt: string) => {
     const date = new Date(savedAt);
@@ -1516,6 +1576,15 @@ export function PosPage() {
         }),
       });
       setReceiptContact(result.invoice.customerPhone ?? "");
+      if (activeDraftId) {
+        const nextDrafts = localDrafts.filter((draft) => draft.id !== activeDraftId);
+        try {
+          persistLocalDrafts(nextDrafts);
+        } catch {
+          setLocalDrafts(nextDrafts);
+        }
+      }
+      setActiveDraftId(null);
       setCart([]);
       setPaymentAmount("0");
       setPaymentLines([]);
