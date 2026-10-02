@@ -107,7 +107,7 @@ export function TaxpayerTypeSection({ timeZone }: { timeZone: string }) {
   }, [current?.taxpayerType]);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="card p-5">
       <h2 className="text-2xl font-semibold text-slate-900">GST Registration Type</h2>
       <p className="mt-1 text-sm text-slate-600">
         Regular taxpayers charge GST and issue a Tax Invoice. Composition taxpayers can't charge GST or sell goods to
@@ -120,7 +120,7 @@ export function TaxpayerTypeSection({ timeZone }: { timeZone: string }) {
 
       {current ? (
         <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3">
-          <p className="text-xs uppercase tracking-wide text-slate-500">In force now</p>
+          <p className="eyebrow">In force now</p>
           <p className="text-lg font-semibold text-slate-900">
             {describe(current.taxpayerType, current.compositionCategory)}
           </p>
@@ -152,7 +152,7 @@ export function TaxpayerTypeSection({ timeZone }: { timeZone: string }) {
           <div>
             <label className="text-sm text-slate-600">Change to</label>
             <select
-              className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+              className="field mt-1"
               value={taxpayerType}
               onChange={(e) => setTaxpayerType(e.target.value as TaxpayerType)}
             >
@@ -164,7 +164,7 @@ export function TaxpayerTypeSection({ timeZone }: { timeZone: string }) {
             <div>
               <label className="text-sm text-slate-600">Composition category</label>
               <select
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                className="field mt-1"
                 value={category}
                 onChange={(e) => setCategory(e.target.value as CompositionCategory)}
               >
@@ -182,7 +182,7 @@ export function TaxpayerTypeSection({ timeZone }: { timeZone: string }) {
             <label className="text-sm text-slate-600">Effective from</label>
             <input
               type="date"
-              className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+              className="field mt-1"
               min={today}
               value={effectiveDate}
               onChange={(e) => setEffectiveDate(e.target.value)}
@@ -190,7 +190,7 @@ export function TaxpayerTypeSection({ timeZone }: { timeZone: string }) {
           </div>
           <div className="md:col-span-3 flex flex-wrap items-center gap-3">
             <button
-              className="rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400"
+              className="btn-primary"
               onClick={submit}
               disabled={saveChange.isPending || !effectiveDate}
             >
@@ -210,7 +210,7 @@ export function TaxpayerTypeSection({ timeZone }: { timeZone: string }) {
         <div className="mt-5">
           <p className="text-sm font-semibold text-slate-700">History</p>
           <table className="mt-2 w-full text-left text-sm">
-            <thead className="text-xs uppercase tracking-wide text-slate-500">
+            <thead className="eyebrow">
               <tr>
                 <th className="py-1 pr-3">From</th>
                 <th className="py-1 pr-3">Type</th>

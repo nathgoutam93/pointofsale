@@ -526,31 +526,35 @@ export function BranchSettingsPage() {
   const selectedBranch = availableBranches.find((branch) => branch.id === selectedBranchId) ?? availableBranches[0];
 
   return (
-    <section className="grid gap-4 p-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="grid gap-2 sm:grid-cols-3">
+    <section>
+      <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-6">
+        <nav className="-mb-px flex gap-6 overflow-x-auto" aria-label="Settings sections">
           {[
-            { id: "business" as const, label: "Business Settings" },
-            { id: "branches" as const, label: "Branch Settings" },
+            { id: "business" as const, label: "Business" },
+            { id: "branches" as const, label: "Branches" },
             { id: "cashiers" as const, label: "Cashiers & Access" }
           ].map((tab) => (
             <button
               key={tab.id}
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                activeTab === tab.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"
+              className={`border-b-2 px-1 py-3 text-sm font-semibold whitespace-nowrap transition-colors ${
+                activeTab === tab.id
+                  ? "border-brand-600 text-brand-700"
+                  : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"
               }`}
+              aria-current={activeTab === tab.id ? "page" : undefined}
               onClick={() => setActiveTab(tab.id)}
             >
               {tab.label}
             </button>
           ))}
-        </div>
+        </nav>
       </div>
+      <div className="mx-auto grid max-w-7xl gap-4 p-6">
 
       {activeTab === "business" ? (
         <div className="grid gap-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-2xl font-semibold text-slate-900">Business Settings</h2>
+          <div className="card p-5">
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900">Business Settings</h2>
             <p className="mt-1 text-sm text-slate-600">
               Configure global details shared by all branches, including logo and GST number.
             </p>
@@ -560,7 +564,7 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">Business name</label>
                   <input
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={businessForm.name}
                     onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))}
                   />
@@ -568,7 +572,7 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">GST number</label>
                   <input
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={businessForm.gstNumber}
                     onChange={(e) => setBusinessForm((prev) => ({ ...prev, gstNumber: e.target.value.toUpperCase() }))}
                     placeholder="e.g. 29ABCDE1234F1ZW"
@@ -580,7 +584,7 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">Tax calculation mode</label>
                   <select
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={businessForm.taxCalculationMode}
                     onChange={(e) =>
                       setBusinessForm((prev) => ({
@@ -599,7 +603,7 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">Cashier discount limit (%)</label>
                   <input
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     inputMode="decimal"
                     value={businessForm.cashierMaxDiscountPercent}
                     onChange={(e) =>
@@ -614,7 +618,7 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">Customers</label>
                   <select
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={businessForm.customerScope}
                     onChange={(e) =>
                       setBusinessForm((prev) => ({ ...prev, customerScope: e.target.value as "SHARED" | "BRANCH" }))
@@ -631,7 +635,7 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">Time zone</label>
                   <select
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={businessForm.timezone}
                     onChange={(e) => setBusinessForm((prev) => ({ ...prev, timezone: e.target.value }))}
                   >
@@ -648,7 +652,7 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">HSN code length</label>
                   <select
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={businessForm.hsnMinDigits}
                     onChange={(e) =>
                       setBusinessForm((prev) => ({ ...prev, hsnMinDigits: Number(e.target.value) === 6 ? 6 : 4 }))
@@ -679,7 +683,7 @@ export function BranchSettingsPage() {
                       }}
                     />
                     <button
-                      className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                      className="btn-secondary px-2 py-1 text-xs"
                       onClick={() => setBusinessForm((prev) => ({ ...prev, logoUrl: null }))}
                     >
                       Remove logo
@@ -694,7 +698,7 @@ export function BranchSettingsPage() {
 
             <div className="mt-4 flex items-center gap-3">
               <button
-                className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-emerald-300"
+                className="btn-primary"
                 onClick={() => saveBusinessSettings.mutate()}
                 disabled={saveBusinessSettings.isPending || businessSettings.isLoading}
               >
@@ -710,26 +714,26 @@ export function BranchSettingsPage() {
 
       {activeTab === "branches" ? (
         <div className="grid gap-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-2xl font-semibold text-slate-900">Create New Branch</h2>
+          <div className="card p-5">
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900">Create New Branch</h2>
             <p className="mt-1 text-sm text-slate-600">
               Create a new branch and manage its prefixes, templates, and logo from this page.
             </p>
             <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
               <input
-                className="rounded border border-slate-300 px-3 py-2"
+                className="field"
                 placeholder="Branch name"
                 value={createBranchForm.name}
                 onChange={(e) => setCreateBranchForm((prev) => ({ ...prev, name: e.target.value }))}
               />
               <input
-                className="rounded border border-slate-300 px-3 py-2"
+                className="field"
                 placeholder="Branch code (e.g. BLR01)"
                 value={createBranchForm.code}
                 onChange={(e) => setCreateBranchForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
               />
               <button
-                className="rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400"
+                className="btn-primary"
                 onClick={() => createBranch.mutate()}
                 disabled={createBranch.isPending || !createBranchForm.name.trim() || !createBranchForm.code.trim()}
               >
@@ -739,11 +743,11 @@ export function BranchSettingsPage() {
             {branchMessage ? <p className="mt-3 text-sm text-emerald-700">{branchMessage}</p> : null}
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="card p-5">
             <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-2xl font-semibold text-slate-900">Branch Settings</h2>
+              <h2 className="text-lg font-semibold tracking-tight text-slate-900">Branch Settings</h2>
               <select
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className="field"
                 value={selectedBranch.id}
                 onChange={(e) => {
                   setSelectedBranchId(e.target.value);
@@ -767,7 +771,7 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">Branch name</label>
                   <input
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={form.name}
                     onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                   />
@@ -775,7 +779,7 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">Branch code</label>
                   <input
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={form.code}
                     onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value }))}
                   />
@@ -786,7 +790,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-sm text-slate-600">GSTIN</label>
                     <input
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 uppercase"
+                      className="field mt-1 uppercase"
                       value={form.gstin}
                       placeholder="Leave empty to use the business GSTIN"
                       onChange={(e) => {
@@ -802,7 +806,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-sm text-slate-600">State</label>
                     <select
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                      className="field mt-1"
                       value={form.stateCode}
                       onChange={(e) => setForm((prev) => ({ ...prev, stateCode: e.target.value }))}
                     >
@@ -836,7 +840,7 @@ export function BranchSettingsPage() {
                         }}
                       />
                       <button
-                        className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                        className="btn-secondary px-2 py-1 text-xs"
                         onClick={() => setForm((prev) => ({ ...prev, logoUrl: null }))}
                       >
                         Remove logo
@@ -849,7 +853,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-sm text-slate-600">Invoice series</label>
                     <input
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 uppercase"
+                      className="field mt-1 uppercase"
                       maxLength={DOCUMENT_SERIES_MAX_LENGTH}
                       value={form.invoicePrefix}
                       onChange={(e) => setForm((prev) => ({ ...prev, invoicePrefix: e.target.value.toUpperCase() }))}
@@ -858,7 +862,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-sm text-slate-600">Receipt prefix</label>
                     <input
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                      className="field mt-1"
                       value={form.receiptPrefix}
                       onChange={(e) => setForm((prev) => ({ ...prev, receiptPrefix: e.target.value }))}
                     />
@@ -866,7 +870,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-sm text-slate-600">Return (credit note) series</label>
                     <input
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 uppercase"
+                      className="field mt-1 uppercase"
                       maxLength={DOCUMENT_SERIES_MAX_LENGTH}
                       value={form.returnPrefix}
                       onChange={(e) => setForm((prev) => ({ ...prev, returnPrefix: e.target.value.toUpperCase() }))}
@@ -891,7 +895,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-xs text-slate-600">Invoice header</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      className="field mt-1"
                       rows={2}
                       value={form.invoiceHeader}
                       onChange={(e) => setForm((prev) => ({ ...prev, invoiceHeader: e.target.value }))}
@@ -900,7 +904,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-xs text-slate-600">Invoice footer</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      className="field mt-1"
                       rows={2}
                       value={form.invoiceFooter}
                       onChange={(e) => setForm((prev) => ({ ...prev, invoiceFooter: e.target.value }))}
@@ -909,7 +913,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-xs text-slate-600">Invoice CSS</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-xs font-mono"
+                      className="field mt-1 text-xs font-mono"
                       rows={4}
                       value={form.invoiceCss}
                       onChange={(e) => setForm((prev) => ({ ...prev, invoiceCss: e.target.value }))}
@@ -918,7 +922,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-xs text-slate-600">Receipt header</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      className="field mt-1"
                       rows={2}
                       value={form.receiptHeader}
                       onChange={(e) => setForm((prev) => ({ ...prev, receiptHeader: e.target.value }))}
@@ -927,7 +931,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-xs text-slate-600">Receipt footer</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      className="field mt-1"
                       rows={2}
                       value={form.receiptFooter}
                       onChange={(e) => setForm((prev) => ({ ...prev, receiptFooter: e.target.value }))}
@@ -936,7 +940,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-xs text-slate-600">Receipt CSS</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-xs font-mono"
+                      className="field mt-1 text-xs font-mono"
                       rows={4}
                       value={form.receiptCss}
                       onChange={(e) => setForm((prev) => ({ ...prev, receiptCss: e.target.value }))}
@@ -948,7 +952,7 @@ export function BranchSettingsPage() {
 
             <div className="mt-4 flex items-center gap-3">
               <button
-                className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-emerald-300"
+                className="btn-primary"
                 onClick={() => saveSettings.mutate()}
                 disabled={saveSettings.isPending || branchSettings.isLoading}
               >
@@ -961,11 +965,11 @@ export function BranchSettingsPage() {
       ) : null}
 
       {activeTab === "cashiers" ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="card p-5">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-2xl font-semibold text-slate-900">Cashier Accounts</h2>
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900">Cashier Accounts</h2>
             <select
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
+              className="field"
               value={selectedBranch.id}
               onChange={(e) => {
                 setSelectedBranchId(e.target.value);
@@ -983,13 +987,13 @@ export function BranchSettingsPage() {
 
           <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
             <input
-              className="rounded border border-slate-300 px-3 py-2"
+              className="field"
               placeholder="Username"
               value={cashierForm.username}
               onChange={(e) => setCashierForm((prev) => ({ ...prev, username: e.target.value }))}
             />
             <input
-              className="rounded border border-slate-300 px-3 py-2"
+              className="field"
               placeholder="Password"
               type="password"
               value={cashierForm.password}
@@ -1021,7 +1025,7 @@ export function BranchSettingsPage() {
               </div>
             </div>
             <button
-              className="rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+              className="btn-primary"
               onClick={() => createCashier.mutate()}
               disabled={createCashier.isPending || !cashierForm.username.trim() || !cashierForm.password || cashierForm.branchIds.length === 0}
             >
@@ -1049,14 +1053,14 @@ export function BranchSettingsPage() {
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <input
-                    className="rounded border border-slate-300 px-3 py-1 text-sm"
+                    className="field"
                     placeholder="New password"
                     type="password"
                     value={passwordByUserId[user.id] ?? ""}
                     onChange={(e) => setPasswordByUserId((prev) => ({ ...prev, [user.id]: e.target.value }))}
                   />
                   <button
-                    className="rounded bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
+                    className="btn-secondary px-3 py-1 text-xs"
                     onClick={() => {
                       const nextPassword = passwordByUserId[user.id];
                       if (!nextPassword?.trim()) {
@@ -1104,6 +1108,7 @@ export function BranchSettingsPage() {
           {userMessage ? <p className="mt-3 text-sm text-emerald-700">{userMessage}</p> : null}
         </div>
       ) : null}
+      </div>
     </section>
   );
 }

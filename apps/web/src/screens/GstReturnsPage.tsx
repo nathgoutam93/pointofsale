@@ -58,27 +58,27 @@ export function GstReturnsPage() {
   }, [periodKind, month, fyStart, quarter]);
 
   return (
-    <section className="mx-auto max-w-6xl space-y-4 p-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-2xl font-semibold text-slate-900">GST Returns</h2>
-        <p className="mt-1 text-sm text-slate-600">
+    <section className="mx-auto max-w-7xl space-y-4 p-6">
+      <div className="card p-5">
+        <h2 className="text-xl font-semibold tracking-tight text-slate-900">GST Returns</h2>
+        <p className="mt-1 text-sm text-slate-500">
           Figures for one GSTIN from the sales and returns recorded here. Check them, and have your accountant review them
           before filing.
         </p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-5">
-          <label className="flex flex-col gap-1 text-sm text-slate-600">
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
             Return
-            <select className="rounded border border-slate-300 px-3 py-2" value={returnKind} onChange={(e) => setReturnKind(e.target.value as ReturnKind)}>
+            <select className="field" value={returnKind} onChange={(e) => setReturnKind(e.target.value as ReturnKind)}>
               <option value="GSTR1">GSTR-1 (outward supplies)</option>
               <option value="GSTR3B">GSTR-3B (summary)</option>
               <option value="CMP08">CMP-08 (composition, quarterly)</option>
               <option value="GSTR4">GSTR-4 (composition, yearly)</option>
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-600">
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
             GSTIN
-            <select className="rounded border border-slate-300 px-3 py-2" value={gstin} onChange={(e) => setGstin(e.target.value)}>
+            <select className="field" value={gstin} onChange={(e) => setGstin(e.target.value)}>
               {(gstins.data ?? []).map((g) => (
                 <option key={g.gstin} value={g.gstin}>
                   {g.gstin} ({g.label})
@@ -87,24 +87,24 @@ export function GstReturnsPage() {
             </select>
           </label>
           {returnKind === "GSTR1" || returnKind === "GSTR3B" ? (
-            <label className="flex flex-col gap-1 text-sm text-slate-600">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
               Filing
-              <select className="rounded border border-slate-300 px-3 py-2" value={kind} onChange={(e) => setKind(e.target.value as PeriodKind)}>
+              <select className="field" value={kind} onChange={(e) => setKind(e.target.value as PeriodKind)}>
                 <option value="month">Monthly</option>
                 <option value="quarter">Quarterly (QRMP)</option>
               </select>
             </label>
           ) : null}
           {periodKind === "month" ? (
-            <label className="flex flex-col gap-1 text-sm text-slate-600">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
               Month
-              <input type="month" className="rounded border border-slate-300 px-3 py-2" value={month} onChange={(e) => setMonth(e.target.value)} />
+              <input type="month" className="field" value={month} onChange={(e) => setMonth(e.target.value)} />
             </label>
           ) : (
             <>
-              <label className="flex flex-col gap-1 text-sm text-slate-600">
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
                 Financial year
-                <select className="rounded border border-slate-300 px-3 py-2" value={fyStart} onChange={(e) => setFyStart(Number(e.target.value))}>
+                <select className="field" value={fyStart} onChange={(e) => setFyStart(Number(e.target.value))}>
                   {[currentFy, currentFy - 1, currentFy - 2].map((year) => (
                     <option key={year} value={year}>
                       {financialYearLabel(year)}
@@ -113,9 +113,9 @@ export function GstReturnsPage() {
                 </select>
               </label>
               {periodKind === "quarter" ? (
-                <label className="flex flex-col gap-1 text-sm text-slate-600">
+                <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
                   Quarter
-                  <select className="rounded border border-slate-300 px-3 py-2" value={quarter} onChange={(e) => setQuarter(Number(e.target.value))}>
+                  <select className="field" value={quarter} onChange={(e) => setQuarter(Number(e.target.value))}>
                     {QUARTERS.map((q, idx) => (
                       <option key={q.label} value={idx}>
                         {q.label}

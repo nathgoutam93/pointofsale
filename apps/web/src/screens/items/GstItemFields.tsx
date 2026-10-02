@@ -57,7 +57,7 @@ export function GstItemFields({
       <label className="flex flex-col gap-1">
         <span className={labelClass}>HSN / SAC code</span>
         <input
-          className="rounded-lg border border-slate-300 px-3 py-2"
+          className="field"
           inputMode="numeric"
           placeholder={`${hsnMinDigits} or more digits`}
           value={value.hsnCode}
@@ -73,7 +73,7 @@ export function GstItemFields({
       <label className="flex flex-col gap-1">
         <span className={labelClass}>GST unit (UQC)</span>
         <select
-          className="rounded-lg border border-slate-300 px-3 py-2"
+          className="field"
           value={value.uqc}
           onChange={(e) => onChange({ ...value, uqc: e.target.value })}
         >
@@ -92,7 +92,7 @@ export function GstItemFields({
       <label className="flex flex-col gap-1">
         <span className={labelClass}>GST supply type</span>
         <select
-          className="rounded-lg border border-slate-300 px-3 py-2"
+          className="field"
           value={supplyType}
           onChange={(e) => onChange({ ...value, supplyType: e.target.value as GstSupplyType })}
           disabled={supplyOptions.length === 1}

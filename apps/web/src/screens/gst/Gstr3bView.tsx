@@ -19,7 +19,7 @@ export function Gstr3bView({ gstin, period }: { gstin: string; period: GstPeriod
 
   return (
     <>
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="card p-5">
         <p className="text-sm text-slate-600">
           The sales figures for GSTR-3B, net of credit notes, from the same sales as GSTR-1. Enter them in the return on the
           GST portal along with your input tax credit.

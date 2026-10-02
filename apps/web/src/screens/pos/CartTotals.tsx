@@ -1,4 +1,4 @@
-import { money } from "../route-helpers";
+import { inr } from "../route-helpers";
 
 /** Tax, order discount (with its Edit button) and the total. */
 export function CartTotals({
@@ -13,34 +13,30 @@ export function CartTotals({
   onEditOrderDiscount: () => void;
 }) {
   return (
-    <div className="border-b border-slate-200 px-3 py-4 text">
-      <div className="flex items-center justify-between">
-        <p className="text-lg text-slate-500">Taxes:</p>
-        <p className="text-lg text-slate-500">{money(totalTax)} ₹</p>
+    <div className="space-y-1.5 border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+      <div className="flex items-center justify-between text-slate-600">
+        <span>Taxes</span>
+        <span className="tabular-nums">{inr(totalTax)}</span>
       </div>
-      <div className="mt-1 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <p className="text-lg text-slate-500">Order Discount:</p>
+      <div className="flex items-center justify-between text-slate-600">
+        <span className="flex items-center gap-2">
+          Order discount
           <button
-            className="rounded bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700"
+            className="rounded px-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 hover:text-brand-700"
             onClick={onEditOrderDiscount}
           >
             Edit
           </button>
-        </div>
-        <p className="text-lg text-amber-700">
-          {orderDiscountAmount > 0
-            ? `- ${money(orderDiscountAmount)} ₹`
-            : "—"}
-        </p>
+        </span>
+        <span className={`tabular-nums ${orderDiscountAmount > 0 ? "text-amber-700" : "text-slate-400"}`}>
+          {orderDiscountAmount > 0 ? `− ${inr(orderDiscountAmount)}` : "—"}
+        </span>
       </div>
-      <div className="flex items-center justify-between">
-        <p className="text-2xl font-semibold leading-none text-slate-700">
-          Total:
-        </p>
-        <p className="text-2xl font-semibold leading-none text-slate-700">
-          {money(total)} ₹
-        </p>
+      <div className="flex items-baseline justify-between border-t border-slate-200 pt-2">
+        <span className="text-sm font-semibold text-slate-900">Total</span>
+        <span className="text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">
+          {inr(total)}
+        </span>
       </div>
     </div>
   );

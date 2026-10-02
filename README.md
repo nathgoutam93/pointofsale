@@ -84,4 +84,4 @@ re-checked against the database (user active, same role, branch access, register
 - If no active session: login screen is shown.
 - If active session exists: app opens directly to `/pos`.
 - POS is the primary screen with product grid (left) and order summary/customer/payment (right).
-- Other modules are available via hamburger menu.
+- Other modules are in the left sidebar (collapsible; a drawer on small screens).

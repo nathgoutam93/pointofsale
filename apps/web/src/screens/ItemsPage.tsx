@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { GST_SUPPLY_TYPE_LABELS } from "@pos/contracts";
-import { requireSession } from "./route-helpers";
+import { inr, requireSession } from "./route-helpers";
 import { effectiveSupplyType, effectiveUqc, emptyGstItemForm, GstItemFields, type GstItemForm } from "./items/GstItemFields";
 
 type ItemFormState = {
@@ -48,14 +48,6 @@ const emptySaleUom = (): SaleUomFormState => ({
   sellPrice: "0",
   mrp: "0",
 });
-
-function money(value: number | string) {
-  const num = Number(value) || 0;
-  return new Intl.NumberFormat("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(num);
-}
 
 function normalizeSaleUomRows(rows: SaleUomFormState[], baseUom: string) {
   const seen = new Set([baseUom.trim().toLowerCase()]);
@@ -302,7 +294,7 @@ export function ItemsPage() {
     <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
+          <p className="text-xs font-medium text-slate-600">
             Alternate Sale UOM
           </p>
           <p className="text-xs text-slate-500">
@@ -310,7 +302,7 @@ export function ItemsPage() {
           </p>
         </div>
         <button
-          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700"
+          className="btn-secondary text-xs"
           type="button"
           onClick={() => {
             resetMutationErrors();
@@ -333,7 +325,7 @@ export function ItemsPage() {
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-slate-500">UOM</span>
                 <input
-                  className="rounded-md border border-slate-300 px-2 py-1.5"
+                  className="field"
                   placeholder="BOX"
                   value={row.uom}
                   onChange={(e) =>
@@ -348,7 +340,7 @@ export function ItemsPage() {
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-slate-500">Base Qty</span>
                 <input
-                  className="rounded-md border border-slate-300 px-2 py-1.5"
+                  className="field"
                   type="number"
                   min="0.001"
                   step="0.001"
@@ -367,7 +359,7 @@ export function ItemsPage() {
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-slate-500">Sell Price</span>
                 <input
-                  className="rounded-md border border-slate-300 px-2 py-1.5"
+                  className="field"
                   type="number"
                   min="0"
                   step="0.01"
@@ -386,7 +378,7 @@ export function ItemsPage() {
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-slate-500">MRP</span>
                 <input
-                  className="rounded-md border border-slate-300 px-2 py-1.5"
+                  className="field"
                   type="number"
                   min="0"
                   step="0.01"
@@ -401,7 +393,7 @@ export function ItemsPage() {
                 />
               </label>
               <button
-                className="self-end rounded-md border border-rose-200 px-2 py-1.5 text-xs text-rose-700"
+                className="btn-danger self-end text-xs"
                 type="button"
                 onClick={() =>
                   setSaleUomRows((rows) => rows.filter((_, rowIndex) => rowIndex !== index))
@@ -417,14 +409,13 @@ export function ItemsPage() {
   );
 
   return (
-    <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[390px_1fr]">
-      <aside className="flex flex-col border-r border-slate-200 bg-white p-3">
+    <section className="grid grid-cols-1 xl:h-[calc(100vh-48px)] xl:grid-cols-[390px_1fr]">
+      <aside className="flex h-full max-h-[75vh] flex-col overflow-hidden border-r border-slate-200 bg-white xl:max-h-none">
+        <div className="shrink-0 border-b border-slate-200 p-4">
         <div className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">
-            Items List
-          </h3>
+          <h2 className="page-title">Items</h2>
           <button
-            className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white"
+            className="btn-primary"
             type="button"
             onClick={() => {
               resetMutationErrors();
@@ -438,11 +429,12 @@ export function ItemsPage() {
           </button>
         </div>
         <input
-          className="mb-3 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          className="field"
           placeholder="Search by name, code, category, or UOM"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
+        </div>
 
         {items.isLoading && (
           <p className="px-2 py-3 text-sm text-slate-500">Loading items...</p>
@@ -453,7 +445,7 @@ export function ItemsPage() {
           </p>
         )}
 
-        <div className="space-y-2 flex-1 overflow-y-scroll">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
           {filteredItems.map((item) => {
             const isSelected =
               selectedItemId === item.id && panelMode !== "create";
@@ -467,32 +459,28 @@ export function ItemsPage() {
                   setPanelMode("view");
                   setRemoveImageOnEdit(false);
                 }}
-                className={`w-full rounded-lg border px-3 py-2 text-left transition ${
-                  isSelected
-                    ? "border-teal-600 bg-teal-50"
-                    : "border-slate-200 bg-white hover:border-slate-300"
-                }`}
+                className={`list-row ${isSelected ? "is-active" : ""}`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-semibold text-slate-900">{item.name}</p>
-                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-                    {item.taxMode}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{item.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {item.code}
+                      {!item.hsnCode || !item.uqc ? (
+                        <span className="badge ml-2 bg-amber-50 text-amber-700">
+                          {!item.hsnCode ? "No HSN" : "No GST unit"}
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                  <span className="text-sm font-semibold text-slate-900 tabular-nums">
+                    {inr(item.sellPrice)}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500">
-                  {item.code}
-                  {!item.hsnCode || !item.uqc ? (
-                    <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                      {!item.hsnCode ? "No HSN" : "No GST unit"}
-                    </span>
-                  ) : null}
-                </p>
-                <p className="text-sm text-slate-700">
-                  Sell: Rs {money(item.sellPrice)}
-                </p>
-                <p className="text-xs text-slate-500">
-                  MRP: Rs {money((item as { mrp?: number }).mrp ?? item.sellPrice)}
-                </p>
+                <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-slate-500">
+                  <span className="tabular-nums">MRP {inr((item as { mrp?: number }).mrp ?? item.sellPrice)}</span>
+                  <span className="badge bg-slate-100 text-slate-600">{item.taxMode}</span>
+                </div>
                 {!!item.saleUoms?.length && (
                   <p className="text-xs text-slate-500">
                     UOMs: {item.saleUoms.map((variant) => variant.uom).join(", ")}
@@ -517,13 +505,14 @@ export function ItemsPage() {
           )}
       </aside>
 
-      <div className="rounded-xl border border-slate-200 p-4">
+      <div className="overflow-y-auto bg-slate-100 p-6">
+      <div className="card mx-auto max-w-5xl p-5">
         {panelMode === "create" ? (
           <>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Create Item</h3>
               <button
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="btn-secondary"
                 type="button"
                 onClick={() => {
                   resetMutationErrors();
@@ -543,11 +532,10 @@ export function ItemsPage() {
               }}
             >
               <label className="flex flex-col gap-1 md:col-span-2">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Item Image
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
                   type="file"
                   accept="image/*"
                   onChange={(e) =>
@@ -564,11 +552,11 @@ export function ItemsPage() {
                 </p>
               )}
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Code
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   placeholder="e.g. SKU-1001"
                   value={form.code}
                   onChange={(e) =>
@@ -578,11 +566,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Name
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   placeholder="e.g. Classic T-Shirt"
                   value={form.name}
                   onChange={(e) =>
@@ -592,11 +580,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Category
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   placeholder="Optional"
                   value={form.category}
                   onChange={(e) =>
@@ -605,11 +593,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   UOM
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   placeholder="PCS"
                   value={form.uom}
                   onChange={(e) =>
@@ -618,11 +606,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Least Count
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   type="number"
                   min="0.001"
                   step="0.001"
@@ -634,11 +622,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Cost Price
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   type="number"
                   step="0.01"
                   min="0"
@@ -649,11 +637,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Sell Price
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   type="number"
                   step="0.01"
                   min="0"
@@ -664,11 +652,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   MRP
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   type="number"
                   step="0.01"
                   min="0"
@@ -680,11 +668,11 @@ export function ItemsPage() {
               </label>
               {renderSaleUomEditor()}
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Tax Mode
                 </span>
                 <select
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   value={form.taxMode}
                   onChange={(e) =>
                     setForm((s) => ({
@@ -698,11 +686,11 @@ export function ItemsPage() {
                 </select>
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Tax %
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   type="number"
                   step="0.01"
                   min="0"
@@ -722,7 +710,7 @@ export function ItemsPage() {
               />
 
               <button
-                className="rounded-lg bg-teal-700 px-3 py-2 font-semibold text-white md:col-span-2"
+                className="btn-primary md:col-span-2"
                 type="submit"
                 disabled={createItem.isPending}
               >
@@ -735,7 +723,7 @@ export function ItemsPage() {
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Edit Item</h3>
               <button
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="btn-secondary"
                 type="button"
                 onClick={() => {
                   resetMutationErrors();
@@ -757,7 +745,7 @@ export function ItemsPage() {
               }}
             >
               <div className="md:col-span-2">
-                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-600">
+                <p className="mb-1 text-xs font-medium text-slate-600">
                   Item Image
                 </p>
                 <div className="grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[180px_minmax(0,1fr)]">
@@ -790,7 +778,7 @@ export function ItemsPage() {
                         Replace image
                       </span>
                       <input
-                        className="rounded-lg border border-slate-300 px-3 py-2"
+                        className="field"
                         type="file"
                         accept="image/*"
                         onChange={(e) =>
@@ -842,21 +830,21 @@ export function ItemsPage() {
                 </div>
               </div>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Code
                 </span>
                 <input
-                  className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-slate-600"
+                  className="field bg-slate-100"
                   value={selectedItem.code}
                   disabled
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Name
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   value={form.name}
                   onChange={(e) =>
                     setForm((s) => ({ ...s, name: e.target.value }))
@@ -865,11 +853,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Category
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   value={form.category}
                   onChange={(e) =>
                     setForm((s) => ({ ...s, category: e.target.value }))
@@ -877,11 +865,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   UOM
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   value={form.uom}
                   onChange={(e) =>
                     setForm((s) => ({ ...s, uom: e.target.value }))
@@ -889,11 +877,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Least Count
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   type="number"
                   min="0.001"
                   step="0.001"
@@ -905,11 +893,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Cost Price
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   type="number"
                   step="0.01"
                   min="0"
@@ -920,11 +908,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Sell Price
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   type="number"
                   step="0.01"
                   min="0"
@@ -935,11 +923,11 @@ export function ItemsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   MRP
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   type="number"
                   step="0.01"
                   min="0"
@@ -951,11 +939,11 @@ export function ItemsPage() {
               </label>
               {renderSaleUomEditor()}
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Tax Mode
                 </span>
                 <select
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   value={form.taxMode}
                   onChange={(e) =>
                     setForm((s) => ({
@@ -969,11 +957,11 @@ export function ItemsPage() {
                 </select>
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                <span className="text-xs font-medium text-slate-600">
                   Tax %
                 </span>
                 <input
-                  className="rounded-lg border border-slate-300 px-3 py-2"
+                  className="field"
                   type="number"
                   step="0.01"
                   min="0"
@@ -993,7 +981,7 @@ export function ItemsPage() {
               />
 
               <button
-                className="rounded-lg bg-teal-700 px-3 py-2 font-semibold text-white md:col-span-2"
+                className="btn-primary md:col-span-2"
                 type="submit"
                 disabled={updateItem.isPending}
               >
@@ -1007,7 +995,7 @@ export function ItemsPage() {
               <h3 className="text-lg font-semibold">Item Details</h3>
               <div className="flex items-center gap-2">
                 <button
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="btn-secondary"
                   type="button"
                   onClick={() => {
                     resetMutationErrors();
@@ -1049,7 +1037,7 @@ export function ItemsPage() {
                   Edit
                 </button>
                 <button
-                  className="rounded-lg border border-rose-300 px-3 py-2 text-sm text-rose-700"
+                  className="btn-danger"
                   type="button"
                   onClick={() => {
                     resetMutationErrors();
@@ -1081,95 +1069,95 @@ export function ItemsPage() {
                   </div>
                 )}
               </div>
-              <dl className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
                 <div>
-                  <dt className="text-slate-500">Code</dt>
+                  <dt className="text-xs text-slate-500">Code</dt>
                   <dd className="font-medium text-slate-900">
                     {selectedItem.code}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Name</dt>
+                  <dt className="text-xs text-slate-500">Name</dt>
                   <dd className="font-medium text-slate-900">
                     {selectedItem.name}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Category</dt>
+                  <dt className="text-xs text-slate-500">Category</dt>
                   <dd className="font-medium text-slate-900">
                     {selectedItem.category || "Uncategorized"}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">UOM</dt>
+                  <dt className="text-xs text-slate-500">UOM</dt>
                   <dd className="font-medium text-slate-900">
                     {selectedItem.uom}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Least Count</dt>
+                  <dt className="text-xs text-slate-500">Least Count</dt>
                   <dd className="font-medium text-slate-900">
                     {selectedItem.leastCount}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Cost</dt>
+                  <dt className="text-xs text-slate-500">Cost</dt>
                   <dd className="font-medium text-slate-900">
-                    Rs {money(selectedItem.costPrice)}
+                    {inr(selectedItem.costPrice)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Sell Price</dt>
+                  <dt className="text-xs text-slate-500">Sell Price</dt>
                   <dd className="font-medium text-slate-900">
-                    Rs {money(selectedItem.sellPrice)}
+                    {inr(selectedItem.sellPrice)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">MRP</dt>
+                  <dt className="text-xs text-slate-500">MRP</dt>
                   <dd className="font-medium text-slate-900">
-                    Rs {money((selectedItem as { mrp?: number }).mrp ?? selectedItem.sellPrice)}
+                    {inr((selectedItem as { mrp?: number }).mrp ?? selectedItem.sellPrice)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Tax Mode</dt>
+                  <dt className="text-xs text-slate-500">Tax Mode</dt>
                   <dd className="font-medium text-slate-900">
                     {selectedItem.taxMode}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Tax %</dt>
+                  <dt className="text-xs text-slate-500">Tax %</dt>
                   <dd className="font-medium text-slate-900">
                     {selectedItem.taxRate}%
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">HSN / SAC</dt>
+                  <dt className="text-xs text-slate-500">HSN / SAC</dt>
                   <dd className={selectedItem.hsnCode ? "font-medium text-slate-900" : "font-medium text-amber-700"}>
                     {selectedItem.hsnCode ?? "Not set"}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">GST unit</dt>
+                  <dt className="text-xs text-slate-500">GST unit</dt>
                   <dd className={selectedItem.uqc ? "font-medium text-slate-900" : "font-medium text-amber-700"}>
                     {selectedItem.uqc ?? "Not set"}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">GST supply type</dt>
+                  <dt className="text-xs text-slate-500">GST supply type</dt>
                   <dd className="font-medium text-slate-900">
                     {GST_SUPPLY_TYPE_LABELS[selectedItem.supplyType]}
                   </dd>
                 </div>
               </dl>
-              <div className="md:col-span-2 rounded-lg border border-slate-200">
+              <div className="md:col-span-2 overflow-hidden rounded-md border border-slate-200">
                 <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                  <p className="eyebrow">
                     Sale UOM Pricing
                   </p>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm">
-                    <thead className="text-xs uppercase tracking-wide text-slate-500">
+                    <thead className="eyebrow">
                       <tr>
                         <th className="px-3 py-2">UOM</th>
                         <th className="px-3 py-2">Base Qty</th>
@@ -1178,6 +1166,13 @@ export function ItemsPage() {
                       </tr>
                     </thead>
                     <tbody>
+                      {(selectedItem.saleUoms ?? []).length === 0 ? (
+                        <tr className="border-t border-slate-100">
+                          <td colSpan={4} className="px-3 py-4 text-center text-xs text-slate-500">
+                            Sold only in {selectedItem.uom}. Add sale units from Edit to sell in packs or other units.
+                          </td>
+                        </tr>
+                      ) : null}
                       {(selectedItem.saleUoms ?? []).map((variant) => (
                         <tr key={variant.id} className="border-t border-slate-100">
                           <td className="px-3 py-2 font-medium text-slate-900">
@@ -1192,10 +1187,10 @@ export function ItemsPage() {
                             {variant.conversionQty} {selectedItem.uom}
                           </td>
                           <td className="px-3 py-2 text-slate-700">
-                            Rs {money(variant.sellPrice)}
+                            {inr(variant.sellPrice)}
                           </td>
                           <td className="px-3 py-2 text-slate-700">
-                            Rs {money(variant.mrp)}
+                            {inr(variant.mrp)}
                           </td>
                         </tr>
                       ))}
@@ -1206,16 +1201,18 @@ export function ItemsPage() {
             </div>
           </>
         ) : (
-          <p className="text-sm text-slate-500">
-            Select an item from the left to view details.
-          </p>
+          <div className="py-12 text-center">
+            <p className="text-sm font-medium text-slate-600">No item selected</p>
+            <p className="mt-1 text-xs text-slate-500">Select an item from the left to view details.</p>
+          </div>
         )}
 
         {hasMutationError && (
-          <p className="mt-3 text-sm text-rose-600">
+          <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
             {mutationErrorMessage}
           </p>
         )}
+      </div>
       </div>
     </section>
   );

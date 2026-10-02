@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { money } from "../route-helpers";
+import { inr, money } from "../route-helpers";
 import { keypadKeyFromEvent, shouldIgnoreDialogKey } from "./keyboard";
 import type { Payment } from "./usePayment";
 
@@ -58,47 +58,47 @@ export function PaymentModal({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/40 p-4">
-      <div className="grid w-full max-w-6xl grid-cols-2 overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
-        <div className="flex flex-col bg-slate-50 p-3">
+    <div className="modal-backdrop">
+      <div className="grid max-h-[calc(100vh-2rem)] w-full max-w-6xl grid-cols-1 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xl md:grid-cols-2">
+        <div className="flex flex-col bg-slate-50 p-6">
           <div className="flex-1">
             <div className="text-center">
-              <p className="text-3xl text-slate-500">{payment.method}</p>
-              <p className="mt-3 text-7xl leading-none text-slate-900">
-                ${money(payment.amount)}
+              <p className="eyebrow">{payment.method}</p>
+              <p className="mt-2 text-5xl font-semibold tracking-tight text-slate-900 tabular-nums">
+                {inr(payment.amount)}
               </p>
               {payment.method === "WALLET" && !isWalkInSelected ? (
-                <p className="mt-4 text-2xl text-slate-600">
-                  Wallet Balance: ₹ {money(walletBalance)}
+                <p className="mt-2 text-sm text-slate-600">
+                  Wallet Balance: {inr(walletBalance)}
                 </p>
               ) : null}
             </div>
 
-            <div className="mx-auto mt-10 max-w-3xl space-y-3">
+            <div className="mt-8 space-y-2">
               {payment.lines.length === 0 ? (
-                <p className="text-center text-lg text-slate-500">
+                <p className="rounded-md border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
                   {payment.method === "CREDIT"
                     ? "Full amount will remain due on customer credit."
-                    : "No payment lines yet. Add a payment mode from the left."}
+                    : "No payments added yet. Choose a method, enter an amount and press Add."}
                 </p>
               ) : null}
 
               {payment.lines.map((line) => (
                 <div
                   key={line.mode}
-                  className="flex items-center justify-between rounded-lg border border-cyan-200 bg-cyan-50 px-5 py-4"
+                  className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-4 py-3 shadow-xs"
                 >
-                  <p className="text-4xl text-slate-800">
+                  <p className="text-sm font-semibold text-slate-800">
                     {line.mode === "WALLET"
                       ? "Customer Account"
                       : line.mode}
                   </p>
-                  <div className="flex items-center gap-6">
-                    <p className="text-4xl text-slate-700">
-                      $ {money(line.amount)}
+                  <div className="flex items-center gap-3">
+                    <p className="text-base font-semibold text-slate-900 tabular-nums">
+                      {inr(line.amount)}
                     </p>
                     <button
-                      className="text-4xl font-bold text-rose-600"
+                      className="grid h-7 w-7 place-items-center rounded-md text-lg leading-none text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                       onClick={() => payment.removeLine(line.mode)}
                       title="Remove payment line"
                     >
@@ -110,15 +110,15 @@ export function PaymentModal({
             </div>
           </div>
 
-          <div className="mt-8 border-t border-slate-200 pt-5">
-            <div className="flex items-center justify-between text-3xl">
-              <p className="text-emerald-600">Remaining</p>
-              <p className="text-emerald-500">$ {money(payment.remainingAmount)}</p>
+          <div className="mt-6 border-t border-slate-200 pt-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-slate-600">Remaining</p>
+              <p className="text-2xl font-semibold text-slate-900 tabular-nums">{inr(payment.remainingAmount)}</p>
             </div>
           </div>
 
           <button
-            className="mt-2 w-full rounded bg-emerald-600 px-3 py-4 text-2xl font-bold text-white disabled:bg-emerald-300"
+            className="btn-primary mt-4 h-12 w-full text-base"
             onClick={onValidate}
             disabled={
               checkoutPending || payment.walletOverused || !payment.canValidate
@@ -138,8 +138,8 @@ export function PaymentModal({
           payment.lines.length > 0 &&
           !payment.matchesTotal ? (
             <p className="mt-2 text-sm text-rose-700">
-              Walk-in payment must be exactly ₹ {money(total)}. Current: ₹{" "}
-              {money(payment.totalPaid)}.
+              Walk-in payment must be exactly {inr(total)}. Current:{" "}
+              {inr(payment.totalPaid)}.
             </p>
           ) : null}
           {!payment.walletOverused &&
@@ -147,8 +147,8 @@ export function PaymentModal({
           payment.lines.length > 0 &&
           payment.totalPaid < total ? (
             <p className="mt-2 text-sm text-amber-700">
-              Partial payment selected. Remaining due: ₹{" "}
-              {money(total - payment.totalPaid)}.
+              Partial payment selected. Remaining due:{" "}
+              {inr(total - payment.totalPaid)}.
             </p>
           ) : null}
           {!payment.walletOverused &&
@@ -156,7 +156,7 @@ export function PaymentModal({
           payment.lines.length > 0 &&
           payment.excessAmount > 0 ? (
             <p className="mt-2 text-sm text-emerald-700">
-              Excess ₹ {money(payment.excessAmount)} will be deposited to customer
+              Excess {inr(payment.excessAmount)} will be deposited to customer
               wallet.
             </p>
           ) : null}
@@ -167,12 +167,12 @@ export function PaymentModal({
           ) : null}
         </div>
 
-        <div className="border-r border-slate-200 p-3">
-          <div className="mb-3 grid grid-cols-2 gap-2">
+        <div className="border-t border-slate-200 p-6 md:border-t-0 md:border-l">
+          <div className="mb-4 grid grid-cols-2 gap-2">
             {payment.availableMethods.map((method) => (
               <button
                 key={method.key}
-                className={`rounded px-3 py-4 text-left text-2xl ${payment.method === method.key ? "bg-indigo-100 text-indigo-900" : "bg-slate-100 text-slate-700"}`}
+                className={`rounded-md border px-3 py-3 text-left text-sm font-semibold transition-colors ${payment.method === method.key ? "border-brand-600 bg-brand-50 text-brand-700 ring-1 ring-brand-600" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
                 onClick={() => payment.setMethod(method.key)}
               >
                 {method.label}
@@ -180,7 +180,7 @@ export function PaymentModal({
             ))}
           </div>
 
-          <div className="grid grid-cols-4 gap-1">
+          <div className="grid grid-cols-4 gap-2">
             {[
               "1",
               "2",
@@ -201,7 +201,7 @@ export function PaymentModal({
             ].map((key) => (
               <button
                 key={key}
-                className={`rounded px-2 py-4 text-2xl font-semibold ${key.startsWith("+") && key.length > 1 ? "bg-emerald-200 text-emerald-900" : "bg-slate-100 text-slate-800"}`}
+                className={`h-14 rounded-md border text-xl font-semibold tabular-nums transition-colors active:scale-[0.97] ${/^\+\d+$/.test(key) ? "border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100" : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"}`}
                 onClick={() => payment.press(key)}
               >
                 {key}
@@ -209,7 +209,7 @@ export function PaymentModal({
             ))}
 
             <button
-              className="col-span-3 rounded bg-indigo-600 px-2 py-4 text-xl font-bold text-white disabled:bg-indigo-300"
+              className="btn-primary col-span-3 h-14 text-base"
               onClick={payment.applyLine}
               disabled={payment.method === "CREDIT"}
             >
@@ -218,14 +218,14 @@ export function PaymentModal({
                 : `Add / Update ${payment.method}`}
             </button>
             <button
-              className="col-span-1 rounded bg-rose-200 px-2 py-4 text-2xl font-semibold text-rose-800"
+              className="btn-danger col-span-1 h-14 text-base"
               onClick={() => payment.press("C")}
             >
               Clear
             </button>
 
             <button
-              className="col-span-4 rounded bg-slate-200 px-2 py-4 text-2xl font-semibold text-slate-800"
+              className="btn-secondary col-span-4 h-12 text-base"
               onClick={payment.close}
             >
               Back

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { money } from "../route-helpers";
+import { inr, money } from "../route-helpers";
 import type { PaymentMethod, PaymentMode } from "./types";
 
 export type PaymentLine = { mode: PaymentMode; amount: number };
@@ -107,7 +107,7 @@ export function usePayment({
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) return;
     if (mode === "WALLET" && value > walletBalance) {
-      setError(`Wallet balance is insufficient. Available: ₹ ${money(walletBalance)}`);
+      setError(`Wallet balance is insufficient. Available: ${inr(walletBalance)}`);
       return;
     }
     setError("");
@@ -117,7 +117,7 @@ export function usePayment({
         const paidWithoutCurrent = withoutCurrent.reduce((acc, line) => acc + line.amount, 0);
         const maxAllowedForCurrent = total - paidWithoutCurrent;
         if (value > maxAllowedForCurrent + 0.0001) {
-          setError(`Amount exceeds remaining. You can add up to ₹ ${money(maxAllowedForCurrent)}`);
+          setError(`Amount exceeds remaining. You can add up to ${inr(maxAllowedForCurrent)}`);
           return prev;
         }
       }

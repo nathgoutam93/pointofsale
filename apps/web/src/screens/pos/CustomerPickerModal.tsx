@@ -58,58 +58,58 @@ export function CustomerPickerModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-xl rounded-xl border border-slate-300 bg-white p-4 shadow-2xl">
+    <div className="modal-backdrop z-50">
+      <div className="max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-xl font-semibold text-slate-900">Select or Create Customer</h3>
-          <button className="rounded bg-slate-200 px-2 py-1 text-sm text-slate-700" onClick={onClose}>
+          <h3 className="text-lg font-semibold text-slate-900">Select customer</h3>
+          <button className="btn-ghost px-2.5 py-1" onClick={onClose}>
             Close
           </button>
         </div>
 
-        <label className="text-sm text-slate-600">Search Customer by Name or Phone</label>
+        <label className="field-label">Search by name or phone</label>
         <input
-          className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+          className="field mt-1"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Enter customer name or phone"
         />
 
-        <div className="mt-3 max-h-52 space-y-2 overflow-auto rounded border border-slate-200 p-2">
+        <div className="mt-3 max-h-64 space-y-2 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-2">
           {matchingCustomers.length === 0 ? (
             <p className="text-sm text-slate-500">No matching customer found.</p>
           ) : null}
           {matchingCustomers.map((c) => (
             <button
               key={c.id}
-              className="w-full rounded border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100"
+              className="list-row"
               onClick={() => onSelect(c.id)}
             >
-              <p className="font-semibold text-slate-800">{c.name}</p>
+              <p className="text-sm font-semibold text-slate-900">{c.name}</p>
               <p className="text-xs text-slate-500">
-                {c.phone ?? "No phone"} | {c.code}
+                {c.phone ?? "No phone"} · {c.code}
               </p>
             </button>
           ))}
         </div>
 
         {searchQuery.trim() && matchingCustomers.length === 0 ? (
-          <div className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-3">
-            <p className="text-sm font-semibold text-emerald-800">Create new customer</p>
+          <div className="mt-3 rounded-md border border-slate-200 p-4">
+            <p className="text-sm font-semibold text-slate-900">Create new customer</p>
             <input
-              className="mt-2 w-full rounded border border-slate-300 px-3 py-2"
+              className="field mt-2"
               value={newPhone}
               onChange={(e) => setNewPhone(e.target.value)}
               placeholder="Customer phone number"
             />
             <input
-              className="mt-2 w-full rounded border border-slate-300 px-3 py-2"
+              className="field mt-2"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Customer name (optional)"
             />
             <button
-              className="mt-2 rounded bg-emerald-600 px-3 py-2 text-sm font-semibold text-white"
+              className="btn-primary mt-2"
               onClick={() => createCustomer.mutate()}
               disabled={createCustomer.isPending}
             >
@@ -118,7 +118,7 @@ export function CustomerPickerModal({
           </div>
         ) : null}
 
-        {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
+        {error ? <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">{error}</p> : null}
       </div>
     </div>
   );

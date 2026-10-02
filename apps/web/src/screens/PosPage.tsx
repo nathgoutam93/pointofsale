@@ -5,7 +5,7 @@ import type { DiscountInput } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders } from "../lib/api";
 import { newUuid } from "../lib/id";
 import { removeDrafts, upsertDraft } from "../lib/draftStore";
-import { money, requireOperationalSession } from "./route-helpers";
+import { inr, requireOperationalSession } from "./route-helpers";
 import {
   getCartLineKey,
   normalizeLeastCount,
@@ -469,7 +469,7 @@ export function PosPage() {
     }
     try {
       const draft = saveCurrentCartAsLocalDraft();
-      setMessage(`Local draft saved: ${draft.customerName}, ₹ ${money(draft.total)}`);
+      setMessage(`Local draft saved: ${draft.customerName}, ${inr(draft.total)}`);
     } catch {
       setMessage("Could not save draft locally. The current cart was kept.");
     }
@@ -672,16 +672,15 @@ export function PosPage() {
   });
 
   return (
-    <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[450px_1fr]">
+    <section className="grid grid-cols-1 lg:h-[calc(100vh-48px)] lg:grid-cols-[360px_1fr] xl:grid-cols-[420px_1fr]">
       <ReceiptPrintStyles templateCss={receiptTemplateCss} customCss={customReceiptCss} />
 
-      <aside className="flex h-full flex-col overflow-hidden bg-white">
+      <aside className="flex h-full flex-col overflow-hidden border-r border-slate-200 bg-white">
         {postPayment ? (
           <PostPaymentPanel
             postPayment={postPayment}
             receiptContact={receiptContact}
             onReceiptContactChange={setReceiptContact}
-            onMessage={setMessage}
             onSend={exportPrintableInvoice}
             onNewOrder={startNewOrder}
           />
@@ -736,16 +735,18 @@ export function PosPage() {
         )}
 
         {checkout.error ? (
-          <p className="px-3 pb-1 text-sm text-red-700">
+          <p className="mx-4 mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
             {(checkout.error as Error).message}
           </p>
         ) : null}
         {message ? (
-          <p className="px-3 pb-2 text-sm text-emerald-700">{message}</p>
+          <p className="mx-4 mb-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700" role="status">
+            {message}
+          </p>
         ) : null}
       </aside>
 
-      <div className="bg-slate-100 p-6 print:bg-white print:p-0">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-slate-100 print:bg-white print:p-0">
         {postPayment ? (
           <PrintableInvoice logoSrc={invoiceLogoSrc} lines={printableInvoice?.lines ?? []} />
         ) : (

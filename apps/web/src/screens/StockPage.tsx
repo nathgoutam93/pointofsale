@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, authHeaders } from "../lib/api";
-import { money, requireOperationalSession } from "./route-helpers";
+import { inr, requireOperationalSession } from "./route-helpers";
 
 type StockModalType = "opening" | "adjustment" | null;
 
@@ -265,11 +265,10 @@ export function StockPage() {
 
   return (
     <>
-      <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[360px_1fr]">
-        <aside className="border-r border-slate-200 bg-white p-3">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-600">
-            Inventory
-          </h3>
+      <section className="grid grid-cols-1 xl:h-[calc(100vh-48px)] xl:grid-cols-[360px_1fr]">
+        <aside className="flex h-full max-h-[75vh] flex-col overflow-hidden border-r border-slate-200 bg-white xl:max-h-none">
+          <div className="shrink-0 border-b border-slate-200 p-4">
+          <h2 className="page-title mb-3">Inventory</h2>
           {items.isLoading && (
             <p className="px-2 py-3 text-sm text-slate-500">Loading items...</p>
           )}
@@ -278,17 +277,17 @@ export function StockPage() {
               Could not load items.
             </p>
           )}
-          <div className="mb-3 grid gap-2">
+          <div className="grid gap-2">
             <input
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="field"
               placeholder="Search by item or code"
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
             />
-            <label className="flex items-center justify-between text-xs text-slate-500">
+            <label className="flex items-center justify-between gap-3 text-xs text-slate-500">
               Sort by stock
               <select
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+                className="field w-auto py-1 text-xs"
                 value={stockSort}
                 onChange={(event) =>
                   setStockSort(event.target.value as "desc" | "asc")
@@ -299,7 +298,8 @@ export function StockPage() {
               </select>
             </label>
           </div>
-          <div className="space-y-2 overflow-y-auto">
+          </div>
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
             {filteredItems.map((item) => {
               const isSelected = item.id === selectedItemId;
               const itemOnHand = onHandByItem.get(item.id) ?? 0;
@@ -308,22 +308,20 @@ export function StockPage() {
                   key={item.id}
                   type="button"
                   onClick={() => setSelectedItemId(item.id)}
-                  className={`w-full rounded-lg border px-3 py-3 text-left transition ${
-                    isSelected
-                      ? "border-teal-700 bg-teal-50"
-                      : "border-slate-200 bg-white hover:bg-slate-50"
-                  }`}
+                  className={`list-row ${isSelected ? "is-active" : ""}`}
                 >
-                  <p className="font-semibold text-slate-900">{item.name}</p>
-                  <p className="text-xs text-slate-500">{item.code}</p>
-                  <div className="mt-2 flex items-center justify-between text-xs">
-                    <span className="text-slate-500">
-                      On hand: {itemOnHand}
-                    </span>
-                    <span className="text-slate-500">
-                      Cost: Rs {money(item.costPrice)}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">{item.name}</p>
+                      <p className="text-xs text-slate-500">{item.code}</p>
+                    </div>
+                    <span className={`badge tabular-nums ${itemOnHand <= 0 ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-700"}`}>
+                      {itemOnHand} on hand
                     </span>
                   </div>
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    Cost <span className="tabular-nums">{inr(item.costPrice)}</span>
+                  </p>
                 </button>
               );
             })}
@@ -335,43 +333,34 @@ export function StockPage() {
           </div>
         </aside>
 
-        <div className="space-y-4 bg-slate-50 p-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-xl font-semibold text-slate-900">
-              Stock Management
+        <div className="space-y-6 overflow-y-auto bg-slate-100 p-6">
+          <div className="card p-5">
+            <h2 className="page-title">
+              {selectedItem ? selectedItem.name : "Stock Management"}
             </h2>
             {!selectedItem ? (
               <p className="mt-2 text-sm text-slate-500">
                 Select an item from the left to manage stock.
               </p>
             ) : (
-              <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <dl className="mt-4 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-3">
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-500">
-                    Selected Item
-                  </p>
-                  <p className="font-semibold text-slate-900">
-                    {selectedItem.name}
-                  </p>
-                  <p className="text-sm text-slate-500">{selectedItem.code}</p>
+                  <dt className="eyebrow">Item code</dt>
+                  <dd className="mt-1 text-sm font-medium text-slate-900">{selectedItem.code}</dd>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-500">
-                    On Hand
-                  </p>
-                  <p className="font-semibold text-slate-900">
+                  <dt className="eyebrow">On hand</dt>
+                  <dd className="mt-1 text-xl font-semibold text-slate-900 tabular-nums">
                     {selectedOnHand}
-                  </p>
+                  </dd>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-500">
-                    Default Item Cost
-                  </p>
-                  <p className="font-semibold text-slate-900">
-                    Rs {money(selectedItem.costPrice)}
-                  </p>
+                  <dt className="eyebrow">Default item cost</dt>
+                  <dd className="mt-1 text-xl font-semibold text-slate-900 tabular-nums">
+                    {inr(selectedItem.costPrice)}
+                  </dd>
                 </div>
-              </div>
+              </dl>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
               <button
@@ -381,7 +370,7 @@ export function StockPage() {
                     ? openOpeningEditModal()
                     : openOpeningCreateModal()
                 }
-                className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white"
+                className="btn-primary"
                 disabled={!selectedItem}
               >
                 {openingEntry ? "Edit Opening Stock" : "Add Opening Stock"}
@@ -389,7 +378,7 @@ export function StockPage() {
               <button
                 type="button"
                 onClick={() => setModalType("adjustment")}
-                className="rounded-lg bg-slate-800 px-3 py-2 text-sm font-semibold text-white"
+                className="btn-secondary"
                 disabled={!selectedItem}
               >
                 Stock Adjustment
@@ -398,15 +387,15 @@ export function StockPage() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="card p-5">
               <div className="flex items-center justify-between gap-2">
-                <h3 className="text-base font-semibold text-slate-900">
+                <h3 className="text-sm font-semibold text-slate-900">
                   Opening History
                 </h3>
                 {openingEntry && (
                   <button
                     type="button"
-                    className="rounded-lg border border-teal-700 px-3 py-1 text-xs font-semibold text-teal-700"
+                    className="btn-secondary px-2.5 py-1 text-xs"
                     onClick={openOpeningEditModal}
                   >
                     Edit Opening
@@ -427,7 +416,7 @@ export function StockPage() {
                 <div className="mt-3 overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-slate-200 text-left text-slate-500">
+                      <tr className="eyebrow border-b border-slate-200 text-left">
                         <th className="py-2">Date</th>
                         <th className="py-2">Qty</th>
                         <th className="py-2">Cost</th>
@@ -445,7 +434,7 @@ export function StockPage() {
                           </td>
                           <td className="py-2 pr-2">{entry.qtyIn}</td>
                           <td className="py-2 pr-2">
-                            Rs {money(entry.costPrice)}
+                            {inr(entry.costPrice)}
                           </td>
                           <td className="py-2">{entry.reason || "-"}</td>
                         </tr>
@@ -456,8 +445,8 @@ export function StockPage() {
               )}
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <h3 className="text-base font-semibold text-slate-900">
+            <div className="card p-5">
+              <h3 className="text-sm font-semibold text-slate-900">
                 Adjustment History
               </h3>
               {ledger.isLoading && (
@@ -474,7 +463,7 @@ export function StockPage() {
                 <div className="mt-3 overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-slate-200 text-left text-slate-500">
+                      <tr className="eyebrow border-b border-slate-200 text-left">
                         <th className="py-2">Date</th>
                         <th className="py-2">Type</th>
                         <th className="py-2">Qty</th>
@@ -500,7 +489,7 @@ export function StockPage() {
                               : entry.qtyOut}
                           </td>
                           <td className="py-2 pr-2">
-                            Rs {money(entry.costPrice)}
+                            {inr(entry.costPrice)}
                           </td>
                           <td className="py-2">{entry.reason || "-"}</td>
                         </tr>
@@ -515,8 +504,8 @@ export function StockPage() {
       </section>
 
       {modalType && selectedItem && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-xl rounded-xl bg-white p-5 shadow-xl">
+        <div className="modal-backdrop">
+          <div className="max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-lg font-semibold text-slate-900">
@@ -554,7 +543,7 @@ export function StockPage() {
                 <label className="block text-sm text-slate-600">
                   Quantity
                   <input
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={openingQty}
                     onChange={(e) => setOpeningQty(e.target.value)}
                     type="number"
@@ -566,7 +555,7 @@ export function StockPage() {
                 <label className="block text-sm text-slate-600">
                   Unit Cost (Rs)
                   <input
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={openingCostPrice}
                     onChange={(e) => setOpeningCostPrice(e.target.value)}
                     type="number"
@@ -578,14 +567,14 @@ export function StockPage() {
                 <label className="block text-sm text-slate-600">
                   Reason
                   <input
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={openingReason}
                     onChange={(e) => setOpeningReason(e.target.value)}
                     placeholder="Opening stock setup"
                   />
                 </label>
                 <button
-                  className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white"
+                  className="btn-primary"
                   type="submit"
                   disabled={opening.isPending || updateOpening.isPending}
                 >
@@ -614,7 +603,7 @@ export function StockPage() {
                 <label className="block text-sm text-slate-600">
                   Direction
                   <select
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={adjustmentDirection}
                     onChange={(e) =>
                       setAdjustmentDirection(e.target.value as "IN" | "OUT")
@@ -627,7 +616,7 @@ export function StockPage() {
                 <label className="block text-sm text-slate-600">
                   Quantity
                   <input
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={adjustmentQty}
                     onChange={(e) => setAdjustmentQty(e.target.value)}
                     type="number"
@@ -639,7 +628,7 @@ export function StockPage() {
                 <label className="block text-sm text-slate-600">
                   Unit Cost (Rs)
                   <input
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={adjustmentCostPrice}
                     onChange={(e) => setAdjustmentCostPrice(e.target.value)}
                     type="number"
@@ -651,7 +640,7 @@ export function StockPage() {
                 <label className="block text-sm text-slate-600">
                   Reason
                   <input
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={adjustmentReason}
                     onChange={(e) => setAdjustmentReason(e.target.value)}
                     placeholder="Damage / correction / stock count"

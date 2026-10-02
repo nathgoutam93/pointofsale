@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api, authHeaders } from "../lib/api";
 import { getSession, updateSession } from "../lib/session";
-import { money, requireSession } from "./route-helpers";
+import { inr, requireSession } from "./route-helpers";
 
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString("en-IN", {
@@ -123,10 +123,10 @@ export function OpenRegisterPage() {
   };
 
   return (
-    <section className="w-full min-h-[calc(100vh-48px)] bg-slate-50">
+    <section className="w-full min-h-[calc(100vh-48px)]">
       <div className="mx-auto w-full max-w-5xl p-6">
-        <h1 className="text-2xl font-bold text-slate-900">Open Register</h1>
-        <p className="mt-1 text-sm text-slate-600">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Open a register</h1>
+        <p className="mt-1 text-sm text-slate-500">
           Choose a shop and review its register status before opening a new
           session.
         </p>
@@ -144,27 +144,27 @@ export function OpenRegisterPage() {
                 type="button"
                 onClick={() => setSelectedBranchId(branch.id)}
                 className={[
-                  "rounded-xl border bg-white p-4 text-left shadow-sm transition",
-                  "hover:border-teal-300 hover:shadow",
-                  isSelected ? "border-teal-500 ring-2 ring-teal-200" : "border-slate-200",
+                  "rounded-lg border bg-white p-4 text-left shadow-xs transition",
+                  "hover:border-brand-300 hover:shadow-sm",
+                  isSelected ? "border-brand-500 ring-2 ring-brand-500/20" : "border-slate-200",
                 ].join(" ")}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-400">
+                    <p className="eyebrow">
                       Shop
                     </p>
-                    <p className="text-lg font-semibold text-slate-900">
+                    <p className="text-base font-semibold text-slate-900">
                       {branch.name}
                     </p>
                     <p className="text-xs text-slate-500">{branch.code}</p>
                   </div>
                   <span
                     className={[
-                      "rounded-full px-2 py-1 text-xs font-semibold",
+                      "badge ring-1 ring-inset",
                       currentRegister
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-slate-100 text-slate-600",
+                        ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
+                        : "bg-slate-100 text-slate-600 ring-slate-500/20",
                     ].join(" ")}
                   >
                     {currentRegister ? "Open" : "Closed"}
@@ -172,15 +172,15 @@ export function OpenRegisterPage() {
                 </div>
 
                 <div className="mt-3 grid gap-2 text-sm text-slate-600">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                    <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
+                    <p className="eyebrow">
                       Current Register
                     </p>
                     {currentRegister ? (
                       <div className="mt-1 grid gap-1 text-sm text-slate-700">
                         <p>Opened {formatDateTime(currentRegister.openedAt)}</p>
                         <p>
-                          Opening Balance: ₹{money(currentRegister.openingBalance)}
+                          Opening Balance: {inr(currentRegister.openingBalance)}
                         </p>
                       </div>
                     ) : (
@@ -189,8 +189,8 @@ export function OpenRegisterPage() {
                       </p>
                     )}
                   </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                    <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
+                    <p className="eyebrow">
                       Last Closed Register
                     </p>
                     {lastClosed ? (
@@ -202,17 +202,17 @@ export function OpenRegisterPage() {
                             : "—"}
                         </p>
                         <p>
-                          Opening: ₹{money(lastClosed.openingBalance)} · Closing: ₹
-                          {money(lastClosed.closingBalance)}
+                          Opening: {inr(lastClosed.openingBalance)} · Closing:{" "}
+                          {inr(lastClosed.closingBalance)}
                         </p>
                         {lastClosed.expectedCash !== null && lastClosed.cashDifference !== null ? (
                           <p className={Math.abs(lastClosed.cashDifference) < 0.005 ? "text-emerald-700" : "text-rose-700"}>
-                            Expected: ₹{money(lastClosed.expectedCash)} ·{" "}
+                            Expected: {inr(lastClosed.expectedCash)} ·{" "}
                             {Math.abs(lastClosed.cashDifference) < 0.005
                               ? "Balanced"
                               : lastClosed.cashDifference > 0
-                                ? `Over by ₹${money(lastClosed.cashDifference)}`
-                                : `Short by ₹${money(-lastClosed.cashDifference)}`}
+                                ? `Over by ${inr(lastClosed.cashDifference)}`
+                                : `Short by ${inr(-lastClosed.cashDifference)}`}
                           </p>
                         ) : null}
                       </div>
@@ -234,19 +234,19 @@ export function OpenRegisterPage() {
           })}
         </div>
 
-        <form onSubmit={onSubmit} className="mt-6 grid gap-3 rounded-xl bg-white p-4 shadow-sm">
+        <form onSubmit={onSubmit} className="card mt-6 grid max-w-md gap-4 p-5">
           <div className="grid gap-1 text-sm text-slate-700">
-            <span className="text-xs uppercase tracking-wide text-slate-400">
+            <span className="eyebrow">
               Selected Branch
             </span>
             <span className="text-base font-semibold text-slate-900">
               {selectedBranchLabel || "Select a branch"}
             </span>
           </div>
-          <label className="grid gap-1 text-sm text-slate-700">
-            Opening Balance (Cash)
+          <label className="grid gap-1 text-xs font-medium text-slate-600">
+            Opening cash balance
             <input
-              className="rounded-lg border border-slate-300 px-3 py-2"
+              className="field"
               value={openingBalance}
               onChange={(e) => setOpeningBalance(e.target.value)}
               inputMode="decimal"
@@ -254,7 +254,7 @@ export function OpenRegisterPage() {
             />
           </label>
           <button
-            className="rounded-lg bg-teal-700 px-3 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:bg-teal-300"
+            className="btn-primary"
             type="submit"
             disabled={openRegister.isPending || !selectedBranchId || selectedBranchHasOpenRegister}
           >
@@ -270,13 +270,13 @@ export function OpenRegisterPage() {
         </form>
 
         {openRegister.error ? (
-          <p className="mt-2 text-sm text-red-700">
+          <p className="mt-3 max-w-md rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
             {(openRegister.error as Error).message}
           </p>
         ) : null}
 
         {registerSummaryQuery.error ? (
-          <p className="mt-2 text-sm text-red-700">
+          <p className="mt-3 max-w-md rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
             {(registerSummaryQuery.error as Error).message}
           </p>
         ) : null}

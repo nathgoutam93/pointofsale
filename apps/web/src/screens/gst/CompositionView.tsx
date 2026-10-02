@@ -27,7 +27,7 @@ export function CompositionView({ gstin, kind, period, fy }: { gstin: string; ki
 
   return (
     <>
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="card p-5">
         <p className="text-sm text-slate-600">
           {kind === "CMP08"
             ? "CMP-08 for the quarter: sales made as a composition taxpayer, net of returns, and the tax due on them at the composition rate. Traders pay on taxable supplies only; others on all their turnover."
@@ -38,7 +38,7 @@ export function CompositionView({ gstin, kind, period, fy }: { gstin: string; ki
         </div>
         {data ? (
           <p className="mt-3 text-sm text-slate-600">
-            Business turnover this financial year (all GSTINs): ₹ {amount(data.yearTurnover)}
+            Business turnover this financial year (all GSTINs): ₹{amount(data.yearTurnover)}
           </p>
         ) : null}
       </div>

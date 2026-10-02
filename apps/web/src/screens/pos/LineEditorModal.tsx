@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { money } from "../route-helpers";
+import { inr } from "../route-helpers";
 import { computeLineAmounts, formatQty } from "./cartMath";
 import type { TaxCalculationMode } from "./cartMath";
 import { keypadKeyFromEvent, shouldIgnoreDialogKey } from "./keyboard";
@@ -58,34 +58,32 @@ export function LineEditorModal({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-5xl overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
+    <div className="modal-backdrop">
+      <div className="max-h-[calc(100vh-2rem)] w-full max-w-5xl overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xl">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px]">
-          <div className="border-r border-slate-200 bg-slate-50 p-4">
+          <div className="border-b border-slate-200 bg-slate-50 p-6 lg:border-r lg:border-b-0">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-2xl font-semibold text-slate-900">
+                <p className="eyebrow">Edit line</p>
+                <p className="mt-0.5 text-xl font-semibold text-slate-900">
                   {displayEditLine?.name}
-                </p>
-                <p className="text-sm text-slate-500">
-                  Item ID: {displayEditLine?.itemId}
                 </p>
               </div>
             </div>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <button
-                className={`rounded border px-3 py-3 text-left ${editField === "QTY" ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-white"}`}
+                className={`rounded-md border px-3 py-3 text-left transition-colors ${editField === "QTY" ? "border-brand-600 bg-brand-50 ring-1 ring-brand-600" : "border-slate-200 bg-white hover:bg-slate-50"}`}
                 onClick={() =>
                   displayEditLine
                     ? editor.selectField("QTY", displayEditLine)
                     : null
                 }
               >
-                <p className="text-xs uppercase tracking-wide text-slate-500">
+                <p className="eyebrow">
                   Qty
                 </p>
-                <p className="text-2xl font-semibold text-slate-800">
+                <p className="mt-0.5 text-xl font-semibold text-slate-900 tabular-nums">
                   {displayEditLine
                     ? displayEditLine.saleUom
                       ? `${displayEditLine.saleUomQty ?? 1} ${displayEditLine.saleUom}`
@@ -94,39 +92,39 @@ export function LineEditorModal({
                 </p>
               </button>
               <button
-                className={`rounded border px-3 py-3 text-left ${editField === "DISCOUNT" ? "border-amber-400 bg-amber-50" : "border-slate-200 bg-white"}`}
+                className={`rounded-md border px-3 py-3 text-left transition-colors ${editField === "DISCOUNT" ? "border-brand-600 bg-brand-50 ring-1 ring-brand-600" : "border-slate-200 bg-white hover:bg-slate-50"}`}
                 onClick={() =>
                   displayEditLine
                     ? editor.selectField("DISCOUNT", displayEditLine)
                     : null
                 }
               >
-                <p className="text-xs uppercase tracking-wide text-slate-500">
+                <p className="eyebrow">
                   Discount
                 </p>
-                <p className="text-2xl font-semibold text-slate-800">
-                  ₹ {money(displayEditLine?.discountAmount ?? 0)}
+                <p className="mt-0.5 text-xl font-semibold text-slate-900 tabular-nums">
+                  {inr(displayEditLine?.discountAmount ?? 0)}
                 </p>
               </button>
               <button
-                className={`rounded border px-3 py-3 text-left ${editField === "PRICE" ? "border-indigo-400 bg-indigo-50" : "border-slate-200 bg-white"}`}
+                className={`rounded-md border px-3 py-3 text-left transition-colors ${editField === "PRICE" ? "border-brand-600 bg-brand-50 ring-1 ring-brand-600" : "border-slate-200 bg-white hover:bg-slate-50"}`}
                 onClick={() =>
                   displayEditLine
                     ? editor.selectField("PRICE", displayEditLine)
                     : null
                 }
               >
-                <p className="text-xs uppercase tracking-wide text-slate-500">
+                <p className="eyebrow">
                   Price / Unit
                 </p>
-                <p className="text-2xl font-semibold text-slate-800">
-                  ₹ {money(displayEditLine?.rate ?? 0)}
+                <p className="mt-0.5 text-xl font-semibold text-slate-900 tabular-nums">
+                  {inr(displayEditLine?.rate ?? 0)}
                 </p>
               </button>
             </div>
 
-            <div className="mt-6 rounded-lg border border-slate-200 bg-white p-4">
-              <p className="text-xs uppercase tracking-wide text-slate-500">
+            <div className="mt-6 rounded-md border border-slate-200 bg-white p-4 shadow-xs">
+              <p className="eyebrow">
                 Editing
               </p>
               <div className="mt-2 flex items-end justify-between">
@@ -140,7 +138,7 @@ export function LineEditorModal({
                           ? "Discount (%)"
                           : "Discount Amount"}
                   </p>
-                  <p className="text-5xl font-semibold text-slate-900">
+                  <p className="text-5xl font-semibold tracking-tight text-slate-900 tabular-nums">
                     {editValue}
                     {editField === "DISCOUNT" && discountMode === "PERCENT"
                       ? "%"
@@ -148,12 +146,11 @@ export function LineEditorModal({
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs uppercase tracking-wide text-slate-500">
+                  <p className="eyebrow">
                     Line Total
                   </p>
-                  <p className="text-3xl font-semibold text-slate-800">
-                    ₹{" "}
-                    {money(
+                  <p className="text-2xl font-semibold text-slate-900 tabular-nums">
+                    {inr(
                       computeLineAmounts(displayEditLine ?? activeEditLine, taxCalculationMode, chargeTax)
                         .net,
                     )}
@@ -170,7 +167,7 @@ export function LineEditorModal({
             </div>
           </div>
 
-          <div className="bg-slate-900 p-4 space-y-2">
+          <div className="space-y-2 p-6">
             <div className="grid grid-cols-4 gap-2">
               {[
                 "1",
@@ -192,12 +189,10 @@ export function LineEditorModal({
               ].map((key) => (
                 <button
                   key={key}
-                  className={`rounded px-2 py-4 text-xl font-semibold ${
+                  className={`h-14 rounded-md border text-xl font-semibold tabular-nums transition-colors active:scale-[0.97] ${
                     key === "QTY" || key === "PRICE" || key === "%"
-                      ? "bg-slate-700 text-white"
-                      : key === "<"
-                        ? "bg-rose-500 text-white"
-                        : "bg-slate-100 text-slate-900"
+                      ? "border-brand-200 bg-brand-50 text-base text-brand-700 hover:bg-brand-100"
+                      : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
                   }`}
                   onClick={() => editor.press(key)}
                 >
@@ -206,13 +201,13 @@ export function LineEditorModal({
               ))}
 
               <button
-                className="col-span-3 rounded bg-emerald-600 px-4 py-3 text-base font-semibold text-white"
+                className="btn-primary col-span-3 h-14 text-base"
                 onClick={editor.apply}
               >
                 Apply
               </button>
               <button
-                className="col-span-1 rounded bg-amber-200 px-2 py-4 text-xl font-semibold text-amber-900"
+                className="btn-secondary col-span-1 h-14 text-base"
                 onClick={() => editor.press("C")}
               >
                 Clear
@@ -220,13 +215,13 @@ export function LineEditorModal({
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button
-                className="rounded bg-slate-200 px-2 py-4 text-xl font-semibold text-slate-800"
+                className="btn-secondary h-12 text-base"
                 onClick={editor.close}
               >
                 Back
               </button>
               <button
-                className="rounded bg-rose-200 px-4 py-3 text-base font-semibold text-rose-800"
+                className="btn-danger h-12 text-base"
                 onClick={editor.remove}
               >
                 Remove Item

@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, apiErrorMessage, authHeaders } from "../lib/api";
 import { updateSession } from "../lib/session";
-import { money } from "./route-helpers";
+import { inr } from "./route-helpers";
 
 type ClosedRegister = {
   closingBalance: number | null;
@@ -12,7 +12,7 @@ type ClosedRegister = {
 
 function differenceLabel(difference: number) {
   if (Math.abs(difference) < 0.005) return "Balanced";
-  return difference > 0 ? `Over by ₹ ${money(difference)}` : `Short by ₹ ${money(-difference)}`;
+  return difference > 0 ? `Over by ${inr(difference)}` : `Short by ${inr(-difference)}`;
 }
 
 /**
@@ -51,14 +51,14 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
   const liveDifference = countedValid ? Math.round((countedAmount - expected) * 100) / 100 : null;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/50 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-5 text-slate-900 shadow-xl">
+    <div className="modal-backdrop z-50">
+      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl">
         <h2 className="text-lg font-semibold">Close Register</h2>
         {closed ? (
           <>
             <dl className="mt-4 space-y-2 text-sm">
-              <div className="flex justify-between"><dt className="text-slate-500">Expected cash</dt><dd>₹ {money(closed.expectedCash)}</dd></div>
-              <div className="flex justify-between"><dt className="text-slate-500">Counted</dt><dd>₹ {money(closed.closingBalance)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">Expected cash</dt><dd className="tabular-nums">{inr(closed.expectedCash)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">Counted</dt><dd className="tabular-nums">{inr(closed.closingBalance)}</dd></div>
               <div className="flex justify-between border-t border-slate-100 pt-2 font-semibold">
                 <dt>Difference</dt>
                 <dd className={Math.abs(closed.cashDifference ?? 0) < 0.005 ? "text-emerald-600" : "text-rose-600"}>
@@ -67,7 +67,7 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
               </div>
             </dl>
             <button
-              className="mt-5 w-full rounded-lg bg-slate-900 px-3 py-2 font-semibold text-white"
+              className="btn-primary mt-5 w-full"
               onClick={() => {
                 window.location.href = "/open-register";
               }}
@@ -82,16 +82,16 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
         ) : (
           <>
             <dl className="mt-4 space-y-2 text-sm">
-              <div className="flex justify-between"><dt className="text-slate-500">Opening balance</dt><dd>₹ {money(current.data.openingBalance)}</dd></div>
-              <div className="flex justify-between"><dt className="text-slate-500">Cash taken</dt><dd>+ ₹ {money(current.data.cashSales)}</dd></div>
-              <div className="flex justify-between"><dt className="text-slate-500">Cash refunded</dt><dd>− ₹ {money(current.data.cashRefunds)}</dd></div>
-              <div className="flex justify-between border-t border-slate-100 pt-2 font-semibold"><dt>Expected in drawer</dt><dd>₹ {money(expected)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">Opening balance</dt><dd className="tabular-nums">{inr(current.data.openingBalance)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">Cash taken</dt><dd className="tabular-nums">+ {inr(current.data.cashSales)}</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">Cash refunded</dt><dd className="tabular-nums">− {inr(current.data.cashRefunds)}</dd></div>
+              <div className="flex justify-between border-t border-slate-100 pt-2 font-semibold"><dt>Expected in drawer</dt><dd className="tabular-nums">{inr(expected)}</dd></div>
             </dl>
             <label className="mt-4 block text-sm text-slate-600">
               Cash counted
               <input
                 autoFocus
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-lg"
+                className="field mt-1 text-lg"
                 inputMode="decimal"
                 placeholder="0.00"
                 value={counted}
@@ -105,11 +105,11 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
             ) : null}
             {close.error ? <p className="mt-2 text-sm text-rose-600">{(close.error as Error).message}</p> : null}
             <div className="mt-5 flex gap-2">
-              <button className="flex-1 rounded-lg border border-slate-300 px-3 py-2" onClick={onCancel} disabled={close.isPending}>
+              <button className="btn-secondary flex-1" onClick={onCancel} disabled={close.isPending}>
                 Cancel
               </button>
               <button
-                className="flex-1 rounded-lg bg-slate-900 px-3 py-2 font-semibold text-white disabled:opacity-40"
+                className="btn-primary flex-1"
                 disabled={!countedValid || close.isPending}
                 onClick={() => close.mutate(countedAmount)}
               >

@@ -7,6 +7,15 @@ export function money(n: number | string | null | undefined) {
   return value.toFixed(2);
 }
 
+const inrFormat = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** An amount for display: `₹1,47,140.42`. Use `money` for receipts and input values. */
+export function inr(n: number | string | null | undefined) {
+  const value = Number(n);
+  const safe = Number.isFinite(value) ? value : 0;
+  return `${safe < 0 ? '-' : ''}₹${inrFormat.format(Math.abs(safe))}`;
+}
+
 export function requireSession() {
   const session = getSession();
   if (!session) {

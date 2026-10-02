@@ -1,5 +1,5 @@
 import { GST_STATES, gstStateLabel } from "@pos/contracts";
-import { money } from "../route-helpers";
+import { inr } from "../route-helpers";
 
 /**
  * Who the sale is for (a customer, or a walk-in with an optional name and contact), plus
@@ -41,81 +41,82 @@ export function CustomerSection({
   onBack: () => void;
 }) {
   return (
-    <div className="p-2">
-      <div className="rounded border border-slate-200 p-2">
-        <div className="flex items-center justify-between">
-          <label className="text-sm text-slate-600">Customer</label>
+    <div className="space-y-3 p-4">
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <span className="field-label mb-0">Customer</span>
           <button
-            className="rounded bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
+            className="rounded px-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 hover:text-brand-700"
             onClick={onWalkIn}
             title="Reset to walk in customer"
           >
-            Walk In
+            Use walk-in
           </button>
         </div>
         <button
-          className="mt-1 w-full rounded border border-slate-300 bg-slate-50 px-2 py-2 text-left text-sm font-semibold text-slate-700"
+          className="field flex items-center justify-between gap-2 text-left font-medium hover:border-slate-400"
           onClick={onPickCustomer}
         >
-          {selectedCustomer
-            ? `${selectedCustomer.name} (${selectedCustomer.phone ?? "No phone"})`
-            : "Select Customer"}
+          <span className="truncate">
+            {selectedCustomer
+              ? `${selectedCustomer.name} (${selectedCustomer.phone ?? "No phone"})`
+              : "Select Customer"}
+          </span>
+          <span className="shrink-0 text-xs font-semibold text-brand-600">Change</span>
         </button>
         {isWalkInSelected ? (
-          <div className="mt-2 grid grid-cols-1 gap-2">
+          <div className="mt-2 grid grid-cols-2 gap-2">
             <input
-              className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-              placeholder="Walk-in customer name (optional)"
+              className="field"
+              placeholder="Name (optional)"
               value={walkInName}
               onChange={(event) => onWalkInNameChange(event.target.value)}
             />
             <input
-              className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-              placeholder="Walk-in contact details (optional)"
+              className="field"
+              placeholder="Phone or email (optional)"
               value={walkInPhone}
               onChange={(event) => onWalkInPhoneChange(event.target.value)}
             />
           </div>
-        ) : null}
-        {!isWalkInSelected ? (
-          <p className="mt-1 text-xs text-slate-600">
-            Wallet Balance: ₹ {money(walletBalance)}
+        ) : (
+          <p className="mt-1 text-xs text-slate-500">
+            Wallet balance: <span className="font-semibold text-slate-700 tabular-nums">{inr(walletBalance)}</span>
           </p>
-        ) : null}
-        {branchStateCode ? (
-          <div className="mt-2">
-            <label className="text-sm text-slate-600">Place of supply</label>
-            <select
-              className="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
-              value={placeOfSupply ?? ""}
-              onChange={(event) => onPlaceOfSupplyChange(event.target.value || null)}
-            >
-              <option value="">Over the counter ({gstStateLabel(branchStateCode)})</option>
-              {GST_STATES.filter((state) => state.code !== branchStateCode).map((state) => (
-                <option key={state.code} value={state.code}>
-                  Shipped to {gstStateLabel(state.code)}
-                </option>
-              ))}
-            </select>
-            {placeOfSupply ? (
-              <p className="mt-1 text-xs text-amber-700">Inter-state sale: IGST applies instead of CGST and SGST.</p>
-            ) : null}
-          </div>
-        ) : null}
+        )}
+      </div>
+      {branchStateCode ? (
+        <div>
+          <label className="field-label">Place of supply</label>
+          <select
+            className="field"
+            value={placeOfSupply ?? ""}
+            onChange={(event) => onPlaceOfSupplyChange(event.target.value || null)}
+          >
+            <option value="">Over the counter ({gstStateLabel(branchStateCode)})</option>
+            {GST_STATES.filter((state) => state.code !== branchStateCode).map((state) => (
+              <option key={state.code} value={state.code}>
+                Shipped to {gstStateLabel(state.code)}
+              </option>
+            ))}
+          </select>
+          {placeOfSupply ? (
+            <p className="mt-1 text-xs text-amber-700">Inter-state sale: IGST applies instead of CGST and SGST.</p>
+          ) : null}
+        </div>
+      ) : null}
 
+      <div className="grid grid-cols-[auto_1fr] gap-2 pt-1">
         <button
-          className="mt-2 w-full rounded bg-emerald-600 px-2 py-2 text-xl font-bold text-white disabled:bg-emerald-300"
-          onClick={onPayment}
-          disabled={busy}
-        >
-          Payment
-        </button>
-        <button
-          className="mt-2 w-full rounded bg-slate-200 px-2 py-2 text-lg font-bold text-slate-800 disabled:bg-slate-100 disabled:text-slate-400"
+          className="btn-secondary h-12 px-4"
           onClick={onBack}
           disabled={busy}
+          title="Keep this cart as a held order and go back to the order list"
         >
-          Back to Orders
+          Hold
+        </button>
+        <button className="btn-primary h-12 text-base" onClick={onPayment} disabled={busy}>
+          Proceed to Payment
         </button>
       </div>
     </div>

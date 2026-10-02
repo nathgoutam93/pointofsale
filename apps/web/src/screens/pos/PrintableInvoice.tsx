@@ -7,8 +7,8 @@ export function PrintableInvoice({
   lines: Array<{ text: string; strong?: boolean }>;
 }) {
   return (
-    <div className="grid min-h-full place-items-center">
-      <div className="mx-auto">
+    <div className="min-h-0 flex-1 overflow-auto p-6 print:overflow-visible print:p-0">
+      <div className="mx-auto w-fit">
         <div
           id="printable-invoice"
           className="w-full rounded border border-slate-200 bg-white p-6 shadow-sm"

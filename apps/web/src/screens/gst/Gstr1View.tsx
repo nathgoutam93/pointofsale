@@ -34,7 +34,7 @@ export function Gstr1View({ gstin, period }: { gstin: string; period: GstPeriod 
 
   return (
     <>
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="card p-5">
         <p className="text-sm text-slate-600">
           Outward supplies. Fix any errors, then download the JSON and upload it on the GST portal. Import it into the GST
           offline tool first to check it.
@@ -45,7 +45,7 @@ export function Gstr1View({ gstin, period }: { gstin: string; period: GstPeriod 
         {data ? (
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
-              className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300"
+              className="btn-primary"
               onClick={download}
               disabled={errors.length > 0}
             >

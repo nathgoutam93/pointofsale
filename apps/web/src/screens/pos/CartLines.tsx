@@ -1,7 +1,11 @@
-import { money } from "../route-helpers";
+import { IconMinus, IconPlus, IconTrash } from "../../components/icons";
+import { inr, money } from "../route-helpers";
 import { computeLineAmounts, formatQty, formatStockOnHand, getCartLineKey } from "./cartMath";
 import type { TaxCalculationMode } from "./cartMath";
 import type { CartLine } from "./types";
+
+const stepButton =
+  "grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900";
 
 /** The cart's lines, each with its total, stock warning and -, + and remove buttons. */
 export function CartLines({
@@ -22,11 +26,14 @@ export function CartLines({
   onRemove: (line: CartLine) => void;
 }) {
   return (
-    <div className="flex-1 overflow-y-scroll border-b border-slate-200">
+    <div className="flex-1 overflow-y-auto border-b border-slate-200">
       {cart.length === 0 ? (
-        <p className="p-4 text-sm text-slate-500">
-          Add products from the right to start an order.
-        </p>
+        <div className="grid h-full place-items-center p-6 text-center">
+          <div>
+            <p className="text-sm font-medium text-slate-600">Cart is empty</p>
+            <p className="mt-1 text-xs text-slate-500">Pick products on the right or scan a barcode.</p>
+          </div>
+        </div>
       ) : null}
       {cart.map((line) => {
         const lineNet = computeLineAmounts(line, taxCalculationMode, chargeTax).net;
@@ -37,12 +44,12 @@ export function CartLines({
           availableStock !== undefined && line.qty > availableStock;
         return (
           <div
-            className="flex cursor-pointer items-start justify-between border-b border-slate-100 px-3 py-2 hover:bg-slate-50"
+            className="flex cursor-pointer items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 hover:bg-slate-50"
             key={getCartLineKey(line)}
             onClick={() => onOpen(line)}
           >
-            <div className="flex gap-2">
-              <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-slate-100">
+            <div className="flex min-w-0 gap-3">
+              <div className="h-11 w-11 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
                 {line.imageUrl ? (
                   <img
                     src={line.imageUrl}
@@ -51,60 +58,63 @@ export function CartLines({
                   />
                 ) : null}
               </div>
-              <div>
-                <p className="text-[20px] font-semibold leading-tight text-slate-800">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">
                   {line.name}
                 </p>
-                <p className="text-base text-slate-500">
+                <p className="text-xs text-slate-500 tabular-nums">
                   {line.saleUom
                     ? `${line.saleUomQty ?? 1} ${line.saleUom} (${formatQty(line.qty, line.leastCount)})`
                     : formatQty(line.qty, line.leastCount)}{" "}
-                  x {money(line.rate)}
+                  × {money(line.rate)}
                 </p>
                 {isLowStock ? (
-                  <p className="text-sm font-semibold text-red-600">
-                    Stock on hand {formatStockOnHand(availableStock ?? 0)}
+                  <p className="mt-0.5 text-xs font-medium text-rose-600">
+                    Only {formatStockOnHand(availableStock ?? 0)} in stock
                   </p>
                 ) : null}
                 {itemDiscount > 0 ? (
-                  <p className="text-sm text-amber-700">
-                    Item Discount: ₹ {money(itemDiscount)}
+                  <p className="mt-0.5 text-xs text-amber-700">
+                    Discount {inr(itemDiscount)}
                   </p>
                 ) : null}
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-[26px] font-bold leading-none text-slate-800">
-                {money(lineNet)} ₹
+            <div className="shrink-0 text-right">
+              <p className="text-base font-semibold text-slate-900 tabular-nums">
+                {inr(lineNet)}
               </p>
-              <div className="mt-1 flex justify-end gap-1">
+              <div className="mt-1.5 flex justify-end gap-1">
                 <button
-                  className="h-7 w-7 rounded bg-slate-200 p-0 text-sm text-slate-700"
+                  className={stepButton}
+                  aria-label="Decrease quantity"
                   onClick={(event) => {
                     event.stopPropagation();
                     onStep(line, -1);
                   }}
                 >
-                  -
+                  <IconMinus width={14} height={14} />
                 </button>
                 <button
-                  className="h-7 w-7 rounded bg-slate-200 p-0 text-sm text-slate-700"
+                  className={stepButton}
+                  aria-label="Increase quantity"
                   onClick={(event) => {
                     event.stopPropagation();
                     onStep(line, 1);
                   }}
                 >
-                  +
+                  <IconPlus width={14} height={14} />
                 </button>
                 <button
-                  className="h-7 w-7 rounded bg-rose-200 p-0 text-sm font-bold text-rose-700"
+                  className="grid h-7 w-7 place-items-center rounded-md border border-rose-200 bg-white text-rose-600 hover:bg-rose-50"
                   onClick={(event) => {
                     event.stopPropagation();
                     onRemove(line);
                   }}
                   title="Remove item"
+                  aria-label="Remove item"
                 >
-                  x
+                  <IconTrash width={14} height={14} />
                 </button>
               </div>
             </div>

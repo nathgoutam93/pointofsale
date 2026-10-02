@@ -10,7 +10,9 @@ import {
   resolveReceiptWidth,
 } from "../lib/receiptFormat";
 import { gstDocumentTitle, gstFooterLines, gstMetadata, gstTaxTotals, hsnDetailRow, invoiceGstOf, type InvoiceGst } from "../lib/gstReceipt";
-import { money, requireOperationalSession } from "./route-helpers";
+import { IconCheck, IconPrinter, IconSend } from "../components/icons";
+import { StatusBadge } from "../components/StatusBadge";
+import { inr, money, requireOperationalSession } from "./route-helpers";
 
 type PaymentMode = "CASH" | "CARD" | "WALLET";
 type PaymentFilter = "ALL" | "PENDING" | "SETTLED";
@@ -504,7 +506,7 @@ export function SalesPage() {
       }
       if (amount > walletBalance + 0.0001) {
         setPaymentModalError(
-          `Wallet balance is insufficient. Available: ₹ ${money(walletBalance)}`,
+          `Wallet balance is insufficient. Available: ${inr(walletBalance)}`,
         );
         return;
       }
@@ -520,13 +522,13 @@ export function SalesPage() {
       const maxAllowedForCurrent = pendingAmount - paidWithoutCurrent;
       if (amount > maxAllowedForCurrent + 0.0001) {
         setPaymentModalError(
-          `Amount exceeds remaining. You can add up to ₹ ${money(maxAllowedForCurrent)}`,
+          `Amount exceeds remaining. You can add up to ${inr(maxAllowedForCurrent)}`,
         );
         return prev;
       }
       if (paymentMethod === "WALLET" && amount > walletBalance + 0.0001) {
         setPaymentModalError(
-          `Wallet balance is insufficient. Available: ₹ ${money(walletBalance)}`,
+          `Wallet balance is insufficient. Available: ${inr(walletBalance)}`,
         );
         return prev;
       }
@@ -993,7 +995,7 @@ export function SalesPage() {
   ]);
 
   return (
-    <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[360px_1fr]">
+    <section className="grid grid-cols-1 xl:h-[calc(100vh-48px)] xl:grid-cols-[360px_1fr]">
       <style>{`
         @media print {
           body * {
@@ -1023,94 +1025,88 @@ export function SalesPage() {
         ${customReceiptCss}
       `}</style>
 
-      <aside className="flex h-full flex-col overflow-hidden border-r border-slate-200 bg-white">
+      <aside className="flex h-full max-h-[75vh] flex-col overflow-hidden border-r border-slate-200 bg-white xl:max-h-none">
         {settledSummary ? (
           <>
-            <div className="flex-1 space-y-4 overflow-y-auto border-b border-slate-200 p-4">
-              <div className="rounded-lg border border-emerald-300 bg-emerald-100 p-4 text-center">
-                <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-full bg-emerald-600 text-lg font-bold text-white">
-                  ✓
+            <div className="flex-1 space-y-4 overflow-y-auto p-4">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5 text-center">
+                <div className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-full bg-emerald-600 text-white">
+                  <IconCheck width={22} height={22} strokeWidth={2.5} />
                 </div>
-                <p className="text-3xl font-semibold text-emerald-700">
+                <p className="text-sm font-semibold text-emerald-800">
                   {settledSummary.status === "SETTLED"
-                    ? "Payment Successful"
-                    : "Payment Recorded"}
+                    ? "Payment successful"
+                    : "Payment recorded"}
                 </p>
-                <p className="mt-1 text-2xl font-bold text-emerald-800">
-                  ₹ {money(settledSummary.receiptAmount)}
+                <p className="mt-1 text-3xl font-semibold tracking-tight text-slate-900 tabular-nums">
+                  {inr(settledSummary.receiptAmount)}
                 </p>
-                <p className="mt-1 text-sm font-semibold text-emerald-800">
+                <p className="mt-1 text-xs text-slate-500">
                   {settledSummary.status === "SETTLED"
                     ? "Invoice settled"
-                    : `Remaining ₹ ${money(Math.max(0, settledSummary.grandTotal - settledSummary.paidTotal))}`}
+                    : `Remaining ${inr(Math.max(0, settledSummary.grandTotal - settledSummary.paidTotal))}`}
                 </p>
-                <button
-                  className="mt-2 rounded bg-emerald-500 px-3 py-1 text-xs font-semibold text-white"
-                  onClick={() =>
-                    setMessage("Payment receipt already recorded.")
-                  }
-                >
-                  Edit Payment
-                </button>
               </div>
 
-              <div className="flex overflow-hidden rounded border border-slate-300">
-                <input
-                  className="w-full px-3 py-3 text-base text-slate-700 outline-none"
-                  placeholder="Send receipt to email or phone"
-                  value={receiptContact}
-                  onChange={(e) => setReceiptContact(e.target.value)}
-                />
-                <button
-                  className="w-20 bg-fuchsia-800 text-2xl text-white"
-                  onClick={() => {
-                    if (!receiptContact.trim()) {
-                      setMessage("Enter email or phone to send receipt.");
-                      return;
-                    }
-                    setMessage(`Receipt sent to ${receiptContact.trim()}`);
-                  }}
-                >
-                  ➤
-                </button>
+              <div>
+                <label className="field-label">Send receipt</label>
+                <div className="flex gap-2">
+                  <input
+                    className="field"
+                    placeholder="Email or phone"
+                    value={receiptContact}
+                    onChange={(e) => setReceiptContact(e.target.value)}
+                  />
+                  <button
+                    className="btn-secondary shrink-0"
+                    onClick={() => {
+                      if (!receiptContact.trim()) {
+                        setMessage("Enter email or phone to send receipt.");
+                        return;
+                      }
+                      setMessage(`Receipt sent to ${receiptContact.trim()}`);
+                    }}
+                  >
+                    <IconSend width={16} height={16} />
+                    Send
+                  </button>
+                </div>
               </div>
             </div>
 
-            <button
-              className="m-3 rounded bg-fuchsia-900 px-3 py-4 text-2xl font-semibold text-white"
-              onClick={() => setSettledSummary(null)}
-            >
-              Back To Invoices
-            </button>
+            <div className="border-t border-slate-200 p-4">
+              <button className="btn-primary h-11 w-full" onClick={() => setSettledSummary(null)}>
+                Back to Invoices
+              </button>
+            </div>
           </>
         ) : (
           <>
             <div className="border-b border-slate-200 p-4">
-              <h2 className="text-2xl font-semibold text-slate-900">Sales</h2>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                <div className="rounded bg-slate-100 p-2 text-slate-700">
-                  Pending Invoices:{" "}
-                  <span className="font-semibold text-slate-900">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md border border-slate-200 px-3 py-2">
+                  <p className="eyebrow">Pending</p>
+                  <p className="mt-0.5 text-lg font-semibold text-amber-700 tabular-nums">
                     {filteredPendingInvoices.length}
-                  </span>
+                  </p>
                 </div>
-                <div className="rounded bg-slate-100 p-2 text-slate-700">
-                  Total Invoices:{" "}
-                  <span className="font-semibold text-slate-900">
+                <div className="rounded-md border border-slate-200 px-3 py-2">
+                  <p className="eyebrow">Invoices</p>
+                  <p className="mt-0.5 text-lg font-semibold text-slate-900 tabular-nums">
                     {filteredSales.length}
-                  </span>
+                  </p>
                 </div>
               </div>
               <div className="mt-3 grid gap-2 text-sm">
                 <input
-                  className="w-full rounded border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none focus:border-fuchsia-400"
+                  className="field"
                   placeholder="Search by invoice, customer, status, or staff"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <select
-                    className="w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm text-slate-700"
+                    className="field"
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
                   >
@@ -1121,7 +1117,7 @@ export function SalesPage() {
                     ))}
                   </select>
                   <select
-                    className="w-full rounded border border-slate-200 bg-white px-2 py-2 text-sm text-slate-700"
+                    className="field"
                     value={paymentFilter}
                     onChange={(e) =>
                       setPaymentFilter(e.target.value as PaymentFilter)
@@ -1160,7 +1156,7 @@ export function SalesPage() {
               </div>
             </div>
 
-            <div className="flex-1 space-y-2 overflow-y-auto p-3">
+            <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
               {filteredSales.map((invoice) => {
                 const pending =
                   Number(invoice.grandTotal) - Number(invoice.paidTotal);
@@ -1168,48 +1164,45 @@ export function SalesPage() {
                 return (
                   <button
                     key={invoice.id}
-                    className={`w-full rounded-lg border p-3 text-left ${isSelected ? "border-fuchsia-600 bg-fuchsia-50" : "border-slate-200 bg-white"}`}
+                    className={`list-row ${isSelected ? "is-active" : ""}`}
                     onClick={() => {
                       setSelectedInvoiceId(invoice.id);
                       setMessage("");
                     }}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900">
                           {invoice.invoiceNo}
                         </p>
-                        <p className="text-xs text-slate-500">
-                          {invoice.status}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          Date: {formatReceiptDate(invoice.createdAt)}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          By:{" "}
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {formatReceiptDate(invoice.createdAt)} ·{" "}
                           {formatSaleCreator(
                             invoice.createdBy,
                             invoice.createdByName,
                           )}
                         </p>
                       </div>
-                      <p
-                        className={`text-sm font-semibold ${pending > 0 ? "text-amber-700" : "text-emerald-700"}`}
-                      >
-                        {pending > 0
-                          ? `Pending ₹ ${money(pending)}`
-                          : "Settled"}
-                      </p>
+                      <StatusBadge status={invoice.status} />
                     </div>
-                    <div className="mt-2 flex items-center justify-between text-xs text-slate-600">
-                      <p>Total ₹ {money(Number(invoice.grandTotal))}</p>
-                      <p>Paid ₹ {money(Number(invoice.paidTotal))}</p>
+                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                      <p>
+                        Total{" "}
+                        <span className="font-semibold text-slate-900 tabular-nums">
+                          {inr(Number(invoice.grandTotal))}
+                        </span>
+                      </p>
+                      {pending > 0 && invoice.status !== "CANCELLED" ? (
+                        <p className="font-medium text-amber-700 tabular-nums">Due {inr(pending)}</p>
+                      ) : (
+                        <p className="tabular-nums">Paid {inr(Number(invoice.paidTotal))}</p>
+                      )}
                     </div>
                   </button>
                 );
               })}
               {filteredSales.length === 0 ? (
-                <div className="rounded border border-dashed border-slate-300 bg-white p-4 text-center text-sm text-slate-500">
+                <div className="rounded-md border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
                   No invoices match the current filters.
                 </div>
               ) : null}
@@ -1218,49 +1211,42 @@ export function SalesPage() {
         )}
 
         {settleInvoice.error ? (
-          <p className="px-4 pb-2 text-sm text-red-700">
+          <p className="mx-4 mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
             {(settleInvoice.error as Error).message}
           </p>
         ) : null}
         {sales.error ? (
-          <p className="px-4 pb-2 text-sm text-red-700">
+          <p className="mx-4 mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
             {(sales.error as Error).message}
           </p>
         ) : null}
         {selectedInvoiceDetails.error ? (
-          <p className="px-4 pb-2 text-sm text-red-700">
+          <p className="mx-4 mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
             {(selectedInvoiceDetails.error as Error).message}
           </p>
         ) : null}
         {customers.error ? (
-          <p className="px-4 pb-2 text-sm text-red-700">
+          <p className="mx-4 mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
             {(customers.error as Error).message}
           </p>
         ) : null}
         {message ? (
-          <p className="px-4 pb-3 text-sm text-emerald-700">{message}</p>
+          <p className="mx-4 mb-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700" role="status">{message}</p>
         ) : null}
       </aside>
 
-      <div className="bg-slate-100 print:bg-white print:p-0 px-2">
-        <div className="flex w-full items-center justify-between p-2 print:hidden">
-          <div></div>
+      <div className="flex h-full min-h-0 flex-col bg-slate-100 print:block print:bg-white print:p-0">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-6 py-3 print:hidden">
+          <div className="flex min-w-0 items-center gap-3">
+            <h2 className="page-title truncate">
+              {settledSummary?.invoiceNo ?? currentInvoice?.invoiceNo ?? "No invoice selected"}
+            </h2>
+            {currentInvoice ? <StatusBadge status={currentInvoice.status} /> : null}
+          </div>
           <div className="flex items-center gap-2">
-            <button
-              className="rounded bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:bg-emerald-300"
-              onClick={openSettleModal}
-              disabled={
-                !currentInvoice ||
-                pendingAmount <= 0 ||
-                currentInvoice.status === "CANCELLED" ||
-                settleInvoice.isPending
-              }
-            >
-              Settle
-            </button>
             {canCancelInvoice ? (
               <button
-                className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 disabled:opacity-50"
+                className="btn-danger"
                 disabled={cancelInvoice.isPending}
                 onClick={() => {
                   if (!currentInvoice) return;
@@ -1271,115 +1257,116 @@ export function SalesPage() {
                 Cancel Invoice
               </button>
             ) : null}
-            <button
-              className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700"
-              onClick={() => window.print()}
-            >
+            <button className="btn-secondary" onClick={() => window.print()}>
+              <IconPrinter width={16} height={16} />
               Print
+            </button>
+            <button
+              className="btn-primary"
+              onClick={openSettleModal}
+              disabled={
+                !currentInvoice ||
+                pendingAmount <= 0 ||
+                currentInvoice.status === "CANCELLED" ||
+                settleInvoice.isPending
+              }
+            >
+              Settle
             </button>
           </div>
         </div>
 
-        <div className="h-[calc(100vh-102px)] mx-auto grid w-full max-w-6xl gap-4 lg:grid-cols-[minmax(0,1fr)_380px] overflow-y-scroll">
-          <div className="rounded border border-slate-200 bg-white p-5 shadow-sm print:hidden">
-            <h3 className="text-lg font-semibold text-slate-900">
-              Sale Details
-            </h3>
-            <div className="mt-4 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-              <p>
-                Invoice:{" "}
-                {settledSummary?.invoiceNo ?? currentInvoice?.invoiceNo ?? "—"}
-              </p>
-              <p>
-                Status:{" "}
-                <span className="font-semibold">
-                  {currentInvoice?.status ?? "—"}
-                </span>
-              </p>
-              <p>
-                Customer:{" "}
-                <span className="font-semibold">
-                  {currentCustomerName}
-                </span>
-              </p>
-              <p>
-                Pending:{" "}
-                <span className="font-semibold">₹ {money(pendingAmount)}</span>
-              </p>
-              <p className="sm:col-span-2">
-                Sold by:{" "}
-                {currentSaleCreatorId
-                  ? formatSaleCreator(
-                      currentSaleCreatorId,
-                      currentSaleCreatorName,
-                    )
-                  : "—"}
-              </p>
-            </div>
-
-            <div className="mt-5 rounded border border-slate-200">
-              <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Items
+        <div className="min-h-0 flex-1 overflow-y-auto p-6 print:overflow-visible print:p-0">
+        <div className="mx-auto grid w-full max-w-6xl items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="card overflow-hidden print:hidden">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-b border-slate-200 p-5 text-sm 2xl:grid-cols-4">
+              <div>
+                <dt className="eyebrow">Customer</dt>
+                <dd className="mt-1 truncate font-medium text-slate-900">{currentCustomerName}</dd>
               </div>
-              <div className="space-y-2 px-3 py-3 text-sm text-slate-700">
+              <div>
+                <dt className="eyebrow">Sold by</dt>
+                <dd className="mt-1 truncate font-medium text-slate-900">
+                  {currentSaleCreatorId
+                    ? formatSaleCreator(
+                        currentSaleCreatorId,
+                        currentSaleCreatorName,
+                      )
+                    : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="eyebrow">Grand total</dt>
+                <dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inr(invoiceGrandTotal)}</dd>
+              </div>
+              <div>
+                <dt className="eyebrow">Balance due</dt>
+                <dd className={`mt-1 font-semibold tabular-nums ${pendingAmount > 0 ? "text-amber-700" : "text-slate-900"}`}>
+                  {inr(pendingAmount)}
+                </dd>
+              </div>
+            </dl>
+
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-left">
+                  <th className="eyebrow px-5 py-2 font-semibold">Item</th>
+                  <th className="eyebrow px-5 py-2 text-right font-semibold">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
                 {saleLines.map((line) => (
-                  <div
-                    key={line.id}
-                    className="flex items-start justify-between"
-                  >
-                    <p className="mr-3">
-                      {getSaleQtyLabel(line)} x{" "}
-                      {line.itemName ?? `Item ${line.itemId.slice(0, 6)}`}
-                      {line.saleUom ? (
-                        <span className="ml-1 text-xs text-slate-500">
-                          ({formatQtyLabel(line.qty)} base)
-                        </span>
-                      ) : null}
-                    </p>
-                    <p>₹ {money(line.netAmount)}</p>
-                  </div>
+                  <tr key={line.id}>
+                    <td className="px-5 py-2.5 text-slate-700">
+                      <span className="font-medium text-slate-900">
+                        {line.itemName ?? `Item ${line.itemId.slice(0, 6)}`}
+                      </span>
+                      <span className="ml-2 text-xs text-slate-500">
+                        {getSaleQtyLabel(line)}
+                        {line.saleUom ? ` (${formatQtyLabel(line.qty)} base)` : ""}
+                      </span>
+                    </td>
+                    <td className="px-5 py-2.5 text-right text-slate-900 tabular-nums">{inr(line.netAmount)}</td>
+                  </tr>
                 ))}
                 {saleLines.length === 0 ? (
-                  <p className="text-xs text-slate-500">
-                    No line items available.
-                  </p>
+                  <tr>
+                    <td colSpan={2} className="px-5 py-4 text-center text-xs text-slate-500">
+                      No line items available.
+                    </td>
+                  </tr>
                 ) : null}
-              </div>
-            </div>
+              </tbody>
+              <tfoot className="border-t border-slate-200 text-slate-600">
+                <tr>
+                  <td className="px-5 pt-3 text-right">Subtotal</td>
+                  <td className="px-5 pt-3 text-right tabular-nums">{inr(invoiceSubTotal)}</td>
+                </tr>
+                <tr>
+                  <td className="px-5 pt-1 text-right">Tax</td>
+                  <td className="px-5 pt-1 text-right tabular-nums">{inr(invoiceTaxTotal)}</td>
+                </tr>
+                <tr className="text-base font-semibold text-slate-900">
+                  <td className="px-5 pt-2 pb-4 text-right">Grand total</td>
+                  <td className="px-5 pt-2 pb-4 text-right tabular-nums">{inr(invoiceGrandTotal)}</td>
+                </tr>
+              </tfoot>
+            </table>
 
-            <div className="mt-4 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-              <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2">
-                <p>Subtotal</p>
-                <p>₹ {money(invoiceSubTotal)}</p>
-              </div>
-              <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2">
-                <p>Tax</p>
-                <p>₹ {money(invoiceTaxTotal)}</p>
-              </div>
-              <div className="flex items-center justify-between rounded bg-slate-100 px-3 py-2 sm:col-span-2">
-                <p className="font-semibold">Grand Total</p>
-                <p className="text-base font-semibold">
-                  ₹ {money(invoiceGrandTotal)}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded border border-slate-200">
-              <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Payments
-              </div>
-              <div className="space-y-2 px-3 py-3 text-sm text-slate-700">
+            <div className="border-t border-slate-200 p-5">
+              <p className="eyebrow">Payments</p>
+              <div className="mt-2 divide-y divide-slate-100 text-sm">
                 {paymentBreakdown.map((line, idx) => (
                   <div
                     key={`${line.mode}-${idx}`}
-                    className="flex items-center justify-between"
+                    className="flex items-center justify-between py-1.5"
                   >
-                    <p>{line.mode}</p>
-                    <p>₹ {money(line.amount)}</p>
+                    <p className="text-slate-700">{line.mode}</p>
+                    <p className="font-medium text-slate-900 tabular-nums">{inr(line.amount)}</p>
                   </div>
                 ))}
                 {paymentBreakdown.length === 0 ? (
-                  <p className="text-xs text-slate-500">
+                  <p className="py-1.5 text-xs text-slate-500">
                     No payments recorded yet.
                   </p>
                 ) : null}
@@ -1387,22 +1374,22 @@ export function SalesPage() {
             </div>
 
             {receiptsForInvoice.length > 0 ? (
-              <div className="mt-4 rounded border border-slate-200 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Receipts For Invoice
-                </p>
-                <div className="mt-2 grid gap-2">
+              <div className="border-t border-slate-200 p-5">
+                <p className="eyebrow">Receipts</p>
+                <div className="mt-2 grid gap-2 xl:grid-cols-2">
                   {receiptsForInvoice.map((receipt) => {
                     const isActive = previewReceipt?.id === receipt.id;
                     return (
                       <button
                         key={receipt.id}
-                        className={`rounded border px-2 py-2 text-left text-xs ${isActive ? "border-fuchsia-500 bg-fuchsia-50 text-fuchsia-900" : "border-slate-200 bg-white text-slate-700"}`}
+                        className={`list-row text-xs ${isActive ? "is-active" : ""}`}
                         onClick={() => setSelectedReceiptId(receipt.id)}
                       >
-                        <p className="font-semibold">{receipt.receiptNo}</p>
-                        <p>₹ {money(Number(receipt.amount))}</p>
-                        <p>{new Date(receipt.createdAt).toLocaleString()}</p>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-semibold text-slate-900">{receipt.receiptNo}</p>
+                          <p className="font-semibold text-slate-900 tabular-nums">{inr(Number(receipt.amount))}</p>
+                        </div>
+                        <p className="mt-0.5 text-slate-500">{new Date(receipt.createdAt).toLocaleString()}</p>
                       </button>
                     );
                   })}
@@ -1413,7 +1400,7 @@ export function SalesPage() {
 
           <div
             id="printable-invoice"
-            className="w-full rounded border border-slate-200 bg-white p-5 shadow-sm"
+            className="card w-full p-5"
           >
             {receiptLogoSrc ? (
               <img
@@ -1434,21 +1421,22 @@ export function SalesPage() {
             </div>
           </div>
         </div>
+        </div>
       </div>
 
       {paymentModalOpen ? (
-        <div className="fixed inset-0 z-40 grid place-items-center bg-slate-900/40 p-4">
-          <div className="grid w-full max-w-6xl grid-cols-2 overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
-            <div className="flex flex-col bg-slate-50 p-3">
+        <div className="modal-backdrop">
+          <div className="grid max-h-[calc(100vh-2rem)] w-full max-w-6xl grid-cols-1 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-2xl md:grid-cols-2">
+            <div className="flex flex-col bg-slate-50 p-6">
               <div className="flex-1">
                 <div className="text-center">
-                  <p className="text-3xl text-slate-500">{paymentMethod}</p>
-                  <p className="mt-3 text-7xl leading-none text-slate-900">
-                    ₹ {money(paymentAmount)}
+                  <p className="eyebrow">{paymentMethod}</p>
+                  <p className="mt-2 text-5xl font-semibold tracking-tight text-slate-900 tabular-nums">
+                    {inr(paymentAmount)}
                   </p>
                   {paymentMethod === "WALLET" ? (
                     <p
-                      className={`mt-4 text-2xl ${isRegisteredCustomer && !customerWallet.isError ? "text-slate-600" : "text-rose-700"}`}
+                      className={`mt-2 text-sm ${isRegisteredCustomer && !customerWallet.isError ? "text-slate-600" : "text-rose-700"}`}
                     >
                       {!isRegisteredCustomer
                         ? "Wallet not available for walk-in customer."
@@ -1456,34 +1444,34 @@ export function SalesPage() {
                           ? "Loading wallet balance..."
                           : customerWallet.isError
                             ? "Failed to load wallet balance."
-                            : `Wallet Balance: ₹ ${money(walletBalance)}`}
+                            : `Wallet Balance: ${inr(walletBalance)}`}
                     </p>
                   ) : null}
                 </div>
 
-                <div className="mx-auto mt-10 max-w-3xl space-y-3">
+                <div className="mt-8 space-y-2">
                   {paymentLines.length === 0 ? (
-                    <p className="text-center text-lg text-slate-500">
-                      No payment lines yet. Add a payment mode from the left.
+                    <p className="rounded-md border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
+                      No payments added yet. Choose a method, enter an amount and press Add.
                     </p>
                   ) : null}
 
                   {paymentLines.map((line) => (
                     <div
                       key={line.mode}
-                      className="flex items-center justify-between rounded-lg border border-cyan-200 bg-cyan-50 px-5 py-4"
+                      className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-4 py-3 shadow-xs"
                     >
-                      <p className="text-4xl text-slate-800">
+                      <p className="text-sm font-semibold text-slate-800">
                         {line.mode === "WALLET"
                           ? "Customer Account"
                           : line.mode}
                       </p>
-                      <div className="flex items-center gap-6">
-                        <p className="text-4xl text-slate-700">
-                          ₹ {money(line.amount)}
+                      <div className="flex items-center gap-3">
+                        <p className="text-base font-semibold text-slate-900 tabular-nums">
+                          {inr(line.amount)}
                         </p>
                         <button
-                          className="text-4xl font-bold text-rose-600"
+                          className="grid h-7 w-7 place-items-center rounded-md text-lg leading-none text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                           onClick={() => removePaymentLine(line.mode)}
                           title="Remove payment line"
                         >
@@ -1495,15 +1483,15 @@ export function SalesPage() {
                 </div>
               </div>
 
-              <div className="mt-8 border-t border-slate-200 pt-5">
-                <div className="flex items-center justify-between text-3xl">
-                  <p className="text-emerald-600">Remaining</p>
-                  <p className="text-emerald-500">₹ {money(remainingAmount)}</p>
+              <div className="mt-6 border-t border-slate-200 pt-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-slate-600">Remaining</p>
+                  <p className="text-2xl font-semibold text-slate-900 tabular-nums">{inr(remainingAmount)}</p>
                 </div>
               </div>
 
               <button
-                className="mt-2 w-full rounded bg-emerald-600 px-3 py-4 text-2xl font-bold text-white disabled:bg-emerald-300"
+                className="btn-primary mt-4 h-12 w-full text-base"
                 onClick={() => {
                   if (!currentInvoice) return;
                   settleInvoice.mutate({
@@ -1529,8 +1517,8 @@ export function SalesPage() {
               ) : null}
               {paymentLines.length > 0 && totalPaid > pendingAmount + 0.005 ? (
                 <p className="mt-2 text-sm text-rose-700">
-                  Payment total cannot exceed ₹ {money(pendingAmount)}.
-                  Current: ₹ {money(totalPaid)}.
+                  Payment total cannot exceed {inr(pendingAmount)}.
+                  Current: {inr(totalPaid)}.
                 </p>
               ) : null}
               {paymentModalError ? (
@@ -1540,12 +1528,12 @@ export function SalesPage() {
               ) : null}
             </div>
 
-            <div className="border-r border-slate-200 p-3">
-              <div className="mb-3 grid gap-2">
+            <div className="border-t border-slate-200 p-6 md:border-t-0 md:border-l">
+              <div className="mb-4 grid grid-cols-2 gap-2">
                 {availablePaymentMethods.map((method) => (
                   <button
                     key={method.key}
-                    className={`rounded px-3 py-4 text-left text-3xl ${paymentMethod === method.key ? "bg-indigo-100 text-indigo-900" : "bg-slate-100 text-slate-700"}`}
+                    className={`rounded-md border px-3 py-3 text-left text-sm font-semibold transition-colors ${paymentMethod === method.key ? "border-brand-600 bg-brand-50 text-brand-700 ring-1 ring-brand-600" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
                     onClick={() => setPaymentMethod(method.key)}
                   >
                     {method.label}
@@ -1553,7 +1541,7 @@ export function SalesPage() {
                 ))}
               </div>
 
-              <div className="grid grid-cols-4 gap-1">
+              <div className="grid grid-cols-4 gap-2">
                 {[
                   "1",
                   "2",
@@ -1574,7 +1562,7 @@ export function SalesPage() {
                 ].map((key) => (
                   <button
                     key={key}
-                    className={`rounded px-2 py-4 text-2xl font-semibold ${key.startsWith("+") && key.length > 1 ? "bg-emerald-200 text-emerald-900" : "bg-slate-100 text-slate-800"}`}
+                    className={`h-14 rounded-md border text-xl font-semibold tabular-nums transition-colors active:scale-[0.97] ${/^\+\d+$/.test(key) ? "border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100" : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"}`}
                     onClick={() => paymentKeypadPress(key)}
                   >
                     {key}
@@ -1582,20 +1570,20 @@ export function SalesPage() {
                 ))}
 
                 <button
-                  className="col-span-3 rounded bg-indigo-600 px-2 py-4 text-xl font-bold text-white"
+                  className="btn-primary col-span-3 h-14 text-base"
                   onClick={applyPaymentLine}
                 >
                   Add / Update {paymentMethod}
                 </button>
                 <button
-                  className="col-span-1 rounded bg-rose-200 px-2 py-4 text-2xl font-semibold text-rose-800"
+                  className="btn-danger col-span-1 h-14 text-base"
                   onClick={() => paymentKeypadPress("C")}
                 >
                   Clear
                 </button>
 
                 <button
-                  className="col-span-4 rounded bg-slate-200 px-2 py-4 text-2xl font-semibold text-slate-800"
+                  className="btn-secondary col-span-4 h-12 text-base"
                   onClick={() => {
                     setPaymentModalOpen(false);
                     setPaymentModalError("");
