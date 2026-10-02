@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { sanitizeReceiptCss } from "@pos/contracts";
+import { exclusiveBase, lineTax, sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import {
   buildReceiptLines,
@@ -287,11 +287,7 @@ export function PosPage() {
     line: Pick<CartLine, "qty" | "rate" | "taxRate" | "taxMode" | "saleUomQty">,
   ) {
     const gross = round2(getPricingQty(line) * line.rate);
-    return round2(
-      line.taxMode === "INCLUSIVE" && line.taxRate > 0
-        ? (gross * 100) / (100 + line.taxRate)
-        : gross,
-    );
+    return exclusiveBase(gross, line.taxMode, line.taxRate);
   }
 
   const printableInvoice = useMemo(() => {
@@ -536,13 +532,19 @@ export function PosPage() {
       "qty" | "rate" | "discountAmount" | "taxRate" | "taxMode" | "saleUomQty"
     >,
   ) {
+    const gross = round2(getPricingQty(line) * line.rate);
     const baseExclusive = getBaseExclusive(line);
     const discountAmount = round2(Math.min(Math.max(0, line.discountAmount), baseExclusive));
     const taxable = round2(Math.max(0, baseExclusive - discountAmount));
-    const taxBase =
-      taxCalculationMode === "BEFORE_DISCOUNT" ? baseExclusive : taxable;
-    const tax = round2((taxBase * line.taxRate) / 100);
-    return { taxable, tax, net: round2(taxable + tax) };
+    const { tax, net } = lineTax({
+      gross,
+      baseExclusive,
+      taxable,
+      taxMode: line.taxMode,
+      taxRate: line.taxRate,
+      taxCalculationMode,
+    });
+    return { taxable, tax, net };
   }
 
   const orderDiscountBase = useMemo(
@@ -579,12 +581,14 @@ export function PosPage() {
       const orderDiscount = round2(allocations[idx] ?? 0);
       const discountAmount = round2(entry.itemDiscount + orderDiscount);
       const taxable = round2(Math.max(0, entry.baseExclusive - discountAmount));
-      const taxBase =
-        taxCalculationMode === "BEFORE_DISCOUNT"
-          ? entry.baseExclusive
-          : taxable;
-      const tax = round2((taxBase * entry.line.taxRate) / 100);
-      const net = round2(taxable + tax);
+      const { tax, net } = lineTax({
+        gross: entry.gross,
+        baseExclusive: entry.baseExclusive,
+        taxable,
+        taxMode: entry.line.taxMode,
+        taxRate: entry.line.taxRate,
+        taxCalculationMode,
+      });
       return {
         ...entry.line,
         gross: entry.gross,

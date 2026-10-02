@@ -4,6 +4,7 @@ import { RECEIPT_CSS_MAX_LENGTH, sanitizeReceiptCss } from './receiptCss.js';
 
 export { RECEIPT_CSS_MAX_LENGTH, RECEIPT_CSS_SCOPE, sanitizeReceiptCss } from './receiptCss.js';
 export type { ReceiptCssResult } from './receiptCss.js';
+export { exclusiveBase, lineTax } from './pricing.js';
 
 const c = initContract();
 

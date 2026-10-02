@@ -48,7 +48,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 - **Problem:** `rate`, `taxRate`, `taxMode` and `saleUomConversionQty` are taken straight from the request, so a ₹5,000 item can be sold for ₹0.01 at 0% tax.
 - **Fix:** Look up the item, its `ItemSaleUom` rows and its MRP inside the transaction. Work out the rate, tax and conversion on the server. Accept a lower rate only within an allowed price-override or discount policy, and record who overrode it.
 
-### [ ] 6. Tax-inclusive rounding goes over MRP
+### [x] 6. Tax-inclusive rounding goes over MRP
 - **Where:** `pos.service.ts` around line 711. The web app has the same maths in `PosPage.tsx`.
 - **Problem:** MRP ₹100 at 18% inclusive gives pre-tax 84.75 + tax 15.26 = **₹100.01**.
 - **Fix:** Round the pre-tax amount, then set `tax = gross − base` so `base + tax` always equals the shelf price. Fix both copies, or do #16 first.
@@ -217,3 +217,15 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - Limit setting: 20% lets the 15% discount through; a cashier can't change the limit; -1 and 101 are rejected.
     - As admin: ₹0.01 accepted with `listRate` recorded; above list price and wrong tax still rejected.
     - In the browser, the cashier saw the limit message when the price was rewritten to ₹0.01. The settings field loads, rejects "abc", and keeps 15 after a reload. The earlier suites and the UI checkout still pass.
+- **2026-10-02 (session 2):** Finished #6. The line tax maths now lives in one place, `packages/contracts/src/pricing.ts` (`exclusiveBase`, `lineTax`). The API (`calculateSaleTotals`) and the POS (`computeLineAmounts`, `computedCart`) both use it, so the screen and the invoice can't disagree. This is a first step towards #16.
+  - Tax-inclusive lines: tax = tax-inclusive amount − taxable, instead of a separately rounded percentage.
+    - No discount: the total is exactly the shelf price.
+    - Discount, AFTER_DISCOUNT: the tax-inclusive amount shrinks in proportion (`gross × taxable / baseExclusive`).
+    - BEFORE_DISCOUNT: tax = `gross − baseExclusive`, on the undiscounted price.
+  - Tax-exclusive lines are unchanged.
+  - Verified:
+    - A sweep of every price ₹0.01–₹500 × rates 0.25/3/5/12/18/28% × qty 1/2/3/5 (1.2M lines). The old maths was a paisa off the shelf price in **105,834** cases; the new maths in **0**, in both tax modes. With a 10% discount the tax is never negative and the total stays between taxable and gross.
+    - With the API running, ₹100 @18% now bills 84.75 + 15.25 = ₹100.00 (it was ₹100.01). Other reproductions (3×₹100, ₹99 @5%, 7×₹250 @12%, ₹1, ₹59 @28%) also match the shelf price.
+    - In the browser, the POS showed "Taxes 15.25, Total 100.00", and the invoice was created and settled at ₹100.
+    - The pricing, validation and branch suites and the UI checkout still pass.
+  - Invoices already saved keep their stored amounts; returns use the stored line amounts.

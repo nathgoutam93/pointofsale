@@ -8,6 +8,7 @@ import {
   UserRole,
   WalletTxnType
 } from '@prisma/client';
+import { exclusiveBase, lineTax } from '@pos/contracts';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma.service';
 import { hashPassword, isPasswordHash, validateNewPassword, verifyPassword } from '../auth/password';
@@ -752,9 +753,9 @@ export class PosService {
     return line.saleUomQty ?? line.qty;
   }
 
-  /** Amount before tax for a gross line amount. */
+  /** Amount before tax for a gross line amount (shared with the POS). */
   private exclusiveBase(gross: number, taxMode: SaleLineInput['taxMode'], taxRate: number) {
-    return this.round2(taxMode === 'INCLUSIVE' && taxRate > 0 ? (gross * 100) / (100 + taxRate) : gross);
+    return exclusiveBase(gross, taxMode, taxRate);
   }
 
   /**
@@ -865,9 +866,14 @@ export class PosService {
       );
       const discountTotal = this.round2(entry.itemDiscount + orderDiscount);
       const taxable = this.round2(Math.max(0, entry.baseExclusive - discountTotal));
-      const taxBase = taxCalculationMode === 'BEFORE_DISCOUNT' ? entry.baseExclusive : taxable;
-      const tax = this.round2((taxBase * entry.line.taxRate) / 100);
-      const net = this.round2(taxable + tax);
+      const { tax, net } = lineTax({
+        gross: entry.gross,
+        baseExclusive: entry.baseExclusive,
+        taxable,
+        taxMode: entry.line.taxMode,
+        taxRate: entry.line.taxRate,
+        taxCalculationMode
+      });
       return {
         ...entry.line,
         discountAmount: discountTotal,
