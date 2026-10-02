@@ -12,7 +12,7 @@ const roleSchema = z.enum(['ADMIN', 'CASHIER']);
 const paymentModeSchema = z.enum(['CASH', 'CARD', 'WALLET']);
 const returnRefundModeSchema = z.enum(['CASH', 'WALLET']);
 const invoiceStatusSchema = z.enum(['DRAFT', 'SETTLED', 'PARTIALLY_SETTLED', 'CANCELLED']);
-const stockTxnTypeSchema = z.enum(['OPENING', 'ADJUSTMENT_PLUS', 'ADJUSTMENT_MINUS', 'SALE', 'RETURN']);
+const stockTxnTypeSchema = z.enum(['OPENING', 'ADJUSTMENT_PLUS', 'ADJUSTMENT_MINUS', 'SALE', 'RETURN', 'SALE_CANCEL']);
 const walletTxnTypeSchema = z.enum(['TOPUP', 'DEBIT_SALE', 'REFUND_RETURN', 'ADJUSTMENT']);
 const taxModeSchema = z.enum(['INCLUSIVE', 'EXCLUSIVE']);
 const taxCalculationModeSchema = z.enum(['AFTER_DISCOUNT', 'BEFORE_DISCOUNT']);
@@ -331,6 +331,17 @@ const reportRangeSchema = z.object({
   netSales: moneySchema,
   profit: moneySchema
 });
+
+const saleCreateBodySchema = z.object({
+  branchId: z.string().uuid(),
+  customerId: z.string().uuid(),
+  walkInCustomerName: z.string().trim().optional().nullable(),
+  walkInCustomerPhone: z.string().trim().optional().nullable(),
+  lines: z.array(saleLineInput).min(1),
+  discounts: z.array(discountInputSchema).default([])
+});
+
+const paymentInputSchema = z.object({ mode: paymentModeSchema, amount: moneySchema.positive(), reference: z.string().optional() });
 
 export const appContract = c.router({
   auth: {
@@ -661,21 +672,32 @@ export const appContract = c.router({
     create: {
       method: 'POST',
       path: '/sales',
-      body: z.object({
-        branchId: z.string().uuid(),
-        customerId: z.string().uuid(),
-        walkInCustomerName: z.string().trim().optional().nullable(),
-        walkInCustomerPhone: z.string().trim().optional().nullable(),
-        lines: z.array(saleLineInput).min(1),
-        discounts: z.array(discountInputSchema).default([])
-      }),
+      body: saleCreateBodySchema,
       responses: { 201: saleInvoiceWithLinesSchema }
+    },
+    /** Create and pay in one transaction; retrying with the same idempotencyKey returns the same invoice. */
+    checkout: {
+      method: 'POST',
+      path: '/sales/checkout',
+      body: saleCreateBodySchema.extend({
+        idempotencyKey: z.string().uuid(),
+        // Empty for a credit sale (registered customers only).
+        payments: z.array(paymentInputSchema).default([])
+      }),
+      responses: { 200: z.object({ invoice: saleInvoiceWithLinesSchema, receipt: receiptSchema.nullable() }) }
     },
     settle: {
       method: 'POST',
       path: '/sales/:id/settle',
-      body: z.object({ payments: z.array(z.object({ mode: paymentModeSchema, amount: moneySchema.positive(), reference: z.string().optional() })).min(1) }),
+      body: z.object({ payments: z.array(paymentInputSchema).min(1) }),
       responses: { 200: z.object({ invoice: saleInvoiceWithLinesSchema, receipt: receiptSchema }) }
+    },
+    /** Admin: cancel an unpaid DRAFT invoice and put its stock back. */
+    cancel: {
+      method: 'POST',
+      path: '/sales/:id/cancel',
+      body: z.undefined(),
+      responses: { 200: saleInvoiceWithLinesSchema }
     },
     list: {
       method: 'GET',

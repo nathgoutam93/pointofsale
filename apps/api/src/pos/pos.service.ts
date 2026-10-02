@@ -35,6 +35,17 @@ type SaleLineInput = {
   discounts?: DiscountInput[];
 };
 
+type CreateSaleInput = {
+  branchId: string;
+  customerId: string;
+  walkInCustomerName?: string | null;
+  walkInCustomerPhone?: string | null;
+  lines: SaleLineInput[];
+  discounts?: DiscountInput[];
+  /** From POST /sales/checkout only; see checkoutSale. */
+  idempotencyKey?: string;
+};
+
 type ComputedSaleLine = SaleLineInput & {
   discountAmount: number;
   taxableAmount: number;
@@ -1590,354 +1601,438 @@ export class PosService {
     });
   }
 
-  async createSale(
-    session: SessionUser,
-    input: {
-      branchId: string;
-      customerId: string;
-      walkInCustomerName?: string | null;
-      walkInCustomerPhone?: string | null;
-      lines: SaleLineInput[];
-      discounts?: DiscountInput[];
-    }
-  ) {
+  async createSale(session: SessionUser, input: CreateSaleInput) {
+    return this.prisma.$transaction((tx) => this.createSaleInTx(tx, session, input));
+  }
+
+  /** Creates a DRAFT invoice and deducts its stock, inside the caller's transaction. */
+  private async createSaleInTx(tx: Prisma.TransactionClient, session: SessionUser, input: CreateSaleInput) {
     const sessionBranchId = this.requireSessionBranchId(session);
     if (sessionBranchId !== input.branchId) {
       throw new BadRequestException('Branch mismatch');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      await this.ensureBranchExists(input.branchId, tx);
-      const businessSettings = await this.ensureBusinessSettings(tx);
-      const customer = await tx.customer.findUnique({
-        where: { id: input.customerId },
-        select: { id: true, branchId: true, name: true, phone: true, isWalkIn: true }
+    await this.ensureBranchExists(input.branchId, tx);
+    const businessSettings = await this.ensureBusinessSettings(tx);
+    const customer = await tx.customer.findUnique({
+      where: { id: input.customerId },
+      select: { id: true, branchId: true, name: true, phone: true, isWalkIn: true }
+    });
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+    if (customer.branchId !== input.branchId) {
+      throw new BadRequestException('Customer does not belong to this branch');
+    }
+    const walkInCustomerName = input.walkInCustomerName?.trim();
+    const walkInCustomerPhone = input.walkInCustomerPhone?.trim();
+    const invoiceCustomerName =
+      customer.isWalkIn && walkInCustomerName ? walkInCustomerName : customer.name;
+    const invoiceCustomerPhone =
+      customer.isWalkIn && walkInCustomerPhone ? walkInCustomerPhone : customer.phone;
+    const createdByUser = await tx.user.findUnique({
+      where: { id: session.userId },
+      select: { username: true }
+    });
+    if (!createdByUser) {
+      throw new NotFoundException('User not found');
+    }
+    const normalizedLines = [];
+
+    for (const line of input.lines) {
+      const normalizedItemId = await this.resolveItemId(line.itemId, tx);
+      const item = await tx.item.findUnique({
+        where: { id: normalizedItemId },
+        select: {
+          name: true,
+          uom: true,
+          leastCount: true,
+          sellPrice: true,
+          taxRate: true,
+          taxMode: true,
+          isActive: true,
+          saleUoms: { select: { uom: true, conversionQty: true, sellPrice: true, isDefault: true } }
+        }
       });
-      if (!customer) {
-        throw new NotFoundException('Customer not found');
+      if (!item) {
+        throw new NotFoundException('Item not found');
       }
-      if (customer.branchId !== input.branchId) {
-        throw new BadRequestException('Customer does not belong to this branch');
+      if (!item.isActive) {
+        throw new BadRequestException(`${item.name} is no longer for sale`);
       }
-      const walkInCustomerName = input.walkInCustomerName?.trim();
-      const walkInCustomerPhone = input.walkInCustomerPhone?.trim();
-      const invoiceCustomerName =
-        customer.isWalkIn && walkInCustomerName ? walkInCustomerName : customer.name;
-      const invoiceCustomerPhone =
-        customer.isWalkIn && walkInCustomerPhone ? walkInCustomerPhone : customer.phone;
-      const createdByUser = await tx.user.findUnique({
-        where: { id: session.userId },
-        select: { username: true }
+      const pricing = this.resolveLinePricing(item, line);
+      this.assertQtyRespectsLeastCount(pricing.qty, this.toNumber(item.leastCount), `Sale line ${line.itemId}`);
+      normalizedLines.push({
+        ...line,
+        ...pricing,
+        itemId: normalizedItemId,
+        itemName: item.name,
+        discounts: line.discounts ?? []
       });
-      if (!createdByUser) {
-        throw new NotFoundException('User not found');
-      }
-      const normalizedLines = [];
+    }
 
-      for (const line of input.lines) {
-        const normalizedItemId = await this.resolveItemId(line.itemId, tx);
-        const item = await tx.item.findUnique({
-          where: { id: normalizedItemId },
-          select: {
-            name: true,
-            uom: true,
-            leastCount: true,
-            sellPrice: true,
-            taxRate: true,
-            taxMode: true,
-            isActive: true,
-            saleUoms: { select: { uom: true, conversionQty: true, sellPrice: true, isDefault: true } }
-          }
-        });
-        if (!item) {
-          throw new NotFoundException('Item not found');
-        }
-        if (!item.isActive) {
-          throw new BadRequestException(`${item.name} is no longer for sale`);
-        }
-        const pricing = this.resolveLinePricing(item, line);
-        this.assertQtyRespectsLeastCount(pricing.qty, this.toNumber(item.leastCount), `Sale line ${line.itemId}`);
-        normalizedLines.push({
-          ...line,
-          ...pricing,
-          itemId: normalizedItemId,
-          itemName: item.name,
-          discounts: line.discounts ?? []
-        });
+    // Check stock per item, adding up every line of it in base units (a box and a
+    // loose piece of the same item draw on the same stock), under the item locks.
+    const qtyByItem = new Map<string, { name: string; qty: number }>();
+    for (const line of normalizedLines) {
+      const entry = qtyByItem.get(line.itemId);
+      qtyByItem.set(line.itemId, { name: line.itemName, qty: this.round3((entry?.qty ?? 0) + line.qty) });
+    }
+    await this.lockItemStock(tx, input.branchId, Array.from(qtyByItem.keys()));
+    for (const [itemId, { name, qty }] of qtyByItem) {
+      const onHand = await this.getOnHandForItem(input.branchId, itemId, tx);
+      if (onHand + 1e-9 < qty) {
+        throw new BadRequestException(`Insufficient stock for ${name}: ${this.round3(onHand)} on hand, ${qty} needed`);
       }
+    }
 
-      // Check stock per item, adding up every line of it in base units (a box and a
-      // loose piece of the same item draw on the same stock), under the item locks.
-      const qtyByItem = new Map<string, { name: string; qty: number }>();
-      for (const line of normalizedLines) {
-        const entry = qtyByItem.get(line.itemId);
-        qtyByItem.set(line.itemId, { name: line.itemName, qty: this.round3((entry?.qty ?? 0) + line.qty) });
-      }
-      await this.lockItemStock(tx, input.branchId, Array.from(qtyByItem.keys()));
-      for (const [itemId, { name, qty }] of qtyByItem) {
-        const onHand = await this.getOnHandForItem(input.branchId, itemId, tx);
-        if (onHand + 1e-9 < qty) {
-          throw new BadRequestException(`Insufficient stock for ${name}: ${this.round3(onHand)} on hand, ${qty} needed`);
-        }
-      }
+    const seq = await this.nextSequence(input.branchId, 'invoice', tx);
+    const invoiceNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
 
-      const seq = await this.nextSequence(input.branchId, 'invoice', tx);
-      const invoiceNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
-
-      const {
+    const {
+      computedLines,
+      orderDiscountPlans,
+      subTotal,
+      discountTotal,
+      orderDiscountTotal,
+      taxTotal,
+      grandTotal
+    } = this.calculateSaleTotals(
+      normalizedLines,
+      input.discounts ?? [],
+      businessSettings.taxCalculationMode
+    );
+    if (session.role !== UserRole.ADMIN) {
+      this.assertWithinCashierDiscountLimit(
+        normalizedLines,
         computedLines,
-        orderDiscountPlans,
+        this.toNumber(businessSettings.cashierMaxDiscountPercent)
+      );
+    }
+
+    const invoice = await tx.saleInvoice.create({
+      data: {
+        branchId: input.branchId,
+        invoiceNo,
+        idempotencyKey: input.idempotencyKey,
+        customerId: input.customerId,
+        customerName: invoiceCustomerName,
+        customerPhone: invoiceCustomerPhone,
+        status: InvoiceStatus.DRAFT,
         subTotal,
         discountTotal,
-        orderDiscountTotal,
+        orderDiscountAmount: orderDiscountTotal,
         taxTotal,
-        grandTotal
-      } = this.calculateSaleTotals(
-        normalizedLines,
-        input.discounts ?? [],
-        businessSettings.taxCalculationMode
-      );
-      if (session.role !== UserRole.ADMIN) {
-        this.assertWithinCashierDiscountLimit(
-          normalizedLines,
-          computedLines,
-          this.toNumber(businessSettings.cashierMaxDiscountPercent)
-        );
-      }
+        grandTotal,
+        paidTotal: 0,
+        createdBy: session.userId,
+        createdByName: createdByUser.username
+      },
+      select: { id: true }
+    });
 
-      const invoice = await tx.saleInvoice.create({
+    const createdLines = [];
+    for (const line of computedLines) {
+      createdLines.push(
+        await tx.saleInvoiceLine.create({
+          data: {
+            invoiceId: invoice.id,
+            itemId: line.itemId,
+            itemName: line.itemName ?? 'Unknown Item',
+            qty: line.qty,
+            rate: line.rate,
+            listRate: line.listRate,
+            saleUom: line.saleUom,
+            saleUomQty: line.saleUomQty,
+            saleUomConversionQty: line.saleUomConversionQty,
+            discountAmount: line.discountAmount,
+            taxMode: line.taxMode ?? 'EXCLUSIVE',
+            taxRate: line.taxRate,
+            taxableAmount: line.taxableAmount,
+            taxAmount: line.taxAmount,
+            netAmount: line.netAmount
+          },
+          select: { id: true, itemId: true }
+        })
+      );
+    }
+
+    for (let lineIdx = 0; lineIdx < computedLines.length; lineIdx += 1) {
+      const line = computedLines[lineIdx];
+      const persistedLine = createdLines[lineIdx];
+      const itemDiscounts = this.resolveDiscountAmounts(line.discounts, line.baseExclusive);
+      for (const discount of itemDiscounts) {
+        const createdDiscount = await tx.discount.create({
+          data: {
+            saleInvoiceId: invoice.id,
+            scope: DiscountScope.ITEM,
+            type: discount.type,
+            value: discount.value
+          },
+          select: { id: true }
+        });
+        await tx.discountAllocation.create({
+          data: {
+            discountId: createdDiscount.id,
+            saleInvoiceLineId: persistedLine.id,
+            amount: discount.amount
+          }
+        });
+      }
+    }
+
+    for (const orderDiscount of orderDiscountPlans) {
+      const createdDiscount = await tx.discount.create({
         data: {
-          branchId: input.branchId,
-          invoiceNo,
-          customerId: input.customerId,
-          customerName: invoiceCustomerName,
-          customerPhone: invoiceCustomerPhone,
-          status: InvoiceStatus.DRAFT,
-          subTotal,
-          discountTotal,
-          orderDiscountAmount: orderDiscountTotal,
-          taxTotal,
-          grandTotal,
-          paidTotal: 0,
-          createdBy: session.userId,
-          createdByName: createdByUser.username
+          saleInvoiceId: invoice.id,
+          scope: DiscountScope.ORDER,
+          type: orderDiscount.type,
+          value: orderDiscount.value
         },
         select: { id: true }
       });
 
-      const createdLines = [];
-      for (const line of computedLines) {
-        createdLines.push(
-          await tx.saleInvoiceLine.create({
-            data: {
-              invoiceId: invoice.id,
-              itemId: line.itemId,
-              itemName: line.itemName ?? 'Unknown Item',
-              qty: line.qty,
-              rate: line.rate,
-              listRate: line.listRate,
-              saleUom: line.saleUom,
-              saleUomQty: line.saleUomQty,
-              saleUomConversionQty: line.saleUomConversionQty,
-              discountAmount: line.discountAmount,
-              taxMode: line.taxMode ?? 'EXCLUSIVE',
-              taxRate: line.taxRate,
-              taxableAmount: line.taxableAmount,
-              taxAmount: line.taxAmount,
-              netAmount: line.netAmount
-            },
-            select: { id: true, itemId: true }
-          })
-        );
-      }
-
-      for (let lineIdx = 0; lineIdx < computedLines.length; lineIdx += 1) {
-        const line = computedLines[lineIdx];
-        const persistedLine = createdLines[lineIdx];
-        const itemDiscounts = this.resolveDiscountAmounts(line.discounts, line.baseExclusive);
-        for (const discount of itemDiscounts) {
-          const createdDiscount = await tx.discount.create({
-            data: {
-              saleInvoiceId: invoice.id,
-              scope: DiscountScope.ITEM,
-              type: discount.type,
-              value: discount.value
-            },
-            select: { id: true }
-          });
-          await tx.discountAllocation.create({
-            data: {
-              discountId: createdDiscount.id,
-              saleInvoiceLineId: persistedLine.id,
-              amount: discount.amount
-            }
-          });
-        }
-      }
-
-      for (const orderDiscount of orderDiscountPlans) {
-        const createdDiscount = await tx.discount.create({
+      for (let lineIdx = 0; lineIdx < createdLines.length; lineIdx += 1) {
+        const amount = this.round2(orderDiscount.allocations[lineIdx] ?? 0);
+        if (amount <= 0) continue;
+        await tx.discountAllocation.create({
           data: {
-            saleInvoiceId: invoice.id,
-            scope: DiscountScope.ORDER,
-            type: orderDiscount.type,
-            value: orderDiscount.value
-          },
-          select: { id: true }
+            discountId: createdDiscount.id,
+            saleInvoiceLineId: createdLines[lineIdx].id,
+            amount
+          }
         });
+      }
+    }
 
-        for (let lineIdx = 0; lineIdx < createdLines.length; lineIdx += 1) {
-          const amount = this.round2(orderDiscount.allocations[lineIdx] ?? 0);
-          if (amount <= 0) continue;
-          await tx.discountAllocation.create({
-            data: {
-              discountId: createdDiscount.id,
-              saleInvoiceLineId: createdLines[lineIdx].id,
-              amount
-            }
-          });
+    const createdInvoice = await tx.saleInvoice.findUnique({
+      where: { id: invoice.id },
+      include: this.saleInvoiceInclude
+    });
+    if (!createdInvoice) {
+      throw new NotFoundException('Invoice not found after creation');
+    }
+
+    await tx.stockLedger.createMany({
+      data: computedLines.map((line) => ({
+        branchId: input.branchId,
+        itemId: line.itemId,
+        txnType: StockTxnType.SALE,
+        qtyIn: 0,
+        qtyOut: line.qty,
+        referenceType: 'SALE',
+        referenceId: invoice.id
+      }))
+    });
+
+    return this.withCreatedByName(createdInvoice);
+  }
+
+  /**
+   * Creates and pays a sale in one transaction, so a failed payment leaves no DRAFT
+   * invoice holding stock. With no payments it is a credit sale (registered customers).
+   * The POS sends a fresh idempotency key per checkout and reuses it on retry: a key that
+   * already made an invoice returns that invoice instead of creating a second one.
+   */
+  async checkoutSale(session: SessionUser, input: CreateSaleInput & { idempotencyKey: string; payments: PaymentInput[] }) {
+    const existing = await this.findCheckoutReplay(session, input.idempotencyKey);
+    if (existing) return existing;
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const created = await this.createSaleInTx(tx, session, input);
+        const result =
+          input.payments.length === 0
+            ? { invoice: created, receipt: null }
+            : await this.settleSaleInTx(tx, session, created.id, input.payments);
+        // Nobody to collect the rest from, so walk-in sales must be paid in full.
+        if (result.invoice.status !== InvoiceStatus.SETTLED) {
+          const customer = await tx.customer.findUnique({ where: { id: input.customerId }, select: { isWalkIn: true } });
+          if (customer?.isWalkIn) {
+            throw new BadRequestException('Walk-in sales must be paid in full');
+          }
         }
-      }
-
-      const createdInvoice = await tx.saleInvoice.findUnique({
-        where: { id: invoice.id },
-        include: this.saleInvoiceInclude
+        return result;
       });
-      if (!createdInvoice) {
-        throw new NotFoundException('Invoice not found after creation');
+    } catch (error) {
+      // A concurrent request with the same key won the race; return what it created.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const replay = await this.findCheckoutReplay(session, input.idempotencyKey);
+        if (replay) return replay;
       }
+      throw error;
+    }
+  }
 
+  private async findCheckoutReplay(session: SessionUser, idempotencyKey: string) {
+    const invoice = await this.prisma.saleInvoice.findUnique({
+      where: { idempotencyKey },
+      include: this.saleInvoiceInclude
+    });
+    if (!invoice) return null;
+    if (invoice.createdBy !== session.userId || invoice.branchId !== session.branchId) {
+      throw new BadRequestException('This checkout key was already used');
+    }
+    const receipt = await this.prisma.receipt.findFirst({
+      where: { invoiceId: invoice.id },
+      orderBy: { createdAt: 'desc' }
+    });
+    return { invoice: await this.withCreatedByName(invoice), receipt };
+  }
+
+  /**
+   * Admin action for an unpaid DRAFT invoice (for example one left behind when payment
+   * failed in the old two-step checkout): marks it CANCELLED and puts its stock back.
+   */
+  async cancelSale(session: SessionUser, invoiceId: string) {
+    const sessionBranchId = this.requireSessionBranchId(session);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
+      const invoice = await tx.saleInvoice.findFirst({
+        where: { id: invoiceId, branchId: sessionBranchId },
+        include: { lines: { select: { itemId: true, qty: true } } }
+      });
+      if (!invoice) throw new NotFoundException('Invoice not found');
+      if (invoice.status !== InvoiceStatus.DRAFT || this.toNumber(invoice.paidTotal) > 0) {
+        throw new BadRequestException(`Only unpaid draft invoices can be cancelled; ${invoice.invoiceNo} is ${invoice.status}`);
+      }
       await tx.stockLedger.createMany({
-        data: computedLines.map((line) => ({
-          branchId: input.branchId,
+        data: invoice.lines.map((line) => ({
+          branchId: invoice.branchId,
           itemId: line.itemId,
-          txnType: StockTxnType.SALE,
-          qtyIn: 0,
-          qtyOut: line.qty,
-          referenceType: 'SALE',
+          txnType: StockTxnType.SALE_CANCEL,
+          qtyIn: line.qty,
+          qtyOut: 0,
+          referenceType: 'SALE_CANCEL',
           referenceId: invoice.id
         }))
       });
-
-      return this.withCreatedByName(createdInvoice);
+      const updated = await tx.saleInvoice.update({
+        where: { id: invoice.id },
+        data: { status: InvoiceStatus.CANCELLED },
+        include: this.saleInvoiceInclude
+      });
+      return this.withCreatedByName(updated);
     });
   }
 
   async settleSale(session: SessionUser, invoiceId: string, payments: PaymentInput[]) {
+    return this.prisma.$transaction((tx) => this.settleSaleInTx(tx, session, invoiceId, payments));
+  }
+
+  /** Records payments against an unpaid invoice, inside the caller's transaction. */
+  private async settleSaleInTx(tx: Prisma.TransactionClient, session: SessionUser, invoiceId: string, payments: PaymentInput[]) {
     const sessionBranchId = this.requireSessionBranchId(session);
     if (payments.length === 0 || payments.some((p) => !Number.isFinite(p.amount) || p.amount <= 0)) {
       throw new BadRequestException('Each payment amount must be greater than zero');
     }
-    return this.prisma.$transaction(async (tx) => {
-      // Lock the invoice so two settle requests for it run one after the other.
-      await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
-      const invoice = await tx.saleInvoice.findUnique({
-        where: { id: invoiceId },
-        include: {
-          ...this.saleInvoiceInclude,
-          customer: true
-        }
-      });
-
-      if (!invoice) throw new NotFoundException('Invoice not found');
-      if (invoice.branchId !== sessionBranchId) throw new BadRequestException('Branch mismatch');
-      if (invoice.status === InvoiceStatus.SETTLED) {
-        throw new BadRequestException(`Invoice ${invoice.invoiceNo} is already paid`);
+    // Lock the invoice so two settle requests for it run one after the other.
+    await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
+    const invoice = await tx.saleInvoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        ...this.saleInvoiceInclude,
+        customer: true
       }
-      if (invoice.status === InvoiceStatus.CANCELLED) {
-        throw new BadRequestException(`Invoice ${invoice.invoiceNo} is cancelled`);
-      }
-
-      const payTotal = this.round2(payments.reduce((acc, p) => acc + p.amount, 0));
-      const pending = this.round2(this.toNumber(invoice.grandTotal) - this.toNumber(invoice.paidTotal));
-      const excess = this.round2(Math.max(0, payTotal - pending));
-
-      if (payTotal > pending && invoice.customer.isWalkIn) {
-        throw new BadRequestException('Payment exceeds pending amount');
-      }
-
-      // All WALLET lines together; the wallet can pay at most what is due, so extra
-      // money credited back to a wallet only ever comes from cash or card.
-      const walletTotal = this.round2(
-        payments.filter((p) => p.mode === PaymentMode.WALLET).reduce((acc, p) => acc + p.amount, 0)
-      );
-      if (walletTotal > pending) {
-        throw new BadRequestException('Wallet payment can\'t be more than the amount due');
-      }
-      if (walletTotal > 0) {
-        const wallet = await tx.walletAccount.findUnique({ where: { customerId: invoice.customerId } });
-        if (!wallet) throw new NotFoundException('Wallet not found');
-        // Debit only if the balance still covers it, so two sales can't spend the same money.
-        const debited = await tx.walletAccount.updateMany({
-          where: { id: wallet.id, balance: { gte: walletTotal } },
-          data: { balance: { decrement: walletTotal } }
-        });
-        if (debited.count === 0) {
-          throw new BadRequestException('Insufficient wallet balance');
-        }
-        await tx.walletTxn.create({
-          data: {
-            walletAccountId: wallet.id,
-            type: WalletTxnType.DEBIT_SALE,
-            amount: walletTotal,
-            referenceType: 'SALE',
-            referenceId: invoice.id
-          }
-        });
-      }
-
-      await tx.payment.createMany({
-        data: payments.map((p) => ({
-          invoiceId: invoice.id,
-          mode: p.mode,
-          amount: p.amount,
-          reference: p.reference
-        }))
-      });
-
-      const appliedToInvoice = this.round2(Math.min(payTotal, pending));
-      const updatedPaid = this.round2(this.toNumber(invoice.paidTotal) + appliedToInvoice);
-      const status = updatedPaid >= this.toNumber(invoice.grandTotal) ? InvoiceStatus.SETTLED : InvoiceStatus.PARTIALLY_SETTLED;
-
-      const updated = await tx.saleInvoice.update({
-        where: { id: invoice.id },
-        data: { paidTotal: updatedPaid, status },
-        include: this.saleInvoiceInclude
-      });
-
-      const seq = await this.nextSequence(invoice.branchId, 'receipt', tx);
-      const receiptNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
-
-      const receipt = await tx.receipt.create({
-        data: {
-          receiptNo,
-          invoiceId: invoice.id,
-          amount: payTotal
-        }
-      });
-
-      if (excess > 0 && !invoice.customer.isWalkIn) {
-        const wallet = await tx.walletAccount.findUnique({ where: { customerId: invoice.customerId } });
-        if (!wallet) throw new NotFoundException('Wallet not found');
-
-        await tx.walletAccount.update({
-          where: { id: wallet.id },
-          data: { balance: { increment: excess } }
-        });
-        await tx.walletTxn.create({
-          data: {
-            walletAccountId: wallet.id,
-            type: WalletTxnType.TOPUP,
-            amount: excess,
-            referenceType: 'SALE',
-            referenceId: invoice.id
-          }
-        });
-      }
-
-      const invoiceWithCreatorName = await this.withCreatedByName(updated);
-      return { invoice: invoiceWithCreatorName, receipt };
     });
+
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    if (invoice.branchId !== sessionBranchId) throw new BadRequestException('Branch mismatch');
+    if (invoice.status === InvoiceStatus.SETTLED) {
+      throw new BadRequestException(`Invoice ${invoice.invoiceNo} is already paid`);
+    }
+    if (invoice.status === InvoiceStatus.CANCELLED) {
+      throw new BadRequestException(`Invoice ${invoice.invoiceNo} is cancelled`);
+    }
+
+    const payTotal = this.round2(payments.reduce((acc, p) => acc + p.amount, 0));
+    const pending = this.round2(this.toNumber(invoice.grandTotal) - this.toNumber(invoice.paidTotal));
+    const excess = this.round2(Math.max(0, payTotal - pending));
+
+    if (payTotal > pending && invoice.customer.isWalkIn) {
+      throw new BadRequestException('Payment exceeds pending amount');
+    }
+
+    // All WALLET lines together; the wallet can pay at most what is due, so extra
+    // money credited back to a wallet only ever comes from cash or card.
+    const walletTotal = this.round2(
+      payments.filter((p) => p.mode === PaymentMode.WALLET).reduce((acc, p) => acc + p.amount, 0)
+    );
+    if (walletTotal > pending) {
+      throw new BadRequestException('Wallet payment can\'t be more than the amount due');
+    }
+    if (walletTotal > 0) {
+      const wallet = await tx.walletAccount.findUnique({ where: { customerId: invoice.customerId } });
+      if (!wallet) throw new NotFoundException('Wallet not found');
+      // Debit only if the balance still covers it, so two sales can't spend the same money.
+      const debited = await tx.walletAccount.updateMany({
+        where: { id: wallet.id, balance: { gte: walletTotal } },
+        data: { balance: { decrement: walletTotal } }
+      });
+      if (debited.count === 0) {
+        throw new BadRequestException('Insufficient wallet balance');
+      }
+      await tx.walletTxn.create({
+        data: {
+          walletAccountId: wallet.id,
+          type: WalletTxnType.DEBIT_SALE,
+          amount: walletTotal,
+          referenceType: 'SALE',
+          referenceId: invoice.id
+        }
+      });
+    }
+
+    await tx.payment.createMany({
+      data: payments.map((p) => ({
+        invoiceId: invoice.id,
+        mode: p.mode,
+        amount: p.amount,
+        reference: p.reference
+      }))
+    });
+
+    const appliedToInvoice = this.round2(Math.min(payTotal, pending));
+    const updatedPaid = this.round2(this.toNumber(invoice.paidTotal) + appliedToInvoice);
+    const status = updatedPaid >= this.toNumber(invoice.grandTotal) ? InvoiceStatus.SETTLED : InvoiceStatus.PARTIALLY_SETTLED;
+
+    const updated = await tx.saleInvoice.update({
+      where: { id: invoice.id },
+      data: { paidTotal: updatedPaid, status },
+      include: this.saleInvoiceInclude
+    });
+
+    const seq = await this.nextSequence(invoice.branchId, 'receipt', tx);
+    const receiptNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
+
+    const receipt = await tx.receipt.create({
+      data: {
+        receiptNo,
+        invoiceId: invoice.id,
+        amount: payTotal
+      }
+    });
+
+    if (excess > 0 && !invoice.customer.isWalkIn) {
+      const wallet = await tx.walletAccount.findUnique({ where: { customerId: invoice.customerId } });
+      if (!wallet) throw new NotFoundException('Wallet not found');
+
+      await tx.walletAccount.update({
+        where: { id: wallet.id },
+        data: { balance: { increment: excess } }
+      });
+      await tx.walletTxn.create({
+        data: {
+          walletAccountId: wallet.id,
+          type: WalletTxnType.TOPUP,
+          amount: excess,
+          referenceType: 'SALE',
+          referenceId: invoice.id
+        }
+      });
+    }
+
+    const invoiceWithCreatorName = await this.withCreatedByName(updated);
+    return { invoice: invoiceWithCreatorName, receipt };
   }
 
   async listSales(branchId: string) {

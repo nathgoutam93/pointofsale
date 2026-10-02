@@ -31,6 +31,8 @@ enum StockTxnType {
   ADJUSTMENT_MINUS
   SALE
   RETURN
+  /// Stock put back when an unpaid invoice is cancelled.
+  SALE_CANCEL
 }
 
 enum InvoiceStatus {
@@ -236,6 +238,8 @@ model SaleInvoice {
   branchId            String
   branch              Branch           @relation(fields: [branchId], references: [id])
   invoiceNo           String           @unique
+  /// Sent by the POS with each checkout so a retried request returns this invoice instead of creating another.
+  idempotencyKey      String?          @unique
   customerId          String
   customer            Customer         @relation(fields: [customerId], references: [id])
   customerName        String

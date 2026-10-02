@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { sanitizeReceiptCss } from "@pos/contracts";
-import { API_BASE_URL, api, authHeaders } from "../lib/api";
+import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import {
   buildReceiptLines,
   formatReceiptDate,
@@ -574,6 +574,34 @@ export function SalesPage() {
     setMessage("");
   };
 
+  // Admins can cancel an unpaid draft (e.g. one left by a failed checkout); its stock goes back.
+  const canCancelInvoice =
+    session.role === "ADMIN" &&
+    currentInvoice?.status === "DRAFT" &&
+    Number(currentInvoice?.paidTotal ?? 0) === 0;
+
+  const cancelInvoice = useMutation({
+    mutationFn: async (invoiceId: string) => {
+      const res = await api.sales.cancel({
+        params: { id: invoiceId },
+        extraHeaders: authHeaders(),
+      });
+      if (res.status !== 200) {
+        throw new Error(apiErrorMessage(res.body, "Failed to cancel invoice"));
+      }
+      return res.body;
+    },
+    onSuccess: (invoice) => {
+      setMessage(`Cancelled ${invoice.invoiceNo}; its stock is back on hand.`);
+      queryClient.invalidateQueries({ queryKey: ["sales-module", session.branchId] });
+      queryClient.invalidateQueries({ queryKey: ["sales-by-id", invoice.id] });
+      queryClient.invalidateQueries({ queryKey: ["stock-module", session.branchId] });
+    },
+    onError: (error) => {
+      setMessage((error as Error).message);
+    },
+  });
+
   const settleInvoice = useMutation({
     mutationFn: async (payload: {
       invoiceId: string;
@@ -585,11 +613,7 @@ export function SalesPage() {
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) {
-        const apiMessage =
-          typeof (res.body as { message?: unknown })?.message === "string"
-            ? (res.body as { message: string }).message
-            : "";
-        throw new Error(apiMessage || "Failed to settle invoice");
+        throw new Error(apiErrorMessage(res.body, "Failed to settle invoice"));
       }
       return res.body;
     },
@@ -1213,11 +1237,27 @@ export function SalesPage() {
               className="rounded bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:bg-emerald-300"
               onClick={openSettleModal}
               disabled={
-                !currentInvoice || pendingAmount <= 0 || settleInvoice.isPending
+                !currentInvoice ||
+                pendingAmount <= 0 ||
+                currentInvoice.status === "CANCELLED" ||
+                settleInvoice.isPending
               }
             >
               Settle
             </button>
+            {canCancelInvoice ? (
+              <button
+                className="rounded border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 disabled:opacity-50"
+                disabled={cancelInvoice.isPending}
+                onClick={() => {
+                  if (!currentInvoice) return;
+                  if (!window.confirm(`Cancel ${currentInvoice.invoiceNo}? Nothing has been paid; its stock will be put back.`)) return;
+                  cancelInvoice.mutate(currentInvoice.id);
+                }}
+              >
+                Cancel Invoice
+              </button>
+            ) : null}
             <button
               className="rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700"
               onClick={() => window.print()}

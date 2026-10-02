@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { exclusiveBase, lineTax, sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
+import { newUuid } from "../lib/id";
 import {
   buildReceiptLines,
   escapeHtml,
@@ -1449,80 +1450,78 @@ export function PosPage() {
     ? paymentLines.length > 0 && paymentMatchesTotal
     : paymentLines.length > 0 || paymentMethod === "CREDIT";
 
-  const createInvoice = async () => {
+  // One idempotency key per checkout attempt. A retry of exactly the same request (e.g.
+  // after a network error) reuses it, so the server returns the invoice it already made
+  // instead of billing twice; any change to the cart or payments gets a new key.
+  const checkoutKeyRef = useRef<{ key: string; fingerprint: string } | null>(null);
+
+  const buildSaleBody = () => {
     if (cart.length === 0) throw new Error("Cart is empty");
 
     const selected = customerId || walkIn.data?.id;
     if (!selected) throw new Error("Customer not resolved");
 
-    const createRes = await api.sales.create({
-      body: {
-        branchId: session.branchId,
-        customerId: selected,
-        walkInCustomerName: isWalkInSelected ? normalizedWalkInCustomerName || null : null,
-        walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone || null : null,
-        lines: cart.map((line) => ({
-          itemId: line.itemId,
-          qty: line.qty,
-          rate: line.rate,
-          saleUom: line.saleUom,
-          saleUomQty: line.saleUomQty,
-          saleUomConversionQty: line.saleUomConversionQty,
-          taxRate: line.taxRate,
-          taxMode: line.taxMode,
-          discounts:
-            line.discountAmount > 0
-              ? [{ type: "FIXED" as const, value: line.discountAmount }]
-              : [],
-        })),
+    return {
+      branchId: session.branchId,
+      customerId: selected,
+      walkInCustomerName: isWalkInSelected ? normalizedWalkInCustomerName || null : null,
+      walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone || null : null,
+      lines: cart.map((line) => ({
+        itemId: line.itemId,
+        qty: line.qty,
+        rate: line.rate,
+        saleUom: line.saleUom,
+        saleUomQty: line.saleUomQty,
+        saleUomConversionQty: line.saleUomConversionQty,
+        taxRate: line.taxRate,
+        taxMode: line.taxMode,
         discounts:
-          Number(orderDiscountValue) > 0
-            ? [
-                {
-                  type:
-                    orderDiscountMode === "PERCENT"
-                      ? ("PERCENTAGE" as const)
-                      : ("FIXED" as const),
-                  value: Number(orderDiscountValue),
-                },
-              ]
+          line.discountAmount > 0
+            ? [{ type: "FIXED" as const, value: line.discountAmount }]
             : [],
-      },
-      extraHeaders: authHeaders(),
-    });
-
-    if (createRes.status !== 201) {
-      throw new Error(apiErrorMessage(createRes.body, "Failed to create invoice"));
-    }
-
-    return createRes.body;
+      })),
+      discounts:
+        Number(orderDiscountValue) > 0
+          ? [
+              {
+                type:
+                  orderDiscountMode === "PERCENT"
+                    ? ("PERCENTAGE" as const)
+                    : ("FIXED" as const),
+                value: Number(orderDiscountValue),
+              },
+            ]
+          : [],
+    };
   };
 
   const checkout = useMutation({
     mutationFn: async (payload: {
       payments: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
     }) => {
-      const invoice = await createInvoice();
-      if (payload.payments.length === 0) {
-        return { invoice, receipt: null };
+      const body = { ...buildSaleBody(), payments: payload.payments };
+      const fingerprint = JSON.stringify(body);
+      if (checkoutKeyRef.current?.fingerprint !== fingerprint) {
+        checkoutKeyRef.current = { key: newUuid(), fingerprint };
       }
 
-      const settleRes = await api.sales.settle({
-        params: { id: invoice.id },
-        body: { payments: payload.payments },
-        extraHeaders: authHeaders(),
-      });
-
-      if (settleRes.status !== 200) {
+      // Creates and pays in one transaction: if payment fails nothing is saved.
+      let res;
+      try {
+        res = await api.sales.checkout({
+          body: { ...body, idempotencyKey: checkoutKeyRef.current.key },
+          extraHeaders: authHeaders(),
+        });
+      } catch {
         throw new Error(
-          `Invoice ${invoice.invoiceNo} created but settlement failed`,
+          "Couldn't reach the server. Check the connection and press Validate again; the sale won't be charged twice.",
         );
       }
-
-      return {
-        invoice: settleRes.body.invoice,
-        receipt: settleRes.body.receipt,
-      };
+      if (res.status !== 200) {
+        throw new Error(apiErrorMessage(res.body, "Checkout failed"));
+      }
+      checkoutKeyRef.current = null;
+      return res.body;
     },
     onSuccess: (result) => {
       const cartSnapshotByKey = new Map(cart.map((line) => [getCartLineKey(line), line]));

@@ -538,6 +538,43 @@ export class PosController {
     return this.posService.createSale(this.requireOpenRegisterSession(headers), body);
   }
 
+  @Post('/sales/checkout')
+  @HttpCode(200)
+  checkoutSale(
+    @Body(new ZodValidationPipe(appContract.sales.checkout.body))
+    body: {
+      branchId: string;
+      customerId: string;
+      walkInCustomerName?: string | null;
+      walkInCustomerPhone?: string | null;
+      lines: Array<{
+        itemId: string;
+        qty: number;
+        rate: number;
+        saleUom?: string;
+        saleUomQty?: number;
+        saleUomConversionQty?: number;
+        taxRate: number;
+        taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
+        discounts?: Array<{ type: 'PERCENTAGE' | 'FIXED'; value: number }>;
+      }>;
+      discounts?: Array<{ type: 'PERCENTAGE' | 'FIXED'; value: number }>;
+      idempotencyKey: string;
+      payments: Array<{ mode: PaymentMode; amount: number; reference?: string }>;
+    },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
+    return this.posService.checkoutSale(this.requireOpenRegisterSession(headers), body);
+  }
+
+  @Post('/sales/:id/cancel')
+  @HttpCode(200)
+  cancelSale(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+    const session = this.requireOpenRegisterSession(headers);
+    this.requireAdmin(session);
+    return this.posService.cancelSale(session, id);
+  }
+
   @Post('/sales/:id/settle')
   @HttpCode(200)
   settleSale(
