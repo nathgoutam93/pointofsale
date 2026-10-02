@@ -16,6 +16,8 @@ const stockTxnTypeSchema = z.enum(['OPENING', 'ADJUSTMENT_PLUS', 'ADJUSTMENT_MIN
 const walletTxnTypeSchema = z.enum(['TOPUP', 'DEBIT_SALE', 'REFUND_RETURN', 'ADJUSTMENT']);
 const taxModeSchema = z.enum(['INCLUSIVE', 'EXCLUSIVE']);
 const taxCalculationModeSchema = z.enum(['AFTER_DISCOUNT', 'BEFORE_DISCOUNT']);
+/** SHARED: customers and wallets work at every branch. BRANCH: only at the branch that created them. */
+const customerScopeSchema = z.enum(['SHARED', 'BRANCH']);
 const discountScopeSchema = z.enum(['ITEM', 'ORDER']);
 const discountTypeSchema = z.enum(['PERCENTAGE', 'FIXED']);
 
@@ -106,7 +108,8 @@ export const businessSettingsSchema = z.object({
   logoUrl: z.string().nullable(),
   gstNumber: z.string().nullable(),
   taxCalculationMode: taxCalculationModeSchema,
-  cashierMaxDiscountPercent: z.number()
+  cashierMaxDiscountPercent: z.number(),
+  customerScope: customerScopeSchema
 });
 
 export const userSchema = z.object({
@@ -413,7 +416,8 @@ export const appContract = c.router({
         logoUrl: z.string().nullable().optional(),
         gstNumber: z.string().nullable().optional(),
         taxCalculationMode: taxCalculationModeSchema.optional(),
-        cashierMaxDiscountPercent: z.number().min(0).max(100).optional()
+        cashierMaxDiscountPercent: z.number().min(0).max(100).optional(),
+        customerScope: customerScopeSchema.optional()
       }),
       responses: { 200: businessSettingsSchema }
     }

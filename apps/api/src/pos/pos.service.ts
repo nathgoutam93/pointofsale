@@ -6,6 +6,7 @@ import {
   Prisma,
   StockTxnType,
   UserRole,
+  CustomerScope,
   WalletTxnType
 } from '@prisma/client';
 import { exclusiveBase, lineTax, returnLineRefund } from '@pos/contracts';
@@ -96,7 +97,8 @@ export class PosService {
     logoUrl: true,
     gstNumber: true,
     taxCalculationMode: true,
-    cashierMaxDiscountPercent: true
+    cashierMaxDiscountPercent: true,
+    customerScope: true
   } as const;
 
   private readonly branchSettingsSelect = {
@@ -194,6 +196,7 @@ export class PosService {
     gstNumber?: string | null;
     taxCalculationMode?: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
     cashierMaxDiscountPercent?: number;
+    customerScope?: CustomerScope;
   }) {
     await this.ensureBusinessSettings();
     const updated = await this.prisma.businessSettings.update({
@@ -203,7 +206,8 @@ export class PosService {
         logoUrl: input.logoUrl,
         gstNumber: input.gstNumber,
         taxCalculationMode: input.taxCalculationMode,
-        cashierMaxDiscountPercent: input.cashierMaxDiscountPercent
+        cashierMaxDiscountPercent: input.cashierMaxDiscountPercent,
+        customerScope: input.customerScope
       },
       select: this.businessSettingsSelect
     });
@@ -1247,22 +1251,64 @@ export class PosService {
     };
   }
 
+  private async getCustomerScope(tx?: Prisma.TransactionClient) {
+    return (await this.ensureBusinessSettings(tx)).customerScope;
+  }
+
+  /**
+   * Whether a branch may use a customer: each branch's walk-in customer is its own; other
+   * customers are shared by every branch, or only their home branch, per the business setting.
+   */
+  private customerUsableAt(customer: { branchId: string; isWalkIn: boolean }, branchId: string, scope: CustomerScope) {
+    if (customer.isWalkIn || scope === CustomerScope.BRANCH) return customer.branchId === branchId;
+    return true;
+  }
+
+  /** A phone number identifies one customer: across all branches when shared, within the branch otherwise. */
+  private async assertPhoneFree(
+    phone: string | null | undefined,
+    branchId: string,
+    scope: CustomerScope,
+    exceptCustomerId?: string,
+    tx?: Prisma.TransactionClient
+  ) {
+    if (!phone) return;
+    const client = tx ?? this.prisma;
+    const existing = await client.customer.findFirst({
+      where: {
+        phone,
+        isWalkIn: false,
+        ...(scope === CustomerScope.BRANCH ? { branchId } : {}),
+        ...(exceptCustomerId ? { id: { not: exceptCustomerId } } : {})
+      },
+      select: { name: true, code: true }
+    });
+    if (existing) {
+      throw new BadRequestException(`Phone ${phone} already belongs to ${existing.name} (${existing.code})`);
+    }
+  }
+
   async listCustomers(branchId: string) {
-    const where = branchId
-      ? { OR: [{ isWalkIn: false }, { isWalkIn: true, branchId }] }
-      : { isWalkIn: false };
+    const scope = await this.getCustomerScope();
+    const where: Prisma.CustomerWhereInput =
+      scope === CustomerScope.SHARED
+        ? { OR: [{ isWalkIn: false }, { isWalkIn: true, branchId }] }
+        : { branchId };
     return this.prisma.customer.findMany({ where, orderBy: { createdAt: 'desc' } });
   }
 
   async createCustomer(branchId: string, name: string, phone?: string) {
+    const normalizedPhone = phone?.trim() || null;
     return this.prisma.$transaction(async (tx) => {
+      const scope = await this.getCustomerScope(tx);
+      await this.assertPhoneFree(normalizedPhone, branchId, scope, undefined, tx);
       const seq = await this.nextSequence(branchId, 'customer', tx);
       const customer = await tx.customer.create({
         data: {
           branchId,
           code: `CUST-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`,
           name,
-          phone
+          phone: normalizedPhone
         }
       });
 
@@ -1279,11 +1325,12 @@ export class PosService {
   }
 
   async updateCustomer(branchId: string, customerId: string, input: { name?: string; phone?: string | null }) {
+    const scope = await this.getCustomerScope();
     const customer = await this.prisma.customer.findUnique({
       where: { id: customerId },
       select: { id: true, branchId: true, isWalkIn: true }
     });
-    if (!customer || customer.branchId !== branchId) {
+    if (!customer || !this.customerUsableAt(customer, branchId, scope)) {
       throw new NotFoundException('Customer not found');
     }
     if (customer.isWalkIn) {
@@ -1304,6 +1351,7 @@ export class PosService {
     if (updates.name !== undefined && updates.name.length === 0) {
       throw new BadRequestException('Customer name is required');
     }
+    await this.assertPhoneFree(updates.phone, customer.branchId, scope, customer.id);
 
     return this.prisma.customer.update({
       where: { id: customerId },
@@ -1315,16 +1363,27 @@ export class PosService {
     return this.ensureWalkInCustomer(branchId);
   }
 
+  /** The customer's wallet, if this branch may use the customer (see customerUsableAt). */
+  private async findUsableWallet(branchId: string, customerId: string, tx?: Prisma.TransactionClient) {
+    const scope = await this.getCustomerScope(tx);
+    const wallet = await (tx ?? this.prisma).walletAccount.findUnique({
+      where: { customerId },
+      include: { customer: { select: { branchId: true, isWalkIn: true } } }
+    });
+    if (!wallet || !this.customerUsableAt(wallet.customer, branchId, scope)) {
+      throw new NotFoundException('Wallet not found');
+    }
+    return wallet;
+  }
+
   async getWallet(branchId: string, customerId: string) {
-    const wallet = await this.prisma.walletAccount.findFirst({ where: { customerId, branchId } });
-    if (!wallet) throw new NotFoundException('Wallet not found');
+    const wallet = await this.findUsableWallet(branchId, customerId);
     return { customerId, branchId: wallet.branchId, balance: this.toNumber(wallet.balance) };
   }
 
   async topupWallet(branchId: string, customerId: string, amount: number, reference?: string) {
     return this.prisma.$transaction(async (tx) => {
-      const wallet = await tx.walletAccount.findFirst({ where: { customerId, branchId } });
-      if (!wallet) throw new NotFoundException('Wallet not found');
+      const wallet = await this.findUsableWallet(branchId, customerId, tx);
 
       await tx.walletAccount.update({
         where: { id: wallet.id },
@@ -1627,7 +1686,7 @@ export class PosService {
     if (!customer) {
       throw new NotFoundException('Customer not found');
     }
-    if (customer.branchId !== input.branchId) {
+    if (!this.customerUsableAt(customer, input.branchId, businessSettings.customerScope)) {
       throw new BadRequestException('Customer does not belong to this branch');
     }
     const walkInCustomerName = input.walkInCustomerName?.trim();

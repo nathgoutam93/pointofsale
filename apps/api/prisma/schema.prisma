@@ -35,6 +35,11 @@ enum StockTxnType {
   SALE_CANCEL
 }
 
+enum CustomerScope {
+  SHARED
+  BRANCH
+}
+
 enum InvoiceStatus {
   DRAFT
   SETTLED
@@ -97,6 +102,8 @@ model BusinessSettings {
   taxCalculationMode TaxCalculationMode @default(AFTER_DISCOUNT)
   /// Most a cashier may lower a sale below list price (price edits + discounts), in percent. Admins have no limit.
   cashierMaxDiscountPercent Decimal     @default(10) @db.Decimal(5, 2)
+  /// SHARED: customers and their wallets can be used at every branch. BRANCH: only at the branch that created them.
+  customerScope      CustomerScope      @default(SHARED)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 }

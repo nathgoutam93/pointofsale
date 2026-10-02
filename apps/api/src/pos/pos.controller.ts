@@ -138,6 +138,7 @@ export class PosController {
       gstNumber?: string | null;
       taxCalculationMode?: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
       cashierMaxDiscountPercent?: number;
+      customerScope?: 'SHARED' | 'BRANCH';
     },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {

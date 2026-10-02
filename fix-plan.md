@@ -87,7 +87,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 - **Problem:** Payments and refunds aren't linked to a register, so the expected cash in the drawer can't be worked out.
 - **Fix:** Add `registerSessionId` to payments and refunds. At close, show expected cash (opening balance + cash sales − cash refunds), what was counted, and the difference. Save the difference.
 
-### [ ] 13. Customers from other branches
+### [x] 13. Customers from other branches
 - **Problem:** `listCustomers` returns customers from every branch, but `createSale` rejects customers from another branch.
 - **Fix:** Decide the business rule (are customers shared or per branch?) and apply it the same way in both places.
 
@@ -341,3 +341,18 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - Browser: the dialog showed 100 + 236 = 336, "Short by ₹6.00" at 330, "Balanced" at 336, then the result and the open-register line "Expected: ₹336.00 · Balanced".
     - All earlier suites and the UI checkout still pass.
   - Not counted: admin wallet top-ups have no payment mode, so cash taken for a top-up isn't in expected cash. Payments and refunds made before this change aren't linked to any register.
+- **2026-10-02 (session 2):** Finished #13. The user's decision: customers are **shared across branches by default** (so loyalty and wallet balance follow the customer between stores of the same brand), and admins can configure it.
+  - Migration `20261002150000_customer_scope`: `BusinessSettings.customerScope` (`SHARED` | `BRANCH`, default `SHARED`). It's on the Business Settings page as "Customers: Shared across all branches / Separate for each branch".
+  - One rule, `customerUsableAt`, applied the same way to listing, sales (`createSaleInTx`), editing (`updateCustomer`) and wallets (`getWallet`/`topupWallet` via `findUsableWallet`):
+    - Every branch's walk-in customer belongs to that branch only.
+    - Other customers can be used at any branch in SHARED mode, or only at the branch that created them in BRANCH mode.
+    - Wallet payments and refunds follow the customer, so in SHARED mode the balance works at every store.
+  - Phone numbers (`assertPhoneFree`): creating or editing a customer rejects a phone another customer already has, business-wide in SHARED mode or within the branch in BRANCH mode. Existing duplicates aren't merged.
+  - Customer codes still carry the creating branch (`CUST-<branch>-n`); `Customer.branchId` is now the "home" branch.
+  - The #2 change to wallet branch scoping now applies in BRANCH mode only. Sales and receipts stay private to their branch in both modes.
+  - Tested with the app running (19 checks, two fresh branches):
+    - SHARED: Y lists Asha (created at X), sees her ₹300 wallet, sells to her paid from the wallet (X then sees 182), refunds to her wallet (300), edits her, and tops her up. Y can't create a second customer with her phone or sell to X's walk-in customer.
+    - BRANCH: Y can't list, edit, sell to, or open or top up the wallet of Asha; X still can. Y can create its own customer with that phone, but only once.
+    - An invalid setting value gets 400. The settings field saves and reloads.
+    - `branch-test` (from #2) now runs in BRANCH mode, where wallets are branch-private. All other suites and the UI checkout still pass.
+  - There is no loyalty-points feature yet. When one is added, it can hang off the shared customer.

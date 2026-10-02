@@ -24,6 +24,7 @@ type BusinessSettingsForm = {
   gstNumber: string;
   taxCalculationMode: "AFTER_DISCOUNT" | "BEFORE_DISCOUNT";
   cashierMaxDiscountPercent: string;
+  customerScope: "SHARED" | "BRANCH";
 };
 
 type CashierForm = {
@@ -124,7 +125,8 @@ export function BranchSettingsPage() {
     logoUrl: null,
     gstNumber: "",
     taxCalculationMode: "AFTER_DISCOUNT",
-    cashierMaxDiscountPercent: "10"
+    cashierMaxDiscountPercent: "10",
+    customerScope: "SHARED"
   });
 
   useEffect(() => {
@@ -150,7 +152,8 @@ export function BranchSettingsPage() {
       logoUrl: businessSettings.data.logoUrl,
       gstNumber: businessSettings.data.gstNumber ?? "",
       taxCalculationMode: businessSettings.data.taxCalculationMode,
-      cashierMaxDiscountPercent: String(businessSettings.data.cashierMaxDiscountPercent)
+      cashierMaxDiscountPercent: String(businessSettings.data.cashierMaxDiscountPercent),
+      customerScope: businessSettings.data.customerScope
     });
   }, [businessSettings.data]);
 
@@ -210,7 +213,8 @@ export function BranchSettingsPage() {
           logoUrl: businessForm.logoUrl,
           gstNumber: emptyToNull(businessForm.gstNumber),
           taxCalculationMode: businessForm.taxCalculationMode,
-          cashierMaxDiscountPercent
+          cashierMaxDiscountPercent,
+          customerScope: businessForm.customerScope
         },
         extraHeaders: authHeaders()
       });
@@ -559,6 +563,23 @@ export function BranchSettingsPage() {
                 <p className="mt-1 text-xs text-slate-500">
                   The most a cashier can take off a sale's list price, counting price changes and discounts together.
                   Admins have no limit.
+                </p>
+              </div>
+              <div>
+                <label className="text-sm text-slate-600">Customers</label>
+                <select
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                  value={businessForm.customerScope}
+                  onChange={(e) =>
+                    setBusinessForm((prev) => ({ ...prev, customerScope: e.target.value as "SHARED" | "BRANCH" }))
+                  }
+                >
+                  <option value="SHARED">Shared across all branches</option>
+                  <option value="BRANCH">Separate for each branch</option>
+                </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Shared: a customer and their wallet balance can be used at any branch, and a phone number belongs to one
+                  customer business-wide. Separate: each branch only sees the customers it created.
                 </p>
               </div>
             </div>
