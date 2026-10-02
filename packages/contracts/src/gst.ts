@@ -122,3 +122,135 @@ export function gstinProblem(gstin: string): string | null {
   }
   return null;
 }
+
+/** GST unit quantity codes (UQC): the unit quantities are reported in, in the HSN summary. */
+export const GST_UQCS: ReadonlyArray<{ code: string; name: string }> = [
+  { code: 'BAG', name: 'Bags' },
+  { code: 'BAL', name: 'Bale' },
+  { code: 'BDL', name: 'Bundles' },
+  { code: 'BKL', name: 'Buckles' },
+  { code: 'BOU', name: 'Billion of units' },
+  { code: 'BOX', name: 'Box' },
+  { code: 'BTL', name: 'Bottles' },
+  { code: 'BUN', name: 'Bunches' },
+  { code: 'CAN', name: 'Cans' },
+  { code: 'CBM', name: 'Cubic meters' },
+  { code: 'CCM', name: 'Cubic centimeters' },
+  { code: 'CMS', name: 'Centimeters' },
+  { code: 'CTN', name: 'Cartons' },
+  { code: 'DOZ', name: 'Dozens' },
+  { code: 'DRM', name: 'Drums' },
+  { code: 'GGK', name: 'Great gross' },
+  { code: 'GMS', name: 'Grammes' },
+  { code: 'GRS', name: 'Gross' },
+  { code: 'GYD', name: 'Gross yards' },
+  { code: 'KGS', name: 'Kilograms' },
+  { code: 'KLR', name: 'Kilolitre' },
+  { code: 'KME', name: 'Kilometre' },
+  { code: 'LTR', name: 'Litres' },
+  { code: 'MLT', name: 'Millilitre' },
+  { code: 'MTR', name: 'Meters' },
+  { code: 'MTS', name: 'Metric ton' },
+  { code: 'NOS', name: 'Numbers' },
+  { code: 'OTH', name: 'Others' },
+  { code: 'PAC', name: 'Packs' },
+  { code: 'PCS', name: 'Pieces' },
+  { code: 'PRS', name: 'Pairs' },
+  { code: 'QTL', name: 'Quintal' },
+  { code: 'ROL', name: 'Rolls' },
+  { code: 'SET', name: 'Sets' },
+  { code: 'SQF', name: 'Square feet' },
+  { code: 'SQM', name: 'Square meters' },
+  { code: 'SQY', name: 'Square yards' },
+  { code: 'TBS', name: 'Tablets' },
+  { code: 'TGM', name: 'Ten gross' },
+  { code: 'THD', name: 'Thousands' },
+  { code: 'TON', name: 'Tonnes' },
+  { code: 'TUB', name: 'Tubes' },
+  { code: 'UGS', name: 'US gallons' },
+  { code: 'UNT', name: 'Units' },
+  { code: 'YDS', name: 'Yards' },
+  { code: 'NA', name: 'Not applicable (services)' }
+];
+
+const uqcCodes = new Set(GST_UQCS.map((uqc) => uqc.code));
+
+export function isGstUqc(code: string) {
+  return uqcCodes.has(code);
+}
+
+/** Common ways of writing a unit, and the UQC each means. */
+export const UOM_TO_UQC: Readonly<Record<string, string>> = {
+  PC: 'PCS', PIECE: 'PCS', PIECES: 'PCS',
+  NO: 'NOS', NUMBER: 'NOS', NUMBERS: 'NOS',
+  KG: 'KGS', KILO: 'KGS', KILOS: 'KGS', KILOGRAM: 'KGS', KILOGRAMS: 'KGS',
+  G: 'GMS', GM: 'GMS', GRM: 'GMS', GRAM: 'GMS', GRAMS: 'GMS',
+  L: 'LTR', LT: 'LTR', LITRE: 'LTR', LITER: 'LTR', LITRES: 'LTR', LITERS: 'LTR',
+  ML: 'MLT', MILLILITRE: 'MLT', MILLILITER: 'MLT',
+  M: 'MTR', METER: 'MTR', METRE: 'MTR', METERS: 'MTR', METRES: 'MTR',
+  CM: 'CMS',
+  BOXES: 'BOX',
+  DOZEN: 'DOZ', DZN: 'DOZ',
+  PKT: 'PAC', PACK: 'PAC', PACKS: 'PAC', PACKET: 'PAC', PACKETS: 'PAC',
+  SETS: 'SET',
+  PAIR: 'PRS', PAIRS: 'PRS',
+  BOTTLE: 'BTL', BOTTLES: 'BTL',
+  BAGS: 'BAG',
+  CARTON: 'CTN', CARTONS: 'CTN',
+  ROLL: 'ROL', ROLLS: 'ROL',
+  TONNE: 'TON', TONNES: 'TON',
+  QUINTAL: 'QTL',
+  UNIT: 'UNT', UNITS: 'UNT',
+  CANS: 'CAN',
+  TUBE: 'TUB', TUBES: 'TUB',
+  TAB: 'TBS', TABLET: 'TBS', TABLETS: 'TBS',
+  BUNDLE: 'BDL', BUNDLES: 'BDL',
+  SQFT: 'SQF',
+  SQMT: 'SQM'
+};
+
+/** The UQC a free-text unit most likely means (PCS, kg, Litre...), or null if unsure. */
+export function suggestUqc(uom: string): string | null {
+  const key = uom.toUpperCase().replace(/[^A-Z]/g, '');
+  if (!key) return null;
+  if (uqcCodes.has(key) && key !== 'NA') return key;
+  return UOM_TO_UQC[key] ?? null;
+}
+
+/**
+ * How GST treats an item's sales. TAXABLE items have a rate above 0. The others are at 0%
+ * and are reported separately: NIL_RATED (0% in the rate schedule), EXEMPT (exempted by
+ * notification) and NON_GST (outside GST, e.g. petrol, alcohol for drinking).
+ */
+export type GstSupplyType = 'TAXABLE' | 'NIL_RATED' | 'EXEMPT' | 'NON_GST';
+export const GST_SUPPLY_TYPES = ['TAXABLE', 'NIL_RATED', 'EXEMPT', 'NON_GST'] as const;
+export const GST_SUPPLY_TYPE_LABELS: Record<GstSupplyType, string> = {
+  TAXABLE: 'Taxable',
+  NIL_RATED: 'Nil rated (0%)',
+  EXEMPT: 'Exempt',
+  NON_GST: 'Non-GST'
+};
+
+/** The supply type a tax rate implies when none is chosen: taxable above 0%, else nil rated. */
+export function defaultSupplyType(taxRate: number): GstSupplyType {
+  return taxRate > 0 ? 'TAXABLE' : 'NIL_RATED';
+}
+
+/** Why a supply type and tax rate can't go together, or null when they can. */
+export function supplyTypeProblem(supplyType: GstSupplyType, taxRate: number): string | null {
+  if (supplyType === 'TAXABLE' && !(taxRate > 0)) {
+    return 'A taxable item needs a tax rate above 0%; mark a 0% item nil rated, exempt or non-GST';
+  }
+  if (supplyType !== 'TAXABLE' && taxRate !== 0) {
+    return `A ${GST_SUPPLY_TYPE_LABELS[supplyType].toLowerCase()} item has no tax; set its tax rate to 0%`;
+  }
+  return null;
+}
+
+/** HSN (goods) and SAC (services) codes are 4, 6 or 8 digits; returns may need at least `minDigits`. */
+export function hsnProblem(code: string, minDigits: number): string | null {
+  if (!/^\d+$/.test(code)) return 'An HSN or SAC code is digits only';
+  if (![4, 6, 8].includes(code.length)) return 'An HSN or SAC code has 4, 6 or 8 digits';
+  if (code.length < minDigits) return `HSN codes need at least ${minDigits} digits for this business`;
+  return null;
+}

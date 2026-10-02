@@ -14,7 +14,8 @@ export const businessSettingsSelect = {
   taxCalculationMode: true,
   cashierMaxDiscountPercent: true,
   customerScope: true,
-  timezone: true
+  timezone: true,
+  hsnMinDigits: true
 } as const;
 
 export const branchSettingsSelect = {

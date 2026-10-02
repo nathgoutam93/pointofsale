@@ -219,6 +219,9 @@ export class SalesService {
           costPrice: true,
           taxRate: true,
           taxMode: true,
+          hsnCode: true,
+          uqc: true,
+          supplyType: true,
           isActive: true,
           saleUoms: { select: { uom: true, conversionQty: true, sellPrice: true, isDefault: true } }
         }
@@ -235,6 +238,9 @@ export class SalesService {
         ...line,
         ...pricing,
         unitCost: toNumber(item.costPrice),
+        hsnCode: item.hsnCode,
+        uqc: item.uqc,
+        supplyType: item.supplyType,
         itemId: normalizedItemId,
         itemName: item.name,
         discounts: line.discounts ?? []
@@ -329,7 +335,10 @@ export class SalesService {
             taxRate: line.taxRate,
             taxableAmount: line.taxableAmount,
             taxAmount: line.taxAmount,
-            netAmount: line.netAmount
+            netAmount: line.netAmount,
+            hsnCode: line.hsnCode,
+            uqc: line.uqc,
+            supplyType: line.supplyType
           },
           select: { id: true, itemId: true }
         })

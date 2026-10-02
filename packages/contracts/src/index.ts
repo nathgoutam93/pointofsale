@@ -19,16 +19,34 @@ export {
   COMPOSITION_CATEGORY_LABELS,
   COMPOSITION_RATES,
   documentTypeFor,
+  defaultSupplyType,
   GST_DOCUMENT_TYPES,
   GST_STATES,
+  GST_SUPPLY_TYPE_LABELS,
+  GST_SUPPLY_TYPES,
+  GST_UQCS,
   gstinCheckCharacter,
   gstinProblem,
   gstStateLabel,
+  hsnProblem,
   isGstStateCode,
+  isGstUqc,
+  suggestUqc,
+  supplyTypeProblem,
+  TAXPAYER_TYPES,
+  UOM_TO_UQC
+} from './gst.js';
+export type { CompositionCategory, GstDocumentType, GstSupplyType, TaxpayerType } from './gst.js';
+import {
+  COMPOSITION_CATEGORIES,
+  GST_DOCUMENT_TYPES,
+  GST_SUPPLY_TYPES,
+  gstinProblem,
+  hsnProblem,
+  isGstStateCode,
+  isGstUqc,
   TAXPAYER_TYPES
 } from './gst.js';
-export type { CompositionCategory, GstDocumentType, TaxpayerType } from './gst.js';
-import { COMPOSITION_CATEGORIES, GST_DOCUMENT_TYPES, gstinProblem, isGstStateCode, TAXPAYER_TYPES } from './gst.js';
 
 const c = initContract();
 
@@ -54,6 +72,16 @@ const gstinSchema = z
     const problem = gstinProblem(value);
     if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
   });
+const gstSupplyTypeSchema = z.enum(GST_SUPPLY_TYPES);
+/** An HSN/SAC code: 4, 6 or 8 digits (the business's minimum length is checked by the API). */
+const hsnCodeSchema = z
+  .string()
+  .trim()
+  .superRefine((value, ctx) => {
+    const problem = hsnProblem(value, 4);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  });
+const gstUqcSchema = z.string().trim().toUpperCase().refine(isGstUqc, { message: 'Unknown GST unit (UQC)' });
 /** A two-digit GST state code, e.g. 29 for Karnataka. */
 const gstStateCodeSchema = z.string().refine(isGstStateCode, { message: 'Unknown GST state code' });
 /** A calendar date, YYYY-MM-DD, that exists (no 31 February). */
@@ -179,7 +207,9 @@ export const businessSettingsSchema = z.object({
   timezone: z.string(),
   /** The GST registration type in force now (see /business/taxpayer-type for history). */
   taxpayerType: taxpayerTypeSchema,
-  compositionCategory: compositionCategorySchema.nullable()
+  compositionCategory: compositionCategorySchema.nullable(),
+  /** Shortest HSN code accepted on items: 4 (turnover up to ₹5 crore) or 6. */
+  hsnMinDigits: z.number().int()
 });
 
 export const taxpayerTypeChangeSchema = z.object({
@@ -253,6 +283,11 @@ export const itemSchema = z.object({
   mrp: moneySchema,
   taxMode: taxModeSchema,
   taxRate: z.number().min(0),
+  /** HSN (goods) or SAC (services) code; null until the admin enters it. */
+  hsnCode: z.string().nullable(),
+  /** GST unit quantity code of the base unit; null when the unit couldn't be matched. */
+  uqc: z.string().nullable(),
+  supplyType: gstSupplyTypeSchema,
   imageUrl: z.string().url().nullable(),
   isActive: z.boolean(),
   createdAt: z.string().datetime()
@@ -328,6 +363,10 @@ const saleLineSchema = saleLineInput.omit({ discounts: true }).extend({
   taxableAmount: moneySchema,
   taxAmount: moneySchema,
   netAmount: moneySchema,
+  /** The item's GST details when it was sold. */
+  hsnCode: z.string().nullable().default(null),
+  uqc: z.string().nullable().default(null),
+  supplyType: gstSupplyTypeSchema.default('TAXABLE'),
   discountAllocations: z.array(discountAllocationSchema)
 });
 
@@ -520,7 +559,8 @@ export const appContract = c.router({
         taxCalculationMode: taxCalculationModeSchema.optional(),
         cashierMaxDiscountPercent: z.number().min(0).max(100).optional(),
         customerScope: customerScopeSchema.optional(),
-        timezone: timeZoneSchema.optional()
+        timezone: timeZoneSchema.optional(),
+        hsnMinDigits: z.union([z.literal(4), z.literal(6)]).optional()
       }),
       responses: { 200: businessSettingsSchema }
     },
@@ -745,6 +785,11 @@ export const appContract = c.router({
         saleUoms: saleUomInputListSchema.optional(),
         taxMode: taxModeSchema.optional(),
         taxRate: taxRateSchema,
+        hsnCode: hsnCodeSchema.nullable().optional(),
+        /** Defaults to the UQC the unit name suggests (PCS, KGS...). */
+        uqc: gstUqcSchema.nullable().optional(),
+        /** Defaults from the tax rate: TAXABLE above 0%, else NIL_RATED. */
+        supplyType: gstSupplyTypeSchema.optional(),
         // A relative /uploads/... path from the upload endpoint, or a full URL.
         imageUrl: z.string().optional()
       }),
@@ -764,6 +809,9 @@ export const appContract = c.router({
         saleUoms: saleUomInputListSchema.optional(),
         taxMode: taxModeSchema.optional(),
         taxRate: taxRateSchema.optional(),
+        hsnCode: hsnCodeSchema.nullable().optional(),
+        uqc: gstUqcSchema.nullable().optional(),
+        supplyType: gstSupplyTypeSchema.optional(),
         imageUrl: z.string().nullable().optional(),
         isActive: z.boolean().optional()
       }),

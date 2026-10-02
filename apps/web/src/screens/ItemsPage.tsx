@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
+import { GST_SUPPLY_TYPE_LABELS } from "@pos/contracts";
 import { requireSession } from "./route-helpers";
+import { effectiveSupplyType, effectiveUqc, emptyGstItemForm, GstItemFields, type GstItemForm } from "./items/GstItemFields";
 
 type ItemFormState = {
   code: string;
@@ -14,6 +16,7 @@ type ItemFormState = {
   mrp: string;
   taxMode: "INCLUSIVE" | "EXCLUSIVE";
   taxRate: string;
+  gst: GstItemForm;
   imageFile: File | null;
 };
 
@@ -35,6 +38,7 @@ const initialForm: ItemFormState = {
   mrp: "0",
   taxMode: "EXCLUSIVE",
   taxRate: "0",
+  gst: emptyGstItemForm,
   imageFile: null,
 };
 
@@ -92,6 +96,15 @@ export function ItemsPage() {
       return res.body;
     },
   });
+  const businessSettings = useQuery({
+    queryKey: ["business-settings"],
+    queryFn: async () => {
+      const res = await api.business.get({ extraHeaders: authHeaders() });
+      if (res.status !== 200) throw new Error("Failed to load business settings");
+      return res.body;
+    },
+  });
+  const hsnMinDigits = businessSettings.data?.hsnMinDigits ?? 4;
 
   const selectedItem = useMemo(
     () => items.data?.find((item) => item.id === selectedItemId) ?? null,
@@ -176,6 +189,9 @@ export function ItemsPage() {
           saleUoms: normalizeSaleUomRows(saleUomRows, form.uom),
           taxMode: form.taxMode,
           taxRate: Number(form.taxRate),
+          hsnCode: form.gst.hsnCode.trim() || null,
+          uqc: effectiveUqc(form.gst, form.uom),
+          supplyType: effectiveSupplyType(form.gst, Number(form.taxRate)),
           imageUrl,
         } as Parameters<typeof api.items.create>[0]["body"],
         extraHeaders: authHeaders(),
@@ -186,6 +202,12 @@ export function ItemsPage() {
       return res.body;
     },
     onSuccess: (createdItem) => {
+      // Put the new item in the list before selecting it; otherwise the list (not yet
+      // refetched) doesn't have it and the selection falls back to another item.
+      queryClient.setQueryData<typeof createdItem[]>(["items-module"], (current) => [
+        createdItem,
+        ...(current ?? []).filter((item) => item.id !== createdItem.id),
+      ]);
       queryClient.invalidateQueries({ queryKey: ["items-module"] });
       setForm(initialForm);
       setSaleUomRows([]);
@@ -217,6 +239,9 @@ export function ItemsPage() {
           saleUoms: normalizeSaleUomRows(saleUomRows, form.uom),
           taxMode: form.taxMode,
           taxRate: Number(form.taxRate),
+          hsnCode: form.gst.hsnCode.trim() || null,
+          uqc: effectiveUqc(form.gst, form.uom),
+          supplyType: effectiveSupplyType(form.gst, Number(form.taxRate)),
           imageUrl,
         } as Parameters<typeof api.items.update>[0]["body"],
         extraHeaders: authHeaders(),
@@ -454,7 +479,14 @@ export function ItemsPage() {
                     {item.taxMode}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500">{item.code}</p>
+                <p className="text-xs text-slate-500">
+                  {item.code}
+                  {!item.hsnCode || !item.uqc ? (
+                    <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                      {!item.hsnCode ? "No HSN" : "No GST unit"}
+                    </span>
+                  ) : null}
+                </p>
                 <p className="text-sm text-slate-700">
                   Sell: Rs {money(item.sellPrice)}
                 </p>
@@ -680,6 +712,14 @@ export function ItemsPage() {
                   }
                 />
               </label>
+
+              <GstItemFields
+                value={form.gst}
+                onChange={(gst) => setForm((s) => ({ ...s, gst }))}
+                taxRate={Number(form.taxRate) || 0}
+                uom={form.uom}
+                hsnMinDigits={hsnMinDigits}
+              />
 
               <button
                 className="rounded-lg bg-teal-700 px-3 py-2 font-semibold text-white md:col-span-2"
@@ -944,6 +984,14 @@ export function ItemsPage() {
                 />
               </label>
 
+              <GstItemFields
+                value={form.gst}
+                onChange={(gst) => setForm((s) => ({ ...s, gst }))}
+                taxRate={Number(form.taxRate) || 0}
+                uom={form.uom}
+                hsnMinDigits={hsnMinDigits}
+              />
+
               <button
                 className="rounded-lg bg-teal-700 px-3 py-2 font-semibold text-white md:col-span-2"
                 type="submit"
@@ -977,6 +1025,11 @@ export function ItemsPage() {
                       ),
                       taxMode: selectedItem.taxMode,
                       taxRate: String(selectedItem.taxRate),
+                      gst: {
+                        hsnCode: selectedItem.hsnCode ?? "",
+                        uqc: selectedItem.uqc ?? "",
+                        supplyType: selectedItem.supplyType,
+                      },
                       imageFile: null,
                     });
                     setSaleUomRows(
@@ -1087,6 +1140,24 @@ export function ItemsPage() {
                   <dt className="text-slate-500">Tax %</dt>
                   <dd className="font-medium text-slate-900">
                     {selectedItem.taxRate}%
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">HSN / SAC</dt>
+                  <dd className={selectedItem.hsnCode ? "font-medium text-slate-900" : "font-medium text-amber-700"}>
+                    {selectedItem.hsnCode ?? "Not set"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">GST unit</dt>
+                  <dd className={selectedItem.uqc ? "font-medium text-slate-900" : "font-medium text-amber-700"}>
+                    {selectedItem.uqc ?? "Not set"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">GST supply type</dt>
+                  <dd className="font-medium text-slate-900">
+                    {GST_SUPPLY_TYPE_LABELS[selectedItem.supplyType]}
                   </dd>
                 </div>
               </dl>

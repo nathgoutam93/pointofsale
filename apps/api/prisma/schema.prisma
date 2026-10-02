@@ -71,6 +71,14 @@ enum CompositionCategory {
   SERVICES
 }
 
+/// How GST treats an item's sales. TAXABLE has a rate above 0; the rest are 0% and reported separately.
+enum GstSupplyType {
+  TAXABLE
+  NIL_RATED
+  EXEMPT
+  NON_GST
+}
+
 /// A regular taxpayer issues a Tax Invoice; a composition taxpayer issues a Bill of Supply.
 enum GstDocumentType {
   TAX_INVOICE
@@ -131,6 +139,8 @@ model BusinessSettings {
   customerScope      CustomerScope      @default(SHARED)
   /// IANA time zone that report periods (Today, This Week, This Month) are worked out in.
   timezone           String             @default("Asia/Kolkata")
+  /// Shortest HSN code accepted on items: 4 (turnover up to ₹5 crore) or 6.
+  hsnMinDigits       Int                @default(4)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 }
@@ -251,6 +261,11 @@ model Item {
   mrp         Decimal         @default(0) @db.Decimal(14, 2)
   taxMode     TaxMode         @default(EXCLUSIVE)
   taxRate     Decimal         @db.Decimal(5, 2)
+  /// HSN (goods) or SAC (services) code: 4, 6 or 8 digits. Null until entered.
+  hsnCode     String?
+  /// GST unit quantity code (PCS, KGS, LTR...) of the base unit `uom`.
+  uqc         String?
+  supplyType  GstSupplyType   @default(TAXABLE)
   imageUrl    String?
   isActive    Boolean         @default(true)
   lines       SaleInvoiceLine[]
@@ -367,6 +382,10 @@ model SaleInvoiceLine {
   taxableAmount       Decimal              @db.Decimal(14, 2)
   taxAmount           Decimal              @db.Decimal(14, 2)
   netAmount           Decimal              @db.Decimal(14, 2)
+  /// The item's GST details when sold.
+  hsnCode             String?
+  uqc                 String?
+  supplyType          GstSupplyType        @default(TAXABLE)
   discountAllocations DiscountAllocation[]
   returnLines         ReturnInvoiceLine[]
 }

@@ -28,6 +28,7 @@ export class SettingsController {
       cashierMaxDiscountPercent?: number;
       customerScope?: 'SHARED' | 'BRANCH';
       timezone?: string;
+      hsnMinDigits?: 4 | 6;
     },
     @Headers() headers: RequestHeaders
   ) {

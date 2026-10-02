@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { defaultSupplyType, hsnProblem, suggestUqc, supplyTypeProblem, type GstSupplyType } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
+import { SettingsService } from '../settings/settings.service';
 import type { ItemSaleUomInput } from '../common/types';
 import { toNumber, round2 } from '../common/numbers';
 import { normalizeLeastCount } from '../common/quantities';
@@ -8,8 +10,22 @@ import { normalizeLeastCount } from '../common/quantities';
 @Injectable()
 export class ItemsService {
   constructor(
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly settings: SettingsService
   ) {}
+
+  /** Rejects an HSN code shorter than the business requires (the format is checked by the contract). */
+  private async assertHsnCode(hsnCode: string | null | undefined, tx?: Prisma.TransactionClient) {
+    if (!hsnCode) return;
+    const { hsnMinDigits } = await this.settings.ensureBusinessSettings(tx);
+    const problem = hsnProblem(hsnCode, hsnMinDigits);
+    if (problem) throw new BadRequestException(`hsnCode: ${problem}`);
+  }
+
+  private assertSupplyType(supplyType: GstSupplyType, taxRate: number) {
+    const problem = supplyTypeProblem(supplyType, taxRate);
+    if (problem) throw new BadRequestException(problem);
+  }
 
   async resolveItemId(itemRef: string, tx?: Prisma.TransactionClient) {
     const client = tx ?? this.prisma;
@@ -88,9 +104,15 @@ export class ItemsService {
     saleUoms?: ItemSaleUomInput[];
     taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
     taxRate: number;
+    hsnCode?: string | null;
+    uqc?: string | null;
+    supplyType?: GstSupplyType;
     imageUrl?: string;
   }) {
     const leastCount = normalizeLeastCount(input.leastCount ?? 1);
+    const supplyType = input.supplyType ?? defaultSupplyType(input.taxRate);
+    this.assertSupplyType(supplyType, input.taxRate);
+    await this.assertHsnCode(input.hsnCode);
     const saleUoms = this.normalizeItemSaleUoms(input);
     return this.prisma.item.create({
       data: {
@@ -104,6 +126,9 @@ export class ItemsService {
         mrp: input.mrp ?? input.sellPrice,
         taxMode: input.taxMode ?? 'EXCLUSIVE',
         taxRate: input.taxRate,
+        hsnCode: input.hsnCode || null,
+        uqc: input.uqc === undefined ? suggestUqc(input.uom) : input.uqc,
+        supplyType,
         imageUrl: input.imageUrl,
         saleUoms: { create: saleUoms }
       },
@@ -124,6 +149,9 @@ export class ItemsService {
       saleUoms?: ItemSaleUomInput[];
       taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
       taxRate?: number;
+      hsnCode?: string | null;
+      uqc?: string | null;
+      supplyType?: GstSupplyType;
       imageUrl?: string | null;
       isActive?: boolean;
     }
@@ -133,6 +161,17 @@ export class ItemsService {
       data.leastCount = normalizeLeastCount(data.leastCount);
     }
     return this.prisma.$transaction(async (tx) => {
+      const gst = await tx.item.findUnique({ where: { id }, select: { taxRate: true, supplyType: true, uqc: true, uom: true } });
+      if (!gst) throw new NotFoundException('Item not found');
+      const taxRate = data.taxRate ?? toNumber(gst.taxRate);
+      // Without a chosen supply type, keep the current one while it still fits the rate.
+      data.supplyType =
+        data.supplyType ?? (supplyTypeProblem(gst.supplyType, taxRate) ? defaultSupplyType(taxRate) : gst.supplyType);
+      this.assertSupplyType(data.supplyType, taxRate);
+      await this.assertHsnCode(data.hsnCode, tx);
+      if (data.hsnCode === '') data.hsnCode = null;
+      if (data.uqc === undefined && !gst.uqc) data.uqc = suggestUqc(data.uom ?? gst.uom);
+
       if (saleUomInput !== undefined) {
         const current = await tx.item.findUnique({
           where: { id },

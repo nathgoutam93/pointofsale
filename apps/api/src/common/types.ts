@@ -1,4 +1,4 @@
-import type { DiscountInput } from '@pos/contracts';
+import type { DiscountInput, GstSupplyType } from '@pos/contracts';
 import { PaymentMode, UserRole } from '@prisma/client';
 
 export type SessionUser = {
@@ -23,6 +23,10 @@ export type SaleLineInput = {
   listRate?: number;
   /** Item cost per base unit at the time of sale; set by the server. */
   unitCost?: number;
+  /** The item's GST details at the time of sale; set by the server. */
+  hsnCode?: string | null;
+  uqc?: string | null;
+  supplyType?: GstSupplyType;
   saleUom?: string;
   saleUomQty?: number;
   saleUomConversionQty?: number;

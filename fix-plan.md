@@ -180,7 +180,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - Each sale stores `placeOfSupplyStateCode`. It defaults to the branch's state (an over-the-counter sale is intra-state). The POS lets the cashier set a delivery state when goods are shipped to another state.
 - **Rule:** intra-state means CGST+SGST; inter-state means IGST. A composition business can't pick a different state: the API rejects it, and the POS hides the option.
 
-### [ ] 32. Item HSN, GST unit and supply type
+### [x] 32. Item HSN, GST unit and supply type
 - **Where:** `Item` and `ItemSaleUom` models; the item admin screen and import.
 - **Change:**
   - Add `hsnCode`, validated against the length setting from the assumptions.
@@ -642,3 +642,30 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
     - Browser test: a typo is flagged; saving a GSTIN fills in the state; shipping to Maharashtra survives saving and resuming a draft; the server records seller 29 and place of supply 27; the next order is a counter sale (29); under composition the choice is hidden.
     - The POS snapshot is identical, and the earlier browser flows pass.
   - Not yet: receipts still print the business GSTIN. Printing the invoice's own GSTIN and place of supply comes in #35.
+- **#32 done.** Items have an HSN/SAC code, a GST unit (UQC) and a supply type, and each sale line keeps the values the item had when sold.
+  - Contracts (`gst.ts`):
+    - The 45 GST unit codes plus `NA` for services.
+    - `suggestUqc`: maps common unit names to a code (PCS, Pc, piece → PCS; Kg → KGS; Litre → LTR; Pkt → PAC...).
+    - Supply types: TAXABLE, NIL_RATED, EXEMPT, NON_GST. `defaultSupplyType` picks one from the rate; `supplyTypeProblem` rejects a mismatch.
+    - `hsnProblem`: 4, 6 or 8 digits, and at least the business minimum.
+  - Change from the plan: only the item's base unit gets a GST unit, not its extra selling units (like BOX). Sale lines store quantities in base units, and the HSN summary reports quantity in one unit per item.
+  - Business setting `hsnMinDigits`: 4 (turnover up to ₹5 crore) or 6.
+  - Item API:
+    - The supply type defaults from the tax rate (above 0 → taxable, 0 → nil rated). A mismatch such as exempt at 18% is rejected, with a database check as backup.
+    - When the rate changes and no supply type is given, the current one is kept while it still fits the rate; otherwise it switches to the rate's default.
+    - The GST unit defaults to the one suggested by the unit name.
+  - Sale lines: `hsnCode`, `uqc` and `supplyType` are copied from the item at checkout. A test confirms they don't change when the item is edited later.
+  - Migration `20261003110000_item_gst_details`:
+    - 0% items become nil rated.
+    - GST units are filled in from unit names, using SQL generated from `UOM_TO_UQC` so the two match.
+    - Sale lines take their item's values. HSN codes start empty.
+    - Dev data: 230 items (89 taxable, 141 nil rated, all PCS) and 703 sale lines filled in.
+  - Admin:
+    - Business Settings has an "HSN code length" choice.
+    - Both item forms have HSN/SAC code (with instant checks), GST unit (showing the suggestion from the unit name) and supply type (only the options that fit the rate).
+    - The item detail view shows these values, and the item list marks items missing an HSN code or GST unit.
+  - Existing bug fixed on the Items page: after Create Item, the page selected the new item before the list had refreshed. The selection then fell back to another item, so the detail panel and the Edit button were for the wrong item. The new item is now added to the list first.
+  - Verified:
+    - 10 new tests: 4 in contracts, 6 for the API. All 120 tests pass.
+    - Browser test: HSN length 6 saved; the list flags items without HSN; "Kg" suggests KGS; a 0% item offers nil rated, exempt and non-GST; 5- and 4-digit HSN codes are flagged; saved 100630 / KGS / EXEMPT; the detail view shows them; changing the rate to 5% makes it taxable. The run before the selection fix edited the wrong item.
+    - The POS snapshot is identical, and the earlier browser flows pass.

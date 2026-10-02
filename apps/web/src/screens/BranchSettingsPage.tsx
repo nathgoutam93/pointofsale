@@ -30,6 +30,7 @@ type BusinessSettingsForm = {
   cashierMaxDiscountPercent: string;
   customerScope: "SHARED" | "BRANCH";
   timezone: string;
+  hsnMinDigits: 4 | 6;
 };
 
 type CashierForm = {
@@ -141,7 +142,8 @@ export function BranchSettingsPage() {
     taxCalculationMode: "AFTER_DISCOUNT",
     cashierMaxDiscountPercent: "10",
     customerScope: "SHARED",
-    timezone: "Asia/Kolkata"
+    timezone: "Asia/Kolkata",
+    hsnMinDigits: 4
   });
 
   useEffect(() => {
@@ -169,7 +171,8 @@ export function BranchSettingsPage() {
       taxCalculationMode: businessSettings.data.taxCalculationMode,
       cashierMaxDiscountPercent: String(businessSettings.data.cashierMaxDiscountPercent),
       customerScope: businessSettings.data.customerScope,
-      timezone: businessSettings.data.timezone
+      timezone: businessSettings.data.timezone,
+      hsnMinDigits: businessSettings.data.hsnMinDigits === 6 ? 6 : 4
     });
   }, [businessSettings.data]);
 
@@ -233,7 +236,8 @@ export function BranchSettingsPage() {
           taxCalculationMode: businessForm.taxCalculationMode,
           cashierMaxDiscountPercent,
           customerScope: businessForm.customerScope,
-          timezone: businessForm.timezone
+          timezone: businessForm.timezone,
+          hsnMinDigits: businessForm.hsnMinDigits
         },
         extraHeaders: authHeaders()
       });
@@ -622,6 +626,22 @@ export function BranchSettingsPage() {
                   </select>
                   <p className="mt-1 text-xs text-slate-500">
                     Reports work out Today, This Week and This Month on this clock.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">HSN code length</label>
+                  <select
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.hsnMinDigits}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({ ...prev, hsnMinDigits: Number(e.target.value) === 6 ? 6 : 4 }))
+                    }
+                  >
+                    <option value={4}>At least 4 digits (turnover up to ₹5 crore)</option>
+                    <option value={6}>At least 6 digits (turnover above ₹5 crore)</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    The shortest HSN or SAC code accepted on items, set by last year's turnover.
                   </p>
                 </div>
               </div>
