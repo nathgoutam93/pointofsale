@@ -16,7 +16,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 
 ## Phase 1: Authentication and access (do first)
 
-### [~] 1. Signed tokens, password hashing, no default accounts (code done; needs testing with a running app, see Progress log)
+### [x] 1. Signed tokens, password hashing, no default accounts
 - **Where:** `apps/api/src/pos/pos.controller.ts` `getSession`, `pos.service.ts` `buildToken` / `login` / `createUser` / `updateUser` / `onModuleInitSeed`
 - **Problem:** The token was base64 of `userId:role:branchId:registerId`, with no signature and no expiry, and never checked against the database. Anyone could send `base64('<id>:ADMIN')` and get admin rights. Passwords were stored and compared as plain text, and startup created `admin`/`password` and `cashier`/`password`.
 - **Fix:**
@@ -25,7 +25,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
   - Passwords are hashed with scrypt (`apps/api/src/auth/password.ts`). At startup, any plain-text passwords still in the database are hashed.
   - The seed creates an admin only when there are no users at all. The password comes from `SEED_ADMIN_PASSWORD`, or a random one is printed once. No cashier is seeded. Startup logs a warning for any user whose password is still `password`.
   - Web: on a 401, the session is cleared and the user is sent to `/login`.
-- **Follow-ups (not done):** limit repeated login attempts; let admins force a password reset; move the token to an httpOnly cookie instead of localStorage.
+- **Follow-ups (not done):** limit repeated login attempts; let admins force a password reset; move the token to an httpOnly cookie instead of localStorage; the three raw `fetch` uploads (`BranchSettingsPage.tsx` business/branch logo, `ItemsPage.tsx` item image) skip the 401 redirect in `api.ts`, so route them through a shared helper.
 
 ### [ ] 2. Check which branch a record belongs to on every endpoint that takes an id
 - **Where:** `pos.controller.ts` around line 566. These routes take an id but never check its branch: `GET /sales/:id`, `GET /receipts/:id`, `GET /receipts/by-invoice/:id`, `GET /customers/:id/wallet`, `POST /customers/:id/wallet/topup`.
@@ -154,3 +154,10 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
   - Verified: both apps type-check, and a script checked the token and password helpers (tampered, expired, old-format and wrong-secret tokens are rejected; hashing and verifying work).
   - **Not yet tested with a running app**, because Postgres wasn't running. Still to check: the API starts; on first startup plain-text passwords are hashed (look for the `default password` warning); login works; a token with a closed register or a deactivated user gets a 401; the web app redirects to login.
   - Before running: `AUTH_SECRET` is needed in `apps/api/.env`. A random one was added to the local `.env`; on other machines, copy `.env.example`. Everyone is signed out once, because old tokens are rejected.
+- **2026-10-02 (session 2):** Tested #1 with the app running and marked it done. Nothing in the code needed changing.
+  - Setup used: Postgres 16 (`service postgresql start`, user `postgres`/`postgres`, database `pos_db`), `apps/api/.env` copied from `.env.example` with a generated `AUTH_SECRET`, `npx prisma migrate deploy`. The web app needs `pnpm --filter @pos/types --filter @pos/contracts build` first: Vite resolves `@pos/contracts` through `dist/`, which isn't committed.
+  - API, fresh database: the first admin was created with a random password printed once; no cashier was seeded; passwords are stored as `scrypt$…`.
+  - API, requests: login works, and a wrong password gets 400. With no token, an old-style `base64('x:ADMIN')` token, or a token whose payload was edited, the request gets 401. Each of these also gets 401: a token after the user is deactivated (logging in again gets 400 "Account is inactive"), a token after the user's role changes in the database, and the register token after `/registers/close` (close returns a new token, and that one works). A cashier calling an admin route gets 400 "Admin role required". A new user's password must be at least 8 characters.
+  - API, restart with plain-text users added: both were hashed at startup, the `default password` warning was logged for the user whose password was `password`, and both can still log in with their old passwords.
+  - API, startup config: it refuses to start when `AUTH_SECRET` is empty or shorter than 32 characters. Note: the Prisma client also loads `apps/api/.env` when imported, so `AUTH_SECRET` is still set even when the process is started from another directory.
+  - Web (Playwright): after logging in, the app goes to `/open-register`. After the user is deactivated in the database and the page is reloaded, the API returns 401, the session is cleared, and the login form is shown.
