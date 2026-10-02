@@ -18,11 +18,14 @@ const SUMMED_FIELDS = [
   "unpaidSales",
 ] as const;
 
-function formatShortDate(value: string) {
+// Report periods are in the business time zone; show their dates in it too, whatever
+// time zone this browser is in.
+function formatShortDate(value: string | number, timeZone?: string) {
   return new Date(value).toLocaleDateString("en-IN", {
     year: "numeric",
     month: "short",
     day: "2-digit",
+    timeZone,
   });
 }
 
@@ -87,6 +90,7 @@ export function ReportsPage() {
     return {
       branchId: ALL_BRANCHES_OPTION,
       generatedAt,
+      timezone: first.timezone,
       ranges,
     };
   }, [allBranchSummaries, isAllBranchesSelected]);
@@ -154,7 +158,8 @@ export function ReportsPage() {
                 : selectedBranch
                   ? `Viewing ${selectedBranch.name}`
                   : "Viewing selected branch"}
-              {summary?.generatedAt ? ` • Generated ${formatShortDate(summary.generatedAt)}` : ""}
+              {summary?.generatedAt ? ` • Generated ${formatShortDate(summary.generatedAt, summary.timezone)}` : ""}
+              {summary?.timezone ? ` • ${summary.timezone} time` : ""}
             </p>
           </div>
         </div>
@@ -163,9 +168,9 @@ export function ReportsPage() {
           {(summary?.ranges ?? []).map((range) => {
             let dateLabel = "All time";
             if (range.startDate && range.endDate) {
-              const endInclusive = new Date(range.endDate);
-              endInclusive.setDate(endInclusive.getDate() - 1);
-              dateLabel = `${formatShortDate(range.startDate)} - ${formatShortDate(endInclusive.toISOString())}`;
+              // The end is exclusive: the period's last day is the one just before it.
+              const lastMoment = Date.parse(range.endDate) - 1;
+              dateLabel = `${formatShortDate(range.startDate, summary?.timezone)} - ${formatShortDate(lastMoment, summary?.timezone)}`;
             }
             return (
               <div

@@ -18,6 +18,17 @@ const taxModeSchema = z.enum(['INCLUSIVE', 'EXCLUSIVE']);
 const taxCalculationModeSchema = z.enum(['AFTER_DISCOUNT', 'BEFORE_DISCOUNT']);
 /** SHARED: customers and wallets work at every branch. BRANCH: only at the branch that created them. */
 const customerScopeSchema = z.enum(['SHARED', 'BRANCH']);
+
+/** True when the runtime (Node or browser) knows this IANA time zone. */
+export function isValidTimeZone(timeZone: string) {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const timeZoneSchema = z.string().trim().min(1).refine(isValidTimeZone, { message: 'Unknown time zone' });
 const discountScopeSchema = z.enum(['ITEM', 'ORDER']);
 const discountTypeSchema = z.enum(['PERCENTAGE', 'FIXED']);
 
@@ -109,7 +120,9 @@ export const businessSettingsSchema = z.object({
   gstNumber: z.string().nullable(),
   taxCalculationMode: taxCalculationModeSchema,
   cashierMaxDiscountPercent: z.number(),
-  customerScope: customerScopeSchema
+  customerScope: customerScopeSchema,
+  /** IANA zone report periods are worked out in, e.g. Asia/Kolkata. */
+  timezone: z.string()
 });
 
 export const userSchema = z.object({
@@ -417,7 +430,8 @@ export const appContract = c.router({
         gstNumber: z.string().nullable().optional(),
         taxCalculationMode: taxCalculationModeSchema.optional(),
         cashierMaxDiscountPercent: z.number().min(0).max(100).optional(),
-        customerScope: customerScopeSchema.optional()
+        customerScope: customerScopeSchema.optional(),
+        timezone: timeZoneSchema.optional()
       }),
       responses: { 200: businessSettingsSchema }
     }
@@ -783,6 +797,8 @@ export const appContract = c.router({
         200: z.object({
           branchId: z.string().uuid(),
           generatedAt: z.string().datetime(),
+          /** The business time zone the ranges were worked out in. */
+          timezone: z.string(),
           ranges: z.array(reportRangeSchema)
         })
       }

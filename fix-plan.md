@@ -95,7 +95,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 - **Problem:** All walk-in customers share one wallet, yet returns can refund into it.
 - **Fix:** Turn off wallet refunds and wallet payments for the walk-in customer, and refund cash or the original payment method instead.
 
-### [ ] 15. Report dates use the server's time zone
+### [x] 15. Report dates use the server's time zone
 - **Fix:** Add a `timezone` setting (branch or business, default `Asia/Kolkata`) and work out "Today", "This Week" and "This Month" in that zone.
 
 ## Phase 4: Code quality
@@ -372,3 +372,18 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - The startup warning appeared for the ₹400 left by the old-build reproduction.
     - Browser: the POS offers walk-ins Cash and Card only, makes no wallet requests and shows no errors. The Returns page offers only "Cash Refund" for a walk-in invoice.
     - All 10 earlier suites still pass.
+- **2026-10-02 (session 2):** Finished #15. Phase 3 is complete.
+  - Migration `20261002160000_business_timezone`: `BusinessSettings.timezone` (IANA, default `Asia/Kolkata`).
+    - Business Settings shows it as a picker of every zone the browser knows.
+    - The contract checks it with `isValidTimeZone` (Intl), so the browser and the API agree.
+    - It's business-wide only. A per-branch override can be added later if a brand spans time zones.
+  - `apps/api/src/pos/zoned-dates.ts` (no new dependency):
+    - `localDate`, `startOfLocalDay` (local midnight as a UTC instant; handles 23/25-hour days and zones where daylight saving skips midnight) and `reportPeriods` (Today, This Week from Monday, This Month).
+    - `getSalesSummary` uses it with the business zone, and the old `startOfDay`/`startOfWeek`/`startOfMonth`/`addDays`/`addMonths` helpers, which used the server's clock, are gone.
+    - The response includes `timezone`, and the Reports page formats its date labels in it. The last day of a period is now `end − 1 ms` in that zone, instead of the browser's `setDate(-1)`.
+  - Tested:
+    - Helper: 15 fixed cases: IST day, week and month boundaries; 01:30 IST belonging to the IST date; month and year rollover; New York's 25-hour and 23-hour days; São Paulo 2018, where midnight doesn't exist (this caught a bug, now fixed); Kathmandu +05:45; UTC.
+    - A brute-force check of every day 2018–2027 in 9 zones, including Lord Howe, Chatham and Santiago: 32,868 days, 0 wrong.
+    - With the app running, sales at 01:30 IST on 2 Oct (still 1 Oct in UTC) and 00:30 IST on 3 Oct (still 2 Oct in UTC): "Today" counts the first in Asia/Kolkata and the second in UTC. An unknown zone gets 400.
+    - In a browser set to Los Angeles, the Reports page still labels Today 2 Oct, the week 28 Sep–4 Oct and the month October, with "Asia/Kolkata time" in the header. The picker loads Asia/Kolkata (419 zones).
+    - All 11 API suites and the UI checkout still pass.

@@ -12,6 +12,7 @@ import {
 import { exclusiveBase, lineTax, returnLineRefund } from '@pos/contracts';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma.service';
+import { reportPeriods } from './zoned-dates';
 import { hashPassword, isPasswordHash, validateNewPassword, verifyPassword } from '../auth/password';
 import { signToken } from '../auth/token';
 import { PaymentInput, SessionUser } from './pos.types';
@@ -98,7 +99,8 @@ export class PosService {
     gstNumber: true,
     taxCalculationMode: true,
     cashierMaxDiscountPercent: true,
-    customerScope: true
+    customerScope: true,
+    timezone: true
   } as const;
 
   private readonly branchSettingsSelect = {
@@ -197,6 +199,7 @@ export class PosService {
     taxCalculationMode?: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
     cashierMaxDiscountPercent?: number;
     customerScope?: CustomerScope;
+    timezone?: string;
   }) {
     await this.ensureBusinessSettings();
     const updated = await this.prisma.businessSettings.update({
@@ -207,7 +210,8 @@ export class PosService {
         gstNumber: input.gstNumber,
         taxCalculationMode: input.taxCalculationMode,
         cashierMaxDiscountPercent: input.cashierMaxDiscountPercent,
-        customerScope: input.customerScope
+        customerScope: input.customerScope,
+        timezone: input.timezone
       },
       select: this.businessSettingsSelect
     });
@@ -2411,34 +2415,6 @@ export class PosService {
     };
   }
 
-  private startOfDay(date: Date) {
-    const value = new Date(date);
-    value.setHours(0, 0, 0, 0);
-    return value;
-  }
-
-  private startOfWeek(date: Date) {
-    const value = this.startOfDay(date);
-    const day = value.getDay();
-    const diff = (day + 6) % 7;
-    value.setDate(value.getDate() - diff);
-    return value;
-  }
-
-  private startOfMonth(date: Date) {
-    return new Date(date.getFullYear(), date.getMonth(), 1);
-  }
-
-  private addDays(date: Date, days: number) {
-    const value = new Date(date);
-    value.setDate(value.getDate() + days);
-    return value;
-  }
-
-  private addMonths(date: Date, months: number) {
-    return new Date(date.getFullYear(), date.getMonth() + months, 1);
-  }
-
   /**
    * Sales figures for one date range. Only SETTLED invoices count as sales (unpaid credit
    * sales are reported separately); amounts are split into tax and net so profit is worked
@@ -2509,26 +2485,14 @@ export class PosService {
     await this.ensureBranchExists(branchId);
 
     const now = new Date();
-    const todayStart = this.startOfDay(now);
-    const weekStart = this.startOfWeek(now);
-    const monthStart = this.startOfMonth(now);
+    // Periods follow the shop's clock (business time zone), not the server's.
+    const { timezone } = await this.ensureBusinessSettings();
+    const periods = reportPeriods(now, timezone);
 
     const ranges = [
-      {
-        label: 'Today',
-        startDate: todayStart,
-        endDate: this.addDays(todayStart, 1)
-      },
-      {
-        label: 'This Week',
-        startDate: weekStart,
-        endDate: this.addDays(weekStart, 7)
-      },
-      {
-        label: 'This Month',
-        startDate: monthStart,
-        endDate: this.addMonths(monthStart, 1)
-      },
+      { label: 'Today', startDate: periods.today.start, endDate: periods.today.end },
+      { label: 'This Week', startDate: periods.week.start, endDate: periods.week.end },
+      { label: 'This Month', startDate: periods.month.start, endDate: periods.month.end },
       {
         label: 'Overall',
         startDate: null,
@@ -2541,6 +2505,7 @@ export class PosService {
     return {
       branchId,
       generatedAt: now.toISOString(),
+      timezone,
       ranges: summaries
     };
   }

@@ -104,6 +104,8 @@ model BusinessSettings {
   cashierMaxDiscountPercent Decimal     @default(10) @db.Decimal(5, 2)
   /// SHARED: customers and their wallets can be used at every branch. BRANCH: only at the branch that created them.
   customerScope      CustomerScope      @default(SHARED)
+  /// IANA time zone that report periods (Today, This Week, This Month) are worked out in.
+  timezone           String             @default("Asia/Kolkata")
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 }

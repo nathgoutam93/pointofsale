@@ -139,6 +139,7 @@ export class PosController {
       taxCalculationMode?: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
       cashierMaxDiscountPercent?: number;
       customerScope?: 'SHARED' | 'BRANCH';
+      timezone?: string;
     },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {

@@ -25,6 +25,7 @@ type BusinessSettingsForm = {
   taxCalculationMode: "AFTER_DISCOUNT" | "BEFORE_DISCOUNT";
   cashierMaxDiscountPercent: string;
   customerScope: "SHARED" | "BRANCH";
+  timezone: string;
 };
 
 type CashierForm = {
@@ -41,6 +42,13 @@ type CreateBranchForm = {
 type SettingsTab = "business" | "branches" | "cashiers";
 
 const emptyCashierForm = (branchId: string): CashierForm => ({ username: "", password: "", branchIds: [branchId] });
+
+/** Every IANA zone this browser knows, keeping the saved one even if it isn't listed. */
+function timeZoneOptions(current: string) {
+  const supported =
+    typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : ["Asia/Kolkata", "UTC"];
+  return supported.includes(current) ? supported : [current, ...supported];
+}
 
 export function BranchSettingsPage() {
   const session = requireAdmin();
@@ -126,7 +134,8 @@ export function BranchSettingsPage() {
     gstNumber: "",
     taxCalculationMode: "AFTER_DISCOUNT",
     cashierMaxDiscountPercent: "10",
-    customerScope: "SHARED"
+    customerScope: "SHARED",
+    timezone: "Asia/Kolkata"
   });
 
   useEffect(() => {
@@ -153,7 +162,8 @@ export function BranchSettingsPage() {
       gstNumber: businessSettings.data.gstNumber ?? "",
       taxCalculationMode: businessSettings.data.taxCalculationMode,
       cashierMaxDiscountPercent: String(businessSettings.data.cashierMaxDiscountPercent),
-      customerScope: businessSettings.data.customerScope
+      customerScope: businessSettings.data.customerScope,
+      timezone: businessSettings.data.timezone
     });
   }, [businessSettings.data]);
 
@@ -214,7 +224,8 @@ export function BranchSettingsPage() {
           gstNumber: emptyToNull(businessForm.gstNumber),
           taxCalculationMode: businessForm.taxCalculationMode,
           cashierMaxDiscountPercent,
-          customerScope: businessForm.customerScope
+          customerScope: businessForm.customerScope,
+          timezone: businessForm.timezone
         },
         extraHeaders: authHeaders()
       });
@@ -580,6 +591,23 @@ export function BranchSettingsPage() {
                 <p className="mt-1 text-xs text-slate-500">
                   Shared: a customer and their wallet balance can be used at any branch, and a phone number belongs to one
                   customer business-wide. Separate: each branch only sees the customers it created.
+                </p>
+              </div>
+              <div>
+                <label className="text-sm text-slate-600">Time zone</label>
+                <select
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                  value={businessForm.timezone}
+                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, timezone: e.target.value }))}
+                >
+                  {timeZoneOptions(businessForm.timezone).map((zone) => (
+                    <option key={zone} value={zone}>
+                      {zone}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Reports work out Today, This Week and This Month on this clock.
                 </p>
               </div>
             </div>
