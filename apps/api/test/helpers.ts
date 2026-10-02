@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
@@ -46,10 +46,24 @@ export async function startApp() {
     return (await ok<{ token: string }>('POST', '/auth/login', null, { username, password })).token;
   }
 
+  /** A 3-character branch code no branch has yet. */
+  async function freeBranchCode() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    for (;;) {
+      const code = Array.from(randomBytes(3), (byte) => chars[byte % chars.length]).join('');
+      if (!(await db.branch.findUnique({ where: { code }, select: { id: true } }))) return code;
+    }
+  }
+
+  /** A new branch with a free code. */
+  async function newBranch(adminToken: string, label = 'Test') {
+    const code = await freeBranchCode();
+    return ok<{ id: string; code: string }>('POST', '/branches', adminToken, { name: `${label} ${code}`, code });
+  }
+
   /** A fresh branch with an open register (so each test file has its own data). */
   async function branchWithRegister(adminToken: string, openingBalance = 0) {
-    const code = `T${randomUUID().slice(0, 8).toUpperCase()}`;
-    const branch = await ok<{ id: string; code: string }>('POST', '/branches', adminToken, { name: `Test ${code}`, code });
+    const branch = await newBranch(adminToken);
     const opened = await ok<{ token: string; register: { id: string } }>('POST', '/registers/open', adminToken, {
       branchId: branch.id,
       openingBalance
@@ -93,7 +107,7 @@ export async function startApp() {
     }
   }
 
-  return { app, baseUrl, db, call, ok, login, branchWithRegister, item, onHand, close };
+  return { app, baseUrl, db, call, ok, login, freeBranchCode, newBranch, branchWithRegister, item, onHand, close };
 }
 
 export type TestApp = Awaited<ReturnType<typeof startApp>>;

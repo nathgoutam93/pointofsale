@@ -59,13 +59,15 @@ export class RegistersService {
    * Money moving through a register must land before it closes: share-lock the register
    * row (close takes it exclusively) and check it is still open.
    */
+  /** Fails unless the session's register is still open; returns the counter it runs on. */
   async assertRegisterOpen(tx: Prisma.TransactionClient, session: SessionUser) {
     const registerId = requireSessionRegisterId(session);
-    const rows = await tx.$queryRaw<Array<{ closedAt: Date | null }>>`
-      SELECT "closedAt" FROM "RegisterSession" WHERE id = ${registerId} FOR SHARE`;
+    const rows = await tx.$queryRaw<Array<{ closedAt: Date | null; counterId: string }>>`
+      SELECT "closedAt", "counterId" FROM "RegisterSession" WHERE id = ${registerId} FOR SHARE`;
     if (rows.length === 0 || rows[0].closedAt !== null) {
       throw new BadRequestException('Register is closed. Open a register to continue.');
     }
+    return { counterId: rows[0].counterId };
   }
 
   /**
@@ -176,8 +178,8 @@ export class RegistersService {
 
     const counters = await this.prisma.counter.findMany({
       where: { branchId: { in: branchIds }, isActive: true },
-      orderBy: [{ createdAt: 'asc' }, { name: 'asc' }],
-      select: { id: true, branchId: true, name: true, isActive: true }
+      orderBy: { number: 'asc' },
+      select: { id: true, branchId: true, number: true, name: true, isActive: true }
     });
     const counterIds = counters.map((counter) => counter.id);
 

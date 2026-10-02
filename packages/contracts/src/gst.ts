@@ -257,12 +257,15 @@ export function hsnProblem(code: string, minDigits: number): string | null {
 
 /**
  * GST invoice and credit note numbers: at most 16 characters, unique within a financial
- * year (April to March). Numbered {series}/{FY}/{number}, e.g. MAIN/2627/00001: a series
- * of up to 5 letters or digits per branch, the financial year, and a 5-digit count that
+ * year (April to March). Numbered {branch code}/{counter}/{YY}/{number}, e.g. MAI/1/26/00001
+ * (credit notes MAIR/1/26/00001): every counter has its own series, and a 5-digit count
  * restarts each year.
  */
 export const GST_DOCUMENT_NUMBER_MAX_LENGTH = 16;
-export const DOCUMENT_SERIES_MAX_LENGTH = 5;
+/** A branch code is exactly this many letters or digits; it starts every document number. */
+export const BRANCH_CODE_LENGTH = 3;
+/** Counters are numbered 1 to 99 within a branch, so credit note numbers stay within 16 characters. */
+export const MAX_COUNTERS_PER_BRANCH = 99;
 const DOCUMENT_SEQ_DIGITS = 5;
 
 /** The year a financial year (April to March) starts in, for a calendar date. */
@@ -270,7 +273,7 @@ export function financialYearStart(year: number, month: number) {
   return month >= 4 ? year : year - 1;
 }
 
-/** 2026 → "2627" (the 2026-27 financial year), as it appears in document numbers. */
+/** 2026 → "2627" (the 2026-27 financial year), as GST returns name it. */
 export function financialYearCode(startYear: number) {
   const two = (value: number) => String(((value % 100) + 100) % 100).padStart(2, '0');
   return `${two(startYear)}${two(startYear + 1)}`;
@@ -281,27 +284,29 @@ export function financialYearLabel(startYear: number) {
   return `${startYear}-${financialYearCode(startYear).slice(2)}`;
 }
 
-export function documentNumber(series: string, fiscalYearStart: number, seq: number) {
-  return `${series}/${financialYearCode(fiscalYearStart)}/${String(seq).padStart(DOCUMENT_SEQ_DIGITS, '0')}`;
-}
-
-/** Why a document series can't be used, or null when it can. */
-export function documentSeriesProblem(series: string): string | null {
-  if (!/^[A-Z0-9]+$/.test(series)) return 'A series is letters and digits only';
-  if (series.length > DOCUMENT_SERIES_MAX_LENGTH) {
-    return `A series has at most ${DOCUMENT_SERIES_MAX_LENGTH} characters, so numbers stay within GST's 16`;
-  }
-  return null;
+/** 2026 → "26": the financial year 2026-27 as it appears in document numbers. */
+export function documentYearCode(startYear: number) {
+  return String(((startYear % 100) + 100) % 100).padStart(2, '0');
 }
 
 /**
- * Candidate series for a branch, best first: from its code (MAIN, MAINR for returns),
- * then with a digit in place of the last character. The caller picks the first one free.
+ * The series a counter numbers its invoices or credit notes in: the branch code and the
+ * counter number, with R after the code for credit notes (MAI/1 and MAIR/1). Branch codes
+ * are exactly 3 characters, so an invoice series can never equal a credit note series.
  */
-export function documentSeriesCandidates(branchCode: string, suffix = ''): string[] {
-  const base = branchCode.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, DOCUMENT_SERIES_MAX_LENGTH - suffix.length) || 'B';
-  const candidates = [`${base}${suffix}`];
-  const stem = base.slice(0, DOCUMENT_SERIES_MAX_LENGTH - suffix.length - 1);
-  for (let digit = 2; digit <= 9; digit++) candidates.push(`${stem}${digit}${suffix}`);
-  return candidates;
+export function documentSeries(branchCode: string, counterNumber: number, kind: 'INVOICE' | 'RETURN') {
+  return `${branchCode}${kind === 'RETURN' ? 'R' : ''}/${counterNumber}`;
+}
+
+/** {series}/{YY}/{5 digits}: MAI/1/26/00001, at most 16 characters (MAIR/99/26/99999). */
+export function documentNumber(series: string, fiscalYearStart: number, seq: number) {
+  return `${series}/${documentYearCode(fiscalYearStart)}/${String(seq).padStart(DOCUMENT_SEQ_DIGITS, '0')}`;
+}
+
+/** Why a branch code can't be used, or null when it can. */
+export function branchCodeProblem(code: string): string | null {
+  if (!new RegExp(`^[A-Z0-9]{${BRANCH_CODE_LENGTH}}$`).test(code)) {
+    return `A branch code is exactly ${BRANCH_CODE_LENGTH} letters or digits`;
+  }
+  return null;
 }

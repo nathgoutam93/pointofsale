@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { MAX_COUNTERS_PER_BRANCH } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
 import { requireAdmin } from '../common/request-session';
@@ -7,7 +8,7 @@ import { BranchesService } from '../branches/branches.service';
 import { SettingsService } from '../settings/settings.service';
 import { lockBranchRegisters } from '../common/counters';
 
-export const counterSelect = { id: true, branchId: true, name: true, isActive: true } as const;
+export const counterSelect = { id: true, branchId: true, number: true, name: true, isActive: true } as const;
 
 @Injectable()
 export class CountersService {
@@ -23,11 +24,12 @@ export class CountersService {
     await this.branches.ensureUserHasBranchAccess(session.userId, branchId);
     return this.prisma.counter.findMany({
       where: { branchId, ...(includeInactive ? {} : { isActive: true }) },
-      orderBy: [{ createdAt: 'asc' }, { name: 'asc' }],
+      orderBy: { number: 'asc' },
       select: counterSelect
     });
   }
 
+  /** A new counter takes the branch's next number, which gives it its own invoice and credit note series. */
   async createCounter(session: SessionUser, branchId: string, name: string) {
     requireAdmin(session);
     await this.settings.ensureBranchExists(branchId);
@@ -36,7 +38,13 @@ export class CountersService {
       return await this.prisma.$transaction(async (tx) => {
         await lockBranchRegisters(tx, branchId);
         await this.assertNameFree(tx, branchId, name);
-        return tx.counter.create({ data: { branchId, name: name.trim() }, select: counterSelect });
+        // Numbers are never reused, so a deactivated counter's series stays its own.
+        const last = await tx.counter.aggregate({ where: { branchId }, _max: { number: true } });
+        const number = (last._max.number ?? 0) + 1;
+        if (number > MAX_COUNTERS_PER_BRANCH) {
+          throw new BadRequestException(`A branch can have at most ${MAX_COUNTERS_PER_BRANCH} counters`);
+        }
+        return tx.counter.create({ data: { branchId, number, name: name.trim() }, select: counterSelect });
       });
     } catch (error) {
       throw this.duplicateName(error);

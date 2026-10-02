@@ -274,9 +274,11 @@ export class SalesService {
       }
     }
 
+    // Numbered in the series of the counter the sale is made at.
+    const { counterId } = await this.registers.assertRegisterOpen(tx, session);
     const { number: invoiceNo, series: documentSeries, fiscalYear } = await this.sequences.nextDocumentNumber(
       tx,
-      input.branchId,
+      counterId,
       DocumentKind.INVOICE
     );
 

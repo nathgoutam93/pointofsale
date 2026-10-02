@@ -112,14 +112,10 @@ enum DiscountType {
 model Branch {
   id            String             @id @default(uuid())
   name          String
+  /// Exactly 3 letters or digits; starts every invoice and credit note number (see Counter.number).
   code          String             @unique
   logoUrl       String?
-  /// GST invoice series: invoices are numbered {series}/{FY}/{number}, e.g. MAIN/2627/00001.
-  /// Up to 5 letters or digits, unique across branches (set from the branch code when created).
-  invoicePrefix String             @unique
   receiptPrefix String             @default("RCPT")
-  /// Credit note (return) series, numbered like invoices; unique across branches.
-  returnPrefix  String             @unique
   invoiceHeader String?
   invoiceFooter String?
   receiptHeader String?
@@ -239,6 +235,11 @@ model Counter {
   branchId  String
   branch    Branch            @relation(fields: [branchId], references: [id])
   name      String
+  /// 1, 2, 3... within the branch, in the order counters were added; never changes or
+  /// repeats. Invoices made here are numbered {branch code}/{number}/{YY}/{count}, e.g.
+  /// MAI/1/26/00001, and credit notes {branch code}R/{number}/..., so every counter has its
+  /// own series (which an offline counter will need).
+  number    Int
   /// Inactive counters can't be opened; they stay for the history of their registers.
   isActive  Boolean           @default(true)
   createdAt DateTime          @default(now())
@@ -246,6 +247,7 @@ model Counter {
   registers RegisterSession[]
 
   @@unique([branchId, name])
+  @@unique([branchId, number])
   @@index([branchId])
 }
 

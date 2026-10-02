@@ -5,14 +5,12 @@ import type { SessionUser } from '../common/types';
 import { branchSummarySelect } from '../common/selects';
 import { DEFAULT_COUNTER_NAME } from '../common/counters';
 import { CustomersService } from '../customers/customers.service';
-import { SequenceService } from '../sequences/sequences.service';
 
 @Injectable()
 export class BranchesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly customers: CustomersService,
-    private readonly sequences: SequenceService
+    private readonly customers: CustomersService
   ) {}
 
   async ensureUserHasBranchAccess(userId: string, branchId: string, tx?: Prisma.TransactionClient) {
@@ -40,7 +38,7 @@ export class BranchesService {
     try {
       const branch = await this.prisma.$transaction(async (tx) => {
         const created = await tx.branch.create({
-          data: { name, code, ...(await this.sequences.freeDocumentSeries(tx, code)) },
+          data: { name, code },
           select: branchSummarySelect
         });
 
@@ -66,7 +64,7 @@ export class BranchesService {
         });
 
         // A branch can sell straight away; admins add more counters in Settings.
-        await tx.counter.create({ data: { branchId: created.id, name: DEFAULT_COUNTER_NAME } });
+        await tx.counter.create({ data: { branchId: created.id, number: 1, name: DEFAULT_COUNTER_NAME } });
 
         return created;
       });

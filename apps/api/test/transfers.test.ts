@@ -11,8 +11,7 @@ beforeAll(async () => {
   t = await startApp();
   admin = await t.login();
   from = await t.branchWithRegister(admin);
-  const code = `D${randomUUID().slice(0, 8).toUpperCase()}`;
-  to = await t.ok('POST', '/branches', admin, { name: `Dest ${code}`, code });
+  to = await t.newBranch(admin, 'Dest');
 });
 afterAll(async () => { await t.close(); });
 

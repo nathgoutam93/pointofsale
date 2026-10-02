@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   defaultSupplyType,
+  branchCodeProblem,
   documentNumber,
-  documentSeriesCandidates,
-  documentSeriesProblem,
+  documentSeries,
   financialYearCode,
   financialYearLabel,
   financialYearStart,
@@ -102,24 +102,19 @@ describe('document numbers', () => {
     expect(financialYearLabel(2026)).toBe('2026-27');
   });
 
-  it('numbers documents {series}/{FY}/{5 digits}, within 16 characters for any valid series', () => {
-    expect(documentNumber('MAIN', 2026, 1)).toBe('MAIN/2627/00001');
-    expect(documentNumber('BLR01', 2026, 99999)).toHaveLength(GST_DOCUMENT_NUMBER_MAX_LENGTH);
+  it('numbers documents {branch code}/{counter}/{YY}/{5 digits}, within 16 characters', () => {
+    expect(documentNumber(documentSeries('MAI', 1, 'INVOICE'), 2026, 1)).toBe('MAI/1/26/00001');
+    expect(documentNumber(documentSeries('MAI', 1, 'RETURN'), 2026, 1)).toBe('MAIR/1/26/00001');
+    expect(documentNumber(documentSeries('MAI', 1, 'INVOICE'), 2099, 1)).toBe('MAI/1/99/00001');
+    // The longest: a credit note at counter 99, number 99,999.
+    expect(documentNumber(documentSeries('BLR', 99, 'RETURN'), 2026, 99999)).toHaveLength(GST_DOCUMENT_NUMBER_MAX_LENGTH);
   });
 
-  it('accepts series of up to 5 letters or digits', () => {
-    expect(documentSeriesProblem('BLR01')).toBeNull();
-    expect(documentSeriesProblem('BLR012')).toMatch(/at most 5/);
-    expect(documentSeriesProblem('BL-R')).toMatch(/letters and digits/);
-    expect(documentSeriesProblem('')).toMatch(/letters and digits/);
-  });
-
-  it('suggests series from the branch code', () => {
-    expect(documentSeriesCandidates('main').slice(0, 3)).toEqual(['MAIN', 'MAIN2', 'MAIN3']);
-    expect(documentSeriesCandidates('BLR-01', 'R').slice(0, 2)).toEqual(['BLR0R', 'BLR2R']);
-    expect(documentSeriesCandidates('---')[0]).toBe('B');
-    for (const series of [...documentSeriesCandidates('VERYLONGCODE'), ...documentSeriesCandidates('VERYLONGCODE', 'R')]) {
-      expect(documentSeriesProblem(series)).toBeNull();
-    }
+  it('takes branch codes of exactly 3 letters or digits', () => {
+    expect(branchCodeProblem('BL1')).toBeNull();
+    expect(branchCodeProblem('BL')).toMatch(/exactly 3/);
+    expect(branchCodeProblem('BLR1')).toMatch(/exactly 3/);
+    expect(branchCodeProblem('B-1')).toMatch(/exactly 3/);
+    expect(branchCodeProblem('blr')).toMatch(/exactly 3/); // the schema upper-cases first
   });
 });

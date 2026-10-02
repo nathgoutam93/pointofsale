@@ -105,9 +105,7 @@ export class SettingsController {
       name?: string;
       code?: string;
       logoUrl?: string | null;
-      invoicePrefix?: string;
       receiptPrefix?: string;
-      returnPrefix?: string;
       invoiceHeader?: string | null;
       invoiceFooter?: string | null;
       receiptHeader?: string | null;

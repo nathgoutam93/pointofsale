@@ -41,8 +41,7 @@ describe('stock', () => {
   });
 
   it('opens only one register per branch when five try at once', async () => {
-    const code = `R${Date.now().toString().slice(-7)}`;
-    const branch = await t.ok('POST', '/branches', admin, { name: `Registers ${code}`, code });
+    const branch = await t.newBranch(admin, 'Registers');
     const results = await Promise.all([1, 2, 3, 4, 5].map(() => t.call('POST', '/registers/open', admin, { branchId: branch.id, openingBalance: 0 })));
     expect(results.filter((r) => r.status === 200)).toHaveLength(1);
     expect(await t.db.registerSession.count({ where: { branchId: branch.id, closedAt: null } })).toBe(1);

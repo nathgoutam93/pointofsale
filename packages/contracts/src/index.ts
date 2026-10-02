@@ -21,14 +21,16 @@ export {
   COMPOSITION_RATES,
   documentTypeFor,
   defaultSupplyType,
-  DOCUMENT_SERIES_MAX_LENGTH,
+  BRANCH_CODE_LENGTH,
+  branchCodeProblem,
   documentNumber,
-  documentSeriesCandidates,
-  documentSeriesProblem,
+  documentSeries,
+  documentYearCode,
   financialYearCode,
   financialYearLabel,
   financialYearStart,
   GST_DOCUMENT_NUMBER_MAX_LENGTH,
+  MAX_COUNTERS_PER_BRANCH,
   GST_DOCUMENT_TYPES,
   GST_STATES,
   GST_SUPPLY_TYPE_LABELS,
@@ -47,8 +49,8 @@ export {
 } from './gst.js';
 export type { CompositionCategory, GstDocumentType, GstSupplyType, TaxpayerType } from './gst.js';
 import {
+  branchCodeProblem,
   COMPOSITION_CATEGORIES,
-  documentSeriesProblem,
   GST_DOCUMENT_TYPES,
   GST_SUPPLY_TYPES,
   gstinProblem,
@@ -85,13 +87,13 @@ const customerScopeSchema = z.enum(['SHARED', 'BRANCH']);
 const taxpayerTypeSchema = z.enum(TAXPAYER_TYPES);
 const compositionCategorySchema = z.enum(COMPOSITION_CATEGORIES);
 const gstDocumentTypeSchema = z.enum(GST_DOCUMENT_TYPES);
-/** A branch's invoice or credit note series: up to 5 letters or digits, upper-cased. */
-const documentSeriesSchema = z
+/** A branch code: exactly 3 letters or digits, upper-cased. It starts every invoice and credit note number. */
+const branchCodeSchema = z
   .string()
   .trim()
   .toUpperCase()
   .superRefine((value, ctx) => {
-    const problem = documentSeriesProblem(value);
+    const problem = branchCodeProblem(value);
     if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
   });
 /** A GSTIN, upper-cased, with its format, state code and check character verified. */
@@ -145,7 +147,7 @@ export const moneySchema = z.number().finite();
 const taxRateSchema = z.number().min(0).max(100);
 const requiredText = z.string().trim().min(1);
 const passwordSchema = z.string().min(8).max(128);
-/** Branch codes and document prefixes become part of invoice, receipt and return numbers. */
+/** Receipt prefixes become part of receipt numbers. */
 const documentCodeSchema = z
   .string()
   .trim()
@@ -182,10 +184,12 @@ export const branchSchema = z.object({
   code: z.string()
 });
 
-/** A till in a branch. Each counter has its own register session and cash drawer. */
+/** A till in a branch. Each counter has its own register session, cash drawer and document series. */
 export const counterSchema = z.object({
   id: z.string().uuid(),
   branchId: z.string().uuid(),
+  /** 1, 2, 3... in the branch, never reused: invoices made here are numbered {branch code}/{number}/{YY}/{count}. */
+  number: z.number().int().positive(),
   name: z.string(),
   isActive: z.boolean()
 });
@@ -231,9 +235,7 @@ export const registerSummarySchema = z.object({
 
 export const branchSettingsSchema = branchSchema.extend({
   logoUrl: z.string().nullable(),
-  invoicePrefix: z.string(),
   receiptPrefix: z.string(),
-  returnPrefix: z.string(),
   invoiceHeader: z.string().nullable(),
   invoiceFooter: z.string().nullable(),
   receiptHeader: z.string().nullable(),
@@ -845,7 +847,7 @@ export const appContract = c.router({
       path: '/branches',
       body: z.object({
         name: requiredText,
-        code: documentCodeSchema
+        code: branchCodeSchema
       }),
       responses: { 201: branchSchema }
     },
@@ -859,13 +861,10 @@ export const appContract = c.router({
       path: '/branches/:id',
       body: z.object({
         name: requiredText.optional(),
-        code: documentCodeSchema.optional(),
+        /** Invoices and credit notes made after a change are numbered in the new code's series. */
+        code: branchCodeSchema.optional(),
         logoUrl: z.string().nullable().optional(),
-        /** Invoice series: invoices are numbered {series}/{FY}/{number}, e.g. MAIN/2627/00001. */
-        invoicePrefix: documentSeriesSchema.optional(),
         receiptPrefix: documentCodeSchema.optional(),
-        /** Credit note (return) series, numbered like invoices. */
-        returnPrefix: documentSeriesSchema.optional(),
         invoiceHeader: z.string().nullable().optional(),
         invoiceFooter: z.string().nullable().optional(),
         receiptHeader: z.string().nullable().optional(),

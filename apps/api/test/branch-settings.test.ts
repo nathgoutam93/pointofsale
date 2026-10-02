@@ -39,8 +39,4 @@ describe('document prefixes', () => {
     expect((await patch({ receiptPrefix: 'RC PT' })).status).toBe(400);
   });
 
-  it('takes only letters and digits in invoice and return series (see gst-numbers.test.ts)', async () => {
-    expect((await patch({ invoicePrefix: 'IN</title>' })).status).toBe(400);
-    expect((await patch({ invoicePrefix: 'INV/26' })).status).toBe(400);
-  });
 });

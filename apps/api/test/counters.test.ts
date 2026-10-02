@@ -9,8 +9,7 @@ beforeAll(async () => { t = await startApp(); admin = await t.login(); });
 afterAll(async () => { await t.close(); });
 
 async function newBranch() {
-  const code = `C${randomUUID().slice(0, 8).toUpperCase()}`;
-  return t.ok<{ id: string }>('POST', '/branches', admin, { name: `Counters ${code}`, code });
+  return t.newBranch(admin, 'Counters');
 }
 
 async function cashier(branchId: string) {

@@ -1,14 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
+import { documentNumber, documentSeries } from "@pos/contracts";
 import { IconRegister } from "../../components/icons";
 import { api, apiErrorMessage, authHeaders } from "../../lib/api";
 
 /**
  * A branch's counters (tills). Each counter runs its own register and cash drawer, so
- * several cashiers can sell in the branch at once. Counters are never deleted: one that's
- * no longer used is deactivated, which keeps the history of its registers.
+ * several cashiers can sell in the branch at once, and numbers its own invoices and credit
+ * notes ({branch code}/{counter number}/...). Counters are never deleted: one that's no
+ * longer used is deactivated, which keeps the history of its registers and its number.
  */
-export function CountersSection({ branchId, branchName }: { branchId: string; branchName: string }) {
+export function CountersSection({
+  branchId,
+  branchName,
+  branchCode,
+  fiscalYear,
+}: {
+  branchId: string;
+  branchName: string;
+  branchCode: string;
+  fiscalYear: number;
+}) {
   const queryClient = useQueryClient();
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -92,7 +104,7 @@ export function CountersSection({ branchId, branchName }: { branchId: string; br
           <h2 className="text-lg font-semibold tracking-tight text-slate-900">Counters</h2>
           <p className="mt-1 text-sm text-slate-500">
             Tills in {branchName}. Each counter has its own register and cash drawer, so cashiers can sell at several
-            counters at once. {activeCount} active.
+            counters at once, and numbers its own invoices and credit notes. {activeCount} active.
           </p>
         </div>
         <form onSubmit={onAdd} className="flex gap-2">
@@ -158,6 +170,8 @@ export function CountersSection({ branchId, branchName }: { branchId: string; br
                       </p>
                       <p className="text-xs text-slate-500">
                         {!counter.isActive ? "Inactive" : openedBy ? `Open · ${openedBy}` : "Closed"}
+                        {` · Invoices ${documentNumber(documentSeries(branchCode, counter.number, "INVOICE"), fiscalYear, 1)}`}
+                        {` · Credit notes ${documentNumber(documentSeries(branchCode, counter.number, "RETURN"), fiscalYear, 1)}`}
                       </p>
                     </div>
                   )}

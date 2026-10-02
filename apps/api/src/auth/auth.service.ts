@@ -9,7 +9,6 @@ import { toNumber } from '../common/numbers';
 import { branchSummarySelect } from '../common/selects';
 import { DEFAULT_COUNTER_NAME } from '../common/counters';
 import { CustomersService } from '../customers/customers.service';
-import { SequenceService } from '../sequences/sequences.service';
 
 @Injectable()
 export class AuthService {
@@ -17,8 +16,7 @@ export class AuthService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly customers: CustomersService,
-    private readonly sequences: SequenceService
+    private readonly customers: CustomersService
   ) {}
 
   async login(username: string, password: string) {
@@ -141,12 +139,12 @@ export class AuthService {
 
   async onModuleInitSeed() {
     const branch =
-      (await this.prisma.branch.findUnique({ where: { code: 'MAIN' } })) ??
+      (await this.prisma.branch.findUnique({ where: { code: 'MAI' } })) ??
       (await this.prisma.$transaction(async (tx) => {
         const created = await tx.branch.create({
-          data: { name: 'Main Branch', code: 'MAIN', ...(await this.sequences.freeDocumentSeries(tx, 'MAIN')) }
+          data: { name: 'Main Branch', code: 'MAI' }
         });
-        await tx.counter.create({ data: { branchId: created.id, name: DEFAULT_COUNTER_NAME } });
+        await tx.counter.create({ data: { branchId: created.id, number: 1, name: DEFAULT_COUNTER_NAME } });
         return created;
       }));
 

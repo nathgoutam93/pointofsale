@@ -1,9 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import {
-  DOCUMENT_SERIES_MAX_LENGTH,
-  documentNumber,
-  documentSeriesProblem,
+  BRANCH_CODE_LENGTH,
+  branchCodeProblem,
   financialYearStart,
   GST_STATES,
   gstinProblem,
@@ -19,9 +18,7 @@ type SettingsForm = {
   name: string;
   code: string;
   logoUrl: string | null;
-  invoicePrefix: string;
   receiptPrefix: string;
-  returnPrefix: string;
   invoiceHeader: string;
   invoiceFooter: string;
   receiptHeader: string;
@@ -133,9 +130,7 @@ export function BranchSettingsPage() {
     name: "",
     code: "",
     logoUrl: null,
-    invoicePrefix: "INV",
     receiptPrefix: "RCPT",
-    returnPrefix: "RTN",
     invoiceHeader: "",
     invoiceFooter: "",
     receiptHeader: "",
@@ -192,9 +187,7 @@ export function BranchSettingsPage() {
       name: branchSettings.data.name,
       code: branchSettings.data.code,
       logoUrl: branchSettings.data.logoUrl,
-      invoicePrefix: branchSettings.data.invoicePrefix,
       receiptPrefix: branchSettings.data.receiptPrefix,
-      returnPrefix: branchSettings.data.returnPrefix,
       invoiceHeader: branchSettings.data.invoiceHeader ?? "",
       invoiceFooter: branchSettings.data.invoiceFooter ?? "",
       receiptHeader: branchSettings.data.receiptHeader ?? "",
@@ -206,8 +199,6 @@ export function BranchSettingsPage() {
     });
   }, [branchSettings.data]);
 
-  const seriesProblem =
-    [form.invoicePrefix, form.returnPrefix].map((series) => (series ? documentSeriesProblem(series) : null)).find(Boolean) ?? null;
   const currentFiscalYear = useMemo(() => {
     const timeZone = businessSettings.data?.timezone ?? "Asia/Kolkata";
     const [year, month] = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date()).split("-").map(Number);
@@ -314,14 +305,15 @@ export function BranchSettingsPage() {
       if (!trimmedName) {
         throw new Error("Branch name is required.");
       }
-      if (!trimmedCode) {
-        throw new Error("Branch code is required.");
+      const codeProblem = branchCodeProblem(trimmedCode);
+      if (codeProblem) {
+        throw new Error(codeProblem);
       }
       const res = await api.branches.create({
         body: { name: trimmedName, code: trimmedCode },
         extraHeaders: authHeaders()
       });
-      if (res.status !== 201) throw new Error("Failed to create branch");
+      if (res.status !== 201) throw new Error(apiErrorMessage(res.body, "Failed to create branch"));
       return res.body;
     },
     onSuccess: (created) => {
@@ -341,9 +333,10 @@ export function BranchSettingsPage() {
   const saveSettings = useMutation({
     mutationFn: async () => {
       const emptyToNull = (value: string) => (value.trim() ? value : null);
-      const trimmedCode = form.code.trim();
-      if (!trimmedCode) {
-        throw new Error("Branch code is required.");
+      const trimmedCode = form.code.trim().toUpperCase();
+      const codeProblem = branchCodeProblem(trimmedCode);
+      if (codeProblem) {
+        throw new Error(codeProblem);
       }
       if (!selectedBranchId) {
         throw new Error("Select a branch first.");
@@ -354,9 +347,7 @@ export function BranchSettingsPage() {
           name: form.name.trim(),
           code: trimmedCode,
           logoUrl: form.logoUrl,
-          invoicePrefix: form.invoicePrefix.trim(),
           receiptPrefix: form.receiptPrefix.trim(),
-          returnPrefix: form.returnPrefix.trim(),
           invoiceHeader: emptyToNull(form.invoiceHeader),
           invoiceFooter: emptyToNull(form.invoiceFooter),
           receiptHeader: emptyToNull(form.receiptHeader),
@@ -397,9 +388,7 @@ export function BranchSettingsPage() {
       name: string;
       code: string;
       logoUrl: string | null;
-      invoicePrefix: string;
       receiptPrefix: string;
-      returnPrefix: string;
       invoiceHeader: string | null;
       invoiceFooter: string | null;
       receiptHeader: string | null;
@@ -417,9 +406,7 @@ export function BranchSettingsPage() {
         name: updated.name ?? prev.name,
         code: updated.code ?? prev.code,
         logoUrl: updated.logoUrl ?? null,
-        invoicePrefix: updated.invoicePrefix ?? prev.invoicePrefix,
         receiptPrefix: updated.receiptPrefix ?? prev.receiptPrefix,
-        returnPrefix: updated.returnPrefix ?? prev.returnPrefix,
         invoiceHeader: updated.invoiceHeader ?? "",
         invoiceFooter: updated.invoiceFooter ?? "",
         receiptHeader: updated.receiptHeader ?? "",
@@ -728,8 +715,9 @@ export function BranchSettingsPage() {
                 onChange={(e) => setCreateBranchForm((prev) => ({ ...prev, name: e.target.value }))}
               />
               <input
-                className="field"
-                placeholder="Branch code (e.g. BLR01)"
+                className="field uppercase"
+                placeholder="Branch code, 3 letters or digits (e.g. BLR)"
+                maxLength={BRANCH_CODE_LENGTH}
                 value={createBranchForm.code}
                 onChange={(e) => setCreateBranchForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
               />
@@ -780,11 +768,15 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">Branch code</label>
                   <input
-                    className="field mt-1"
+                    className="field mt-1 uppercase"
+                    maxLength={BRANCH_CODE_LENGTH}
                     value={form.code}
-                    onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value }))}
+                    onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
                   />
-                  <p className="mt-1 text-xs text-slate-500">Used in invoice/receipt numbers. Changing affects future numbers only.</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {BRANCH_CODE_LENGTH} letters or digits. Starts every invoice and credit note number (see Counters below);
+                    changing it starts new series for future documents only.
+                  </p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -852,15 +844,6 @@ export function BranchSettingsPage() {
 
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
-                    <label className="text-sm text-slate-600">Invoice series</label>
-                    <input
-                      className="field mt-1 uppercase"
-                      maxLength={DOCUMENT_SERIES_MAX_LENGTH}
-                      value={form.invoicePrefix}
-                      onChange={(e) => setForm((prev) => ({ ...prev, invoicePrefix: e.target.value.toUpperCase() }))}
-                    />
-                  </div>
-                  <div>
                     <label className="text-sm text-slate-600">Receipt prefix</label>
                     <input
                       className="field mt-1"
@@ -868,21 +851,8 @@ export function BranchSettingsPage() {
                       onChange={(e) => setForm((prev) => ({ ...prev, receiptPrefix: e.target.value }))}
                     />
                   </div>
-                  <div>
-                    <label className="text-sm text-slate-600">Return (credit note) series</label>
-                    <input
-                      className="field mt-1 uppercase"
-                      maxLength={DOCUMENT_SERIES_MAX_LENGTH}
-                      value={form.returnPrefix}
-                      onChange={(e) => setForm((prev) => ({ ...prev, returnPrefix: e.target.value.toUpperCase() }))}
-                    />
-                  </div>
-                  <p className="text-xs text-slate-500 sm:col-span-3">
-                    Invoices are numbered like {documentNumber(form.invoicePrefix || "MAIN", currentFiscalYear, 1)} and
-                    returns like {documentNumber(form.returnPrefix || "MAINR", currentFiscalYear, 1)}: up to{" "}
-                    {DOCUMENT_SERIES_MAX_LENGTH} letters or digits, then the financial year, counting from 1 every April. Each
-                    branch needs its own series. GST invoice numbers can be at most 16 characters.
-                    {seriesProblem ? <span className="block text-rose-700">{seriesProblem}</span> : null}
+                  <p className="text-xs text-slate-500 sm:col-span-2 sm:self-end">
+                    Invoice and credit note numbers come from the branch code and each counter's number; see Counters below.
                   </p>
                 </div>
               </div>
@@ -963,7 +933,12 @@ export function BranchSettingsPage() {
             </div>
           </div>
 
-          <CountersSection branchId={selectedBranch.id} branchName={selectedBranch.name} />
+          <CountersSection
+            branchId={selectedBranch.id}
+            branchName={selectedBranch.name}
+            branchCode={selectedBranch.code}
+            fiscalYear={currentFiscalYear}
+          />
         </div>
       ) : null}
 

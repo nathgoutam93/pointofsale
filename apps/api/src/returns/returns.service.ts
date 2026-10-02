@@ -161,13 +161,13 @@ export class ReturnsService {
         throw new BadRequestException('Refund would be more than was paid for this invoice');
       }
 
+      // Numbered in the series of the counter giving the refund.
+      const { counterId } = await this.registers.assertRegisterOpen(tx, session);
       const { number: returnNo, series: documentSeries, fiscalYear } = await this.sequences.nextDocumentNumber(
         tx,
-        invoice.branchId,
+        counterId,
         DocumentKind.RETURN
       );
-
-      await this.registers.assertRegisterOpen(tx, session);
       const returnInvoice = await tx.returnInvoice.create({
         data: {
           saleInvoiceId,
