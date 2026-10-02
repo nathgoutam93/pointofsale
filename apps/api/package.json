@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "seed:demo": "node prisma/seed-demo.mjs",
     "test": "vitest run"
   },
   "dependencies": {

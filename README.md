@@ -45,7 +45,7 @@ pnpm dev
 - Backend: `http://localhost:3001`
 
 ## First Admin
-On first startup with an empty database the API creates one `admin` user (branch code `MAIN`).
+On first startup with an empty database the API creates one `admin` user (branch code `MAI`).
 Its password is `SEED_ADMIN_PASSWORD` from `apps/api/.env`, or, if that is empty, a random
 password printed once in the API log. There are no default passwords; create cashiers from
 Settings → Cashiers & Access.
@@ -63,6 +63,17 @@ pnpm test
   the cashier discount limit, settling and wallets, returns, stock under concurrency, checkout
   idempotency, reports, register balancing, customer sharing and time zones.
 
+## Local demo data
+After starting the API once, run `pnpm --filter @pos/api seed:demo` to populate the
+isolated `pos_pr_auth_test` database with three branches, ten everyday products,
+four GST scenario products, placeholder images, and 12 months of regular sales.
+It also adds an earlier composition quarter and GST examples in the last completed
+month: intra and inter-state B2C, B2CL, nil/exempt/non-GST supplies, returns and
+credit notes, and a cancelled invoice. The GSTINs are synthetic demo identifiers;
+the export is for software testing only. The seed refuses other database names and
+can be rerun without duplicating sales. Sign in with the `admin` account configured
+in `apps/api/.env` to browse it.
+
 ## Auth Model
 Protected endpoints use:
 - `Authorization: Bearer <token>`
@@ -79,10 +90,11 @@ re-checked against the database (user active, same role, branch access, register
 - Split settlement (cash/card/wallet) with wallet debit and receipt creation
 - Returns against original invoice with stock reversal and wallet refund support
 - Receipt fetch by id or invoice
+- Counters per branch (set up by admins in Settings → Branches): each counter runs its own register and cash drawer, so several cashiers can sell in a branch at once
+- GST invoice and credit note numbers per counter: `{branch code}/{counter}/{YY}/{count}`, e.g. `MAI/1/26/00001` and credit notes `MAIR/1/26/00001` (branch codes are exactly 3 letters or digits; the count restarts every April)
 
 ## UI Flow
 - If no active session: login screen is shown.
 - If active session exists: app opens directly to `/pos`.
 - POS is the primary screen with product grid (left) and order summary/customer/payment (right).
 - Other modules are in the left sidebar (collapsible; a drawer on small screens).
-- Counters per branch (set up by admins in Settings → Branches): each counter runs its own register and cash drawer, so several cashiers can sell in a branch at once
