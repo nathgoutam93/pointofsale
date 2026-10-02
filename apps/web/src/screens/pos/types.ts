@@ -49,6 +49,8 @@ export type LocalSaleDraft = {
   customerPhone?: string | null;
   walkInCustomerName?: string | null;
   walkInCustomerPhone?: string | null;
+  /** Set when the goods are shipped to another state. */
+  placeOfSupplyStateCode?: string | null;
   cart: CartLine[];
   orderDiscountMode: "AMOUNT" | "PERCENT";
   orderDiscountValue: string;

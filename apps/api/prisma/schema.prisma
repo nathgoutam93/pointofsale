@@ -101,6 +101,10 @@ model Branch {
   receiptFooter String?
   invoiceCss   String?
   receiptCss   String?
+  /// The branch's own GSTIN. When empty, the business GSTIN is used if it is for this branch's state.
+  gstin        String?
+  /// Two-digit GST state code of where the branch is; an over-the-counter sale's place of supply.
+  stateCode    String?
   invoiceSeq  Int          @default(0)
   receiptSeq  Int          @default(0)
   returnSeq   Int          @default(0)
@@ -327,6 +331,12 @@ model SaleInvoice {
   taxpayerType        TaxpayerType     @default(REGULAR)
   documentType        GstDocumentType  @default(TAX_INVOICE)
   compositionCategory CompositionCategory?
+  /// The GSTIN the sale was made under and the selling branch's state, as at the sale.
+  sellerGstin         String?
+  sellerStateCode     String?
+  /// Where the goods went: the branch's state for a counter sale, another state when shipped there.
+  /// It differs from sellerStateCode for an inter-state (IGST) sale. Null when the branch had no state.
+  placeOfSupplyStateCode String?
   lines               SaleInvoiceLine[]
   discounts           Discount[]
   payments            Payment[]

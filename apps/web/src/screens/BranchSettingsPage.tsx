@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { GST_STATES, gstinProblem, gstStateLabel, isGstStateCode } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
 import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
@@ -17,6 +18,8 @@ type SettingsForm = {
   receiptFooter: string;
   invoiceCss: string;
   receiptCss: string;
+  gstin: string;
+  stateCode: string;
 };
 
 type BusinessSettingsForm = {
@@ -127,7 +130,9 @@ export function BranchSettingsPage() {
     receiptHeader: "",
     receiptFooter: "",
     invoiceCss: "",
-    receiptCss: ""
+    receiptCss: "",
+    gstin: "",
+    stateCode: ""
   });
   const [businessForm, setBusinessForm] = useState<BusinessSettingsForm>({
     name: "",
@@ -182,7 +187,9 @@ export function BranchSettingsPage() {
       receiptHeader: branchSettings.data.receiptHeader ?? "",
       receiptFooter: branchSettings.data.receiptFooter ?? "",
       invoiceCss: branchSettings.data.invoiceCss ?? "",
-      receiptCss: branchSettings.data.receiptCss ?? ""
+      receiptCss: branchSettings.data.receiptCss ?? "",
+      gstin: branchSettings.data.gstin ?? "",
+      stateCode: branchSettings.data.stateCode ?? ""
     });
   }, [branchSettings.data]);
 
@@ -333,7 +340,9 @@ export function BranchSettingsPage() {
           receiptHeader: emptyToNull(form.receiptHeader),
           receiptFooter: emptyToNull(form.receiptFooter),
           invoiceCss: emptyToNull(form.invoiceCss),
-          receiptCss: emptyToNull(form.receiptCss)
+          receiptCss: emptyToNull(form.receiptCss),
+          gstin: emptyToNull(form.gstin.trim().toUpperCase()),
+          stateCode: emptyToNull(form.stateCode)
         },
         extraHeaders: authHeaders()
       });
@@ -540,9 +549,12 @@ export function BranchSettingsPage() {
                   <input
                     className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
                     value={businessForm.gstNumber}
-                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, gstNumber: e.target.value }))}
-                    placeholder="e.g. 29ABCDE1234F2Z5"
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, gstNumber: e.target.value.toUpperCase() }))}
+                    placeholder="e.g. 29ABCDE1234F1ZW"
                   />
+                  {businessForm.gstNumber.trim() && gstinProblem(businessForm.gstNumber.trim()) ? (
+                    <p className="mt-1 text-xs text-rose-700">{gstinProblem(businessForm.gstNumber.trim())}</p>
+                  ) : null}
                 </div>
                 <div>
                   <label className="text-sm text-slate-600">Tax calculation mode</label>
@@ -731,6 +743,44 @@ export function BranchSettingsPage() {
                     onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value }))}
                   />
                   <p className="mt-1 text-xs text-slate-500">Used in invoice/receipt numbers. Changing affects future numbers only.</p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-sm text-slate-600">GSTIN</label>
+                    <input
+                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 uppercase"
+                      value={form.gstin}
+                      placeholder="Leave empty to use the business GSTIN"
+                      onChange={(e) => {
+                        const gstin = e.target.value.toUpperCase();
+                        const state = gstin.trim().slice(0, 2);
+                        setForm((prev) => ({ ...prev, gstin, stateCode: isGstStateCode(state) ? state : prev.stateCode }));
+                      }}
+                    />
+                    {form.gstin.trim() && gstinProblem(form.gstin.trim().toUpperCase()) ? (
+                      <p className="mt-1 text-xs text-rose-700">{gstinProblem(form.gstin.trim().toUpperCase())}</p>
+                    ) : null}
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-600">State</label>
+                    <select
+                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                      value={form.stateCode}
+                      onChange={(e) => setForm((prev) => ({ ...prev, stateCode: e.target.value }))}
+                    >
+                      <option value="">Not set</option>
+                      {GST_STATES.map((state) => (
+                        <option key={state.code} value={state.code}>
+                          {gstStateLabel(state.code)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-xs text-slate-500 sm:col-span-2">
+                    Each state the business sells from has its own GSTIN. A branch without one uses the business GSTIN when that
+                    is for the branch's state. The state is the place of supply of counter sales.
+                  </p>
                 </div>
 
                 <div>

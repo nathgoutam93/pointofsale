@@ -1,3 +1,4 @@
+import { GST_STATES, gstStateLabel } from "@pos/contracts";
 import { money } from "../route-helpers";
 
 /**
@@ -10,6 +11,9 @@ export function CustomerSection({
   walkInName,
   walkInPhone,
   walletBalance,
+  branchStateCode,
+  placeOfSupply,
+  onPlaceOfSupplyChange,
   busy,
   onWalkIn,
   onPickCustomer,
@@ -23,6 +27,11 @@ export function CustomerSection({
   walkInName: string;
   walkInPhone: string;
   walletBalance: number;
+  /** The branch's state; null hides the place of supply (no state set, or a composition taxpayer). */
+  branchStateCode: string | null;
+  /** The state goods are shipped to; null for a counter sale. */
+  placeOfSupply: string | null;
+  onPlaceOfSupplyChange: (stateCode: string | null) => void;
   busy: boolean;
   onWalkIn: () => void;
   onPickCustomer: () => void;
@@ -72,6 +81,26 @@ export function CustomerSection({
           <p className="mt-1 text-xs text-slate-600">
             Wallet Balance: ₹ {money(walletBalance)}
           </p>
+        ) : null}
+        {branchStateCode ? (
+          <div className="mt-2">
+            <label className="text-sm text-slate-600">Place of supply</label>
+            <select
+              className="mt-1 w-full rounded border border-slate-300 px-2 py-2 text-sm"
+              value={placeOfSupply ?? ""}
+              onChange={(event) => onPlaceOfSupplyChange(event.target.value || null)}
+            >
+              <option value="">Over the counter ({gstStateLabel(branchStateCode)})</option>
+              {GST_STATES.filter((state) => state.code !== branchStateCode).map((state) => (
+                <option key={state.code} value={state.code}>
+                  Shipped to {gstStateLabel(state.code)}
+                </option>
+              ))}
+            </select>
+            {placeOfSupply ? (
+              <p className="mt-1 text-xs text-amber-700">Inter-state sale: IGST applies instead of CGST and SGST.</p>
+            ) : null}
+          </div>
         ) : null}
 
         <button

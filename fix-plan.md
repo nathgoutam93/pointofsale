@@ -172,7 +172,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
 - **On each `SaleInvoice`:** store `taxpayerType` and `documentType` (`TAX_INVOICE` | `BILL_OF_SUPPLY`), set at checkout.
 - **Backfill:** existing invoices become `REGULAR` / `TAX_INVOICE`.
 
-### [ ] 31. Branch GSTIN, state and place of supply
+### [x] 31. Branch GSTIN, state and place of supply
 - **Where:** `Branch` model and admin branch screen; `SaleInvoice`; the POS customer section.
 - **Change:**
   - Each branch gets `gstin` and `stateCode`. Validate the GSTIN checksum, and check that its first two digits match the state code.
@@ -620,3 +620,25 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
     - Browser test: regular sale (tax 51.25, total 336, Tax Invoice); switch to composition in settings; the same cart shows tax 0 and total 300 in the cart and line editor; the server charges 300 on a Bill of Supply. Scheduling and cancelling a change also work.
     - The POS snapshot is identical, and the earlier browser flows pass.
   - Not yet: the receipt still prints the same layout for both types (#35), and inter-state blocking needs branch states (#31).
+- **#31 done.** Each branch has a GSTIN and a state, and each sale records the seller and where the goods went.
+  - Contracts (`gst.ts`):
+    - `GST_STATES`: codes 01–38 and 97. The retired 25 (merged into 26) and 28 (undivided Andhra Pradesh) are left out.
+    - `gstinProblem`: checks the format, state code and check character. The checksum was confirmed against three published GSTINs.
+    - Request schemas upper-case and validate every GSTIN, including the business `gstNumber`. A business with a mistyped GSTIN now has to fix it before saving other business settings.
+  - Branch:
+    - New fields `gstin` and `stateCode`. Setting a GSTIN sets the state from it.
+    - Moving a branch with a GSTIN to another state is rejected unless the GSTIN changes too. A database check backs this up.
+    - The GSTIN a branch sells under is its own GSTIN; otherwise the business GSTIN, when that is for the branch's state (or the branch's state isn't set).
+  - Sale:
+    - New fields: `sellerGstin`, `sellerStateCode` and `placeOfSupplyStateCode`.
+    - Checkout takes an optional `placeOfSupplyStateCode` and otherwise uses the branch's state.
+    - Rejected: naming a place of supply when the branch has no state, and a composition taxpayer selling to another state.
+    - Tax amounts don't change yet; the CGST/SGST vs IGST split comes in #33.
+  - Migration `20261003100000_branch_gst_state`: each branch gets the state from the business GSTIN when the business has one, and old sales are treated as counter sales under it. Checked with a dry run in a rolled-back transaction: all 33 dev branches and 664 sales filled in.
+  - Admin: GSTIN and State fields in Branch Settings. Typing a GSTIN fills in the state, and invalid GSTINs (branch and business) show the reason as you type.
+  - POS: a "Place of supply" choice in the customer section, defaulting to "Over the counter (29 - Karnataka)", with "Shipped to <state>" options and an "IGST applies" note. It is hidden for composition taxpayers and for branches with no state. It is saved with drafts and cleared on a new order.
+  - Verified:
+    - 13 new tests: 4 for GSTINs and states, 9 for the API. All 110 tests pass.
+    - Browser test: a typo is flagged; saving a GSTIN fills in the state; shipping to Maharashtra survives saving and resuming a draft; the server records seller 29 and place of supply 27; the next order is a counter sale (29); under composition the choice is hidden.
+    - The POS snapshot is identical, and the earlier browser flows pass.
+  - Not yet: receipts still print the business GSTIN. Printing the invoice's own GSTIN and place of supply comes in #35.

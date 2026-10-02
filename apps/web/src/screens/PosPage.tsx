@@ -46,6 +46,8 @@ export function PosPage() {
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [walkInCustomerName, setWalkInCustomerName] = useState("");
   const [walkInCustomerPhone, setWalkInCustomerPhone] = useState("");
+  // The state goods are shipped to; null for a counter sale (the branch's own state).
+  const [placeOfSupply, setPlaceOfSupply] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [postPayment, setPostPayment] = useState<PostPaymentSummary | null>(
     null,
@@ -366,6 +368,11 @@ export function PosPage() {
     },
   });
   const walletBalance = Number(customerWallet.data?.balance ?? 0);
+  const branchStateCode = store.branchSettings.data?.stateCode ?? null;
+  // Composition taxpayers can't sell to another state, and a branch without a state can't
+  // name one, so the choice only counts for a regular branch with its state set.
+  const placeOfSupplyChoice =
+    chargeTax && branchStateCode && placeOfSupply && placeOfSupply !== branchStateCode ? placeOfSupply : null;
   const payment = usePayment({ total, isWalkInSelected, walletBalance });
 
   const openPayment = () => {
@@ -400,6 +407,7 @@ export function PosPage() {
     setCustomerId("");
     setWalkInCustomerName("");
     setWalkInCustomerPhone("");
+    setPlaceOfSupply(null);
     setCart([]);
     lineEditor.close();
     orderDiscount.reset();
@@ -422,6 +430,7 @@ export function PosPage() {
       customerPhone: displayCustomerPhone,
       walkInCustomerName: isWalkInSelected ? normalizedWalkInCustomerName : null,
       walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone : null,
+      placeOfSupplyStateCode: placeOfSupply,
       cart: cart.map((line) => ({ ...line })),
       orderDiscountMode: orderDiscount.mode,
       orderDiscountValue: orderDiscount.value,
@@ -480,6 +489,7 @@ export function PosPage() {
     setCustomerId(draft.customerId);
     setWalkInCustomerName(draft.walkInCustomerName ?? "");
     setWalkInCustomerPhone(draft.walkInCustomerPhone ?? "");
+    setPlaceOfSupply(draft.placeOfSupplyStateCode ?? null);
     setCart(draft.cart.map((line) => ({ ...line })));
     lineEditor.close();
     orderDiscount.restore(draft.orderDiscountValue, draft.orderDiscountMode);
@@ -512,6 +522,8 @@ export function PosPage() {
       customerId: selected,
       walkInCustomerName: isWalkInSelected ? normalizedWalkInCustomerName || null : null,
       walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone || null : null,
+      // Only a shipped regular sale names one; otherwise the server uses the branch's state.
+      placeOfSupplyStateCode: placeOfSupplyChoice ?? undefined,
       lines: cart.map((line) => ({
         itemId: line.itemId,
         qty: line.qty,
@@ -702,6 +714,9 @@ export function PosPage() {
               walkInName={walkInCustomerName}
               walkInPhone={walkInCustomerPhone}
               walletBalance={walletBalance}
+              branchStateCode={chargeTax ? branchStateCode : null}
+              placeOfSupply={placeOfSupplyChoice}
+              onPlaceOfSupplyChange={setPlaceOfSupply}
               busy={checkout.isPending}
               onWalkIn={() => {
                 setCustomerId("");

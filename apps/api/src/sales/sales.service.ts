@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { DiscountScope, InvoiceStatus, PaymentMode, Prisma, StockTxnType, UserRole, WalletTxnType } from '@prisma/client';
+import { DiscountScope, InvoiceStatus, PaymentMode, Prisma, StockTxnType, TaxpayerType, UserRole, WalletTxnType } from '@prisma/client';
 import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, resolveDiscountAmounts } from '@pos/contracts';
 import type { DiscountInput } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
@@ -119,6 +119,21 @@ export class SalesService {
     }
   }
 
+  /**
+   * Where a sale's goods go: the branch's state for a counter sale, or the state they are
+   * shipped to. A composition taxpayer may not sell goods to another state.
+   */
+  private resolvePlaceOfSupply(branchStateCode: string | null, requested: string | undefined, taxpayerType: TaxpayerType) {
+    if (!requested) return branchStateCode;
+    if (!branchStateCode) {
+      throw new BadRequestException("Set this branch's state in Branch Settings before choosing a place of supply");
+    }
+    if (requested !== branchStateCode && taxpayerType === 'COMPOSITION') {
+      throw new BadRequestException("A composition taxpayer can't sell goods to another state");
+    }
+    return requested;
+  }
+
   /** The sale's amounts, from the maths shared with the POS (@pos/contracts computeSaleTotals). */
   private calculateSaleTotals(
     lines: SaleLineInput[],
@@ -165,6 +180,8 @@ export class SalesService {
     // The registration type now decides the bill: a composition taxpayer may not charge GST.
     const taxpayer = await this.settings.taxpayerTypeAt(new Date(), tx);
     const chargeTax = chargesGst(taxpayer.taxpayerType);
+    const seller = await this.settings.gstRegistrationFor(input.branchId, tx);
+    const placeOfSupplyStateCode = this.resolvePlaceOfSupply(seller.stateCode, input.placeOfSupplyStateCode, taxpayer.taxpayerType);
     const customer = await tx.customer.findUnique({
       where: { id: input.customerId },
       select: { id: true, branchId: true, name: true, phone: true, isWalkIn: true }
@@ -284,7 +301,10 @@ export class SalesService {
         createdByName: createdByUser.username,
         taxpayerType: taxpayer.taxpayerType,
         documentType: documentTypeFor(taxpayer.taxpayerType),
-        compositionCategory: taxpayer.compositionCategory
+        compositionCategory: taxpayer.compositionCategory,
+        sellerGstin: seller.gstin,
+        sellerStateCode: seller.stateCode,
+        placeOfSupplyStateCode
       },
       select: { id: true }
     });

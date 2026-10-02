@@ -17,6 +17,7 @@ export class SalesController {
       customerId: string;
       walkInCustomerName?: string | null;
       walkInCustomerPhone?: string | null;
+      placeOfSupplyStateCode?: string;
       lines: Array<{
         itemId: string;
         qty: number;
@@ -44,6 +45,7 @@ export class SalesController {
       customerId: string;
       walkInCustomerName?: string | null;
       walkInCustomerPhone?: string | null;
+      placeOfSupplyStateCode?: string;
       lines: Array<{
         itemId: string;
         qty: number;

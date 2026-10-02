@@ -30,7 +30,9 @@ export const branchSettingsSelect = {
   receiptHeader: true,
   receiptFooter: true,
   invoiceCss: true,
-  receiptCss: true
+  receiptCss: true,
+  gstin: true,
+  stateCode: true
 } as const;
 
 export const saleInvoiceInclude = {

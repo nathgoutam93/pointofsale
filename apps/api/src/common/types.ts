@@ -38,6 +38,8 @@ export type CreateSaleInput = {
   walkInCustomerPhone?: string | null;
   lines: SaleLineInput[];
   discounts?: DiscountInput[];
+  /** Set when goods are shipped to another state; defaults to the branch's state. */
+  placeOfSupplyStateCode?: string;
   /** From POST /sales/checkout only; see checkoutSale. */
   idempotencyKey?: string;
 };

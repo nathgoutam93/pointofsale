@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CompositionCategory, CustomerScope, Prisma, TaxpayerType } from '@prisma/client';
-import { COMPOSITION_CATEGORY_LABELS } from '@pos/contracts';
+import { COMPOSITION_CATEGORY_LABELS, gstStateLabel } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import { toNumber } from '../common/numbers';
 import { businessSettingsSelect, branchSettingsSelect } from '../common/selects';
@@ -126,9 +126,15 @@ export class SettingsService {
       receiptFooter?: string | null;
       invoiceCss?: string | null;
       receiptCss?: string | null;
+      gstin?: string | null;
+      stateCode?: string | null;
     }
   ) {
-    await this.ensureBranchExists(branchId);
+    const existing = await this.prisma.branch.findUnique({ where: { id: branchId }, select: { gstin: true, stateCode: true } });
+    if (!existing) {
+      throw new BadRequestException(`Invalid branchId: ${branchId}`);
+    }
+    const gst = this.resolveBranchGst(existing, input);
     return this.prisma.branch.update({
       where: { id: branchId },
       data: {
@@ -143,10 +149,55 @@ export class SettingsService {
         receiptHeader: input.receiptHeader,
         receiptFooter: input.receiptFooter,
         invoiceCss: input.invoiceCss,
-        receiptCss: input.receiptCss
+        receiptCss: input.receiptCss,
+        gstin: gst.gstin,
+        stateCode: gst.stateCode
       },
       select: branchSettingsSelect
     });
+  }
+
+  /**
+   * A branch's GSTIN and state after an update. A GSTIN sets the state (its first two
+   * digits); a state that disagrees with the branch's GSTIN is rejected rather than guessed.
+   */
+  private resolveBranchGst(
+    existing: { gstin: string | null; stateCode: string | null },
+    input: { gstin?: string | null; stateCode?: string | null }
+  ) {
+    const gstin = input.gstin === undefined ? existing.gstin : input.gstin;
+    let stateCode = input.stateCode === undefined ? existing.stateCode : input.stateCode;
+    if (gstin) {
+      const gstinState = gstin.slice(0, 2);
+      if (input.stateCode === undefined && input.gstin !== undefined) {
+        stateCode = gstinState;
+      } else if (stateCode !== gstinState) {
+        throw new BadRequestException(
+          `The branch GSTIN ${gstin} is for ${gstStateLabel(gstinState)}, not ${stateCode ? gstStateLabel(stateCode) : 'no state'}; change or clear the GSTIN too`
+        );
+      }
+    }
+    return { gstin, stateCode };
+  }
+
+  /**
+   * The GST registration a branch sells under: its own GSTIN, else the business GSTIN when
+   * that is for the branch's state (or the branch's state isn't set yet).
+   */
+  async gstRegistrationFor(branchId: string, tx?: Prisma.TransactionClient) {
+    const client = tx ?? this.prisma;
+    const [branch, business] = await Promise.all([
+      client.branch.findUnique({ where: { id: branchId }, select: { gstin: true, stateCode: true } }),
+      this.ensureBusinessSettings(tx)
+    ]);
+    if (!branch) {
+      throw new BadRequestException(`Invalid branchId: ${branchId}`);
+    }
+    const businessGstin = business.gstNumber?.trim().toUpperCase() || null;
+    const gstin =
+      branch.gstin ??
+      (businessGstin && (!branch.stateCode || businessGstin.slice(0, 2) === branch.stateCode) ? businessGstin : null);
+    return { gstin, stateCode: branch.stateCode };
   }
 
   async getCustomerScope(tx?: Prisma.TransactionClient) {

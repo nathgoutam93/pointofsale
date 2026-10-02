@@ -113,6 +113,8 @@ export class SettingsController {
       receiptFooter?: string | null;
       invoiceCss?: string | null;
       receiptCss?: string | null;
+      gstin?: string | null;
+      stateCode?: string | null;
     },
     @Headers() headers: RequestHeaders
   ) {

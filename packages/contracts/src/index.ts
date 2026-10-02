@@ -20,10 +20,15 @@ export {
   COMPOSITION_RATES,
   documentTypeFor,
   GST_DOCUMENT_TYPES,
+  GST_STATES,
+  gstinCheckCharacter,
+  gstinProblem,
+  gstStateLabel,
+  isGstStateCode,
   TAXPAYER_TYPES
 } from './gst.js';
 export type { CompositionCategory, GstDocumentType, TaxpayerType } from './gst.js';
-import { COMPOSITION_CATEGORIES, GST_DOCUMENT_TYPES, TAXPAYER_TYPES } from './gst.js';
+import { COMPOSITION_CATEGORIES, GST_DOCUMENT_TYPES, gstinProblem, isGstStateCode, TAXPAYER_TYPES } from './gst.js';
 
 const c = initContract();
 
@@ -40,6 +45,17 @@ const customerScopeSchema = z.enum(['SHARED', 'BRANCH']);
 const taxpayerTypeSchema = z.enum(TAXPAYER_TYPES);
 const compositionCategorySchema = z.enum(COMPOSITION_CATEGORIES);
 const gstDocumentTypeSchema = z.enum(GST_DOCUMENT_TYPES);
+/** A GSTIN, upper-cased, with its format, state code and check character verified. */
+const gstinSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .superRefine((value, ctx) => {
+    const problem = gstinProblem(value);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  });
+/** A two-digit GST state code, e.g. 29 for Karnataka. */
+const gstStateCodeSchema = z.string().refine(isGstStateCode, { message: 'Unknown GST state code' });
 /** A calendar date, YYYY-MM-DD, that exists (no 31 February). */
 const calendarDateSchema = z
   .string()
@@ -144,7 +160,11 @@ export const branchSettingsSchema = branchSchema.extend({
   receiptHeader: z.string().nullable(),
   receiptFooter: z.string().nullable(),
   invoiceCss: z.string().nullable(),
-  receiptCss: z.string().nullable()
+  receiptCss: z.string().nullable(),
+  /** The branch's own GSTIN; when empty, the business GSTIN is used if it is for the same state. */
+  gstin: z.string().nullable(),
+  /** Where the branch is: the place of supply of an over-the-counter sale. */
+  stateCode: z.string().nullable()
 });
 
 export const businessSettingsSchema = z.object({
@@ -347,6 +367,10 @@ const saleInvoiceSchema = z.object({
   taxpayerType: taxpayerTypeSchema.default('REGULAR'),
   documentType: gstDocumentTypeSchema.default('TAX_INVOICE'),
   compositionCategory: compositionCategorySchema.nullable().default(null),
+  /** The selling branch's GSTIN and state, and where the goods went, as at the sale. */
+  sellerGstin: z.string().nullable().default(null),
+  sellerStateCode: z.string().nullable().default(null),
+  placeOfSupplyStateCode: z.string().nullable().default(null),
   discounts: z.array(discountSchema)
 });
 
@@ -440,7 +464,9 @@ const saleCreateBodySchema = z.object({
   walkInCustomerName: z.string().trim().optional().nullable(),
   walkInCustomerPhone: z.string().trim().optional().nullable(),
   lines: z.array(saleLineInput).min(1),
-  discounts: z.array(discountInputSchema).default([])
+  discounts: z.array(discountInputSchema).default([]),
+  /** Where the goods go, when shipped to another state. Defaults to the branch's state (sold over the counter). */
+  placeOfSupplyStateCode: gstStateCodeSchema.optional()
 });
 
 const paymentInputSchema = z.object({ mode: paymentModeSchema, amount: moneySchema.positive(), reference: z.string().optional() });
@@ -490,7 +516,7 @@ export const appContract = c.router({
       body: z.object({
         name: z.string().optional(),
         logoUrl: z.string().nullable().optional(),
-        gstNumber: z.string().nullable().optional(),
+        gstNumber: gstinSchema.nullable().optional(),
         taxCalculationMode: taxCalculationModeSchema.optional(),
         cashierMaxDiscountPercent: z.number().min(0).max(100).optional(),
         customerScope: customerScopeSchema.optional(),
@@ -561,7 +587,9 @@ export const appContract = c.router({
         receiptHeader: z.string().nullable().optional(),
         receiptFooter: z.string().nullable().optional(),
         invoiceCss: receiptCssSchema.nullable().optional(),
-        receiptCss: receiptCssSchema.nullable().optional()
+        receiptCss: receiptCssSchema.nullable().optional(),
+        gstin: gstinSchema.nullable().optional(),
+        stateCode: gstStateCodeSchema.nullable().optional()
       }),
       responses: { 200: branchSettingsSchema }
     }
