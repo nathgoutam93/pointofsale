@@ -144,6 +144,118 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 ### [x] 29. Unneeded branch in `saveCurrentCartAsLocalDraft` (around line 1209)
 - **Fix:** Replace it with `[draft, ...localDrafts.filter(d => d.id !== draft.id)].slice(0, 20)`.
 
+## Phase 6: GST compliance (regular and composition taxpayers)
+
+Added 2026-10-02 after a design discussion; nothing here is built yet.
+
+**Goal:** the admin can download GST return data (GSTR-1 JSON for regular taxpayers, CMP-08/GSTR-4 figures for composition) and upload or enter it on the GST portal. The app does **not** file returns itself.
+
+**Decisions made:**
+- Both taxpayer types are supported. The type is a business setting that can be changed later, with an effective date. Composition applies to every GSTIN under the same PAN, so it is set for the whole business, not per branch.
+- Each invoice records the taxpayer type it was made under, so past invoices never change when the setting changes.
+- Regular taxpayers can sell inter-state (IGST). Composition taxpayers cannot sell goods inter-state.
+- B2B (buyers with a GSTIN) is out of scope for now. Every sale is B2C. The data model should leave room for B2B later.
+
+**Assumptions to confirm before starting:**
+- No items carry cess.
+- Required HSN length (4 or 6 digits) depends on turnover. It becomes a business setting rather than a guess.
+- The B2CL threshold (an inter-state B2C invoice above which it is reported individually) has changed recently. Check the current value and keep it in one constant.
+- The GST rules in this phase come from a design discussion, not a legal review. Have a chartered accountant check one month of real output before anyone files with it.
+
+### [ ] 30. Taxpayer type setting
+- **Where:** `BusinessSettings` (Prisma), `settings/` service and controller, admin settings screen, contracts.
+- **Change:**
+  - Add `taxpayerType` (`REGULAR` | `COMPOSITION`).
+  - Add `compositionCategory`, which sets the rate: trader or manufacturer 1%, restaurant 5%, service provider 6%.
+  - Add `taxpayerTypeEffectiveFrom`.
+  - Keep a history of changes (a small `TaxpayerTypeChange` table) so a report period that spans a switch can tell which rules applied when.
+- **On each `SaleInvoice`:** store `taxpayerType` and `documentType` (`TAX_INVOICE` | `BILL_OF_SUPPLY`), set at checkout.
+- **Backfill:** existing invoices become `REGULAR` / `TAX_INVOICE`.
+
+### [ ] 31. Branch GSTIN, state and place of supply
+- **Where:** `Branch` model and admin branch screen; `SaleInvoice`; the POS customer section.
+- **Change:**
+  - Each branch gets `gstin` and `stateCode`. Validate the GSTIN checksum, and check that its first two digits match the state code.
+  - `BusinessSettings.gstNumber` becomes a fallback only.
+  - Each sale stores `placeOfSupplyStateCode`. It defaults to the branch's state (an over-the-counter sale is intra-state). The POS lets the cashier set a delivery state when goods are shipped to another state.
+- **Rule:** intra-state means CGST+SGST; inter-state means IGST. A composition business can't pick a different state: the API rejects it, and the POS hides the option.
+
+### [ ] 32. Item HSN, GST unit and supply type
+- **Where:** `Item` and `ItemSaleUom` models; the item admin screen and import.
+- **Change:**
+  - Add `hsnCode`, validated against the length setting from the assumptions.
+  - Add `uqc`, the GST unit code (NOS, KGS, BOX, ...). Map existing free-text units to codes, with an admin screen for any it can't map.
+  - Add `supplyType` (`TAXABLE` | `NIL_RATED` | `EXEMPT` | `NON_GST`). A 0% item must say which one; they are reported separately.
+- **Backfill:** existing items get `TAXABLE` (or `NIL_RATED` when the rate is 0) and an empty HSN. The return builder lists every sold item with no HSN, so the admin can fill them in before exporting.
+- **Copied onto each sale line at sale time:** `hsnCode`, `uqc` and `supplyType`, the same way `listRate` is copied.
+
+### [ ] 33. Store the tax split on every sale line
+- **Where:** `@pos/contracts` pricing (`computeSaleTotals`, `lineTax`), `SaleInvoiceLine`, the sales service.
+- **Change:**
+  - Store `cgstAmount`, `sgstAmount` and `igstAmount` per line next to `taxAmount`. Intra-state, CGST = round half down to the paisa and SGST = tax − CGST, so the two always add up to the tax (₹15.25 → 7.62 + 7.63).
+  - Pricing gets an input for the taxpayer type: composition means no tax on the bill (tax 0, net = taxable).
+  - The API and POS share this function, so both change together. Add tests for the split, odd paise, inter-state and composition.
+- **Backfill:** old lines become intra-state, with CGST/SGST split the same way.
+
+### [ ] 34. Store taxable value and tax on return lines
+- **Where:** `ReturnInvoiceLine`, the returns service, `returnLineRefund`.
+- **Problem:** return lines store only the refund amount. Credit notes and the period's net B2C figures need the taxable value and the tax split.
+- **Change:**
+  - Prorate `taxableAmount` and the CGST/SGST/IGST amounts from the sale line, the same way the refund already is.
+  - The last units returned take exactly what is left, so a line returned in parts adds back up to the sale line.
+- **Backfill:** split stored refund amounts for existing returns using each sale line's ratio of taxable value to tax.
+
+### [ ] 35. Tax Invoice and Bill of Supply documents
+- **Where:** `apps/web/src/screens/pos/receipt.ts`, the printable and downloadable invoice, and the Sales page reprint.
+- **Change:**
+  - Regular taxpayers: the title is "Tax Invoice". Show the branch GSTIN, place of supply when it differs from the branch state, HSN per line, and CGST/SGST or IGST totals.
+  - Composition: the title is "Bill of Supply", with no tax lines and the required declaration ("composition taxable person, not eligible to collect tax on supplies").
+  - Use the type stored on the invoice, never the current setting.
+
+### [ ] 36. Invoice numbers per financial year
+- **Where:** `sequences/` and `Branch` invoice and return sequences.
+- **Problem:** GST invoice numbers must be at most 16 characters and unique within a financial year. Today's numbers (`INV-MAIN-000526`) never restart.
+- **Change:**
+  - Restart the series each financial year (April to March, in the business time zone), for example `INV-MAIN-2627-0001`.
+  - Check the 16-character limit when the admin saves a prefix.
+  - Keep counts of issued and cancelled documents per series, for the document summary in GSTR-1.
+
+### [ ] 37. GSTR-1 export (regular)
+- **Where:** a new `gst/` module in the API, and an admin "GST returns" screen.
+- **Change:**
+  - Pick a GSTIN and a period (monthly, or quarterly for small taxpayers).
+  - Build the return's sections:
+    - B2C small (net of returns, grouped by place of supply and rate)
+    - B2C large (inter-state invoices above the threshold, one by one)
+    - Credit notes for B2C large invoices
+    - Nil, exempt and non-GST sales
+    - HSN summary
+    - Document summary
+  - Only invoices marked `REGULAR` are included.
+  - Show a preview and a list of problems to fix (missing HSN, bad GSTIN) before the JSON can be downloaded.
+- **Verify:** import the JSON into the government's GST offline tool. The format changes from time to time, so record which version it was built against.
+
+### [ ] 38. GSTR-3B summary (regular)
+- **Change:** a report of the sales figures for GSTR-3B:
+  - Table 3.1: outward taxable, nil/exempt and non-GST, with tax by type.
+  - Table 3.2: inter-state supplies to unregistered buyers, by state.
+- **Limits:** input tax credit needs purchase bills, which this system doesn't record, so this is a report for the admin to copy from, not a complete return.
+
+### [ ] 39. CMP-08 and GSTR-4 figures (composition)
+- **Change:**
+  - **CMP-08 (quarterly):** turnover of `COMPOSITION` invoices net of returns, and tax at the composition rate split into CGST and SGST. It is only a few figures, so a report is enough.
+  - **GSTR-4 (yearly):** the outward summary. Purchases aren't recorded, so as with 3B this is partial.
+  - Check whether the portal accepts a JSON upload for GSTR-4 before building an export.
+  - Warn the admin as the year's turnover nears the composition limit.
+
+### Later (not in this phase)
+- B2B: customer GSTIN and state, plus the B2B and B2B credit-note sections. E-invoicing (IRN) once turnover requires it.
+- Cess.
+- Recording purchases, for input tax credit and complete 3B and GSTR-4 returns.
+- Filing directly through a GST Suvidha Provider.
+
+**Order:** #30 to #34 first (data captured correctly at sale time), then #35 and #36, then the reports #37 to #39. Rough size: 3 to 4 weeks in total, most of it in #30 to #34 and their backfills.
+
 ---
 
 ## Progress log
