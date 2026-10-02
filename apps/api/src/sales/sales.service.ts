@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DiscountScope, InvoiceStatus, PaymentMode, Prisma, StockTxnType, UserRole, WalletTxnType } from '@prisma/client';
-import { computeSaleTotals, exclusiveBase, resolveDiscountAmounts } from '@pos/contracts';
+import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, resolveDiscountAmounts } from '@pos/contracts';
 import type { DiscountInput } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import type { PaymentInput, SessionUser, SaleLineInput, CreateSaleInput, ComputedSaleLine } from '../common/types';
@@ -97,14 +97,15 @@ export class SalesService {
   private assertWithinCashierDiscountLimit(
     lines: SaleLineInput[],
     computedLines: ComputedSaleLine[],
-    maxPercent: number
+    maxPercent: number,
+    chargeTax: boolean
   ) {
+    // The list total on the same footing as the sale: without tax taken out when none is charged.
     const listTotal = round2(
-      lines.reduce(
-        (acc, line) =>
-          acc + exclusiveBase(round2(this.pricingQty(line) * (line.listRate ?? line.rate)), line.taxMode, line.taxRate),
-        0
-      )
+      lines.reduce((acc, line) => {
+        const listGross = round2(this.pricingQty(line) * (line.listRate ?? line.rate));
+        return acc + (chargeTax ? exclusiveBase(listGross, line.taxMode, line.taxRate) : listGross);
+      }, 0)
     );
     if (listTotal <= 0) return;
     const finalTotal = round2(computedLines.reduce((acc, line) => acc + line.taxableAmount, 0));
@@ -122,9 +123,10 @@ export class SalesService {
   private calculateSaleTotals(
     lines: SaleLineInput[],
     orderDiscounts: DiscountInput[] | undefined,
-    taxCalculationMode: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT'
+    taxCalculationMode: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT',
+    chargeTax: boolean
   ) {
-    const totals = computeSaleTotals(lines, orderDiscounts, taxCalculationMode);
+    const totals = computeSaleTotals(lines, orderDiscounts, taxCalculationMode, { chargeTax });
     const computedLines: ComputedSaleLine[] = totals.lines.map((entry) => ({
       ...entry.line,
       discountAmount: entry.discountAmount,
@@ -160,6 +162,9 @@ export class SalesService {
 
     await this.settings.ensureBranchExists(input.branchId, tx);
     const businessSettings = await this.settings.ensureBusinessSettings(tx);
+    // The registration type now decides the bill: a composition taxpayer may not charge GST.
+    const taxpayer = await this.settings.taxpayerTypeAt(new Date(), tx);
+    const chargeTax = chargesGst(taxpayer.taxpayerType);
     const customer = await tx.customer.findUnique({
       where: { id: input.customerId },
       select: { id: true, branchId: true, name: true, phone: true, isWalkIn: true }
@@ -248,13 +253,15 @@ export class SalesService {
     } = this.calculateSaleTotals(
       normalizedLines,
       input.discounts ?? [],
-      businessSettings.taxCalculationMode
+      businessSettings.taxCalculationMode,
+      chargeTax
     );
     if (session.role !== UserRole.ADMIN) {
       this.assertWithinCashierDiscountLimit(
         normalizedLines,
         computedLines,
-        toNumber(businessSettings.cashierMaxDiscountPercent)
+        toNumber(businessSettings.cashierMaxDiscountPercent),
+        chargeTax
       );
     }
 
@@ -274,7 +281,10 @@ export class SalesService {
         grandTotal,
         paidTotal: 0,
         createdBy: session.userId,
-        createdByName: createdByUser.username
+        createdByName: createdByUser.username,
+        taxpayerType: taxpayer.taxpayerType,
+        documentType: documentTypeFor(taxpayer.taxpayerType),
+        compositionCategory: taxpayer.compositionCategory
       },
       select: { id: true }
     });

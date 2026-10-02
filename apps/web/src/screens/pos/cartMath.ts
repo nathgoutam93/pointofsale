@@ -40,11 +40,23 @@ export function getPricingQty(line: Pick<CartLine, "qty" | "saleUomQty">) {
   return line.saleUomQty ?? line.qty;
 }
 
+/**
+ * The line as it is priced. A seller that can't charge GST (a composition taxpayer)
+ * prices every line untaxed, the same as computeSaleTotals with chargeTax false. Cart
+ * lines keep the item's real rate, which checkout sends and the server checks.
+ */
+function asPriced<T extends Pick<CartLine, "taxRate" | "taxMode">>(line: T, chargeTax: boolean): T {
+  return chargeTax ? line : { ...line, taxRate: 0, taxMode: "EXCLUSIVE" };
+}
+
+/** The line's price before tax and discounts. `chargeTax` false: the whole price (no tax in it). */
 export function getBaseExclusive(
   line: Pick<CartLine, "qty" | "rate" | "taxRate" | "taxMode" | "saleUomQty">,
+  chargeTax = true,
 ) {
-  const gross = round2(getPricingQty(line) * line.rate);
-  return exclusiveBase(gross, line.taxMode, line.taxRate);
+  const priced = asPriced(line, chargeTax);
+  const gross = round2(getPricingQty(priced) * priced.rate);
+  return exclusiveBase(gross, priced.taxMode, priced.taxRate);
 }
 
 export const snapQtyToLeastCount = (qty: number, leastCount: number) => {
@@ -59,17 +71,19 @@ export function computeLineAmounts(
     "qty" | "rate" | "discountAmount" | "taxRate" | "taxMode" | "saleUomQty"
   >,
   taxCalculationMode: TaxCalculationMode,
+  chargeTax = true,
 ) {
-  const gross = round2(getPricingQty(line) * line.rate);
-  const baseExclusive = getBaseExclusive(line);
-  const discountAmount = round2(Math.min(Math.max(0, line.discountAmount), baseExclusive));
+  const priced = asPriced(line, chargeTax);
+  const gross = round2(getPricingQty(priced) * priced.rate);
+  const baseExclusive = getBaseExclusive(priced);
+  const discountAmount = round2(Math.min(Math.max(0, priced.discountAmount), baseExclusive));
   const taxable = round2(Math.max(0, baseExclusive - discountAmount));
   const { tax, net } = lineTax({
     gross,
     baseExclusive,
     taxable,
-    taxMode: line.taxMode,
-    taxRate: line.taxRate,
+    taxMode: priced.taxMode,
+    taxRate: priced.taxRate,
     taxCalculationMode,
   });
   return { taxable, tax, net };
@@ -78,8 +92,8 @@ export function computeLineAmounts(
 export const getCartLineKey = (line: Pick<CartLine, "cartKey" | "itemId" | "saleUom">) =>
   line.cartKey || `${line.itemId}:${line.saleUom ?? "BASE"}`;
 
-export const getDiscountPercent = (line: CartLine) => {
-  const baseExclusive = getBaseExclusive(line);
+export const getDiscountPercent = (line: CartLine, chargeTax = true) => {
+  const baseExclusive = getBaseExclusive(line, chargeTax);
   if (baseExclusive <= 0) return 0;
   return (line.discountAmount / baseExclusive) * 100;
 };

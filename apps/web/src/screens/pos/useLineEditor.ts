@@ -14,7 +14,7 @@ import type { DiscountMode } from "./useOrderDiscount";
 export type EditField = "QTY" | "DISCOUNT" | "PRICE";
 
 /** The line with `value` typed into `field`, kept within the line's limits. */
-function buildEditedLine(line: CartLine, field: EditField, value: string, mode: DiscountMode) {
+function buildEditedLine(line: CartLine, field: EditField, value: string, mode: DiscountMode, chargeTax: boolean) {
   const input = Number(value);
   if (!Number.isFinite(input)) return line;
   let qty = line.qty;
@@ -34,13 +34,13 @@ function buildEditedLine(line: CartLine, field: EditField, value: string, mode: 
   }
   if (field === "DISCOUNT") {
     if (mode === "PERCENT") {
-      const baseExclusive = getBaseExclusive({ ...line, qty, saleUomQty, rate });
+      const baseExclusive = getBaseExclusive({ ...line, qty, saleUomQty, rate }, chargeTax);
       discountAmount = Math.max(0, (baseExclusive * input) / 100);
     } else {
       discountAmount = Math.max(0, input);
     }
   }
-  const baseExclusive = getBaseExclusive({ ...line, qty, saleUomQty, rate });
+  const baseExclusive = getBaseExclusive({ ...line, qty, saleUomQty, rate }, chargeTax);
   if (discountAmount > baseExclusive) discountAmount = baseExclusive;
   return { ...line, qty, saleUomQty, rate, discountAmount };
 }
@@ -53,9 +53,12 @@ function buildEditedLine(line: CartLine, field: EditField, value: string, mode: 
 export function useLineEditor({
   cart,
   setCart,
+  chargeTax,
 }: {
   cart: CartLine[];
   setCart: Dispatch<SetStateAction<CartLine[]>>;
+  /** False for a composition taxpayer: discounts are measured against the whole price. */
+  chargeTax: boolean;
 }) {
   const [editLineId, setEditLineId] = useState<string | null>(null);
   const [editField, setEditField] = useState<EditField>("QTY");
@@ -80,7 +83,7 @@ export function useLineEditor({
       return;
     }
     if (mode === "PERCENT") {
-      setEditValue(formatPercentValue(getDiscountPercent(line)));
+      setEditValue(formatPercentValue(getDiscountPercent(line, chargeTax)));
       return;
     }
     setEditValue(String(line.discountAmount));
@@ -106,7 +109,7 @@ export function useLineEditor({
     setEditValue((current) => {
       const next = update(current);
       if (draftLine) {
-        setDraftLine(buildEditedLine(draftLine, editField, next, discountMode));
+        setDraftLine(buildEditedLine(draftLine, editField, next, discountMode, chargeTax));
       }
       return next;
     });

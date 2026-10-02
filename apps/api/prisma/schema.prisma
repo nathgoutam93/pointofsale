@@ -57,6 +57,26 @@ enum TaxCalculationMode {
   BEFORE_DISCOUNT
 }
 
+/// GST registration type. COMPOSITION pays a flat rate on turnover and may not charge GST to customers.
+enum TaxpayerType {
+  REGULAR
+  COMPOSITION
+}
+
+/// Sets the composition rate: 1% for manufacturers and traders, 5% for restaurants, 6% for services.
+enum CompositionCategory {
+  MANUFACTURER
+  TRADER
+  RESTAURANT
+  SERVICES
+}
+
+/// A regular taxpayer issues a Tax Invoice; a composition taxpayer issues a Bill of Supply.
+enum GstDocumentType {
+  TAX_INVOICE
+  BILL_OF_SUPPLY
+}
+
 enum DiscountScope {
   ITEM
   ORDER
@@ -109,6 +129,25 @@ model BusinessSettings {
   timezone           String             @default("Asia/Kolkata")
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
+}
+
+/// Each change of the business's GST registration type. The type in force at a moment is
+/// the latest row whose effectiveFrom is at or before it (ties: the later createdAt); with
+/// no rows the business is REGULAR. Rows are never edited; a change not yet in force can
+/// be deleted.
+model TaxpayerTypeChange {
+  id                  String               @id @default(uuid())
+  taxpayerType        TaxpayerType
+  compositionCategory CompositionCategory?
+  /// The calendar date the change takes effect (YYYY-MM-DD), as the admin entered it.
+  effectiveDate       String
+  /// The instant that date began in the business time zone when the change was saved.
+  effectiveFrom       DateTime
+  createdBy           String
+  createdByName       String
+  createdAt           DateTime             @default(now())
+
+  @@index([effectiveFrom])
 }
 
 model User {
@@ -284,6 +323,10 @@ model SaleInvoice {
   paidTotal           Decimal          @db.Decimal(14, 2)
   createdBy           String
   createdByName       String
+  /// The business's GST registration type when the sale was made; never changes afterwards.
+  taxpayerType        TaxpayerType     @default(REGULAR)
+  documentType        GstDocumentType  @default(TAX_INVOICE)
+  compositionCategory CompositionCategory?
   lines               SaleInvoiceLine[]
   discounts           Discount[]
   payments            Payment[]

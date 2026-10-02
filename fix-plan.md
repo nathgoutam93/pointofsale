@@ -162,7 +162,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
 - The B2CL threshold (an inter-state B2C invoice above which it is reported individually) has changed recently. Check the current value and keep it in one constant.
 - The GST rules in this phase come from a design discussion, not a legal review. Have a chartered accountant check one month of real output before anyone files with it.
 
-### [ ] 30. Taxpayer type setting
+### [x] 30. Taxpayer type setting
 - **Where:** `BusinessSettings` (Prisma), `settings/` service and controller, admin settings screen, contracts.
 - **Change:**
   - Add `taxpayerType` (`REGULAR` | `COMPOSITION`).
@@ -193,7 +193,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
 - **Where:** `@pos/contracts` pricing (`computeSaleTotals`, `lineTax`), `SaleInvoiceLine`, the sales service.
 - **Change:**
   - Store `cgstAmount`, `sgstAmount` and `igstAmount` per line next to `taxAmount`. Intra-state, CGST = round half down to the paisa and SGST = tax − CGST, so the two always add up to the tax (₹15.25 → 7.62 + 7.63).
-  - Pricing gets an input for the taxpayer type: composition means no tax on the bill (tax 0, net = taxable).
+  - (Done in #30: under composition, pricing charges no tax.)
   - The API and POS share this function, so both change together. Add tests for the split, odd paise, inter-state and composition.
 - **Backfill:** old lines become intra-state, with CGST/SGST split the same way.
 
@@ -594,3 +594,29 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
     - A browser snapshot of the POS (21 sections: search tiles, categories, the line editor by keypad and keyboard, order discount, customer create and select, payment, receipt text, downloaded invoice, page errors) is identical before and after each step.
     - The draft checks (20), checkout, rounding, cashier limit, close register, discount match, idempotent retry and walk-in browser flows pass.
     - The new unit test covers the two-unit edit and the cart's `-`/`+` buttons. Type check, web build and all 88 tests pass.
+- **2026-10-02 (session 3): Phase 6 started on branch `feat/gst-compliance`** (based on `fix/auth-hardening`, whose PR is nathgoutam93/pointofsale#1). The user confirmed: the taxpayer type can be changed later, regular taxpayers can sell inter-state, and B2B is out of scope for now.
+- **#30 done.** The taxpayer type is a setting that changes over time, and each sale records the type it was made under.
+  - Schema:
+    - New `TaxpayerTypeChange` table: type, composition category, `effectiveDate` (YYYY-MM-DD) and `effectiveFrom` (the instant it takes effect), plus who made the change.
+    - The type in force at any moment is the latest change at or before it. With no changes, the business is REGULAR.
+    - `SaleInvoice` gets `taxpayerType`, `documentType` (TAX_INVOICE / BILL_OF_SUPPLY) and `compositionCategory`. Existing invoices default to REGULAR / TAX_INVOICE.
+    - Database checks make sure a composition row always has a category and a regular row never does.
+    - Migration: `20261003090000_taxpayer_type`. Prisma named it after the real clock time, which would have sorted before `item_stock`, so it was renamed to sort last.
+  - API:
+    - `GET /business/taxpayer-type` returns the type in force, any scheduled change, and the history.
+    - `POST` (admin) records a change from today or a later date, never backdated. A change for today starts the moment it is saved. Only one change can be scheduled at a time, and changing to the type already in force is rejected.
+    - `DELETE /business/taxpayer-type/:id` cancels a scheduled change; a change already in force can't be cancelled.
+    - `GET /business/settings` also returns `taxpayerType` and `compositionCategory`.
+    - Changing the business time zone moves scheduled changes, so each still starts at midnight on its date.
+  - Pricing:
+    - `computeSaleTotals` takes `{ chargeTax }`. With `false` (composition), every line is priced untaxed: the customer pays the shelf price less discounts, tax is 0, and lines are saved with rate 0.
+    - Checkout looks up the type in force, prices with it and records it on the invoice.
+    - The POS uses the same flag in its totals, the line total, and the line editor's percent discount and cap. Cart lines still carry each item's real rate, which the server checks.
+    - New file `packages/contracts/src/gst.ts`: types, composition rates (manufacturer and trader 1%, restaurant 5%, services 6%), `documentTypeFor`, `chargesGst`.
+  - Bug fixed: under composition, the cashier discount limit compared the list price with tax taken out against a price with tax still in. A cashier could take about 15% off a tax-inclusive item while the limit was 10%. Both sides now use the same tax treatment, and a test covers it.
+  - Admin screen: a "GST Registration Type" card on the Business Settings tab. It shows the type in force, any scheduled change (with Cancel), a form to change it (type, category with rate, effective date) and the history. A change for today asks for confirmation first.
+  - Verified:
+    - 9 new tests: 2 for pricing, 7 for the API. All 97 tests pass.
+    - Browser test: regular sale (tax 51.25, total 336, Tax Invoice); switch to composition in settings; the same cart shows tax 0 and total 300 in the cart and line editor; the server charges 300 on a Bill of Supply. Scheduling and cancelling a change also work.
+    - The POS snapshot is identical, and the earlier browser flows pass.
+  - Not yet: the receipt still prints the same layout for both types (#35), and inter-state blocking needs branch states (#31).

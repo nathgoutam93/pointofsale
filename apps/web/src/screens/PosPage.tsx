@@ -51,7 +51,6 @@ export function PosPage() {
     null,
   );
   const orderDiscount = useOrderDiscount();
-  const lineEditor = useLineEditor({ cart, setCart });
   const orderDiscounts = orderDiscount.discounts;
   const [receiptContact, setReceiptContact] = useState("");
   const draftStorageKey = useMemo(
@@ -62,7 +61,8 @@ export function PosPage() {
   const [isOrderOpen, setIsOrderOpen] = useState(false);
 
   const store = useStoreSettings(session.branchId);
-  const { taxCalculationMode, invoiceLogoSrc, customReceiptCss, receiptTemplateCss } = store;
+  const { taxCalculationMode, chargeTax, invoiceLogoSrc, customReceiptCss, receiptTemplateCss } = store;
+  const lineEditor = useLineEditor({ cart, setCart, chargeTax });
 
   const printableInvoice = useMemo(
     () => (postPayment ? buildInvoiceReceiptLines(postPayment, store, session.username ?? "") : null),
@@ -145,6 +145,7 @@ export function PosPage() {
       cart.map((line) => ({ ...line, discounts: itemDiscountsFor(line) })),
       orderDiscounts,
       taxCalculationMode,
+      { chargeTax },
     );
     return {
       lines: totals.lines.map((entry) => ({
@@ -164,7 +165,7 @@ export function PosPage() {
       orderDiscountTotal: totals.orderDiscountTotal,
       orderDiscountBase: totals.orderDiscountBase,
     };
-  }, [cart, orderDiscounts, taxCalculationMode]);
+  }, [cart, orderDiscounts, taxCalculationMode, chargeTax]);
   const orderDiscountBase = computedCart.orderDiscountBase;
   const resolvedOrderDiscountAmount = computedCart.orderDiscountTotal;
 
@@ -682,6 +683,7 @@ export function PosPage() {
               cart={cart}
               onHandByItem={onHandByItem}
               taxCalculationMode={taxCalculationMode}
+              chargeTax={chargeTax}
               onOpen={lineEditor.open}
               onStep={stepCartLine}
               onRemove={removeCartLine}
@@ -772,6 +774,7 @@ export function PosPage() {
           editor={lineEditor}
           activeEditLine={lineEditor.activeEditLine}
           taxCalculationMode={taxCalculationMode}
+          chargeTax={chargeTax}
         />
       ) : null}
 

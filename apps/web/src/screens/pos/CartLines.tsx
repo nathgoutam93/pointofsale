@@ -8,6 +8,7 @@ export function CartLines({
   cart,
   onHandByItem,
   taxCalculationMode,
+  chargeTax,
   onOpen,
   onStep,
   onRemove,
@@ -15,6 +16,7 @@ export function CartLines({
   cart: CartLine[];
   onHandByItem: Map<string, number>;
   taxCalculationMode: TaxCalculationMode;
+  chargeTax: boolean;
   onOpen: (line: CartLine) => void;
   onStep: (line: CartLine, direction: 1 | -1) => void;
   onRemove: (line: CartLine) => void;
@@ -27,7 +29,7 @@ export function CartLines({
         </p>
       ) : null}
       {cart.map((line) => {
-        const lineNet = computeLineAmounts(line, taxCalculationMode).net;
+        const lineNet = computeLineAmounts(line, taxCalculationMode, chargeTax).net;
         const itemDiscount =
           line.itemDiscountAmount ?? line.discountAmount;
         const availableStock = onHandByItem.get(line.itemId);

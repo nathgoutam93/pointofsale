@@ -12,7 +12,18 @@ export {
   resolveDiscountAmounts,
   returnLineRefund
 } from './pricing.js';
-export type { DiscountInput, PricedLineInput, ResolvedDiscount } from './pricing.js';
+export type { DiscountInput, PricedLineInput, ResolvedDiscount, TaxCalculationMode, TaxMode } from './pricing.js';
+export {
+  chargesGst,
+  COMPOSITION_CATEGORIES,
+  COMPOSITION_CATEGORY_LABELS,
+  COMPOSITION_RATES,
+  documentTypeFor,
+  GST_DOCUMENT_TYPES,
+  TAXPAYER_TYPES
+} from './gst.js';
+export type { CompositionCategory, GstDocumentType, TaxpayerType } from './gst.js';
+import { COMPOSITION_CATEGORIES, GST_DOCUMENT_TYPES, TAXPAYER_TYPES } from './gst.js';
 
 const c = initContract();
 
@@ -26,6 +37,21 @@ const taxModeSchema = z.enum(['INCLUSIVE', 'EXCLUSIVE']);
 const taxCalculationModeSchema = z.enum(['AFTER_DISCOUNT', 'BEFORE_DISCOUNT']);
 /** SHARED: customers and wallets work at every branch. BRANCH: only at the branch that created them. */
 const customerScopeSchema = z.enum(['SHARED', 'BRANCH']);
+const taxpayerTypeSchema = z.enum(TAXPAYER_TYPES);
+const compositionCategorySchema = z.enum(COMPOSITION_CATEGORIES);
+const gstDocumentTypeSchema = z.enum(GST_DOCUMENT_TYPES);
+/** A calendar date, YYYY-MM-DD, that exists (no 31 February). */
+const calendarDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Use the format YYYY-MM-DD' })
+  .refine(
+    (value) => {
+      const [year, month, day] = value.split('-').map(Number);
+      const date = new Date(Date.UTC(year, month - 1, day));
+      return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+    },
+    { message: 'Not a real date' }
+  );
 
 /** True when the runtime (Node or browser) knows this IANA time zone. */
 export function isValidTimeZone(timeZone: string) {
@@ -130,7 +156,33 @@ export const businessSettingsSchema = z.object({
   cashierMaxDiscountPercent: z.number(),
   customerScope: customerScopeSchema,
   /** IANA zone report periods are worked out in, e.g. Asia/Kolkata. */
-  timezone: z.string()
+  timezone: z.string(),
+  /** The GST registration type in force now (see /business/taxpayer-type for history). */
+  taxpayerType: taxpayerTypeSchema,
+  compositionCategory: compositionCategorySchema.nullable()
+});
+
+export const taxpayerTypeChangeSchema = z.object({
+  id: z.string().uuid(),
+  taxpayerType: taxpayerTypeSchema,
+  compositionCategory: compositionCategorySchema.nullable(),
+  effectiveDate: z.string(),
+  effectiveFrom: z.string().datetime(),
+  createdByName: z.string(),
+  createdAt: z.string().datetime()
+});
+
+export const taxpayerTypeSummarySchema = z.object({
+  /** In force now. effectiveDate is null while the business has never changed type (REGULAR). */
+  current: z.object({
+    taxpayerType: taxpayerTypeSchema,
+    compositionCategory: compositionCategorySchema.nullable(),
+    effectiveDate: z.string().nullable()
+  }),
+  /** A change saved for a later date, not yet in force. */
+  scheduled: taxpayerTypeChangeSchema.nullable(),
+  /** Every change, newest first. */
+  history: z.array(taxpayerTypeChangeSchema)
 });
 
 export const userSchema = z.object({
@@ -292,6 +344,9 @@ const saleInvoiceSchema = z.object({
   createdBy: z.string().uuid(),
   createdByName: z.string(),
   createdAt: z.string().datetime(),
+  taxpayerType: taxpayerTypeSchema.default('REGULAR'),
+  documentType: gstDocumentTypeSchema.default('TAX_INVOICE'),
+  compositionCategory: compositionCategorySchema.nullable().default(null),
   discounts: z.array(discountSchema)
 });
 
@@ -442,6 +497,33 @@ export const appContract = c.router({
         timezone: timeZoneSchema.optional()
       }),
       responses: { 200: businessSettingsSchema }
+    },
+    taxpayerType: {
+      method: 'GET',
+      path: '/business/taxpayer-type',
+      responses: { 200: taxpayerTypeSummarySchema }
+    },
+    changeTaxpayerType: {
+      method: 'POST',
+      path: '/business/taxpayer-type',
+      body: z
+        .object({
+          taxpayerType: taxpayerTypeSchema,
+          compositionCategory: compositionCategorySchema.nullable().optional(),
+          /** Today or later, in the business time zone. */
+          effectiveDate: calendarDateSchema
+        })
+        .refine((body) => (body.taxpayerType === 'COMPOSITION') === !!body.compositionCategory, {
+          message: 'A composition taxpayer needs a category, and a regular one must not have one',
+          path: ['compositionCategory']
+        }),
+      responses: { 201: taxpayerTypeSummarySchema }
+    },
+    cancelTaxpayerTypeChange: {
+      method: 'DELETE',
+      path: '/business/taxpayer-type/:id',
+      body: z.undefined(),
+      responses: { 200: taxpayerTypeSummarySchema }
     }
   },
   branches: {

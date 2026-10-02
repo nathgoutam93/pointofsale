@@ -186,9 +186,19 @@ export type PricedLineInput = {
 export function computeSaleTotals<L extends PricedLineInput>(
   lines: L[],
   orderDiscounts: DiscountInput[] | undefined,
-  taxCalculationMode: TaxCalculationMode
+  taxCalculationMode: TaxCalculationMode,
+  options: {
+    /**
+     * False when the seller may not charge GST (a composition taxpayer): every line is
+     * priced as untaxed, so the customer pays the shelf price less discounts and the tax
+     * is 0. The returned lines say so (taxRate 0, EXCLUSIVE).
+     */
+    chargeTax?: boolean;
+  } = {}
 ) {
-  const normalized = lines.map((line) => {
+  const pricedLines =
+    options.chargeTax === false ? lines.map((line) => ({ ...line, taxRate: 0, taxMode: 'EXCLUSIVE' as const })) : lines;
+  const normalized = pricedLines.map((line) => {
     const gross = round2((line.saleUomQty ?? line.qty) * line.rate);
     const baseExclusive = exclusiveBase(gross, line.taxMode, line.taxRate);
     const itemDiscounts = resolveDiscountAmounts(line.discounts, baseExclusive);

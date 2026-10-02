@@ -14,10 +14,12 @@ export function LineEditorModal({
   editor,
   activeEditLine,
   taxCalculationMode,
+  chargeTax,
 }: {
   editor: LineEditor;
   activeEditLine: CartLine;
   taxCalculationMode: TaxCalculationMode;
+  chargeTax: boolean;
 }) {
   const { displayEditLine, editField, editValue, discountMode } = editor;
   const editorRef = useRef(editor);
@@ -152,7 +154,7 @@ export function LineEditorModal({
                   <p className="text-3xl font-semibold text-slate-800">
                     ₹{" "}
                     {money(
-                      computeLineAmounts(displayEditLine ?? activeEditLine, taxCalculationMode)
+                      computeLineAmounts(displayEditLine ?? activeEditLine, taxCalculationMode, chargeTax)
                         .net,
                     )}
                   </p>

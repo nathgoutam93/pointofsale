@@ -106,6 +106,26 @@ describe('computeSaleTotals', () => {
     expect(totals.grandTotal).toBe(297.36); // 162 × 1.18 + 118 × 90/100
   });
 
+  it('charges no tax for a composition taxpayer: the customer pays the shelf price', () => {
+    const lines = [
+      { qty: 2, rate: 100, taxRate: 18, taxMode: 'EXCLUSIVE' as const, discounts: [{ type: 'FIXED' as const, value: 20 }] },
+      { qty: 1, rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' as const }
+    ];
+    const totals = computeSaleTotals(lines, [{ type: 'PERCENTAGE', value: 10 }], 'AFTER_DISCOUNT', { chargeTax: false });
+    expect(totals.taxTotal).toBe(0);
+    expect(totals.lines.map((l) => l.baseExclusive)).toEqual([200, 118]); // nothing taken out of the inclusive price
+    expect(totals.orderDiscountTotal).toBe(29.8); // 10% of (200 − 20) + 118
+    expect(totals.grandTotal).toBe(268.2); // 180 + 118 − 29.80
+    expect(totals.lines.map((l) => [l.line.taxRate, l.line.taxMode])).toEqual([[0, 'EXCLUSIVE'], [0, 'EXCLUSIVE']]);
+    expect(lines[0].taxRate).toBe(18); // the caller's lines are left alone
+  });
+
+  it('charges tax unless told not to', () => {
+    const line = { qty: 1, rate: 100, taxRate: 18, taxMode: 'EXCLUSIVE' as const };
+    expect(computeSaleTotals([line], [], 'AFTER_DISCOUNT').grandTotal).toBe(118);
+    expect(computeSaleTotals([line], [], 'AFTER_DISCOUNT', { chargeTax: true }).grandTotal).toBe(118);
+  });
+
   it('keeps its invariants on random carts', () => {
     let seed = 42;
     const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;

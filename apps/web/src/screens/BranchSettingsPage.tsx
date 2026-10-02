@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
+import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
 
 type SettingsForm = {
   name: string;
@@ -517,140 +518,144 @@ export function BranchSettingsPage() {
       </div>
 
       {activeTab === "business" ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-2xl font-semibold text-slate-900">Business Settings</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Configure global details shared by all branches, including logo and GST number.
-          </p>
+        <div className="grid gap-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-2xl font-semibold text-slate-900">Business Settings</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Configure global details shared by all branches, including logo and GST number.
+            </p>
 
-          <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm text-slate-600">Business name</label>
-                <input
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.name}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">GST number</label>
-                <input
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.gstNumber}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, gstNumber: e.target.value }))}
-                  placeholder="e.g. 29ABCDE1234F2Z5"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Tax calculation mode</label>
-                <select
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.taxCalculationMode}
-                  onChange={(e) =>
-                    setBusinessForm((prev) => ({
-                      ...prev,
-                      taxCalculationMode: e.target.value as "AFTER_DISCOUNT" | "BEFORE_DISCOUNT",
-                    }))
-                  }
-                >
-                  <option value="AFTER_DISCOUNT">After discount</option>
-                  <option value="BEFORE_DISCOUNT">Before discount</option>
-                </select>
-                <p className="mt-1 text-xs text-slate-500">
-                  Controls whether tax is recomputed after discounts or held on the original pre-discount base.
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Cashier discount limit (%)</label>
-                <input
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  inputMode="decimal"
-                  value={businessForm.cashierMaxDiscountPercent}
-                  onChange={(e) =>
-                    setBusinessForm((prev) => ({ ...prev, cashierMaxDiscountPercent: e.target.value }))
-                  }
-                />
-                <p className="mt-1 text-xs text-slate-500">
-                  The most a cashier can take off a sale's list price, counting price changes and discounts together.
-                  Admins have no limit.
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Customers</label>
-                <select
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.customerScope}
-                  onChange={(e) =>
-                    setBusinessForm((prev) => ({ ...prev, customerScope: e.target.value as "SHARED" | "BRANCH" }))
-                  }
-                >
-                  <option value="SHARED">Shared across all branches</option>
-                  <option value="BRANCH">Separate for each branch</option>
-                </select>
-                <p className="mt-1 text-xs text-slate-500">
-                  Shared: a customer and their wallet balance can be used at any branch, and a phone number belongs to one
-                  customer business-wide. Separate: each branch only sees the customers it created.
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Time zone</label>
-                <select
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.timezone}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, timezone: e.target.value }))}
-                >
-                  {timeZoneOptions(businessForm.timezone).map((zone) => (
-                    <option key={zone} value={zone}>
-                      {zone}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-slate-500">
-                  Reports work out Today, This Week and This Month on this clock.
-                </p>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-sm text-slate-600">Global logo</label>
-              <div className="mt-2 flex items-center gap-4">
-                <div className="h-16 w-16 overflow-hidden rounded border border-slate-200 bg-slate-50">
-                  {businessLogoSrc ? <img src={businessLogoSrc} alt="Business logo" className="h-full w-full object-contain" /> : null}
-                </div>
-                <div className="grid gap-2">
+            <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm text-slate-600">Business name</label>
                   <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) uploadBusinessLogoMutation.mutate(file);
-                    }}
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.name}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))}
                   />
-                  <button
-                    className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700"
-                    onClick={() => setBusinessForm((prev) => ({ ...prev, logoUrl: null }))}
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">GST number</label>
+                  <input
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.gstNumber}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, gstNumber: e.target.value }))}
+                    placeholder="e.g. 29ABCDE1234F2Z5"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Tax calculation mode</label>
+                  <select
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.taxCalculationMode}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({
+                        ...prev,
+                        taxCalculationMode: e.target.value as "AFTER_DISCOUNT" | "BEFORE_DISCOUNT",
+                      }))
+                    }
                   >
-                    Remove logo
-                  </button>
+                    <option value="AFTER_DISCOUNT">After discount</option>
+                    <option value="BEFORE_DISCOUNT">Before discount</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Controls whether tax is recomputed after discounts or held on the original pre-discount base.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Cashier discount limit (%)</label>
+                  <input
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    inputMode="decimal"
+                    value={businessForm.cashierMaxDiscountPercent}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({ ...prev, cashierMaxDiscountPercent: e.target.value }))
+                    }
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    The most a cashier can take off a sale's list price, counting price changes and discounts together.
+                    Admins have no limit.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Customers</label>
+                  <select
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.customerScope}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({ ...prev, customerScope: e.target.value as "SHARED" | "BRANCH" }))
+                    }
+                  >
+                    <option value="SHARED">Shared across all branches</option>
+                    <option value="BRANCH">Separate for each branch</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Shared: a customer and their wallet balance can be used at any branch, and a phone number belongs to one
+                    customer business-wide. Separate: each branch only sees the customers it created.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Time zone</label>
+                  <select
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.timezone}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, timezone: e.target.value }))}
+                  >
+                    {timeZoneOptions(businessForm.timezone).map((zone) => (
+                      <option key={zone} value={zone}>
+                        {zone}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Reports work out Today, This Week and This Month on this clock.
+                  </p>
                 </div>
               </div>
-              <p className="mt-1 text-xs text-slate-500">
-                Branch logo can override this. If branch logo is empty, this one is used.
-              </p>
+
+              <div>
+                <label className="text-sm text-slate-600">Global logo</label>
+                <div className="mt-2 flex items-center gap-4">
+                  <div className="h-16 w-16 overflow-hidden rounded border border-slate-200 bg-slate-50">
+                    {businessLogoSrc ? <img src={businessLogoSrc} alt="Business logo" className="h-full w-full object-contain" /> : null}
+                  </div>
+                  <div className="grid gap-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) uploadBusinessLogoMutation.mutate(file);
+                      }}
+                    />
+                    <button
+                      className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                      onClick={() => setBusinessForm((prev) => ({ ...prev, logoUrl: null }))}
+                    >
+                      Remove logo
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Branch logo can override this. If branch logo is empty, this one is used.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-emerald-300"
+                onClick={() => saveBusinessSettings.mutate()}
+                disabled={saveBusinessSettings.isPending || businessSettings.isLoading}
+              >
+                Save Business Settings
+              </button>
+              {businessMessage ? <p className="text-sm text-emerald-700">{businessMessage}</p> : null}
             </div>
           </div>
 
-          <div className="mt-4 flex items-center gap-3">
-            <button
-              className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-emerald-300"
-              onClick={() => saveBusinessSettings.mutate()}
-              disabled={saveBusinessSettings.isPending || businessSettings.isLoading}
-            >
-              Save Business Settings
-            </button>
-            {businessMessage ? <p className="text-sm text-emerald-700">{businessMessage}</p> : null}
-          </div>
+          <TaxpayerTypeSection timeZone={businessSettings.data?.timezone ?? "Asia/Kolkata"} />
         </div>
       ) : null}
 
