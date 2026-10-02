@@ -15,6 +15,22 @@ const discountScopeSchema = z.enum(['ITEM', 'ORDER']);
 const discountTypeSchema = z.enum(['PERCENTAGE', 'FIXED']);
 
 export const moneySchema = z.number().finite();
+const taxRateSchema = z.number().min(0).max(100);
+const requiredText = z.string().trim().min(1);
+const passwordSchema = z.string().min(8).max(128);
+
+/** Rejects arrays where two entries share the same key (e.g. the same sale line twice). */
+const uniqueBy = <T>(key: (entry: T) => string, message: string) =>
+  (entries: T[], ctx: z.RefinementCtx) => {
+    const seen = new Set<string>();
+    entries.forEach((entry, index) => {
+      const value = key(entry);
+      if (seen.has(value)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index], message });
+      }
+      seen.add(value);
+    });
+  };
 
 export const branchSchema = z.object({
   id: z.string().uuid(),
@@ -112,7 +128,7 @@ export const itemSchema = z.object({
 });
 
 const itemSaleUomInputSchema = z.object({
-  uom: z.string().min(1),
+  uom: requiredText,
   conversionQty: z.number().positive(),
   sellPrice: moneySchema.nonnegative(),
   mrp: moneySchema.nonnegative().optional()
@@ -131,10 +147,15 @@ export const itemWithSaleUomsSchema = itemSchema.extend({
   saleUoms: z.array(itemSaleUomSchema)
 });
 
-const discountInputSchema = z.object({
-  type: discountTypeSchema,
-  value: moneySchema.nonnegative()
-});
+const discountInputSchema = z
+  .object({
+    type: discountTypeSchema,
+    value: moneySchema.nonnegative()
+  })
+  .refine((discount) => discount.type !== 'PERCENTAGE' || discount.value <= 100, {
+    message: 'Percentage discount cannot be more than 100',
+    path: ['value']
+  });
 
 const discountSchema = z.object({
   id: z.string().uuid(),
@@ -152,14 +173,18 @@ const discountAllocationSchema = z.object({
 const saleLineInput = z.object({
   itemId: z.string().uuid(),
   qty: z.number().positive(),
-  rate: moneySchema,
+  rate: moneySchema.nonnegative(),
   saleUom: z.string().optional(),
   saleUomQty: z.number().positive().optional(),
   saleUomConversionQty: z.number().positive().optional(),
-  taxRate: z.number().min(0),
+  taxRate: taxRateSchema,
   taxMode: taxModeSchema.optional(),
   discounts: z.array(discountInputSchema).default([])
 });
+
+const saleUomInputListSchema = z
+  .array(itemSaleUomInputSchema)
+  .superRefine(uniqueBy((entry) => entry.uom.toUpperCase(), 'Sale unit is listed more than once'));
 
 const saleLineSchema = saleLineInput.omit({ discounts: true }).extend({
   id: z.string().uuid(),
@@ -344,8 +369,8 @@ export const appContract = c.router({
       method: 'POST',
       path: '/branches',
       body: z.object({
-        name: z.string().min(1),
-        code: z.string().min(1)
+        name: requiredText,
+        code: requiredText
       }),
       responses: { 201: branchSchema }
     },
@@ -358,8 +383,8 @@ export const appContract = c.router({
       method: 'PATCH',
       path: '/branches/:id',
       body: z.object({
-        name: z.string().optional(),
-        code: z.string().optional(),
+        name: requiredText.optional(),
+        code: requiredText.optional(),
         logoUrl: z.string().nullable().optional(),
         invoicePrefix: z.string().optional(),
         receiptPrefix: z.string().optional(),
@@ -384,13 +409,13 @@ export const appContract = c.router({
     create: {
       method: 'POST',
       path: '/customers',
-      body: z.object({ branchId: z.string().uuid(), name: z.string(), phone: z.string().optional() }),
+      body: z.object({ branchId: z.string().uuid(), name: requiredText, phone: z.string().optional() }),
       responses: { 201: customerSchema }
     },
     update: {
       method: 'PATCH',
       path: '/customers/:id',
-      body: z.object({ name: z.string().optional(), phone: z.string().nullable().optional() }),
+      body: z.object({ name: requiredText.optional(), phone: z.string().nullable().optional() }),
       responses: { 200: customerSchema }
     },
     getWalkIn: {
@@ -422,9 +447,12 @@ export const appContract = c.router({
       path: '/users',
       body: z.object({
         branchId: z.string().uuid(),
-        username: z.string(),
-        password: z.string(),
-        branchIds: z.array(z.string().uuid()).optional()
+        username: requiredText,
+        password: passwordSchema,
+        branchIds: z
+          .array(z.string().uuid())
+          .superRefine(uniqueBy((id) => id, 'Branch is listed more than once'))
+          .optional()
       }),
       responses: { 201: userSchema }
     },
@@ -432,8 +460,8 @@ export const appContract = c.router({
       method: 'PATCH',
       path: '/users/:id',
       body: z.object({
-        username: z.string().optional(),
-        password: z.string().optional(),
+        username: requiredText.optional(),
+        password: passwordSchema.optional(),
         isActive: z.boolean().optional()
       }),
       responses: { 200: userSchema }
@@ -505,18 +533,19 @@ export const appContract = c.router({
       method: 'POST',
       path: '/items',
       body: z.object({
-        code: z.string(),
-        name: z.string(),
+        code: requiredText,
+        name: requiredText,
         category: z.string().optional(),
-        uom: z.string(),
+        uom: requiredText,
         leastCount: z.number().positive().optional(),
         costPrice: moneySchema.nonnegative().optional(),
         sellPrice: moneySchema.nonnegative(),
         mrp: moneySchema.nonnegative().optional(),
-        saleUoms: z.array(itemSaleUomInputSchema).optional(),
+        saleUoms: saleUomInputListSchema.optional(),
         taxMode: taxModeSchema.optional(),
-        taxRate: z.number().min(0),
-        imageUrl: z.string().url().optional()
+        taxRate: taxRateSchema,
+        // A relative /uploads/... path from the upload endpoint, or a full URL.
+        imageUrl: z.string().optional()
       }),
       responses: { 201: itemWithSaleUomsSchema }
     },
@@ -524,17 +553,17 @@ export const appContract = c.router({
       method: 'PATCH',
       path: '/items/:id',
       body: z.object({
-        name: z.string().optional(),
+        name: requiredText.optional(),
         category: z.string().nullable().optional(),
-        uom: z.string().optional(),
+        uom: requiredText.optional(),
         leastCount: z.number().positive().optional(),
         costPrice: moneySchema.nonnegative().optional(),
         sellPrice: moneySchema.nonnegative().optional(),
         mrp: moneySchema.nonnegative().optional(),
-        saleUoms: z.array(itemSaleUomInputSchema).optional(),
+        saleUoms: saleUomInputListSchema.optional(),
         taxMode: taxModeSchema.optional(),
-        taxRate: z.number().min(0).optional(),
-        imageUrl: z.string().url().nullable().optional(),
+        taxRate: taxRateSchema.optional(),
+        imageUrl: z.string().nullable().optional(),
         isActive: z.boolean().optional()
       }),
       responses: { 200: itemWithSaleUomsSchema }
@@ -580,7 +609,7 @@ export const appContract = c.router({
         qty: z.number().positive(),
         direction: z.enum(['IN', 'OUT']),
         costPrice: moneySchema.nonnegative().optional(),
-        reason: z.string()
+        reason: requiredText
       }),
       responses: { 201: stockLedgerSchema }
     },
@@ -631,7 +660,13 @@ export const appContract = c.router({
     returns: {
       method: 'POST',
       path: '/sales/:id/return',
-      body: z.object({ lines: z.array(z.object({ saleLineId: z.string().uuid(), qty: z.number().positive() })).min(1), refundMode: returnRefundModeSchema }),
+      body: z.object({
+        lines: z
+          .array(z.object({ saleLineId: z.string().uuid(), qty: z.number().positive() }))
+          .min(1)
+          .superRefine(uniqueBy((line) => line.saleLineId, 'Sale line is listed more than once')),
+        refundMode: returnRefundModeSchema
+      }),
       responses: { 201: returnSchema }
     }
   },

@@ -19,8 +19,10 @@ import { join } from 'path';
 import { PaymentMode, UserRole } from '@prisma/client';
 import { PosService } from './pos.service';
 import { SessionUser } from './pos.types';
+import { appContract } from '@pos/contracts';
 import { Public } from '../auth/auth.guard';
 import { readBearerToken, verifyToken } from '../auth/token';
+import { ZodValidationPipe } from '../validation/zod-validation.pipe';
 
 const uploadsDir = process.env.UPLOADS_DIR ? process.env.UPLOADS_DIR : join(process.cwd(), 'uploads');
 
@@ -69,7 +71,7 @@ export class PosController {
   @Public()
   @Post('/auth/login')
   @HttpCode(200)
-  login(@Body() body: { username: string; password: string }) {
+  login(@Body(new ZodValidationPipe(appContract.auth.login.body)) body: { username: string; password: string }) {
     return this.posService.login(body.username, body.password);
   }
 
@@ -85,7 +87,7 @@ export class PosController {
 
   @Post('/branches')
   createBranch(
-    @Body() body: { name: string; code: string },
+    @Body(new ZodValidationPipe(appContract.branches.create.body)) body: { name: string; code: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireAdminSession(headers);
@@ -95,7 +97,7 @@ export class PosController {
   @Post('/registers/open')
   @HttpCode(200)
   openRegister(
-    @Body() body: { branchId: string; openingBalance: number },
+    @Body(new ZodValidationPipe(appContract.registers.open.body)) body: { branchId: string; openingBalance: number },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     return this.posService.openRegister(this.getSession(headers), body.branchId, body.openingBalance);
@@ -114,7 +116,7 @@ export class PosController {
   @Post('/registers/close')
   @HttpCode(200)
   closeRegister(
-    @Body() body: { closingBalance: number },
+    @Body(new ZodValidationPipe(appContract.registers.close.body)) body: { closingBalance: number },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     return this.posService.closeRegister(this.requireOpenRegisterSession(headers), body.closingBalance);
@@ -128,7 +130,7 @@ export class PosController {
 
   @Patch('/business/settings')
   updateBusinessSettings(
-    @Body()
+    @Body(new ZodValidationPipe(appContract.business.update.body))
     body: {
       name?: string;
       logoUrl?: string | null;
@@ -178,7 +180,7 @@ export class PosController {
   @Patch('/branches/:id')
   updateBranch(
     @Param('id') id: string,
-    @Body()
+    @Body(new ZodValidationPipe(appContract.branches.update.body))
     body: {
       name?: string;
       code?: string;
@@ -242,7 +244,7 @@ export class PosController {
 
   @Post('/customers')
   createCustomer(
-    @Body() body: { branchId: string; name: string; phone?: string },
+    @Body(new ZodValidationPipe(appContract.customers.create.body)) body: { branchId: string; name: string; phone?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireOpenRegisterSession(headers);
@@ -255,7 +257,7 @@ export class PosController {
   @Patch('/customers/:id')
   updateCustomer(
     @Param('id') id: string,
-    @Body() body: { name?: string; phone?: string | null },
+    @Body(new ZodValidationPipe(appContract.customers.update.body)) body: { name?: string; phone?: string | null },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireOpenRegisterSession(headers);
@@ -284,7 +286,7 @@ export class PosController {
   @HttpCode(200)
   topupWallet(
     @Param('id') customerId: string,
-    @Body() body: { amount: number; reference?: string },
+    @Body(new ZodValidationPipe(appContract.customers.topupWallet.body)) body: { amount: number; reference?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireOpenRegisterSession(headers);
@@ -303,7 +305,7 @@ export class PosController {
 
   @Post('/users')
   createUser(
-    @Body() body: { branchId: string; username: string; password: string; branchIds?: string[] },
+    @Body(new ZodValidationPipe(appContract.users.create.body)) body: { branchId: string; username: string; password: string; branchIds?: string[] },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireAdminSession(headers);
@@ -316,7 +318,7 @@ export class PosController {
   @Patch('/users/:id')
   updateUser(
     @Param('id') id: string,
-    @Body() body: { username?: string; password?: string; isActive?: boolean },
+    @Body(new ZodValidationPipe(appContract.users.update.body)) body: { username?: string; password?: string; isActive?: boolean },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireAdminSession(headers);
@@ -376,7 +378,7 @@ export class PosController {
 
   @Post('/items')
   createItem(
-    @Body()
+    @Body(new ZodValidationPipe(appContract.items.create.body))
     body: {
       code: string;
       name: string;
@@ -400,7 +402,7 @@ export class PosController {
   @Patch('/items/:id')
   updateItem(
     @Param('id') id: string,
-    @Body()
+    @Body(new ZodValidationPipe(appContract.items.update.body))
     body: {
       name?: string;
       category?: string | null;
@@ -429,7 +431,7 @@ export class PosController {
 
   @Post('/stock/opening')
   stockOpening(
-    @Body() body: { branchId: string; itemId: string; qty: number; costPrice?: number; reason?: string },
+    @Body(new ZodValidationPipe(appContract.stock.opening.body)) body: { branchId: string; itemId: string; qty: number; costPrice?: number; reason?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireOpenRegisterSession(headers);
@@ -442,7 +444,7 @@ export class PosController {
 
   @Patch('/stock/opening')
   updateStockOpening(
-    @Body() body: { branchId: string; itemId: string; qty: number; costPrice?: number; reason?: string },
+    @Body(new ZodValidationPipe(appContract.stock.updateOpening.body)) body: { branchId: string; itemId: string; qty: number; costPrice?: number; reason?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireOpenRegisterSession(headers);
@@ -455,7 +457,7 @@ export class PosController {
 
   @Post('/stock/adjustment')
   stockAdjustment(
-    @Body() body: { branchId: string; itemId: string; qty: number; direction: 'IN' | 'OUT'; costPrice?: number; reason: string },
+    @Body(new ZodValidationPipe(appContract.stock.adjustment.body)) body: { branchId: string; itemId: string; qty: number; direction: 'IN' | 'OUT'; costPrice?: number; reason: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireOpenRegisterSession(headers);
@@ -500,7 +502,7 @@ export class PosController {
 
   @Post('/sales')
   createSale(
-    @Body()
+    @Body(new ZodValidationPipe(appContract.sales.create.body))
     body: {
       branchId: string;
       customerId: string;
@@ -528,7 +530,7 @@ export class PosController {
   @HttpCode(200)
   settleSale(
     @Param('id') id: string,
-    @Body() body: { payments: Array<{ mode: PaymentMode; amount: number; reference?: string }> },
+    @Body(new ZodValidationPipe(appContract.sales.settle.body)) body: { payments: Array<{ mode: PaymentMode; amount: number; reference?: string }> },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     return this.posService.settleSale(this.requireOpenRegisterSession(headers), id, body.payments);
@@ -552,7 +554,7 @@ export class PosController {
   @Post('/sales/:id/return')
   createReturn(
     @Param('id') id: string,
-    @Body() body: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET' },
+    @Body(new ZodValidationPipe(appContract.sales.returns.body)) body: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET' },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     return this.posService.createReturn(this.requireOpenRegisterSession(headers), id, body);

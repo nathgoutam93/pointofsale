@@ -1,5 +1,4 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
@@ -13,7 +12,6 @@ async function bootstrap() {
   }
   assertAuthConfigured();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableCors();
 
   const uploadsDir = process.env.UPLOADS_DIR

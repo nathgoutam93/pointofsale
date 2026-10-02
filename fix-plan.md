@@ -32,7 +32,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 - **Problem:** Staff at branch A can read branch B's invoices, receipts and wallets, and an admin can top up branch-B wallets.
 - **Fix:** Pass `session.branchId` into each service method and add `branchId` to the `where` clause (return 404 if it doesn't match). Then check every other `:id` route for the same gap.
 
-### [ ] 3. Validate request data on the server
+### [x] 3. Validate request data on the server
 - **Where:** `apps/api/src/main.ts:10`. `ValidationPipe` does nothing because request bodies are typed inline, not as DTO classes. The zod schemas in `packages/contracts` are never applied on the API.
 - **Problem:** Negative or NaN amounts reach the service methods. For example, `POST /customers/:id/wallet/topup {amount:-5000}` drains a wallet. This is the root cause of #6 and #7.
 - **Fix:** Apply the contract's zod schemas on the server, either with `@ts-rest/nest` (best, since the web app already uses ts-rest) or a small `ZodValidationPipe` per route. Tighten the schemas: amounts must be positive and finite, quantities greater than 0, and the arrays inside payloads non-empty with no duplicates.
@@ -164,3 +164,16 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 - **2026-10-02 (session 2):** Finished #2. Five service methods now take the session's branch: `getSaleById`, `getReceiptById`, `getReceiptsByInvoice` (both the invoice-id and invoice-number lookups), `getWallet` and `topupWallet`. Each adds `branchId` to its `where`, so a record from another branch returns 404 as if it didn't exist.
   - Checked the other `:id` routes; none needed changes. Settle, return, `GET /returns/:id` and `PATCH /customers/:id` already check the branch, and `createSale` checks the customer's branch. Items have no branch. The admin-only branch and user routes skip the check when no branch is selected. That's by design: `createBranch` gives every admin access to every branch, so admins work across the whole business.
   - Tested with the app running (two branches): from branch A, all six requests succeed. From branch B, the same requests for branch A's records all return 404, including a ₹5,000 wallet top-up, and the wallet balance stays the same.
+- **2026-10-02 (session 2):** Finished #3. Every route that takes a request body now validates it against the matching `@pos/contracts` schema, using a small `ZodValidationPipe` (`apps/api/src/validation/zod-validation.pipe.ts`), e.g. `@Body(new ZodValidationPipe(appContract.sales.create.body))`. Invalid requests get a 400 that lists each problem (`lines.0.qty: Number must be greater than 0`). Unknown keys are dropped.
+  - Chose the pipe over `@ts-rest/nest`: it applies the same schemas without rewriting every controller method. Switching later is still possible.
+  - Tightened the schemas:
+    - Sale `rate` must be 0 or more; `taxRate` must be 0–100 everywhere; a percentage discount can't be over 100.
+    - Required text fields (names, codes, units, username, stock adjustment reason) must not be blank after trimming.
+    - Passwords must be 8–128 characters on create and update.
+    - Duplicates are rejected in return `saleLineId`s, user `branchIds` and item sale units.
+    - Item `imageUrl` no longer has to be a full URL: the upload endpoint returns a relative `/uploads/...` path, which `.url()` would have rejected.
+  - Removed the global `ValidationPipe` from `main.ts`. It did nothing, because the bodies aren't DTO classes.
+  - Build fix: `apps/api/tsconfig.build.json` now clears `paths`. Before, the source mapping in `tsconfig.base.json` pulled `packages/contracts/src` into the API build, which moved the output to `dist/apps/api/src/...`, so `node dist/main.js` kept running an old build. The API now loads `@pos/contracts` from its built `dist` (an ES module, loaded with `require`), so it needs **Node 22.12 or later** (added `engines` to `apps/api/package.json`). Build the packages first: `pnpm --filter @pos/types --filter @pos/contracts build`, or use `pnpm build`, which turbo orders.
+  - Tested with the app running: 24 invalid requests get 400, including a -5000 wallet top-up, a 0 or missing amount, `1e999`, qty 0 or negative, negative rate, 150% tax, no sale lines, a 120% discount, an empty reason, duplicate sale units, branches or return lines, a short password, a blank name, negative register balances, and settling with a negative amount, no payments or an unknown mode. Valid requests still succeed (top-up, return, customer and item updates), and the branch checks from #2 still pass. A full checkout through the web UI (Playwright) also succeeded.
+  - What this covers from later items: #7's negative and zero payments are now rejected, and #8's repeated return lines are rejected. The rest of #7 and #8 is still open: several separate WALLET payment lines, settling an invoice that's already paid, and returns on unpaid invoices.
+  - Not done: query strings and path params aren't validated. Note that `items.list`'s `activeOnly` uses `z.coerce.boolean()`, which treats the string `"false"` as `true`, so fix that before applying it.
