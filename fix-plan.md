@@ -112,7 +112,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 ### [ ] 19. Split up the big files
 - `pos.service.ts` (2000+ lines) and `pos.controller.ts` handle everything. Split them into modules (auth, users, items, sales, returns, customers, registers, reports). `PosPage.tsx` should likewise be broken into hooks and components.
 
-### [ ] 20. Add tests
+### [x] 20. Add tests
 - There are no tests. Start with service-level tests for pricing, settling sales, returns and stock, the money paths fixed in Phase 2.
 
 ## Phase 5: POS draft handling (from the review of commit 59a0213, all in `apps/web/src/screens/PosPage.tsx`)
@@ -421,3 +421,14 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - Return refunds 66.67 + 66.67 + 66.66, and 133.33 + 66.67.
   - Test files are excluded from the package build.
   - Verified: all 12 API suites and the UI flows (rounding, checkout, cashier limit, 20 draft checks) pass on the refactored server. In the browser, a cart with a 7.5% order discount showed tax 80.71 / discount 36.36 / total 529.10, exactly what the server charged.
+- **#20 done:** `pnpm test` from the root (turbo builds the shared packages first) runs **88 tests**.
+  - `packages/contracts` (Vitest, 25): pricing (#16) and `receiptCss.test.ts` (scoping, and 9 kinds of dangerous CSS dropped and reported).
+  - `apps/api` (Vitest + `unplugin-swc` for Nest's decorator metadata, 63): `test/helpers.ts` starts the real `AppModule` on a random port against a separate database `pos_test`. `test/global-setup.ts` runs `prisma migrate reset` on it before every run and refuses any database name without "test".
+    - The admin password comes from `SEED_ADMIN_PASSWORD`.
+    - Each file creates its own branches and closes leftover open registers.
+    - Files run one at a time because some change business-wide settings.
+  - API suites, one per fixed area: `auth` (#1, including startup hashing of plain-text passwords), `branch-isolation` (#2), `validation` (#3), `branch-settings` (#4), `pricing` (#5/#6), `settle` (#7), `returns` (#8), `stock` (#9), `checkout` (#10), `reports` (#11/#15), `register` (#12), `customers` (#13/#14), `zoned-dates` (#15 unit).
+  - The time-zone test picks its timestamps from the current time, so it passes at any hour. A first version would have failed between 18:30 and 24:00 UTC.
+  - Checked that the tests catch regressions by re-breaking four fixes one at a time: no stock lock (2 failures), returns on unpaid invoices (1), the guard ignoring a role change (1), the walk-in wallet check removed (1). The last one passed at first because the empty walk-in wallet refused the payment anyway; the test now gives that wallet a frozen ₹500, and it fails as it should.
+  - README: the Quick Start now covers Node 22.12+, `AUTH_SECRET` and building the shared packages. The wrong "Default Seed Users admin/password, cashier/password" section is replaced by how the first admin is created, and a Tests section explains `pnpm test` and the `pos_test` database.
+  - The scratch scripts used during sessions 1–2 remain outside the repo; the in-repo suites now cover them.
