@@ -92,7 +92,8 @@ export const businessSettingsSchema = z.object({
   name: z.string(),
   logoUrl: z.string().nullable(),
   gstNumber: z.string().nullable(),
-  taxCalculationMode: taxCalculationModeSchema
+  taxCalculationMode: taxCalculationModeSchema,
+  cashierMaxDiscountPercent: z.number()
 });
 
 export const userSchema = z.object({
@@ -214,6 +215,7 @@ const saleLineSchema = saleLineInput.omit({ discounts: true }).extend({
   saleUom: z.string().nullable(),
   saleUomQty: z.number().positive().nullable(),
   saleUomConversionQty: z.number().positive().nullable(),
+  listRate: moneySchema.nullable(),
   taxableAmount: moneySchema,
   taxAmount: moneySchema,
   netAmount: moneySchema,
@@ -375,7 +377,8 @@ export const appContract = c.router({
         name: z.string().optional(),
         logoUrl: z.string().nullable().optional(),
         gstNumber: z.string().nullable().optional(),
-        taxCalculationMode: taxCalculationModeSchema.optional()
+        taxCalculationMode: taxCalculationModeSchema.optional(),
+        cashierMaxDiscountPercent: z.number().min(0).max(100).optional()
       }),
       responses: { 200: businessSettingsSchema }
     }

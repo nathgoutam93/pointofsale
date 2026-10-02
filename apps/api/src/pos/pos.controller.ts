@@ -137,6 +137,7 @@ export class PosController {
       logoUrl?: string | null;
       gstNumber?: string | null;
       taxCalculationMode?: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
+      cashierMaxDiscountPercent?: number;
     },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {

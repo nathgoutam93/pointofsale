@@ -24,6 +24,8 @@ type SaleLineInput = {
   itemName?: string;
   qty: number;
   rate: number;
+  /** Catalog price per sale unit; set by the server, never taken from the request. */
+  listRate?: number;
   saleUom?: string;
   saleUomQty?: number;
   saleUomConversionQty?: number;
@@ -79,7 +81,8 @@ export class PosService {
     name: true,
     logoUrl: true,
     gstNumber: true,
-    taxCalculationMode: true
+    taxCalculationMode: true,
+    cashierMaxDiscountPercent: true
   } as const;
 
   private readonly branchSettingsSelect = {
@@ -163,8 +166,12 @@ export class PosService {
     });
   }
 
+  private toBusinessSettingsResponse(settings: Awaited<ReturnType<PosService['ensureBusinessSettings']>>) {
+    return { ...settings, cashierMaxDiscountPercent: this.toNumber(settings.cashierMaxDiscountPercent) };
+  }
+
   async getBusinessSettings() {
-    return this.ensureBusinessSettings();
+    return this.toBusinessSettingsResponse(await this.ensureBusinessSettings());
   }
 
   async updateBusinessSettings(input: {
@@ -172,18 +179,21 @@ export class PosService {
     logoUrl?: string | null;
     gstNumber?: string | null;
     taxCalculationMode?: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
+    cashierMaxDiscountPercent?: number;
   }) {
     await this.ensureBusinessSettings();
-    return this.prisma.businessSettings.update({
+    const updated = await this.prisma.businessSettings.update({
       where: { id: 'default' },
       data: {
         name: input.name,
         logoUrl: input.logoUrl,
         gstNumber: input.gstNumber,
-        taxCalculationMode: input.taxCalculationMode
+        taxCalculationMode: input.taxCalculationMode,
+        cashierMaxDiscountPercent: input.cashierMaxDiscountPercent
       },
       select: this.businessSettingsSelect
     });
+    return this.toBusinessSettingsResponse(updated);
   }
 
   async getBranchSettings(branchId: string) {
@@ -737,17 +747,110 @@ export class PosService {
     }));
   }
 
+  /** The quantity a line is priced in: sale units when it has one, otherwise base units. */
+  private pricingQty(line: Pick<SaleLineInput, 'qty' | 'saleUomQty'>) {
+    return line.saleUomQty ?? line.qty;
+  }
+
+  /** Amount before tax for a gross line amount. */
+  private exclusiveBase(gross: number, taxMode: SaleLineInput['taxMode'], taxRate: number) {
+    return this.round2(taxMode === 'INCLUSIVE' && taxRate > 0 ? (gross * 100) / (100 + taxRate) : gross);
+  }
+
+  /**
+   * Works out a sale line's unit, conversion, list price and tax from the item. From the
+   * request only the quantity, the chosen unit and a price at or below list are used; a
+   * tax or unit size that doesn't match the item means the POS screen is out of date.
+   */
+  private resolveLinePricing(
+    item: {
+      name: string;
+      uom: string;
+      sellPrice: Prisma.Decimal;
+      taxRate: Prisma.Decimal;
+      taxMode: 'INCLUSIVE' | 'EXCLUSIVE';
+      saleUoms: Array<{ uom: string; conversionQty: Prisma.Decimal; sellPrice: Prisma.Decimal; isDefault: boolean }>;
+    },
+    line: SaleLineInput
+  ) {
+    const taxRate = this.toNumber(item.taxRate);
+    const taxMode = item.taxMode;
+    if (Math.abs(line.taxRate - taxRate) > 1e-6 || (line.taxMode !== undefined && line.taxMode !== taxMode)) {
+      throw new BadRequestException(`Tax for ${item.name} has changed. Refresh and try again.`);
+    }
+
+    const requestedUom = line.saleUom?.trim();
+    const isBaseUom = !requestedUom || requestedUom.toLowerCase() === item.uom.toLowerCase();
+    const variant = isBaseUom
+      ? undefined
+      : item.saleUoms.find((entry) => !entry.isDefault && entry.uom.toLowerCase() === requestedUom.toLowerCase());
+    if (!isBaseUom && !variant) {
+      throw new BadRequestException(`${item.name} is not sold in ${requestedUom}. Refresh and try again.`);
+    }
+
+    let qty = this.round3(line.qty);
+    let saleUomQty: number | undefined;
+    let saleUomConversionQty: number | undefined;
+    let listRate = this.toNumber(item.sellPrice);
+    if (variant) {
+      if (line.saleUomQty === undefined) {
+        throw new BadRequestException(`Sale line ${line.itemId} has incomplete UOM details`);
+      }
+      saleUomConversionQty = this.toNumber(variant.conversionQty);
+      if (line.saleUomConversionQty !== undefined && Math.abs(line.saleUomConversionQty - saleUomConversionQty) > 1e-6) {
+        throw new BadRequestException(`${item.name} ${variant.uom} size has changed. Refresh and try again.`);
+      }
+      saleUomQty = this.round3(line.saleUomQty);
+      qty = this.round3(saleUomQty * saleUomConversionQty);
+      if (Math.abs(qty - this.round3(line.qty)) > 1e-6) {
+        throw new BadRequestException(`Sale line ${line.itemId} UOM quantity does not match stock quantity`);
+      }
+      listRate = this.toNumber(variant.sellPrice);
+    }
+
+    const rate = this.round2(line.rate);
+    if (rate > listRate) {
+      throw new BadRequestException(`Price for ${item.name} can't be above its list price of ${listRate.toFixed(2)}`);
+    }
+    return { qty, rate, listRate, saleUom: variant?.uom, saleUomQty, saleUomConversionQty, taxRate, taxMode };
+  }
+
+  /**
+   * A cashier may lower a sale below list price (price changes, item and order discounts
+   * together) by at most `maxPercent`, measured before tax. Admins are not limited.
+   */
+  private assertWithinCashierDiscountLimit(
+    lines: SaleLineInput[],
+    computedLines: ComputedSaleLine[],
+    maxPercent: number
+  ) {
+    const listTotal = this.round2(
+      lines.reduce(
+        (acc, line) =>
+          acc + this.exclusiveBase(this.round2(this.pricingQty(line) * (line.listRate ?? line.rate)), line.taxMode, line.taxRate),
+        0
+      )
+    );
+    if (listTotal <= 0) return;
+    const finalTotal = this.round2(computedLines.reduce((acc, line) => acc + line.taxableAmount, 0));
+    const reduction = this.round2(listTotal - finalTotal);
+    // One paisa of slack for rounding, so exactly the limit is allowed.
+    if (reduction > this.round2((listTotal * maxPercent) / 100) + 0.01) {
+      const percent = (reduction / listTotal) * 100;
+      throw new BadRequestException(
+        `Price changes and discounts take ${percent.toFixed(2)}% off this sale; cashiers can give at most ${maxPercent}%. Ask an admin.`
+      );
+    }
+  }
+
   private calculateSaleTotals(
     lines: SaleLineInput[],
     orderDiscounts: DiscountInput[] | undefined,
     taxCalculationMode: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT'
   ) {
     const normalized = lines.map((line) => {
-      const pricingQty = line.saleUomQty ?? line.qty;
-      const gross = this.round2(pricingQty * line.rate);
-      const baseExclusive = this.round2(
-        line.taxMode === 'INCLUSIVE' && line.taxRate > 0 ? (gross * 100) / (100 + line.taxRate) : gross
-      );
+      const gross = this.round2(this.pricingQty(line) * line.rate);
+      const baseExclusive = this.exclusiveBase(gross, line.taxMode, line.taxRate);
       const itemDiscounts = this.resolveDiscountAmounts(line.discounts, baseExclusive);
       const itemDiscount = this.round2(itemDiscounts.reduce((acc, discount) => acc + discount.amount, 0));
       const baseAfterItem = this.round2(Math.max(0, baseExclusive - itemDiscount));
@@ -1511,30 +1614,34 @@ export class PosService {
         const normalizedItemId = await this.resolveItemId(line.itemId, tx);
         const item = await tx.item.findUnique({
           where: { id: normalizedItemId },
-          select: { name: true, leastCount: true }
+          select: {
+            name: true,
+            uom: true,
+            leastCount: true,
+            sellPrice: true,
+            taxRate: true,
+            taxMode: true,
+            isActive: true,
+            saleUoms: { select: { uom: true, conversionQty: true, sellPrice: true, isDefault: true } }
+          }
         });
         if (!item) {
           throw new NotFoundException('Item not found');
         }
-        if (line.saleUom || line.saleUomQty !== undefined || line.saleUomConversionQty !== undefined) {
-          if (!line.saleUom || line.saleUomQty === undefined || line.saleUomConversionQty === undefined) {
-            throw new BadRequestException(`Sale line ${line.itemId} has incomplete UOM details`);
-          }
-          const expectedQty = this.round3(line.saleUomQty * line.saleUomConversionQty);
-          if (Math.abs(expectedQty - this.round3(line.qty)) > 1e-6) {
-            throw new BadRequestException(`Sale line ${line.itemId} UOM quantity does not match stock quantity`);
-          }
+        if (!item.isActive) {
+          throw new BadRequestException(`${item.name} is no longer for sale`);
         }
-        this.assertQtyRespectsLeastCount(line.qty, this.toNumber(item.leastCount), `Sale line ${line.itemId}`);
+        const pricing = this.resolveLinePricing(item, line);
+        this.assertQtyRespectsLeastCount(pricing.qty, this.toNumber(item.leastCount), `Sale line ${line.itemId}`);
         const onHand = await this.getOnHandForItem(input.branchId, normalizedItemId, tx);
-        if (onHand < line.qty) {
+        if (onHand < pricing.qty) {
           throw new BadRequestException(`Insufficient stock for item ${line.itemId}`);
         }
         normalizedLines.push({
           ...line,
+          ...pricing,
           itemId: normalizedItemId,
           itemName: item.name,
-          taxMode: line.taxMode ?? 'EXCLUSIVE',
           discounts: line.discounts ?? []
         });
       }
@@ -1555,6 +1662,13 @@ export class PosService {
         input.discounts ?? [],
         businessSettings.taxCalculationMode
       );
+      if (session.role !== UserRole.ADMIN) {
+        this.assertWithinCashierDiscountLimit(
+          normalizedLines,
+          computedLines,
+          this.toNumber(businessSettings.cashierMaxDiscountPercent)
+        );
+      }
 
       const invoice = await tx.saleInvoice.create({
         data: {
@@ -1586,6 +1700,7 @@ export class PosService {
               itemName: line.itemName ?? 'Unknown Item',
               qty: line.qty,
               rate: line.rate,
+              listRate: line.listRate,
               saleUom: line.saleUom,
               saleUomQty: line.saleUomQty,
               saleUomConversionQty: line.saleUomConversionQty,

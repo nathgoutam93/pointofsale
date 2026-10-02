@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { sanitizeReceiptCss } from "@pos/contracts";
-import { API_BASE_URL, api, authHeaders } from "../lib/api";
+import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import {
   buildReceiptLines,
   escapeHtml,
@@ -1488,7 +1488,7 @@ export function PosPage() {
     });
 
     if (createRes.status !== 201) {
-      throw new Error("Failed to create invoice");
+      throw new Error(apiErrorMessage(createRes.body, "Failed to create invoice"));
     }
 
     return createRes.body;

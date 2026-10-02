@@ -43,7 +43,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 
 ## Phase 2: Money correctness (server decides the numbers)
 
-### [ ] 5. Server-side pricing
+### [x] 5. Server-side pricing
 - **Where:** `pos.service.ts` around line 1495 (`createSale`)
 - **Problem:** `rate`, `taxRate`, `taxMode` and `saleUomConversionQty` are taken straight from the request, so a ₹5,000 item can be sold for ₹0.01 at 0% tax.
 - **Fix:** Look up the item, its `ItemSaleUom` rows and its MRP inside the transaction. Work out the rate, tax and conversion on the server. Accept a lower rate only within an allowed price-override or discount policy, and record who overrode it.
@@ -198,3 +198,22 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - In the browser, with malicious CSS written straight into the database, the script didn't run, `aside { display: none }` didn't hide the app, nothing was fetched from the attacker host, and the legitimate rules still applied (`--receipt-ch: 32`, colour). The downloaded invoice had no script, and its title was escaped.
     - The settings page showed the rejection reasons. The Sales and Returns pages loaded with no console errors.
     - The earlier suites (validation, branch checks, UI checkout) still pass.
+- **2026-10-02 (session 2):** Finished #5. The user chose the policy: a cashier limit, admins unlimited.
+  - `createSale` now works out each line from the item (`resolveLinePricing`):
+    - The tax rate and tax mode come from the item. The request must send the same values; otherwise it gets 400 "Tax for X has changed. Refresh and try again." This catches stale POS screens before the cashier collects the wrong amount.
+    - The sale unit must be one of the item's units, and its conversion comes from the database. A mismatched size or unknown unit gets 400, and the stock quantity is checked against boxes × conversion.
+    - The list price is `item.sellPrice`, or the sale unit's `sellPrice`. The request's `rate` is accepted only at or below list price, for everyone.
+    - Inactive items can't be sold.
+  - Cashier limit (`assertWithinCashierDiscountLimit`): price changes, item discounts and the order discount together may lower the sale by at most `BusinessSettings.cashierMaxDiscountPercent` (default 10). It's measured on the whole sale, before tax, against list price, with one paisa of slack for rounding. Over the limit gets 400 "...take X% off this sale; cashiers can give at most N%. Ask an admin." Admins have no limit. Because the limit covers the whole sale, a cashier can still give a big discount on one cheap line inside a larger sale.
+  - Migration `20261002102325_sale_pricing_policy`: adds `BusinessSettings.cashierMaxDiscountPercent` (default 10) and `SaleInvoiceLine.listRate` (null on older lines). A changed price shows as `rate < listRate`; the user is the invoice's `createdBy`.
+  - Web:
+    - The Business Settings tab has a "Cashier discount limit (%)" field (0–100, checked in the form and in the contract).
+    - POS checkout now shows the API's error message instead of "Failed to create invoice".
+    - The POS still sends `rate`, `taxRate` and so on; the server checks them.
+  - Moved `exclusiveBase` and `pricingQty` out of `calculateSaleTotals`, so the limit uses exactly the same maths.
+  - Tested with the app running (23 API checks):
+    - As cashier, rejected: a ₹0.01 price on a ₹5,000 item, tax 0% or INCLUSIVE sent for an 18% EXCLUSIVE item, a price above list, the wrong box size, an unknown unit, an inactive item, a 15% order discount, and 8% price cut + 4% discount.
+    - As cashier, accepted: exactly 10% off (stored rate 4500, listRate 5000, total 5310), 9.84% made of discounts, a box at list price (qty 10), and a tax-inclusive item (total 100).
+    - Limit setting: 20% lets the 15% discount through; a cashier can't change the limit; -1 and 101 are rejected.
+    - As admin: ₹0.01 accepted with `listRate` recorded; above list price and wrong tax still rejected.
+    - In the browser, the cashier saw the limit message when the price was rewritten to ₹0.01. The settings field loads, rejects "abc", and keeps 15 after a reload. The earlier suites and the UI checkout still pass.

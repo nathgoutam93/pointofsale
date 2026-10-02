@@ -23,6 +23,7 @@ type BusinessSettingsForm = {
   logoUrl: string | null;
   gstNumber: string;
   taxCalculationMode: "AFTER_DISCOUNT" | "BEFORE_DISCOUNT";
+  cashierMaxDiscountPercent: string;
 };
 
 type CashierForm = {
@@ -122,7 +123,8 @@ export function BranchSettingsPage() {
     name: "",
     logoUrl: null,
     gstNumber: "",
-    taxCalculationMode: "AFTER_DISCOUNT"
+    taxCalculationMode: "AFTER_DISCOUNT",
+    cashierMaxDiscountPercent: "10"
   });
 
   useEffect(() => {
@@ -147,7 +149,8 @@ export function BranchSettingsPage() {
       name: businessSettings.data.name,
       logoUrl: businessSettings.data.logoUrl,
       gstNumber: businessSettings.data.gstNumber ?? "",
-      taxCalculationMode: businessSettings.data.taxCalculationMode
+      taxCalculationMode: businessSettings.data.taxCalculationMode,
+      cashierMaxDiscountPercent: String(businessSettings.data.cashierMaxDiscountPercent)
     });
   }, [businessSettings.data]);
 
@@ -192,16 +195,26 @@ export function BranchSettingsPage() {
       if (!trimmedName) {
         throw new Error("Business name is required.");
       }
+      const cashierMaxDiscountPercent = Number(businessForm.cashierMaxDiscountPercent);
+      if (
+        businessForm.cashierMaxDiscountPercent.trim() === "" ||
+        !Number.isFinite(cashierMaxDiscountPercent) ||
+        cashierMaxDiscountPercent < 0 ||
+        cashierMaxDiscountPercent > 100
+      ) {
+        throw new Error("Cashier discount limit must be between 0 and 100.");
+      }
       const res = await api.business.update({
         body: {
           name: trimmedName,
           logoUrl: businessForm.logoUrl,
           gstNumber: emptyToNull(businessForm.gstNumber),
-          taxCalculationMode: businessForm.taxCalculationMode
+          taxCalculationMode: businessForm.taxCalculationMode,
+          cashierMaxDiscountPercent
         },
         extraHeaders: authHeaders()
       });
-      if (res.status !== 200) throw new Error("Failed to save business settings");
+      if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to save business settings"));
       return res.body;
     },
     onSuccess: (updated) => {
@@ -531,6 +544,21 @@ export function BranchSettingsPage() {
                 </select>
                 <p className="mt-1 text-xs text-slate-500">
                   Controls whether tax is recomputed after discounts or held on the original pre-discount base.
+                </p>
+              </div>
+              <div>
+                <label className="text-sm text-slate-600">Cashier discount limit (%)</label>
+                <input
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                  inputMode="decimal"
+                  value={businessForm.cashierMaxDiscountPercent}
+                  onChange={(e) =>
+                    setBusinessForm((prev) => ({ ...prev, cashierMaxDiscountPercent: e.target.value }))
+                  }
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  The most a cashier can take off a sale's list price, counting price changes and discounts together.
+                  Admins have no limit.
                 </p>
               </div>
             </div>

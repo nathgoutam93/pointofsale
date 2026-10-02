@@ -93,6 +93,8 @@ model BusinessSettings {
   logoUrl            String?
   gstNumber          String?
   taxCalculationMode TaxCalculationMode @default(AFTER_DISCOUNT)
+  /// Most a cashier may lower a sale below list price (price edits + discounts), in percent. Admins have no limit.
+  cashierMaxDiscountPercent Decimal     @default(10) @db.Decimal(5, 2)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 }
@@ -264,6 +266,8 @@ model SaleInvoiceLine {
   itemName            String
   qty                 Decimal              @db.Decimal(14, 3)
   rate                Decimal              @db.Decimal(14, 2)
+  /// Catalog price per sale unit when the sale was made; rate differs when the price was changed at the POS. Null on older lines.
+  listRate            Decimal?             @db.Decimal(14, 2)
   saleUom             String?
   saleUomQty          Decimal?             @db.Decimal(14, 3)
   saleUomConversionQty Decimal?            @db.Decimal(14, 3)
