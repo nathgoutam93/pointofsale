@@ -10,9 +10,53 @@ export {
   exclusiveBase,
   lineTax,
   resolveDiscountAmounts,
-  returnLineRefund
+  returnLineAmounts,
+  splitGst
 } from './pricing.js';
-export type { DiscountInput, PricedLineInput, ResolvedDiscount } from './pricing.js';
+export type { DiscountInput, GstAmounts, PricedLineInput, ResolvedDiscount, TaxCalculationMode, TaxMode } from './pricing.js';
+export {
+  chargesGst,
+  COMPOSITION_CATEGORIES,
+  COMPOSITION_CATEGORY_LABELS,
+  COMPOSITION_RATES,
+  documentTypeFor,
+  defaultSupplyType,
+  DOCUMENT_SERIES_MAX_LENGTH,
+  documentNumber,
+  documentSeriesCandidates,
+  documentSeriesProblem,
+  financialYearCode,
+  financialYearLabel,
+  financialYearStart,
+  GST_DOCUMENT_NUMBER_MAX_LENGTH,
+  GST_DOCUMENT_TYPES,
+  GST_STATES,
+  GST_SUPPLY_TYPE_LABELS,
+  GST_SUPPLY_TYPES,
+  GST_UQCS,
+  gstinCheckCharacter,
+  gstinProblem,
+  gstStateLabel,
+  hsnProblem,
+  isGstStateCode,
+  isGstUqc,
+  suggestUqc,
+  supplyTypeProblem,
+  TAXPAYER_TYPES,
+  UOM_TO_UQC
+} from './gst.js';
+export type { CompositionCategory, GstDocumentType, GstSupplyType, TaxpayerType } from './gst.js';
+import {
+  COMPOSITION_CATEGORIES,
+  documentSeriesProblem,
+  GST_DOCUMENT_TYPES,
+  GST_SUPPLY_TYPES,
+  gstinProblem,
+  hsnProblem,
+  isGstStateCode,
+  isGstUqc,
+  TAXPAYER_TYPES
+} from './gst.js';
 
 const c = initContract();
 
@@ -26,6 +70,51 @@ const taxModeSchema = z.enum(['INCLUSIVE', 'EXCLUSIVE']);
 const taxCalculationModeSchema = z.enum(['AFTER_DISCOUNT', 'BEFORE_DISCOUNT']);
 /** SHARED: customers and wallets work at every branch. BRANCH: only at the branch that created them. */
 const customerScopeSchema = z.enum(['SHARED', 'BRANCH']);
+const taxpayerTypeSchema = z.enum(TAXPAYER_TYPES);
+const compositionCategorySchema = z.enum(COMPOSITION_CATEGORIES);
+const gstDocumentTypeSchema = z.enum(GST_DOCUMENT_TYPES);
+/** A branch's invoice or credit note series: up to 5 letters or digits, upper-cased. */
+const documentSeriesSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .superRefine((value, ctx) => {
+    const problem = documentSeriesProblem(value);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  });
+/** A GSTIN, upper-cased, with its format, state code and check character verified. */
+const gstinSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .superRefine((value, ctx) => {
+    const problem = gstinProblem(value);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  });
+const gstSupplyTypeSchema = z.enum(GST_SUPPLY_TYPES);
+/** An HSN/SAC code: 4, 6 or 8 digits (the business's minimum length is checked by the API). */
+const hsnCodeSchema = z
+  .string()
+  .trim()
+  .superRefine((value, ctx) => {
+    const problem = hsnProblem(value, 4);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  });
+const gstUqcSchema = z.string().trim().toUpperCase().refine(isGstUqc, { message: 'Unknown GST unit (UQC)' });
+/** A two-digit GST state code, e.g. 29 for Karnataka. */
+const gstStateCodeSchema = z.string().refine(isGstStateCode, { message: 'Unknown GST state code' });
+/** A calendar date, YYYY-MM-DD, that exists (no 31 February). */
+const calendarDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Use the format YYYY-MM-DD' })
+  .refine(
+    (value) => {
+      const [year, month, day] = value.split('-').map(Number);
+      const date = new Date(Date.UTC(year, month - 1, day));
+      return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+    },
+    { message: 'Not a real date' }
+  );
 
 /** True when the runtime (Node or browser) knows this IANA time zone. */
 export function isValidTimeZone(timeZone: string) {
@@ -118,7 +207,11 @@ export const branchSettingsSchema = branchSchema.extend({
   receiptHeader: z.string().nullable(),
   receiptFooter: z.string().nullable(),
   invoiceCss: z.string().nullable(),
-  receiptCss: z.string().nullable()
+  receiptCss: z.string().nullable(),
+  /** The branch's own GSTIN; when empty, the business GSTIN is used if it is for the same state. */
+  gstin: z.string().nullable(),
+  /** Where the branch is: the place of supply of an over-the-counter sale. */
+  stateCode: z.string().nullable()
 });
 
 export const businessSettingsSchema = z.object({
@@ -130,7 +223,35 @@ export const businessSettingsSchema = z.object({
   cashierMaxDiscountPercent: z.number(),
   customerScope: customerScopeSchema,
   /** IANA zone report periods are worked out in, e.g. Asia/Kolkata. */
-  timezone: z.string()
+  timezone: z.string(),
+  /** The GST registration type in force now (see /business/taxpayer-type for history). */
+  taxpayerType: taxpayerTypeSchema,
+  compositionCategory: compositionCategorySchema.nullable(),
+  /** Shortest HSN code accepted on items: 4 (turnover up to ₹5 crore) or 6. */
+  hsnMinDigits: z.number().int()
+});
+
+export const taxpayerTypeChangeSchema = z.object({
+  id: z.string().uuid(),
+  taxpayerType: taxpayerTypeSchema,
+  compositionCategory: compositionCategorySchema.nullable(),
+  effectiveDate: z.string(),
+  effectiveFrom: z.string().datetime(),
+  createdByName: z.string(),
+  createdAt: z.string().datetime()
+});
+
+export const taxpayerTypeSummarySchema = z.object({
+  /** In force now. effectiveDate is null while the business has never changed type (REGULAR). */
+  current: z.object({
+    taxpayerType: taxpayerTypeSchema,
+    compositionCategory: compositionCategorySchema.nullable(),
+    effectiveDate: z.string().nullable()
+  }),
+  /** A change saved for a later date, not yet in force. */
+  scheduled: taxpayerTypeChangeSchema.nullable(),
+  /** Every change, newest first. */
+  history: z.array(taxpayerTypeChangeSchema)
 });
 
 export const userSchema = z.object({
@@ -181,6 +302,11 @@ export const itemSchema = z.object({
   mrp: moneySchema,
   taxMode: taxModeSchema,
   taxRate: z.number().min(0),
+  /** HSN (goods) or SAC (services) code; null until the admin enters it. */
+  hsnCode: z.string().nullable(),
+  /** GST unit quantity code of the base unit; null when the unit couldn't be matched. */
+  uqc: z.string().nullable(),
+  supplyType: gstSupplyTypeSchema,
   imageUrl: z.string().url().nullable(),
   isActive: z.boolean(),
   createdAt: z.string().datetime()
@@ -255,15 +381,33 @@ const saleLineSchema = saleLineInput.omit({ discounts: true }).extend({
   listRate: moneySchema.nullable(),
   taxableAmount: moneySchema,
   taxAmount: moneySchema,
+  /** taxAmount by kind: CGST + SGST within a state, IGST between states. */
+  cgstAmount: moneySchema.default(0),
+  sgstAmount: moneySchema.default(0),
+  igstAmount: moneySchema.default(0),
   netAmount: moneySchema,
+  /** The item's GST details when it was sold. */
+  hsnCode: z.string().nullable().default(null),
+  uqc: z.string().nullable().default(null),
+  supplyType: gstSupplyTypeSchema.default('TAXABLE'),
   discountAllocations: z.array(discountAllocationSchema)
 });
+
+/** A return line's refund split into taxable value and tax by kind (amount = taxable + tax). */
+const returnLineGstShape = {
+  taxableAmount: moneySchema.default(0),
+  taxAmount: moneySchema.default(0),
+  cgstAmount: moneySchema.default(0),
+  sgstAmount: moneySchema.default(0),
+  igstAmount: moneySchema.default(0)
+};
 
 const returnLineForSaleLineSchema = z.object({
   id: z.string().uuid(),
   returnInvoiceId: z.string().uuid(),
   qty: z.number().positive(),
-  amount: moneySchema
+  amount: moneySchema,
+  ...returnLineGstShape
 });
 
 const paymentSchema = z.object({
@@ -286,12 +430,22 @@ const saleInvoiceSchema = z.object({
   discountTotal: moneySchema,
   orderDiscountAmount: moneySchema.default(0),
   taxTotal: moneySchema,
+  cgstTotal: moneySchema.default(0),
+  sgstTotal: moneySchema.default(0),
+  igstTotal: moneySchema.default(0),
   grandTotal: moneySchema,
   paidTotal: moneySchema,
   status: invoiceStatusSchema,
   createdBy: z.string().uuid(),
   createdByName: z.string(),
   createdAt: z.string().datetime(),
+  taxpayerType: taxpayerTypeSchema.default('REGULAR'),
+  documentType: gstDocumentTypeSchema.default('TAX_INVOICE'),
+  compositionCategory: compositionCategorySchema.nullable().default(null),
+  /** The selling branch's GSTIN and state, and where the goods went, as at the sale. */
+  sellerGstin: z.string().nullable().default(null),
+  sellerStateCode: z.string().nullable().default(null),
+  placeOfSupplyStateCode: z.string().nullable().default(null),
   discounts: z.array(discountSchema)
 });
 
@@ -332,6 +486,12 @@ const returnSchema = z.object({
   saleInvoiceId: z.string().uuid(),
   returnNo: z.string(),
   totalAmount: moneySchema,
+  /** totalAmount split into taxable value and tax by kind. */
+  taxableTotal: moneySchema.default(0),
+  taxTotal: moneySchema.default(0),
+  cgstTotal: moneySchema.default(0),
+  sgstTotal: moneySchema.default(0),
+  igstTotal: moneySchema.default(0),
   refundMode: returnRefundModeSchema,
   createdAt: z.string().datetime()
 });
@@ -352,7 +512,8 @@ const returnDetailSchema = returnSchema.extend({
       itemId: z.string().uuid(),
       itemName: z.string(),
       qty: z.number().positive(),
-      amount: moneySchema
+      amount: moneySchema,
+      ...returnLineGstShape
     })
   )
 });
@@ -385,12 +546,108 @@ const saleCreateBodySchema = z.object({
   walkInCustomerName: z.string().trim().optional().nullable(),
   walkInCustomerPhone: z.string().trim().optional().nullable(),
   lines: z.array(saleLineInput).min(1),
-  discounts: z.array(discountInputSchema).default([])
+  discounts: z.array(discountInputSchema).default([]),
+  /** Where the goods go, when shipped to another state. Defaults to the branch's state (sold over the counter). */
+  placeOfSupplyStateCode: gstStateCodeSchema.optional()
 });
 
 const paymentInputSchema = z.object({ mode: paymentModeSchema, amount: moneySchema.positive(), reference: z.string().optional() });
 
+/** A GSTIN and a month (from = to) or quarter, as YYYY-MM. */
+const gstPeriodQuerySchema = z.object({
+  gstin: gstinSchema,
+  from: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Use YYYY-MM' }),
+  to: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Use YYYY-MM' })
+});
+const compositionTotalsSchema = z.object({ turnover: z.number(), taxBase: z.number(), cgst: z.number(), sgst: z.number() });
+const compositionReturnSchema = z.object({
+  gstin: z.string(),
+  rows: z.array(
+    compositionTotalsSchema.extend({ category: compositionCategorySchema, rate: z.number(), taxableTurnover: z.number() })
+  ),
+  totals: compositionTotalsSchema,
+  /** The business's turnover this financial year (all GSTINs), for the composition limit. */
+  yearTurnover: z.number(),
+  problems: z.array(z.object({ severity: z.enum(['error', 'warning']), message: z.string() })),
+  byQuarter: z.array(compositionTotalsSchema.extend({ quarter: z.number() })).nullable()
+});
+const gstTaxRowSchema = z.object({ txval: z.number(), iamt: z.number(), camt: z.number(), samt: z.number(), csamt: z.number() });
+
 export const appContract = c.router({
+  gst: {
+    /** CMP-08: a composition taxpayer's quarter (turnover and tax at the composition rate). */
+    cmp08: {
+      method: 'GET',
+      path: '/gst/cmp08',
+      query: gstPeriodQuerySchema,
+      responses: { 200: compositionReturnSchema.extend({ from: z.string(), to: z.string() }) }
+    },
+    /** GSTR-4: a composition taxpayer's financial year (April-March), quarter by quarter. */
+    gstr4: {
+      method: 'GET',
+      path: '/gst/gstr4',
+      query: z.object({ gstin: gstinSchema, fy: z.coerce.number().int().min(2017).max(2100) }),
+      responses: { 200: compositionReturnSchema.extend({ fy: z.number() }) }
+    },
+    /** The sales side of GSTR-3B: Tables 3.1 and 3.2 (no input tax credit: purchases aren't recorded). */
+    gstr3b: {
+      method: 'GET',
+      path: '/gst/gstr3b',
+      query: gstPeriodQuerySchema,
+      responses: {
+        200: z.object({
+          gstin: z.string(),
+          from: z.string(),
+          to: z.string(),
+          table31: z.object({
+            outwardTaxable: gstTaxRowSchema,
+            outwardZeroRated: gstTaxRowSchema,
+            outwardNilExempt: gstTaxRowSchema,
+            inwardReverseCharge: gstTaxRowSchema,
+            outwardNonGst: gstTaxRowSchema
+          }),
+          table32: z.object({ unregistered: z.array(z.object({ pos: z.string(), txval: z.number(), iamt: z.number() })) }),
+          problems: z.array(z.object({ severity: z.enum(['error', 'warning']), message: z.string() }))
+        })
+      }
+    },
+    gstins: {
+      method: 'GET',
+      path: '/gst/gstins',
+      responses: { 200: z.array(z.object({ gstin: z.string(), label: z.string() })) }
+    },
+    /** GSTR-1 for one GSTIN: a month, or a quarter (Apr-Jun, Jul-Sep, Oct-Dec, Jan-Mar). */
+    gstr1: {
+      method: 'GET',
+      path: '/gst/gstr1',
+      query: gstPeriodQuerySchema,
+      responses: {
+        200: z.object({
+          gstin: z.string(),
+          from: z.string(),
+          to: z.string(),
+          /** The file to upload: the GSTR-1 offline tool JSON. */
+          json: z.record(z.unknown()),
+          /** Errors must be fixed before filing; warnings should be read. */
+          problems: z.array(z.object({ severity: z.enum(['error', 'warning']), message: z.string() })),
+          summary: z.object({
+            invoices: z.number(),
+            cancelledInvoices: z.number(),
+            creditNotes: z.number(),
+            b2cs: z.array(z.object({ sply_ty: z.string(), pos: z.string(), rt: z.number(), txval: z.number(), iamt: z.number(), camt: z.number(), samt: z.number() })),
+            b2cl: z.array(z.object({ pos: z.string(), inum: z.string(), idt: z.string(), val: z.number() }).passthrough()),
+            cdnur: z.array(z.object({ nt_num: z.string(), nt_dt: z.string(), pos: z.string(), val: z.number() }).passthrough()),
+            nil: z.array(z.object({ sply_ty: z.string(), nil_amt: z.number(), expt_amt: z.number(), ngsup_amt: z.number() })),
+            hsn: z.array(z.object({ num: z.number(), hsn_sc: z.string(), desc: z.string(), uqc: z.string(), qty: z.number(), rt: z.number(), txval: z.number(), iamt: z.number(), camt: z.number(), samt: z.number() }).passthrough()),
+            documents: z.object({
+              invoices: z.array(z.object({ series: z.string(), from: z.string(), to: z.string(), totnum: z.number(), cancel: z.number(), net_issue: z.number() })),
+              creditNotes: z.array(z.object({ series: z.string(), from: z.string(), to: z.string(), totnum: z.number(), cancel: z.number(), net_issue: z.number() }))
+            })
+          })
+        })
+      }
+    }
+  },
   auth: {
     login: {
       method: 'POST',
@@ -435,13 +692,41 @@ export const appContract = c.router({
       body: z.object({
         name: z.string().optional(),
         logoUrl: z.string().nullable().optional(),
-        gstNumber: z.string().nullable().optional(),
+        gstNumber: gstinSchema.nullable().optional(),
         taxCalculationMode: taxCalculationModeSchema.optional(),
         cashierMaxDiscountPercent: z.number().min(0).max(100).optional(),
         customerScope: customerScopeSchema.optional(),
-        timezone: timeZoneSchema.optional()
+        timezone: timeZoneSchema.optional(),
+        hsnMinDigits: z.union([z.literal(4), z.literal(6)]).optional()
       }),
       responses: { 200: businessSettingsSchema }
+    },
+    taxpayerType: {
+      method: 'GET',
+      path: '/business/taxpayer-type',
+      responses: { 200: taxpayerTypeSummarySchema }
+    },
+    changeTaxpayerType: {
+      method: 'POST',
+      path: '/business/taxpayer-type',
+      body: z
+        .object({
+          taxpayerType: taxpayerTypeSchema,
+          compositionCategory: compositionCategorySchema.nullable().optional(),
+          /** Today or later, in the business time zone. */
+          effectiveDate: calendarDateSchema
+        })
+        .refine((body) => (body.taxpayerType === 'COMPOSITION') === !!body.compositionCategory, {
+          message: 'A composition taxpayer needs a category, and a regular one must not have one',
+          path: ['compositionCategory']
+        }),
+      responses: { 201: taxpayerTypeSummarySchema }
+    },
+    cancelTaxpayerTypeChange: {
+      method: 'DELETE',
+      path: '/business/taxpayer-type/:id',
+      body: z.undefined(),
+      responses: { 200: taxpayerTypeSummarySchema }
     }
   },
   branches: {
@@ -471,15 +756,19 @@ export const appContract = c.router({
         name: requiredText.optional(),
         code: documentCodeSchema.optional(),
         logoUrl: z.string().nullable().optional(),
-        invoicePrefix: documentCodeSchema.optional(),
+        /** Invoice series: invoices are numbered {series}/{FY}/{number}, e.g. MAIN/2627/00001. */
+        invoicePrefix: documentSeriesSchema.optional(),
         receiptPrefix: documentCodeSchema.optional(),
-        returnPrefix: documentCodeSchema.optional(),
+        /** Credit note (return) series, numbered like invoices. */
+        returnPrefix: documentSeriesSchema.optional(),
         invoiceHeader: z.string().nullable().optional(),
         invoiceFooter: z.string().nullable().optional(),
         receiptHeader: z.string().nullable().optional(),
         receiptFooter: z.string().nullable().optional(),
         invoiceCss: receiptCssSchema.nullable().optional(),
-        receiptCss: receiptCssSchema.nullable().optional()
+        receiptCss: receiptCssSchema.nullable().optional(),
+        gstin: gstinSchema.nullable().optional(),
+        stateCode: gstStateCodeSchema.nullable().optional()
       }),
       responses: { 200: branchSettingsSchema }
     }
@@ -635,6 +924,11 @@ export const appContract = c.router({
         saleUoms: saleUomInputListSchema.optional(),
         taxMode: taxModeSchema.optional(),
         taxRate: taxRateSchema,
+        hsnCode: hsnCodeSchema.nullable().optional(),
+        /** Defaults to the UQC the unit name suggests (PCS, KGS...). */
+        uqc: gstUqcSchema.nullable().optional(),
+        /** Defaults from the tax rate: TAXABLE above 0%, else NIL_RATED. */
+        supplyType: gstSupplyTypeSchema.optional(),
         // A relative /uploads/... path from the upload endpoint, or a full URL.
         imageUrl: z.string().optional()
       }),
@@ -654,6 +948,9 @@ export const appContract = c.router({
         saleUoms: saleUomInputListSchema.optional(),
         taxMode: taxModeSchema.optional(),
         taxRate: taxRateSchema.optional(),
+        hsnCode: hsnCodeSchema.nullable().optional(),
+        uqc: gstUqcSchema.nullable().optional(),
+        supplyType: gstSupplyTypeSchema.optional(),
         imageUrl: z.string().nullable().optional(),
         isActive: z.boolean().optional()
       }),
@@ -780,6 +1077,7 @@ export const appContract = c.router({
     },
     getByInvoice: {
       method: 'GET',
+      // The invoice id, or its number URL-encoded (numbers contain '/', e.g. MAIN%2F2627%2F00001).
       path: '/receipts/by-invoice/:invoiceId',
       responses: { 200: z.array(receiptSchema) }
     }

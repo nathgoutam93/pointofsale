@@ -19,7 +19,7 @@ describe('branch isolation', () => {
     const sale = await t.ok('POST', '/sales/checkout', a.token, checkoutBody(a.branch.id, customer.id, [line(item.id)], [{ mode: 'CASH', amount: 100 }]));
     const receipts = await t.ok('GET', `/receipts/by-invoice/${sale.invoice.id}`, a.token);
 
-    for (const path of [`/sales/${sale.invoice.id}`, `/receipts/${receipts[0].id}`, `/receipts/by-invoice/${sale.invoice.id}`, `/receipts/by-invoice/${sale.invoice.invoiceNo}`]) {
+    for (const path of [`/sales/${sale.invoice.id}`, `/receipts/${receipts[0].id}`, `/receipts/by-invoice/${sale.invoice.id}`, `/receipts/by-invoice/${encodeURIComponent(sale.invoice.invoiceNo)}`]) {
       expect((await t.call('GET', path, a.token)).status, path).toBe(200);
       expect((await t.call('GET', path, b.token)).status, path).toBe(404);
     }

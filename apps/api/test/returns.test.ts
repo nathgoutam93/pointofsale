@@ -38,7 +38,8 @@ describe('returns', () => {
     for (let i = 0; i < 3; i++) {
       amounts.push(Number((await ret(sale, [{ saleLineId: sale.lines[0].id, qty: 1 }])).body.totalAmount));
     }
-    expect(amounts).toEqual([66.67, 66.67, 66.66]);
+    expect(amounts).toEqual([66.67, 66.66, 66.67]);
+    expect(amounts.reduce((acc, amount) => acc + amount, 0)).toBeCloseTo(200, 10);
     expect((await ret(sale, [{ saleLineId: sale.lines[0].id, qty: 1 }])).status).toBe(400);
   });
 

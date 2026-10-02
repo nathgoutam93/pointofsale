@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, ParseUUIDPipe, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { join } from 'path';
 import { appContract } from '@pos/contracts';
@@ -28,11 +28,39 @@ export class SettingsController {
       cashierMaxDiscountPercent?: number;
       customerScope?: 'SHARED' | 'BRANCH';
       timezone?: string;
+      hsnMinDigits?: 4 | 6;
     },
     @Headers() headers: RequestHeaders
   ) {
     requireAdmin(getSession(headers));
     return this.settings.updateBusinessSettings(body);
+  }
+
+  @Get('/business/taxpayer-type')
+  getTaxpayerType(@Headers() headers: RequestHeaders) {
+    getSession(headers);
+    return this.settings.getTaxpayerTypeSummary();
+  }
+
+  @Post('/business/taxpayer-type')
+  changeTaxpayerType(
+    @Body(new ZodValidationPipe(appContract.business.changeTaxpayerType.body))
+    body: {
+      taxpayerType: 'REGULAR' | 'COMPOSITION';
+      compositionCategory?: 'MANUFACTURER' | 'TRADER' | 'RESTAURANT' | 'SERVICES' | null;
+      effectiveDate: string;
+    },
+    @Headers() headers: RequestHeaders
+  ) {
+    const session = getSession(headers);
+    requireAdmin(session);
+    return this.settings.changeTaxpayerType(session, body);
+  }
+
+  @Delete('/business/taxpayer-type/:id')
+  cancelTaxpayerTypeChange(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
+    requireAdmin(getSession(headers));
+    return this.settings.cancelTaxpayerTypeChange(id);
   }
 
   @Post('/business/logo')
@@ -86,6 +114,8 @@ export class SettingsController {
       receiptFooter?: string | null;
       invoiceCss?: string | null;
       receiptCss?: string | null;
+      gstin?: string | null;
+      stateCode?: string | null;
     },
     @Headers() headers: RequestHeaders
   ) {

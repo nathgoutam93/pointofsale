@@ -1,4 +1,4 @@
-import type { DiscountInput } from '@pos/contracts';
+import type { DiscountInput, GstSupplyType } from '@pos/contracts';
 import { PaymentMode, UserRole } from '@prisma/client';
 
 export type SessionUser = {
@@ -23,6 +23,10 @@ export type SaleLineInput = {
   listRate?: number;
   /** Item cost per base unit at the time of sale; set by the server. */
   unitCost?: number;
+  /** The item's GST details at the time of sale; set by the server. */
+  hsnCode?: string | null;
+  uqc?: string | null;
+  supplyType?: GstSupplyType;
   saleUom?: string;
   saleUomQty?: number;
   saleUomConversionQty?: number;
@@ -38,6 +42,8 @@ export type CreateSaleInput = {
   walkInCustomerPhone?: string | null;
   lines: SaleLineInput[];
   discounts?: DiscountInput[];
+  /** Set when goods are shipped to another state; defaults to the branch's state. */
+  placeOfSupplyStateCode?: string;
   /** From POST /sales/checkout only; see checkoutSale. */
   idempotencyKey?: string;
 };
@@ -46,6 +52,9 @@ export type ComputedSaleLine = SaleLineInput & {
   discountAmount: number;
   taxableAmount: number;
   taxAmount: number;
+  cgstAmount: number;
+  sgstAmount: number;
+  igstAmount: number;
   netAmount: number;
   grossAmount: number;
   baseExclusive: number;

@@ -57,6 +57,34 @@ enum TaxCalculationMode {
   BEFORE_DISCOUNT
 }
 
+/// GST registration type. COMPOSITION pays a flat rate on turnover and may not charge GST to customers.
+enum TaxpayerType {
+  REGULAR
+  COMPOSITION
+}
+
+/// Sets the composition rate: 1% for manufacturers and traders, 5% for restaurants, 6% for services.
+enum CompositionCategory {
+  MANUFACTURER
+  TRADER
+  RESTAURANT
+  SERVICES
+}
+
+/// How GST treats an item's sales. TAXABLE has a rate above 0; the rest are 0% and reported separately.
+enum GstSupplyType {
+  TAXABLE
+  NIL_RATED
+  EXEMPT
+  NON_GST
+}
+
+/// A regular taxpayer issues a Tax Invoice; a composition taxpayer issues a Bill of Supply.
+enum GstDocumentType {
+  TAX_INVOICE
+  BILL_OF_SUPPLY
+}
+
 enum DiscountScope {
   ITEM
   ORDER
@@ -72,17 +100,26 @@ model Branch {
   name        String
   code        String       @unique
   logoUrl     String?
-  invoicePrefix String     @default("INV")
+  /// GST invoice series: invoices are numbered {series}/{FY}/{number}, e.g. MAIN/2627/00001.
+  /// Up to 5 letters or digits, unique across branches (set from the branch code when created).
+  invoicePrefix String     @unique
   receiptPrefix String     @default("RCPT")
-  returnPrefix  String     @default("RTN")
+  /// Credit note (return) series, numbered like invoices; unique across branches.
+  returnPrefix  String     @unique
   invoiceHeader String?
   invoiceFooter String?
   receiptHeader String?
   receiptFooter String?
   invoiceCss   String?
   receiptCss   String?
+  /// The branch's own GSTIN. When empty, the business GSTIN is used if it is for this branch's state.
+  gstin        String?
+  /// Two-digit GST state code of where the branch is; an over-the-counter sale's place of supply.
+  stateCode    String?
+  /// Before GST numbering: invoices and returns now count in DocumentSequence.
   invoiceSeq  Int          @default(0)
   receiptSeq  Int          @default(0)
+  /// Before GST numbering: see invoiceSeq.
   returnSeq   Int          @default(0)
   customerSeq Int          @default(0)
   users       User[]
@@ -107,8 +144,45 @@ model BusinessSettings {
   customerScope      CustomerScope      @default(SHARED)
   /// IANA time zone that report periods (Today, This Week, This Month) are worked out in.
   timezone           String             @default("Asia/Kolkata")
+  /// Shortest HSN code accepted on items: 4 (turnover up to ₹5 crore) or 6.
+  hsnMinDigits       Int                @default(4)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
+}
+
+enum DocumentKind {
+  INVOICE
+  RETURN
+}
+
+/// The last number issued in each GST document series per financial year (start year).
+/// Counted per series rather than per branch, so a series handed to another branch carries on.
+model DocumentSequence {
+  kind       DocumentKind
+  series     String
+  fiscalYear Int
+  lastSeq    Int          @default(0)
+
+  @@id([kind, series, fiscalYear])
+}
+
+/// Each change of the business's GST registration type. The type in force at a moment is
+/// the latest row whose effectiveFrom is at or before it (ties: the later createdAt); with
+/// no rows the business is REGULAR. Rows are never edited; a change not yet in force can
+/// be deleted.
+model TaxpayerTypeChange {
+  id                  String               @id @default(uuid())
+  taxpayerType        TaxpayerType
+  compositionCategory CompositionCategory?
+  /// The calendar date the change takes effect (YYYY-MM-DD), as the admin entered it.
+  effectiveDate       String
+  /// The instant that date began in the business time zone when the change was saved.
+  effectiveFrom       DateTime
+  createdBy           String
+  createdByName       String
+  createdAt           DateTime             @default(now())
+
+  @@index([effectiveFrom])
 }
 
 model User {
@@ -208,6 +282,11 @@ model Item {
   mrp         Decimal         @default(0) @db.Decimal(14, 2)
   taxMode     TaxMode         @default(EXCLUSIVE)
   taxRate     Decimal         @db.Decimal(5, 2)
+  /// HSN (goods) or SAC (services) code: 4, 6 or 8 digits. Null until entered.
+  hsnCode     String?
+  /// GST unit quantity code (PCS, KGS, LTR...) of the base unit `uom`.
+  uqc         String?
+  supplyType  GstSupplyType   @default(TAXABLE)
   imageUrl    String?
   isActive    Boolean         @default(true)
   lines       SaleInvoiceLine[]
@@ -280,10 +359,27 @@ model SaleInvoice {
   discountTotal       Decimal          @db.Decimal(14, 2)
   orderDiscountAmount Decimal     @default(0) @db.Decimal(14, 2)
   taxTotal            Decimal          @db.Decimal(14, 2)
+  /// taxTotal by kind; the sums of the lines' amounts.
+  cgstTotal           Decimal          @default(0) @db.Decimal(14, 2)
+  sgstTotal           Decimal          @default(0) @db.Decimal(14, 2)
+  igstTotal           Decimal          @default(0) @db.Decimal(14, 2)
   grandTotal          Decimal          @db.Decimal(14, 2)
   paidTotal           Decimal          @db.Decimal(14, 2)
   createdBy           String
   createdByName       String
+  /// The business's GST registration type when the sale was made; never changes afterwards.
+  taxpayerType        TaxpayerType     @default(REGULAR)
+  documentType        GstDocumentType  @default(TAX_INVOICE)
+  compositionCategory CompositionCategory?
+  /// The document series and financial year (start year, e.g. 2026 for 2026-27) of invoiceNo.
+  documentSeries      String?
+  fiscalYear          Int?
+  /// The GSTIN the sale was made under and the selling branch's state, as at the sale.
+  sellerGstin         String?
+  sellerStateCode     String?
+  /// Where the goods went: the branch's state for a counter sale, another state when shipped there.
+  /// It differs from sellerStateCode for an inter-state (IGST) sale. Null when the branch had no state.
+  placeOfSupplyStateCode String?
   lines               SaleInvoiceLine[]
   discounts           Discount[]
   payments            Payment[]
@@ -313,7 +409,15 @@ model SaleInvoiceLine {
   taxRate             Decimal              @db.Decimal(5, 2)
   taxableAmount       Decimal              @db.Decimal(14, 2)
   taxAmount           Decimal              @db.Decimal(14, 2)
+  /// taxAmount by kind: CGST + SGST within a state, IGST between states (see splitGst).
+  cgstAmount          Decimal              @default(0) @db.Decimal(14, 2)
+  sgstAmount          Decimal              @default(0) @db.Decimal(14, 2)
+  igstAmount          Decimal              @default(0) @db.Decimal(14, 2)
   netAmount           Decimal              @db.Decimal(14, 2)
+  /// The item's GST details when sold.
+  hsnCode             String?
+  uqc                 String?
+  supplyType          GstSupplyType        @default(TAXABLE)
   discountAllocations DiscountAllocation[]
   returnLines         ReturnInvoiceLine[]
 }
@@ -372,7 +476,16 @@ model ReturnInvoice {
   saleInvoiceId String
   saleInvoice   SaleInvoice        @relation(fields: [saleInvoiceId], references: [id])
   returnNo      String             @unique
+  /// The credit note series and financial year (start year) of returnNo.
+  documentSeries String?
+  fiscalYear    Int?
   totalAmount   Decimal            @db.Decimal(14, 2)
+  /// totalAmount split into taxable value and tax by kind; the sums of the lines'.
+  taxableTotal  Decimal            @default(0) @db.Decimal(14, 2)
+  taxTotal      Decimal            @default(0) @db.Decimal(14, 2)
+  cgstTotal     Decimal            @default(0) @db.Decimal(14, 2)
+  sgstTotal     Decimal            @default(0) @db.Decimal(14, 2)
+  igstTotal     Decimal            @default(0) @db.Decimal(14, 2)
   refundMode    PaymentMode
   /// The register the refund was given from; null for returns made before this was recorded.
   registerSessionId String?
@@ -390,5 +503,11 @@ model ReturnInvoiceLine {
   saleLineId      String
   saleLine        SaleInvoiceLine @relation(fields: [saleLineId], references: [id])
   qty             Decimal        @db.Decimal(14, 3)
+  /// The refund: taxableAmount + taxAmount. Prorated from the sale line (see returnLineAmounts).
   amount          Decimal        @db.Decimal(14, 2)
+  taxableAmount   Decimal        @default(0) @db.Decimal(14, 2)
+  taxAmount       Decimal        @default(0) @db.Decimal(14, 2)
+  cgstAmount      Decimal        @default(0) @db.Decimal(14, 2)
+  sgstAmount      Decimal        @default(0) @db.Decimal(14, 2)
+  igstAmount      Decimal        @default(0) @db.Decimal(14, 2)
 }

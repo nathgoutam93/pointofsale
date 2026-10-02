@@ -4,12 +4,14 @@ import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
 import { branchSummarySelect } from '../common/selects';
 import { CustomersService } from '../customers/customers.service';
+import { SequenceService } from '../sequences/sequences.service';
 
 @Injectable()
 export class BranchesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly customers: CustomersService
+    private readonly customers: CustomersService,
+    private readonly sequences: SequenceService
   ) {}
 
   async ensureUserHasBranchAccess(userId: string, branchId: string, tx?: Prisma.TransactionClient) {
@@ -37,7 +39,7 @@ export class BranchesService {
     try {
       const branch = await this.prisma.$transaction(async (tx) => {
         const created = await tx.branch.create({
-          data: { name, code },
+          data: { name, code, ...(await this.sequences.freeDocumentSeries(tx, code)) },
           select: branchSummarySelect
         });
 

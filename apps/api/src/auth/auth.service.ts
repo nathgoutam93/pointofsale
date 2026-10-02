@@ -8,6 +8,7 @@ import type { SessionUser } from '../common/types';
 import { toNumber } from '../common/numbers';
 import { branchSummarySelect } from '../common/selects';
 import { CustomersService } from '../customers/customers.service';
+import { SequenceService } from '../sequences/sequences.service';
 
 @Injectable()
 export class AuthService {
@@ -15,7 +16,8 @@ export class AuthService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly customers: CustomersService
+    private readonly customers: CustomersService,
+    private readonly sequences: SequenceService
   ) {}
 
   async login(username: string, password: string) {
@@ -134,11 +136,11 @@ export class AuthService {
   }
 
   async onModuleInitSeed() {
-    const branch = await this.prisma.branch.upsert({
-      where: { code: 'MAIN' },
-      update: {},
-      create: { name: 'Main Branch', code: 'MAIN' }
-    });
+    const branch =
+      (await this.prisma.branch.findUnique({ where: { code: 'MAIN' } })) ??
+      (await this.prisma.$transaction(async (tx) =>
+        tx.branch.create({ data: { name: 'Main Branch', code: 'MAIN', ...(await this.sequences.freeDocumentSeries(tx, 'MAIN')) } })
+      ));
 
     await this.seedFirstAdmin(branch.id);
     await this.hashPlaintextPasswords();

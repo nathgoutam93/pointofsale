@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { returnLineRefund, sanitizeReceiptCss } from "@pos/contracts";
+import { returnLineAmounts, sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import {
   buildReceiptLines,
@@ -275,16 +275,28 @@ export function ReturnsPage() {
         0,
       );
       const availableQty = Math.max(0, soldQty - alreadyReturned);
-      const alreadyRefunded = (line.returnLines ?? []).reduce(
-        (acc, returnedLine) => acc + Number(returnedLine.amount),
-        0,
+      // What earlier returns already took from this line, part by part.
+      const alreadyReturnedParts = (line.returnLines ?? []).reduce(
+        (acc, returnedLine) => ({
+          taxable: round2(acc.taxable + Number(returnedLine.taxableAmount)),
+          cgst: round2(acc.cgst + Number(returnedLine.cgstAmount)),
+          sgst: round2(acc.sgst + Number(returnedLine.sgstAmount)),
+          igst: round2(acc.igst + Number(returnedLine.igstAmount)),
+        }),
+        { taxable: 0, cgst: 0, sgst: 0, igst: 0 },
       );
       const returnQty = Number(lineQtyMap[line.id] ?? 0);
-      const amount = returnLineRefund({
-        lineNet: Number(line.netAmount),
+      // The same calculation the server makes, so the amount shown is the amount refunded.
+      const { amount } = returnLineAmounts({
+        line: {
+          taxable: Number(line.taxableAmount),
+          cgst: Number(line.cgstAmount),
+          sgst: Number(line.sgstAmount),
+          igst: Number(line.igstAmount),
+        },
         soldQty,
         alreadyReturnedQty: alreadyReturned,
-        alreadyRefunded,
+        alreadyReturned: alreadyReturnedParts,
         qty: returnQty,
       });
       const leastCount = itemLeastCountById.get(line.itemId) ?? 1;

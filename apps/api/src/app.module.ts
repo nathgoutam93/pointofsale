@@ -7,6 +7,8 @@ import { BranchesController } from './branches/branches.controller';
 import { BranchesService } from './branches/branches.service';
 import { CustomersController } from './customers/customers.controller';
 import { CustomersService } from './customers/customers.service';
+import { GstController } from './gst/gst.controller';
+import { GstService } from './gst/gst.service';
 import { ItemsController } from './items/items.controller';
 import { ItemsService } from './items/items.service';
 import { PrismaService } from './prisma.service';
@@ -38,7 +40,8 @@ import { UsersService } from './users/users.service';
     StockController,
     SalesController,
     ReturnsController,
-    ReportsController
+    ReportsController,
+    GstController
   ],
   providers: [
     PrismaService,
@@ -54,6 +57,7 @@ import { UsersService } from './users/users.service';
     SalesService,
     ReturnsService,
     ReportsService,
+    GstService,
     { provide: APP_GUARD, useClass: AuthGuard }
   ]
 })

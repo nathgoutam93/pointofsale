@@ -6,6 +6,8 @@ export type ReceiptLine = {
 export type ReceiptMetadata = {
   label: string;
   value: string;
+  /** Print as "label: value" on its own (wrapped) line, so a long label isn't cut short. */
+  fullLine?: boolean;
 };
 
 export type ReceiptItem = {
@@ -232,6 +234,8 @@ export const buildReceiptLines = (params: {
   width?: number;
   storeName: string;
   headerLines?: string[];
+  /** The document's name under the header, e.g. TAX INVOICE. */
+  title?: string;
   metadata?: ReceiptMetadata[];
   items?: ReceiptItem[];
   totals?: ReceiptTotal[];
@@ -246,12 +250,21 @@ export const buildReceiptLines = (params: {
   const pushLine = (text: string, strong = false) => {
     lines.push({ text, strong });
   };
+  // Centred text wraps onto more lines rather than being cut off at the paper's width
+  // (a composition declaration must be printed in full).
+  const pushCentered = (text: string, strong = false) => {
+    wrapText(text, layout.width).forEach((line) => pushLine(fitCenter(line, layout.width), strong));
+  };
 
-  pushLine(fitCenter(params.storeName, layout.width), true);
+  pushCentered(params.storeName, true);
 
   (params.headerLines ?? []).forEach((line) => {
-    pushLine(fitCenter(line, layout.width));
+    pushCentered(line);
   });
+
+  if (params.title) {
+    pushCentered(params.title, true);
+  }
 
   pushLine(separator);
 
@@ -260,11 +273,18 @@ export const buildReceiptLines = (params: {
   );
 
   if (metadata.length > 0) {
+    const columnEntries = metadata.filter((entry) => !entry.fullLine);
     const labelWidth = Math.min(
-      Math.max(...metadata.map((entry) => entry.label.length)),
+      Math.max(0, ...columnEntries.map((entry) => entry.label.length)),
       Math.floor(layout.width * 0.4),
     );
     metadata.forEach((entry) => {
+      if (entry.fullLine) {
+        wrapText(`${entry.label}: ${entry.value}`, layout.width).forEach((line) =>
+          pushLine(fitLeft(line, layout.width)),
+        );
+        return;
+      }
       pushLine(
         formatKeyValueLine(entry.label, entry.value, layout.width, labelWidth),
       );
@@ -337,7 +357,7 @@ export const buildReceiptLines = (params: {
   }
 
   (params.footerLines ?? []).forEach((line) => {
-    pushLine(fitCenter(line, layout.width));
+    pushCentered(line);
   });
 
   return { lines, layout };

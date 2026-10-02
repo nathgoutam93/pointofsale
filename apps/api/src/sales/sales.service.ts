@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { DiscountScope, InvoiceStatus, PaymentMode, Prisma, StockTxnType, UserRole, WalletTxnType } from '@prisma/client';
-import { computeSaleTotals, exclusiveBase, resolveDiscountAmounts } from '@pos/contracts';
+import { DiscountScope, DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, TaxpayerType, UserRole, WalletTxnType } from '@prisma/client';
+import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, resolveDiscountAmounts } from '@pos/contracts';
 import type { DiscountInput } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import type { PaymentInput, SessionUser, SaleLineInput, CreateSaleInput, ComputedSaleLine } from '../common/types';
@@ -97,14 +97,15 @@ export class SalesService {
   private assertWithinCashierDiscountLimit(
     lines: SaleLineInput[],
     computedLines: ComputedSaleLine[],
-    maxPercent: number
+    maxPercent: number,
+    chargeTax: boolean
   ) {
+    // The list total on the same footing as the sale: without tax taken out when none is charged.
     const listTotal = round2(
-      lines.reduce(
-        (acc, line) =>
-          acc + exclusiveBase(round2(this.pricingQty(line) * (line.listRate ?? line.rate)), line.taxMode, line.taxRate),
-        0
-      )
+      lines.reduce((acc, line) => {
+        const listGross = round2(this.pricingQty(line) * (line.listRate ?? line.rate));
+        return acc + (chargeTax ? exclusiveBase(listGross, line.taxMode, line.taxRate) : listGross);
+      }, 0)
     );
     if (listTotal <= 0) return;
     const finalTotal = round2(computedLines.reduce((acc, line) => acc + line.taxableAmount, 0));
@@ -118,18 +119,38 @@ export class SalesService {
     }
   }
 
+  /**
+   * Where a sale's goods go: the branch's state for a counter sale, or the state they are
+   * shipped to. A composition taxpayer may not sell goods to another state.
+   */
+  private resolvePlaceOfSupply(branchStateCode: string | null, requested: string | undefined, taxpayerType: TaxpayerType) {
+    if (!requested) return branchStateCode;
+    if (!branchStateCode) {
+      throw new BadRequestException("Set this branch's state in Branch Settings before choosing a place of supply");
+    }
+    if (requested !== branchStateCode && taxpayerType === 'COMPOSITION') {
+      throw new BadRequestException("A composition taxpayer can't sell goods to another state");
+    }
+    return requested;
+  }
+
   /** The sale's amounts, from the maths shared with the POS (@pos/contracts computeSaleTotals). */
   private calculateSaleTotals(
     lines: SaleLineInput[],
     orderDiscounts: DiscountInput[] | undefined,
-    taxCalculationMode: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT'
+    taxCalculationMode: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT',
+    chargeTax: boolean,
+    interState: boolean
   ) {
-    const totals = computeSaleTotals(lines, orderDiscounts, taxCalculationMode);
+    const totals = computeSaleTotals(lines, orderDiscounts, taxCalculationMode, { chargeTax, interState });
     const computedLines: ComputedSaleLine[] = totals.lines.map((entry) => ({
       ...entry.line,
       discountAmount: entry.discountAmount,
       taxableAmount: entry.taxable,
       taxAmount: entry.tax,
+      cgstAmount: entry.cgst,
+      sgstAmount: entry.sgst,
+      igstAmount: entry.igst,
       netAmount: entry.net,
       grossAmount: entry.gross,
       baseExclusive: entry.baseExclusive,
@@ -143,6 +164,9 @@ export class SalesService {
       discountTotal: totals.discountTotal,
       orderDiscountTotal: totals.orderDiscountTotal,
       taxTotal: totals.taxTotal,
+      cgstTotal: totals.cgstTotal,
+      sgstTotal: totals.sgstTotal,
+      igstTotal: totals.igstTotal,
       grandTotal: totals.grandTotal
     };
   }
@@ -160,6 +184,12 @@ export class SalesService {
 
     await this.settings.ensureBranchExists(input.branchId, tx);
     const businessSettings = await this.settings.ensureBusinessSettings(tx);
+    // The registration type now decides the bill: a composition taxpayer may not charge GST.
+    const taxpayer = await this.settings.taxpayerTypeAt(new Date(), tx);
+    const chargeTax = chargesGst(taxpayer.taxpayerType);
+    const seller = await this.settings.gstRegistrationFor(input.branchId, tx);
+    const placeOfSupplyStateCode = this.resolvePlaceOfSupply(seller.stateCode, input.placeOfSupplyStateCode, taxpayer.taxpayerType);
+    const interState = !!seller.stateCode && !!placeOfSupplyStateCode && placeOfSupplyStateCode !== seller.stateCode;
     const customer = await tx.customer.findUnique({
       where: { id: input.customerId },
       select: { id: true, branchId: true, name: true, phone: true, isWalkIn: true }
@@ -197,6 +227,9 @@ export class SalesService {
           costPrice: true,
           taxRate: true,
           taxMode: true,
+          hsnCode: true,
+          uqc: true,
+          supplyType: true,
           isActive: true,
           saleUoms: { select: { uom: true, conversionQty: true, sellPrice: true, isDefault: true } }
         }
@@ -213,6 +246,9 @@ export class SalesService {
         ...line,
         ...pricing,
         unitCost: toNumber(item.costPrice),
+        hsnCode: item.hsnCode,
+        uqc: item.uqc,
+        supplyType: item.supplyType,
         itemId: normalizedItemId,
         itemName: item.name,
         discounts: line.discounts ?? []
@@ -234,8 +270,11 @@ export class SalesService {
       }
     }
 
-    const seq = await this.sequences.nextSequence(input.branchId, 'invoice', tx);
-    const invoiceNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
+    const { number: invoiceNo, series: documentSeries, fiscalYear } = await this.sequences.nextDocumentNumber(
+      tx,
+      input.branchId,
+      DocumentKind.INVOICE
+    );
 
     const {
       computedLines,
@@ -244,17 +283,23 @@ export class SalesService {
       discountTotal,
       orderDiscountTotal,
       taxTotal,
+      cgstTotal,
+      sgstTotal,
+      igstTotal,
       grandTotal
     } = this.calculateSaleTotals(
       normalizedLines,
       input.discounts ?? [],
-      businessSettings.taxCalculationMode
+      businessSettings.taxCalculationMode,
+      chargeTax,
+      interState
     );
     if (session.role !== UserRole.ADMIN) {
       this.assertWithinCashierDiscountLimit(
         normalizedLines,
         computedLines,
-        toNumber(businessSettings.cashierMaxDiscountPercent)
+        toNumber(businessSettings.cashierMaxDiscountPercent),
+        chargeTax
       );
     }
 
@@ -262,6 +307,8 @@ export class SalesService {
       data: {
         branchId: input.branchId,
         invoiceNo,
+        documentSeries,
+        fiscalYear,
         idempotencyKey: input.idempotencyKey,
         customerId: input.customerId,
         customerName: invoiceCustomerName,
@@ -271,10 +318,19 @@ export class SalesService {
         discountTotal,
         orderDiscountAmount: orderDiscountTotal,
         taxTotal,
+        cgstTotal,
+        sgstTotal,
+        igstTotal,
         grandTotal,
         paidTotal: 0,
         createdBy: session.userId,
-        createdByName: createdByUser.username
+        createdByName: createdByUser.username,
+        taxpayerType: taxpayer.taxpayerType,
+        documentType: documentTypeFor(taxpayer.taxpayerType),
+        compositionCategory: taxpayer.compositionCategory,
+        sellerGstin: seller.gstin,
+        sellerStateCode: seller.stateCode,
+        placeOfSupplyStateCode
       },
       select: { id: true }
     });
@@ -299,7 +355,13 @@ export class SalesService {
             taxRate: line.taxRate,
             taxableAmount: line.taxableAmount,
             taxAmount: line.taxAmount,
-            netAmount: line.netAmount
+            cgstAmount: line.cgstAmount,
+            sgstAmount: line.sgstAmount,
+            igstAmount: line.igstAmount,
+            netAmount: line.netAmount,
+            hsnCode: line.hsnCode,
+            uqc: line.uqc,
+            supplyType: line.supplyType
           },
           select: { id: true, itemId: true }
         })
@@ -614,7 +676,12 @@ export class SalesService {
                 id: true,
                 returnInvoiceId: true,
                 qty: true,
-                amount: true
+                amount: true,
+                taxableAmount: true,
+                taxAmount: true,
+                cgstAmount: true,
+                sgstAmount: true,
+                igstAmount: true
               }
             }
           }

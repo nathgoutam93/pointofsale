@@ -162,7 +162,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
 - The B2CL threshold (an inter-state B2C invoice above which it is reported individually) has changed recently. Check the current value and keep it in one constant.
 - The GST rules in this phase come from a design discussion, not a legal review. Have a chartered accountant check one month of real output before anyone files with it.
 
-### [ ] 30. Taxpayer type setting
+### [x] 30. Taxpayer type setting
 - **Where:** `BusinessSettings` (Prisma), `settings/` service and controller, admin settings screen, contracts.
 - **Change:**
   - Add `taxpayerType` (`REGULAR` | `COMPOSITION`).
@@ -172,7 +172,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
 - **On each `SaleInvoice`:** store `taxpayerType` and `documentType` (`TAX_INVOICE` | `BILL_OF_SUPPLY`), set at checkout.
 - **Backfill:** existing invoices become `REGULAR` / `TAX_INVOICE`.
 
-### [ ] 31. Branch GSTIN, state and place of supply
+### [x] 31. Branch GSTIN, state and place of supply
 - **Where:** `Branch` model and admin branch screen; `SaleInvoice`; the POS customer section.
 - **Change:**
   - Each branch gets `gstin` and `stateCode`. Validate the GSTIN checksum, and check that its first two digits match the state code.
@@ -180,7 +180,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - Each sale stores `placeOfSupplyStateCode`. It defaults to the branch's state (an over-the-counter sale is intra-state). The POS lets the cashier set a delivery state when goods are shipped to another state.
 - **Rule:** intra-state means CGST+SGST; inter-state means IGST. A composition business can't pick a different state: the API rejects it, and the POS hides the option.
 
-### [ ] 32. Item HSN, GST unit and supply type
+### [x] 32. Item HSN, GST unit and supply type
 - **Where:** `Item` and `ItemSaleUom` models; the item admin screen and import.
 - **Change:**
   - Add `hsnCode`, validated against the length setting from the assumptions.
@@ -189,15 +189,15 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
 - **Backfill:** existing items get `TAXABLE` (or `NIL_RATED` when the rate is 0) and an empty HSN. The return builder lists every sold item with no HSN, so the admin can fill them in before exporting.
 - **Copied onto each sale line at sale time:** `hsnCode`, `uqc` and `supplyType`, the same way `listRate` is copied.
 
-### [ ] 33. Store the tax split on every sale line
+### [x] 33. Store the tax split on every sale line
 - **Where:** `@pos/contracts` pricing (`computeSaleTotals`, `lineTax`), `SaleInvoiceLine`, the sales service.
 - **Change:**
   - Store `cgstAmount`, `sgstAmount` and `igstAmount` per line next to `taxAmount`. Intra-state, CGST = round half down to the paisa and SGST = tax − CGST, so the two always add up to the tax (₹15.25 → 7.62 + 7.63).
-  - Pricing gets an input for the taxpayer type: composition means no tax on the bill (tax 0, net = taxable).
+  - (Done in #30: under composition, pricing charges no tax.)
   - The API and POS share this function, so both change together. Add tests for the split, odd paise, inter-state and composition.
 - **Backfill:** old lines become intra-state, with CGST/SGST split the same way.
 
-### [ ] 34. Store taxable value and tax on return lines
+### [x] 34. Store taxable value and tax on return lines
 - **Where:** `ReturnInvoiceLine`, the returns service, `returnLineRefund`.
 - **Problem:** return lines store only the refund amount. Credit notes and the period's net B2C figures need the taxable value and the tax split.
 - **Change:**
@@ -205,14 +205,14 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - The last units returned take exactly what is left, so a line returned in parts adds back up to the sale line.
 - **Backfill:** split stored refund amounts for existing returns using each sale line's ratio of taxable value to tax.
 
-### [ ] 35. Tax Invoice and Bill of Supply documents
+### [x] 35. Tax Invoice and Bill of Supply documents
 - **Where:** `apps/web/src/screens/pos/receipt.ts`, the printable and downloadable invoice, and the Sales page reprint.
 - **Change:**
   - Regular taxpayers: the title is "Tax Invoice". Show the branch GSTIN, place of supply when it differs from the branch state, HSN per line, and CGST/SGST or IGST totals.
   - Composition: the title is "Bill of Supply", with no tax lines and the required declaration ("composition taxable person, not eligible to collect tax on supplies").
   - Use the type stored on the invoice, never the current setting.
 
-### [ ] 36. Invoice numbers per financial year
+### [x] 36. Invoice numbers per financial year
 - **Where:** `sequences/` and `Branch` invoice and return sequences.
 - **Problem:** GST invoice numbers must be at most 16 characters and unique within a financial year. Today's numbers (`INV-MAIN-000526`) never restart.
 - **Change:**
@@ -220,7 +220,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - Check the 16-character limit when the admin saves a prefix.
   - Keep counts of issued and cancelled documents per series, for the document summary in GSTR-1.
 
-### [ ] 37. GSTR-1 export (regular)
+### [x] 37. GSTR-1 export (regular)
 - **Where:** a new `gst/` module in the API, and an admin "GST returns" screen.
 - **Change:**
   - Pick a GSTIN and a period (monthly, or quarterly for small taxpayers).
@@ -235,13 +235,13 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - Show a preview and a list of problems to fix (missing HSN, bad GSTIN) before the JSON can be downloaded.
 - **Verify:** import the JSON into the government's GST offline tool. The format changes from time to time, so record which version it was built against.
 
-### [ ] 38. GSTR-3B summary (regular)
+### [x] 38. GSTR-3B summary (regular)
 - **Change:** a report of the sales figures for GSTR-3B:
   - Table 3.1: outward taxable, nil/exempt and non-GST, with tax by type.
   - Table 3.2: inter-state supplies to unregistered buyers, by state.
 - **Limits:** input tax credit needs purchase bills, which this system doesn't record, so this is a report for the admin to copy from, not a complete return.
 
-### [ ] 39. CMP-08 and GSTR-4 figures (composition)
+### [x] 39. CMP-08 and GSTR-4 figures (composition)
 - **Change:**
   - **CMP-08 (quarterly):** turnover of `COMPOSITION` invoices net of returns, and tax at the composition rate split into CGST and SGST. It is only a few figures, so a report is enough.
   - **GSTR-4 (yearly):** the outward summary. Purchases aren't recorded, so as with 3B this is partial.
@@ -594,3 +594,215 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
     - A browser snapshot of the POS (21 sections: search tiles, categories, the line editor by keypad and keyboard, order discount, customer create and select, payment, receipt text, downloaded invoice, page errors) is identical before and after each step.
     - The draft checks (20), checkout, rounding, cashier limit, close register, discount match, idempotent retry and walk-in browser flows pass.
     - The new unit test covers the two-unit edit and the cart's `-`/`+` buttons. Type check, web build and all 88 tests pass.
+- **2026-10-02 (session 3): Phase 6 started on branch `feat/gst-compliance`** (based on `fix/auth-hardening`, whose PR is nathgoutam93/pointofsale#1). The user confirmed: the taxpayer type can be changed later, regular taxpayers can sell inter-state, and B2B is out of scope for now.
+- **#30 done.** The taxpayer type is a setting that changes over time, and each sale records the type it was made under.
+  - Schema:
+    - New `TaxpayerTypeChange` table: type, composition category, `effectiveDate` (YYYY-MM-DD) and `effectiveFrom` (the instant it takes effect), plus who made the change.
+    - The type in force at any moment is the latest change at or before it. With no changes, the business is REGULAR.
+    - `SaleInvoice` gets `taxpayerType`, `documentType` (TAX_INVOICE / BILL_OF_SUPPLY) and `compositionCategory`. Existing invoices default to REGULAR / TAX_INVOICE.
+    - Database checks make sure a composition row always has a category and a regular row never does.
+    - Migration: `20261003090000_taxpayer_type`. Prisma named it after the real clock time, which would have sorted before `item_stock`, so it was renamed to sort last.
+  - API:
+    - `GET /business/taxpayer-type` returns the type in force, any scheduled change, and the history.
+    - `POST` (admin) records a change from today or a later date, never backdated. A change for today starts the moment it is saved. Only one change can be scheduled at a time, and changing to the type already in force is rejected.
+    - `DELETE /business/taxpayer-type/:id` cancels a scheduled change; a change already in force can't be cancelled.
+    - `GET /business/settings` also returns `taxpayerType` and `compositionCategory`.
+    - Changing the business time zone moves scheduled changes, so each still starts at midnight on its date.
+  - Pricing:
+    - `computeSaleTotals` takes `{ chargeTax }`. With `false` (composition), every line is priced untaxed: the customer pays the shelf price less discounts, tax is 0, and lines are saved with rate 0.
+    - Checkout looks up the type in force, prices with it and records it on the invoice.
+    - The POS uses the same flag in its totals, the line total, and the line editor's percent discount and cap. Cart lines still carry each item's real rate, which the server checks.
+    - New file `packages/contracts/src/gst.ts`: types, composition rates (manufacturer and trader 1%, restaurant 5%, services 6%), `documentTypeFor`, `chargesGst`.
+  - Bug fixed: under composition, the cashier discount limit compared the list price with tax taken out against a price with tax still in. A cashier could take about 15% off a tax-inclusive item while the limit was 10%. Both sides now use the same tax treatment, and a test covers it.
+  - Admin screen: a "GST Registration Type" card on the Business Settings tab. It shows the type in force, any scheduled change (with Cancel), a form to change it (type, category with rate, effective date) and the history. A change for today asks for confirmation first.
+  - Verified:
+    - 9 new tests: 2 for pricing, 7 for the API. All 97 tests pass.
+    - Browser test: regular sale (tax 51.25, total 336, Tax Invoice); switch to composition in settings; the same cart shows tax 0 and total 300 in the cart and line editor; the server charges 300 on a Bill of Supply. Scheduling and cancelling a change also work.
+    - The POS snapshot is identical, and the earlier browser flows pass.
+  - Not yet: the receipt still prints the same layout for both types (#35), and inter-state blocking needs branch states (#31).
+- **#31 done.** Each branch has a GSTIN and a state, and each sale records the seller and where the goods went.
+  - Contracts (`gst.ts`):
+    - `GST_STATES`: codes 01–38 and 97. The retired 25 (merged into 26) and 28 (undivided Andhra Pradesh) are left out.
+    - `gstinProblem`: checks the format, state code and check character. The checksum was confirmed against three published GSTINs.
+    - Request schemas upper-case and validate every GSTIN, including the business `gstNumber`. A business with a mistyped GSTIN now has to fix it before saving other business settings.
+  - Branch:
+    - New fields `gstin` and `stateCode`. Setting a GSTIN sets the state from it.
+    - Moving a branch with a GSTIN to another state is rejected unless the GSTIN changes too. A database check backs this up.
+    - The GSTIN a branch sells under is its own GSTIN; otherwise the business GSTIN, when that is for the branch's state (or the branch's state isn't set).
+  - Sale:
+    - New fields: `sellerGstin`, `sellerStateCode` and `placeOfSupplyStateCode`.
+    - Checkout takes an optional `placeOfSupplyStateCode` and otherwise uses the branch's state.
+    - Rejected: naming a place of supply when the branch has no state, and a composition taxpayer selling to another state.
+    - Tax amounts don't change yet; the CGST/SGST vs IGST split comes in #33.
+  - Migration `20261003100000_branch_gst_state`: each branch gets the state from the business GSTIN when the business has one, and old sales are treated as counter sales under it. Checked with a dry run in a rolled-back transaction: all 33 dev branches and 664 sales filled in.
+  - Admin: GSTIN and State fields in Branch Settings. Typing a GSTIN fills in the state, and invalid GSTINs (branch and business) show the reason as you type.
+  - POS: a "Place of supply" choice in the customer section, defaulting to "Over the counter (29 - Karnataka)", with "Shipped to <state>" options and an "IGST applies" note. It is hidden for composition taxpayers and for branches with no state. It is saved with drafts and cleared on a new order.
+  - Verified:
+    - 13 new tests: 4 for GSTINs and states, 9 for the API. All 110 tests pass.
+    - Browser test: a typo is flagged; saving a GSTIN fills in the state; shipping to Maharashtra survives saving and resuming a draft; the server records seller 29 and place of supply 27; the next order is a counter sale (29); under composition the choice is hidden.
+    - The POS snapshot is identical, and the earlier browser flows pass.
+  - Not yet: receipts still print the business GSTIN. Printing the invoice's own GSTIN and place of supply comes in #35.
+- **#32 done.** Items have an HSN/SAC code, a GST unit (UQC) and a supply type, and each sale line keeps the values the item had when sold.
+  - Contracts (`gst.ts`):
+    - The 45 GST unit codes plus `NA` for services.
+    - `suggestUqc`: maps common unit names to a code (PCS, Pc, piece → PCS; Kg → KGS; Litre → LTR; Pkt → PAC...).
+    - Supply types: TAXABLE, NIL_RATED, EXEMPT, NON_GST. `defaultSupplyType` picks one from the rate; `supplyTypeProblem` rejects a mismatch.
+    - `hsnProblem`: 4, 6 or 8 digits, and at least the business minimum.
+  - Change from the plan: only the item's base unit gets a GST unit, not its extra selling units (like BOX). Sale lines store quantities in base units, and the HSN summary reports quantity in one unit per item.
+  - Business setting `hsnMinDigits`: 4 (turnover up to ₹5 crore) or 6.
+  - Item API:
+    - The supply type defaults from the tax rate (above 0 → taxable, 0 → nil rated). A mismatch such as exempt at 18% is rejected, with a database check as backup.
+    - When the rate changes and no supply type is given, the current one is kept while it still fits the rate; otherwise it switches to the rate's default.
+    - The GST unit defaults to the one suggested by the unit name.
+  - Sale lines: `hsnCode`, `uqc` and `supplyType` are copied from the item at checkout. A test confirms they don't change when the item is edited later.
+  - Migration `20261003110000_item_gst_details`:
+    - 0% items become nil rated.
+    - GST units are filled in from unit names, using SQL generated from `UOM_TO_UQC` so the two match.
+    - Sale lines take their item's values. HSN codes start empty.
+    - Dev data: 230 items (89 taxable, 141 nil rated, all PCS) and 703 sale lines filled in.
+  - Admin:
+    - Business Settings has an "HSN code length" choice.
+    - Both item forms have HSN/SAC code (with instant checks), GST unit (showing the suggestion from the unit name) and supply type (only the options that fit the rate).
+    - The item detail view shows these values, and the item list marks items missing an HSN code or GST unit.
+  - Existing bug fixed on the Items page: after Create Item, the page selected the new item before the list had refreshed. The selection then fell back to another item, so the detail panel and the Edit button were for the wrong item. The new item is now added to the list first.
+  - Verified:
+    - 10 new tests: 4 in contracts, 6 for the API. All 120 tests pass.
+    - Browser test: HSN length 6 saved; the list flags items without HSN; "Kg" suggests KGS; a 0% item offers nil rated, exempt and non-GST; 5- and 4-digit HSN codes are flagged; saved 100630 / KGS / EXEMPT; the detail view shows them; changing the rate to 5% makes it taxable. The run before the selection fix edited the wrong item.
+    - The POS snapshot is identical, and the earlier browser flows pass.
+- **#33 done.** Every sale line and invoice stores its tax as CGST + SGST or IGST.
+  - `splitGst(tax, interState)` in `@pos/contracts` pricing:
+    - Inter-state: all IGST.
+    - Within a state: CGST is the half rounded down to the paisa, SGST the rest (15.25 → 7.62 + 7.63).
+    - `computeSaleTotals` takes `{ interState }`, gives each line `cgst`, `sgst` and `igst`, and returns `cgstTotal`, `sgstTotal` and `igstTotal`.
+  - Inter-state means the place of supply differs from the branch's state. A branch with no state is treated as selling within its state. Composition sales have no tax, so every split is 0.
+  - Schema:
+    - `SaleInvoiceLine` gets `cgstAmount`, `sgstAmount` and `igstAmount`; `SaleInvoice` gets `cgstTotal`, `sgstTotal` and `igstTotal`.
+    - A database check makes each line's split add up to its tax, and stops a line having both IGST and CGST/SGST.
+  - Migration `20261003120000_sale_tax_split`:
+    - Old lines become IGST when their sale went to another state, otherwise CGST + SGST (using the same rounding as `splitGst`). Invoice totals are summed from their lines.
+    - Dev data: 2 IGST lines, 343 CGST/SGST lines, and every invoice's split equals its tax.
+  - The POS needs no change: it shows only the total tax, which doesn't depend on the split. Receipts print the split in #35.
+  - Verified:
+    - 10 new tests: 5 in contracts (including every paisa value up to ₹1,000 and the random-cart invariants), 5 for the API (counter, shipped, no branch state, composition, database check). All 130 tests pass.
+    - The place-of-supply browser test now also checks the server charges a shipped sale as IGST 36.00, and a counter sale as CGST 18 + SGST 18.
+    - The POS snapshot is identical, and the earlier browser flows pass.
+- **#34 done.** Each return line stores its refund as taxable value plus CGST/SGST/IGST.
+  - `returnLineAmounts` in `@pos/contracts` replaces `returnLineRefund`:
+    - Each part (taxable value, CGST, SGST, IGST) is prorated on the units returned so far, minus what earlier returns took. The last units take whatever is left. The refund is the sum of the parts.
+    - So no part can go negative or past the sale line's, and returning a line in any number of steps adds back up to it exactly. Prorating each return on its own could overrun: four single-unit returns of a 0.04 tax (0.02 + 0.02) would take 0.03 of SGST.
+    - Refunds can differ from before by a paisa. A ₹200 line of 3 now refunds 66.67 + 66.66 + 66.67 (was 66.67 + 66.67 + 66.66), still exactly 200 in total.
+    - The API and the Returns page both use it, so the refund shown before returning is the refund given.
+  - Schema:
+    - `ReturnInvoiceLine` gets `taxableAmount`, `taxAmount`, `cgstAmount`, `sgstAmount` and `igstAmount`; `ReturnInvoice` gets the matching totals.
+    - A database check: the parts add up to the refund, none is negative, and a line never has IGST together with CGST/SGST.
+  - Migration `20261003130000_return_tax_split`:
+    - Old return lines keep the refund they gave. Their tax is the sale line's share (tax ÷ net), split the way the sale line was. Return totals are summed from the lines.
+    - Dev data: 128 lines, 44 with tax, and every return's parts add up to its total.
+  - Responses: the return detail and the return lines inside a sale's detail include the parts. The Returns page needs those to prorate the next return.
+  - Verified:
+    - 5 new contracts tests, including 3,000 random partial-return sequences that each add back up exactly, and 3 new API tests (CGST/SGST, IGST, parts shown with the sale). One existing test was updated for the new 66.67 + 66.66 + 66.67 order. All 136 tests pass.
+    - Browser test: 3 × ₹100 including 18% returned one unit at a time from the Returns page. Each amount shown matched the refund (100.01, 99.98, 100.01 = 300.00), and the returned parts add up to the sale line (254.24 / 22.88 / 22.88).
+    - The POS snapshot is identical, and the walk-in, register-close, draft and place-of-supply flows pass.
+- **#35 done.** Receipts print as a Tax Invoice or a Bill of Supply, from what the invoice recorded.
+  - New `apps/web/src/lib/gstReceipt.ts`, used by both the POS receipt (`screens/pos/receipt.ts`) and the Sales page reprint:
+    - The title: TAX INVOICE or BILL OF SUPPLY, from the invoice's `documentType`.
+    - The invoice's own `sellerGstin`. It used to print the current business GSTIN.
+    - "Place of Supply: 27 - Maharashtra" when the goods went to another state.
+    - An "HSN 8517" row under each item.
+    - "incl. CGST / incl. SGST" or "incl. IGST" in the totals, labelled "incl." because the line totals already include tax.
+    - On a Bill of Supply: no tax rows, plus the required declaration "Composition taxable person, not eligible to collect tax on supplies".
+  - Every value comes from the invoice, never the current settings: a sale reprinted after switching to composition is still a Tax Invoice.
+  - Receipt layout (`lib/receiptFormat.ts`):
+    - Takes a `title`.
+    - Centred lines (store name, header, title, footer) now wrap instead of being cut at the paper's width. The declaration was being cut at "Composition taxable person, not" on 32-character receipts; long store headers and footers were cut the same way.
+    - A metadata entry can print as its own line (`fullLine`), so "Place of Supply" isn't shortened to "Place of Sup".
+  - Verified:
+    - Browser test with the branch GSTIN set and an item HSN of 8517:
+      - Counter sale: TAX INVOICE, GSTIN, HSN 8517, incl. CGST 18.00 + incl. SGST 18.00, no place of supply.
+      - Shipped to Maharashtra: Place of Supply 27 - Maharashtra, incl. IGST 36.00 only.
+      - Composition: BILL OF SUPPLY with no tax rows, the full declaration, total 200.00. The downloaded copy is the bill of supply too.
+      - Reprinting the earlier sale from Sales: still a TAX INVOICE with CGST and HSN.
+    - The POS snapshot changed only as intended: the TAX INVOICE title, and incl. CGST 53.55 + incl. SGST 53.55 (equal to the line's 107.10 tax). It is the new baseline; the old one is kept as `pos-before-pre-gst35.json`.
+    - All 136 tests pass, and the browser flows pass.
+  - Not covered: the Returns page receipt doesn't print GST details. Credit notes for returns come with the returns in #37.
+- **#36 done.** GST invoices and credit notes are numbered `{series}/{FY}/{number}`, e.g. `MAIN/2627/00001`.
+  - Change from the plan: its example `INV-MAIN-2627-0001` is 18 characters, over GST's limit of 16, and longer branch codes (BLR01) made it worse. Instead, each branch has a short series:
+    - Up to 5 letters or digits.
+    - Unique across branches, because branches sharing a GSTIN must never issue the same number.
+    - Separate series for invoices and returns (e.g. MAIN and MAINR).
+    - So `{series}/{FY}/{5 digits}` is at most 16 characters up to 99,999 documents a year. Past that, the sale still goes through and a warning is logged.
+  - Contracts (`gst.ts`): `financialYearStart` (April to March), `financialYearCode` (2026 → "2627"), `documentNumber`, `documentSeriesProblem`, `documentSeriesCandidates`.
+  - Schema:
+    - New `DocumentSequence` table, keyed by kind, series and financial year. Numbers are issued with one `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`, so they're atomic.
+    - Counted per series, not per branch: a series handed to another branch carries on instead of starting at 1 and colliding.
+    - `SaleInvoice` and `ReturnInvoice` record `documentSeries` and `fiscalYear`, for the document summary in #37. Issued and cancelled counts come from them, with no separate counters.
+  - The branch's `invoicePrefix` and `returnPrefix` are now these series (letters and digits, at most 5, unique). Receipt numbers (not GST documents) and customer codes are unchanged.
+  - Migration `20261003140000_gst_document_numbers`, written by hand because Prisma won't generate unique constraints without a prompt:
+    - Each branch gets an invoice series from its code (first 5 letters or digits), or X0001... where codes clash. Every branch had the same "INV" prefix, which couldn't stay.
+    - Return series: the first 4 characters plus R, or R0001... where that clashes.
+    - Then the unique indexes. Old invoices and returns record their old-style series (e.g. INV-MAIN) and financial year.
+    - `prisma migrate diff` reports no difference from the schema. Dev data: 33 branches, 5 needed the X fallback.
+  - New branches get the first free series from their code (an advisory lock stops two new branches taking the same one). Taking another branch's series is refused with its name.
+  - Invoice numbers now contain "/". `GET /receipts/by-invoice/:invoiceId` still accepts a number, but URL-encoded (`MAIN%2F2627%2F00001`). The web app only passes ids there; invoice-number searches go through query strings, which are encoded.
+  - Admin: "Invoice series" and "Return (credit note) series" fields with upper-casing, a 5-character limit, the rules shown as you type, and example numbers for the current financial year.
+  - Verified:
+    - 4 new contracts tests and 6 new API tests: series from the code; numbering 00001, 00002 within 16 characters; credit notes; uniqueness, length and character rules; a series handed to another branch continuing at 00003; 6 sales at once getting 6 different numbers. Two existing tests updated: the prefix test, and the branch-isolation test now URL-encodes the number. All 147 tests pass.
+    - Browser test: example numbers shown; a slash flagged as you type; another branch's series refused; a sale numbered MAIN/2627/00001; the Sales page finds it by number.
+    - The POS snapshot is identical (the snapshot script now hides new-style numbers too). The other browser flows pass after updating three scripts for the new format.
+- **#37 done.** GSTR-1 for one GSTIN over one month, or a quarter (Apr–Jun, Jul–Sep, Oct–Dec, Jan–Mar): a preview, a problem list, and the JSON to upload.
+  - `apps/api/src/gst/gstr1.ts`: `buildGstr1` as plain functions over invoice and return records, so it can be tested without a database. Sections:
+    - **B2CS:** by intra/inter-state, place of supply and rate, net of returns made in the period.
+    - **B2CL:** inter-state invoices above `B2CL_THRESHOLD` (₹1,00,000 since August 2024), items grouped by rate.
+    - **CDNUR:** returns of B2CL invoices.
+    - **Nil / exempt / non-GST:** within and between states.
+    - **HSN summary:** `hsn.hsn_b2c`, quantity in GST units, net of returns.
+    - **Document summary:** per series, from/to, total and cancelled, for invoices (doc 1) and credit notes (doc 5).
+  - What's included: only invoices recorded as REGULAR and carrying this GSTIN. Cancelled invoices are counted in the document summary only. The period uses the business time zone; `fp` is MMYYYY of the last month.
+  - Problems:
+    - **Errors** (they block the download): items sold with no HSN code or no GST unit.
+    - **Warnings:** composition sales left out; sales with no GSTIN that could be this GSTIN's (same state, or a branch with no state); returns larger than sales in a B2CS row; numbers longer than 16 characters from before GST numbering.
+  - API (admins only): `GET /gst/gstins` lists branch GSTINs, the business GSTIN and GSTINs on past sales. `GET /gst/gstr1?gstin&from=YYYY-MM&to=YYYY-MM` returns `{ json, problems, summary }`.
+  - Web: a "GST Returns" page (menu, admins only):
+    - Choose the GSTIN, and monthly or quarterly filing; it defaults to last month.
+    - Errors and warnings are listed, with preview tables for every section.
+    - "Download GSTR-1 JSON" is disabled while there are errors.
+  - **Check before filing:** the layout follows the GSTR-1 offline tool from memory, and the format changes from time to time (the HSN table split into B2B/B2C recently). `GSTR1_JSON_VERSION` and `B2CL_THRESHOLD` are single constants. Import the file into the current offline tool, adjust anything it rejects, and have a CA review a real month before filing.
+  - Verified:
+    - 6 builder tests (B2CS, B2CL with the threshold boundary, nil/exempt/non-GST, returns netted vs CDNUR plus HSN net of returns, cancelled invoices, problems) and 4 API tests with real sales (GSTIN list; all sections from counter, shipped, B2CL and exempt sales plus a return; month or quarter only; admins only). All 157 tests pass.
+    - Browser test against a production build (the dev server had stopped at its time limit): three sales under a fresh GSTIN. The page shows 3 invoices, intra-state 400.00 with CGST 36 + SGST 36, inter-state 200.00 with IGST 36, HSN 8517 for 3 PCS. The downloaded `GSTR1_<gstin>_<MMYYYY>.json` matches. A sale of an item with no HSN shows an error and disables the download.
+    - POS snapshot identical; other browser flows pass. The draft listener-count check reports 0 against a production build, because it finds listeners by source file name and the bundle has none; it passed against the dev server.
+- **#38 done.** The sales side of GSTR-3B, from the same figures as GSTR-1 so the two always agree.
+  - `apps/api/src/gst/gstr3b.ts`:
+    - **3.1(a)** taxable outward supplies (B2CS + B2CL − CDNUR): taxable value, IGST, CGST, SGST.
+    - **3.1(c)** nil rated and exempt; **3.1(e)** non-GST.
+    - **3.1(b)** zero rated and **(d)** reverse charge are 0: no exports or purchases are recorded.
+    - **3.2** inter-state supplies to unregistered persons, by place of supply, net of credit notes.
+    - Only GSTR-1's warnings carry over (HSN details don't matter for 3B), plus a standing note that input tax credit (Table 4) isn't included.
+  - `GET /gst/gstr3b`, with the same GSTIN and month-or-quarter query as GSTR-1. The service now loads a period once for both returns.
+  - Web: the GST Returns page has a "Return" choice (GSTR-1 / GSTR-3B). The views live in `screens/gst/`: `Gstr1View`, `Gstr3bView`, and `shared.tsx` (table, problem list, status).
+  - Verified:
+    - A builder test (3.1 net of a B2CL credit note, nil and non-GST, 3.2 by state) and an API test against the real sales from the GSTR-1 test (taxable 152,000, IGST 27,180, CGST/SGST 90; exempt 200; Maharashtra 151,000 / IGST 27,180; quarter rule).
+    - Browser test extended: GSTR-3B shows 3.1(a) 600.00 with IGST 36, CGST 36, SGST 36, 3.2 Maharashtra 200.00 / 36.00, and the input tax credit note.
+    - All 159 tests pass.
+- **#39 done, so Phase 6 is complete.** Composition returns.
+  - `apps/api/src/gst/composition.ts`: `buildComposition` over the sales made as a composition taxpayer (cancelled ones excluded), net of returns, by category:
+    - Turnover (exempt included), taxable turnover, and the base the rate applies to: taxable supplies for traders, all turnover for manufacturers, restaurants and service providers.
+    - CGST/SGST at half the rate each (1%, 5%, 6%), split like invoice tax.
+    - Warnings: regular-taxpayer sales left out; inward supplies missing (purchases aren't recorded).
+    - Turnover limit, on the business's turnover this financial year across all GSTINs: a warning at 80% of the limit and an error past it, telling the admin to move to regular (schedule the change, file CMP-04). Limit: ₹1.5 crore, or ₹50 lakh for services. Special category states have lower limits; this is noted, not built.
+  - API (admins only):
+    - `GET /gst/cmp08?gstin&from&to`: quarters only.
+    - `GET /gst/gstr4?gstin&fy`: April–March, with `byQuarter` (the four CMP-08s).
+    - The service now validates the period once (month / quarter / year) and computes year turnover with two aggregate queries.
+  - Web: the Return choice adds CMP-08 (quarter picker only) and GSTR-4 (financial year only). The view shows business turnover this year, the problem list, the table by category, and, for GSTR-4, quarter by quarter.
+  - Verified:
+    - 5 builder tests (trader vs restaurant base, odd-paisa split, returns netted, cancelled and regular sales excluded, the limit at 87% / past it / services / no longer composition, the quarter split).
+    - 3 API tests with real sales: a regular sale, then a composition change, phones and exempt rice and a return. CMP-08 shows 2,200 turnover, tax on 2,000 = CGST 10 + SGST 10, with the regular sale left out; GSTR-4 shows it in this quarter; month and year validation.
+    - Browser test: two composition sales of the 200 item. CMP-08 shows Trader at 1%, 400.00, CGST 2.00 + SGST 2.00. GSTR-4 shows them in October–December. The period choices change with the return.
+    - All 167 tests pass.
+  - **Phase 6 recap.** Regular and composition taxpayers are supported end to end:
+    - Each sale records its GSTIN, place of supply, HSN/UQC/supply type, CGST/SGST/IGST and a GST number.
+    - Returns record their tax parts.
+    - Receipts print a Tax Invoice or a Bill of Supply.
+    - The GST Returns page gives GSTR-1 (JSON), GSTR-3B, CMP-08 and GSTR-4.
+  - **Before relying on it:** import a real month's GSTR-1 JSON into the current GST offline tool (`GSTR1_JSON_VERSION`, `B2CL_THRESHOLD` and the HSN table layout are the likely places to adjust), and have a CA review one month of all four reports.

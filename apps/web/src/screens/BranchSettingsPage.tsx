@@ -1,7 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import {
+  DOCUMENT_SERIES_MAX_LENGTH,
+  documentNumber,
+  documentSeriesProblem,
+  financialYearStart,
+  GST_STATES,
+  gstinProblem,
+  gstStateLabel,
+  isGstStateCode,
+} from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
+import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
 
 type SettingsForm = {
   name: string;
@@ -16,6 +27,8 @@ type SettingsForm = {
   receiptFooter: string;
   invoiceCss: string;
   receiptCss: string;
+  gstin: string;
+  stateCode: string;
 };
 
 type BusinessSettingsForm = {
@@ -26,6 +39,7 @@ type BusinessSettingsForm = {
   cashierMaxDiscountPercent: string;
   customerScope: "SHARED" | "BRANCH";
   timezone: string;
+  hsnMinDigits: 4 | 6;
 };
 
 type CashierForm = {
@@ -126,7 +140,9 @@ export function BranchSettingsPage() {
     receiptHeader: "",
     receiptFooter: "",
     invoiceCss: "",
-    receiptCss: ""
+    receiptCss: "",
+    gstin: "",
+    stateCode: ""
   });
   const [businessForm, setBusinessForm] = useState<BusinessSettingsForm>({
     name: "",
@@ -135,7 +151,8 @@ export function BranchSettingsPage() {
     taxCalculationMode: "AFTER_DISCOUNT",
     cashierMaxDiscountPercent: "10",
     customerScope: "SHARED",
-    timezone: "Asia/Kolkata"
+    timezone: "Asia/Kolkata",
+    hsnMinDigits: 4
   });
 
   useEffect(() => {
@@ -163,7 +180,8 @@ export function BranchSettingsPage() {
       taxCalculationMode: businessSettings.data.taxCalculationMode,
       cashierMaxDiscountPercent: String(businessSettings.data.cashierMaxDiscountPercent),
       customerScope: businessSettings.data.customerScope,
-      timezone: businessSettings.data.timezone
+      timezone: businessSettings.data.timezone,
+      hsnMinDigits: businessSettings.data.hsnMinDigits === 6 ? 6 : 4
     });
   }, [businessSettings.data]);
 
@@ -181,9 +199,19 @@ export function BranchSettingsPage() {
       receiptHeader: branchSettings.data.receiptHeader ?? "",
       receiptFooter: branchSettings.data.receiptFooter ?? "",
       invoiceCss: branchSettings.data.invoiceCss ?? "",
-      receiptCss: branchSettings.data.receiptCss ?? ""
+      receiptCss: branchSettings.data.receiptCss ?? "",
+      gstin: branchSettings.data.gstin ?? "",
+      stateCode: branchSettings.data.stateCode ?? ""
     });
   }, [branchSettings.data]);
+
+  const seriesProblem =
+    [form.invoicePrefix, form.returnPrefix].map((series) => (series ? documentSeriesProblem(series) : null)).find(Boolean) ?? null;
+  const currentFiscalYear = useMemo(() => {
+    const timeZone = businessSettings.data?.timezone ?? "Asia/Kolkata";
+    const [year, month] = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date()).split("-").map(Number);
+    return financialYearStart(year, month);
+  }, [businessSettings.data?.timezone]);
 
   const logoSrc = useMemo(() => {
     if (!form.logoUrl) return null;
@@ -225,7 +253,8 @@ export function BranchSettingsPage() {
           taxCalculationMode: businessForm.taxCalculationMode,
           cashierMaxDiscountPercent,
           customerScope: businessForm.customerScope,
-          timezone: businessForm.timezone
+          timezone: businessForm.timezone,
+          hsnMinDigits: businessForm.hsnMinDigits
         },
         extraHeaders: authHeaders()
       });
@@ -332,7 +361,9 @@ export function BranchSettingsPage() {
           receiptHeader: emptyToNull(form.receiptHeader),
           receiptFooter: emptyToNull(form.receiptFooter),
           invoiceCss: emptyToNull(form.invoiceCss),
-          receiptCss: emptyToNull(form.receiptCss)
+          receiptCss: emptyToNull(form.receiptCss),
+          gstin: emptyToNull(form.gstin.trim().toUpperCase()),
+          stateCode: emptyToNull(form.stateCode)
         },
         extraHeaders: authHeaders()
       });
@@ -517,140 +548,163 @@ export function BranchSettingsPage() {
       </div>
 
       {activeTab === "business" ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-2xl font-semibold text-slate-900">Business Settings</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Configure global details shared by all branches, including logo and GST number.
-          </p>
+        <div className="grid gap-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-2xl font-semibold text-slate-900">Business Settings</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Configure global details shared by all branches, including logo and GST number.
+            </p>
 
-          <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm text-slate-600">Business name</label>
-                <input
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.name}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">GST number</label>
-                <input
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.gstNumber}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, gstNumber: e.target.value }))}
-                  placeholder="e.g. 29ABCDE1234F2Z5"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Tax calculation mode</label>
-                <select
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.taxCalculationMode}
-                  onChange={(e) =>
-                    setBusinessForm((prev) => ({
-                      ...prev,
-                      taxCalculationMode: e.target.value as "AFTER_DISCOUNT" | "BEFORE_DISCOUNT",
-                    }))
-                  }
-                >
-                  <option value="AFTER_DISCOUNT">After discount</option>
-                  <option value="BEFORE_DISCOUNT">Before discount</option>
-                </select>
-                <p className="mt-1 text-xs text-slate-500">
-                  Controls whether tax is recomputed after discounts or held on the original pre-discount base.
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Cashier discount limit (%)</label>
-                <input
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  inputMode="decimal"
-                  value={businessForm.cashierMaxDiscountPercent}
-                  onChange={(e) =>
-                    setBusinessForm((prev) => ({ ...prev, cashierMaxDiscountPercent: e.target.value }))
-                  }
-                />
-                <p className="mt-1 text-xs text-slate-500">
-                  The most a cashier can take off a sale's list price, counting price changes and discounts together.
-                  Admins have no limit.
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Customers</label>
-                <select
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.customerScope}
-                  onChange={(e) =>
-                    setBusinessForm((prev) => ({ ...prev, customerScope: e.target.value as "SHARED" | "BRANCH" }))
-                  }
-                >
-                  <option value="SHARED">Shared across all branches</option>
-                  <option value="BRANCH">Separate for each branch</option>
-                </select>
-                <p className="mt-1 text-xs text-slate-500">
-                  Shared: a customer and their wallet balance can be used at any branch, and a phone number belongs to one
-                  customer business-wide. Separate: each branch only sees the customers it created.
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Time zone</label>
-                <select
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.timezone}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, timezone: e.target.value }))}
-                >
-                  {timeZoneOptions(businessForm.timezone).map((zone) => (
-                    <option key={zone} value={zone}>
-                      {zone}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-slate-500">
-                  Reports work out Today, This Week and This Month on this clock.
-                </p>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-sm text-slate-600">Global logo</label>
-              <div className="mt-2 flex items-center gap-4">
-                <div className="h-16 w-16 overflow-hidden rounded border border-slate-200 bg-slate-50">
-                  {businessLogoSrc ? <img src={businessLogoSrc} alt="Business logo" className="h-full w-full object-contain" /> : null}
-                </div>
-                <div className="grid gap-2">
+            <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm text-slate-600">Business name</label>
                   <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) uploadBusinessLogoMutation.mutate(file);
-                    }}
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.name}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))}
                   />
-                  <button
-                    className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700"
-                    onClick={() => setBusinessForm((prev) => ({ ...prev, logoUrl: null }))}
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">GST number</label>
+                  <input
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.gstNumber}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, gstNumber: e.target.value.toUpperCase() }))}
+                    placeholder="e.g. 29ABCDE1234F1ZW"
+                  />
+                  {businessForm.gstNumber.trim() && gstinProblem(businessForm.gstNumber.trim()) ? (
+                    <p className="mt-1 text-xs text-rose-700">{gstinProblem(businessForm.gstNumber.trim())}</p>
+                  ) : null}
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Tax calculation mode</label>
+                  <select
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.taxCalculationMode}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({
+                        ...prev,
+                        taxCalculationMode: e.target.value as "AFTER_DISCOUNT" | "BEFORE_DISCOUNT",
+                      }))
+                    }
                   >
-                    Remove logo
-                  </button>
+                    <option value="AFTER_DISCOUNT">After discount</option>
+                    <option value="BEFORE_DISCOUNT">Before discount</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Controls whether tax is recomputed after discounts or held on the original pre-discount base.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Cashier discount limit (%)</label>
+                  <input
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    inputMode="decimal"
+                    value={businessForm.cashierMaxDiscountPercent}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({ ...prev, cashierMaxDiscountPercent: e.target.value }))
+                    }
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    The most a cashier can take off a sale's list price, counting price changes and discounts together.
+                    Admins have no limit.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Customers</label>
+                  <select
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.customerScope}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({ ...prev, customerScope: e.target.value as "SHARED" | "BRANCH" }))
+                    }
+                  >
+                    <option value="SHARED">Shared across all branches</option>
+                    <option value="BRANCH">Separate for each branch</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Shared: a customer and their wallet balance can be used at any branch, and a phone number belongs to one
+                    customer business-wide. Separate: each branch only sees the customers it created.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Time zone</label>
+                  <select
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.timezone}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, timezone: e.target.value }))}
+                  >
+                    {timeZoneOptions(businessForm.timezone).map((zone) => (
+                      <option key={zone} value={zone}>
+                        {zone}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Reports work out Today, This Week and This Month on this clock.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">HSN code length</label>
+                  <select
+                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    value={businessForm.hsnMinDigits}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({ ...prev, hsnMinDigits: Number(e.target.value) === 6 ? 6 : 4 }))
+                    }
+                  >
+                    <option value={4}>At least 4 digits (turnover up to ₹5 crore)</option>
+                    <option value={6}>At least 6 digits (turnover above ₹5 crore)</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    The shortest HSN or SAC code accepted on items, set by last year's turnover.
+                  </p>
                 </div>
               </div>
-              <p className="mt-1 text-xs text-slate-500">
-                Branch logo can override this. If branch logo is empty, this one is used.
-              </p>
+
+              <div>
+                <label className="text-sm text-slate-600">Global logo</label>
+                <div className="mt-2 flex items-center gap-4">
+                  <div className="h-16 w-16 overflow-hidden rounded border border-slate-200 bg-slate-50">
+                    {businessLogoSrc ? <img src={businessLogoSrc} alt="Business logo" className="h-full w-full object-contain" /> : null}
+                  </div>
+                  <div className="grid gap-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) uploadBusinessLogoMutation.mutate(file);
+                      }}
+                    />
+                    <button
+                      className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                      onClick={() => setBusinessForm((prev) => ({ ...prev, logoUrl: null }))}
+                    >
+                      Remove logo
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Branch logo can override this. If branch logo is empty, this one is used.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-emerald-300"
+                onClick={() => saveBusinessSettings.mutate()}
+                disabled={saveBusinessSettings.isPending || businessSettings.isLoading}
+              >
+                Save Business Settings
+              </button>
+              {businessMessage ? <p className="text-sm text-emerald-700">{businessMessage}</p> : null}
             </div>
           </div>
 
-          <div className="mt-4 flex items-center gap-3">
-            <button
-              className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-emerald-300"
-              onClick={() => saveBusinessSettings.mutate()}
-              disabled={saveBusinessSettings.isPending || businessSettings.isLoading}
-            >
-              Save Business Settings
-            </button>
-            {businessMessage ? <p className="text-sm text-emerald-700">{businessMessage}</p> : null}
-          </div>
+          <TaxpayerTypeSection timeZone={businessSettings.data?.timezone ?? "Asia/Kolkata"} />
         </div>
       ) : null}
 
@@ -728,6 +782,44 @@ export function BranchSettingsPage() {
                   <p className="mt-1 text-xs text-slate-500">Used in invoice/receipt numbers. Changing affects future numbers only.</p>
                 </div>
 
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-sm text-slate-600">GSTIN</label>
+                    <input
+                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 uppercase"
+                      value={form.gstin}
+                      placeholder="Leave empty to use the business GSTIN"
+                      onChange={(e) => {
+                        const gstin = e.target.value.toUpperCase();
+                        const state = gstin.trim().slice(0, 2);
+                        setForm((prev) => ({ ...prev, gstin, stateCode: isGstStateCode(state) ? state : prev.stateCode }));
+                      }}
+                    />
+                    {form.gstin.trim() && gstinProblem(form.gstin.trim().toUpperCase()) ? (
+                      <p className="mt-1 text-xs text-rose-700">{gstinProblem(form.gstin.trim().toUpperCase())}</p>
+                    ) : null}
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-600">State</label>
+                    <select
+                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                      value={form.stateCode}
+                      onChange={(e) => setForm((prev) => ({ ...prev, stateCode: e.target.value }))}
+                    >
+                      <option value="">Not set</option>
+                      {GST_STATES.map((state) => (
+                        <option key={state.code} value={state.code}>
+                          {gstStateLabel(state.code)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-xs text-slate-500 sm:col-span-2">
+                    Each state the business sells from has its own GSTIN. A branch without one uses the business GSTIN when that
+                    is for the branch's state. The state is the place of supply of counter sales.
+                  </p>
+                </div>
+
                 <div>
                   <label className="text-sm text-slate-600">Logo</label>
                   <div className="mt-2 flex items-center gap-4">
@@ -755,11 +847,12 @@ export function BranchSettingsPage() {
 
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
-                    <label className="text-sm text-slate-600">Invoice prefix</label>
+                    <label className="text-sm text-slate-600">Invoice series</label>
                     <input
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 uppercase"
+                      maxLength={DOCUMENT_SERIES_MAX_LENGTH}
                       value={form.invoicePrefix}
-                      onChange={(e) => setForm((prev) => ({ ...prev, invoicePrefix: e.target.value }))}
+                      onChange={(e) => setForm((prev) => ({ ...prev, invoicePrefix: e.target.value.toUpperCase() }))}
                     />
                   </div>
                   <div>
@@ -771,13 +864,21 @@ export function BranchSettingsPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm text-slate-600">Return prefix</label>
+                    <label className="text-sm text-slate-600">Return (credit note) series</label>
                     <input
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 uppercase"
+                      maxLength={DOCUMENT_SERIES_MAX_LENGTH}
                       value={form.returnPrefix}
-                      onChange={(e) => setForm((prev) => ({ ...prev, returnPrefix: e.target.value }))}
+                      onChange={(e) => setForm((prev) => ({ ...prev, returnPrefix: e.target.value.toUpperCase() }))}
                     />
                   </div>
+                  <p className="text-xs text-slate-500 sm:col-span-3">
+                    Invoices are numbered like {documentNumber(form.invoicePrefix || "MAIN", currentFiscalYear, 1)} and
+                    returns like {documentNumber(form.returnPrefix || "MAINR", currentFiscalYear, 1)}: up to{" "}
+                    {DOCUMENT_SERIES_MAX_LENGTH} letters or digits, then the financial year, counting from 1 every April. Each
+                    branch needs its own series. GST invoice numbers can be at most 16 characters.
+                    {seriesProblem ? <span className="block text-rose-700">{seriesProblem}</span> : null}
+                  </p>
                 </div>
               </div>
 

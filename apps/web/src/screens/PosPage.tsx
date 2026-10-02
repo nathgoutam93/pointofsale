@@ -34,6 +34,7 @@ import { useOrderDiscount } from "./pos/useOrderDiscount";
 import { usePayment } from "./pos/usePayment";
 import { useStoreSettings } from "./pos/useStoreSettings";
 import type { CartLine, LocalSaleDraft, PostPaymentSummary } from "./pos/types";
+import { invoiceGstOf } from "../lib/gstReceipt";
 
 export function PosPage() {
   const session = requireOperationalSession();
@@ -46,12 +47,13 @@ export function PosPage() {
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
   const [walkInCustomerName, setWalkInCustomerName] = useState("");
   const [walkInCustomerPhone, setWalkInCustomerPhone] = useState("");
+  // The state goods are shipped to; null for a counter sale (the branch's own state).
+  const [placeOfSupply, setPlaceOfSupply] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [postPayment, setPostPayment] = useState<PostPaymentSummary | null>(
     null,
   );
   const orderDiscount = useOrderDiscount();
-  const lineEditor = useLineEditor({ cart, setCart });
   const orderDiscounts = orderDiscount.discounts;
   const [receiptContact, setReceiptContact] = useState("");
   const draftStorageKey = useMemo(
@@ -62,7 +64,8 @@ export function PosPage() {
   const [isOrderOpen, setIsOrderOpen] = useState(false);
 
   const store = useStoreSettings(session.branchId);
-  const { taxCalculationMode, invoiceLogoSrc, customReceiptCss, receiptTemplateCss } = store;
+  const { taxCalculationMode, chargeTax, invoiceLogoSrc, customReceiptCss, receiptTemplateCss } = store;
+  const lineEditor = useLineEditor({ cart, setCart, chargeTax });
 
   const printableInvoice = useMemo(
     () => (postPayment ? buildInvoiceReceiptLines(postPayment, store, session.username ?? "") : null),
@@ -145,6 +148,7 @@ export function PosPage() {
       cart.map((line) => ({ ...line, discounts: itemDiscountsFor(line) })),
       orderDiscounts,
       taxCalculationMode,
+      { chargeTax },
     );
     return {
       lines: totals.lines.map((entry) => ({
@@ -164,7 +168,7 @@ export function PosPage() {
       orderDiscountTotal: totals.orderDiscountTotal,
       orderDiscountBase: totals.orderDiscountBase,
     };
-  }, [cart, orderDiscounts, taxCalculationMode]);
+  }, [cart, orderDiscounts, taxCalculationMode, chargeTax]);
   const orderDiscountBase = computedCart.orderDiscountBase;
   const resolvedOrderDiscountAmount = computedCart.orderDiscountTotal;
 
@@ -365,6 +369,11 @@ export function PosPage() {
     },
   });
   const walletBalance = Number(customerWallet.data?.balance ?? 0);
+  const branchStateCode = store.branchSettings.data?.stateCode ?? null;
+  // Composition taxpayers can't sell to another state, and a branch without a state can't
+  // name one, so the choice only counts for a regular branch with its state set.
+  const placeOfSupplyChoice =
+    chargeTax && branchStateCode && placeOfSupply && placeOfSupply !== branchStateCode ? placeOfSupply : null;
   const payment = usePayment({ total, isWalkInSelected, walletBalance });
 
   const openPayment = () => {
@@ -399,6 +408,7 @@ export function PosPage() {
     setCustomerId("");
     setWalkInCustomerName("");
     setWalkInCustomerPhone("");
+    setPlaceOfSupply(null);
     setCart([]);
     lineEditor.close();
     orderDiscount.reset();
@@ -421,6 +431,7 @@ export function PosPage() {
       customerPhone: displayCustomerPhone,
       walkInCustomerName: isWalkInSelected ? normalizedWalkInCustomerName : null,
       walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone : null,
+      placeOfSupplyStateCode: placeOfSupply,
       cart: cart.map((line) => ({ ...line })),
       orderDiscountMode: orderDiscount.mode,
       orderDiscountValue: orderDiscount.value,
@@ -479,6 +490,7 @@ export function PosPage() {
     setCustomerId(draft.customerId);
     setWalkInCustomerName(draft.walkInCustomerName ?? "");
     setWalkInCustomerPhone(draft.walkInCustomerPhone ?? "");
+    setPlaceOfSupply(draft.placeOfSupplyStateCode ?? null);
     setCart(draft.cart.map((line) => ({ ...line })));
     lineEditor.close();
     orderDiscount.restore(draft.orderDiscountValue, draft.orderDiscountMode);
@@ -511,6 +523,8 @@ export function PosPage() {
       customerId: selected,
       walkInCustomerName: isWalkInSelected ? normalizedWalkInCustomerName || null : null,
       walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone || null : null,
+      // Only a shipped regular sale names one; otherwise the server uses the branch's state.
+      placeOfSupplyStateCode: placeOfSupplyChoice ?? undefined,
       lines: cart.map((line) => ({
         itemId: line.itemId,
         qty: line.qty,
@@ -576,6 +590,7 @@ export function PosPage() {
         taxTotal: Number(result.invoice.taxTotal),
         grandTotal: Number(result.invoice.grandTotal),
         paidTotal: Number(result.invoice.paidTotal ?? 0),
+        gst: invoiceGstOf(result.invoice),
         paymentLines: result.invoice.payments.map((line) => ({
           mode: line.mode,
           amount: Number(line.amount),
@@ -615,6 +630,7 @@ export function PosPage() {
             taxMode: line.taxMode ?? snapshot?.taxMode ?? "EXCLUSIVE",
             imageUrl: snapshot?.imageUrl,
             netAmount: Number(line.netAmount ?? 0),
+            hsnCode: line.hsnCode ?? null,
           };
         }),
       });
@@ -682,6 +698,7 @@ export function PosPage() {
               cart={cart}
               onHandByItem={onHandByItem}
               taxCalculationMode={taxCalculationMode}
+              chargeTax={chargeTax}
               onOpen={lineEditor.open}
               onStep={stepCartLine}
               onRemove={removeCartLine}
@@ -700,6 +717,9 @@ export function PosPage() {
               walkInName={walkInCustomerName}
               walkInPhone={walkInCustomerPhone}
               walletBalance={walletBalance}
+              branchStateCode={chargeTax ? branchStateCode : null}
+              placeOfSupply={placeOfSupplyChoice}
+              onPlaceOfSupplyChange={setPlaceOfSupply}
               busy={checkout.isPending}
               onWalkIn={() => {
                 setCustomerId("");
@@ -772,6 +792,7 @@ export function PosPage() {
           editor={lineEditor}
           activeEditLine={lineEditor.activeEditLine}
           taxCalculationMode={taxCalculationMode}
+          chargeTax={chargeTax}
         />
       ) : null}
 

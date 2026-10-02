@@ -1,3 +1,4 @@
+import { gstDocumentTitle, gstFooterLines, gstMetadata, gstTaxTotals, hsnDetailRow } from "../../lib/gstReceipt";
 import { buildReceiptLines, escapeHtml, formatReceiptDate, formatReceiptTime } from "../../lib/receiptFormat";
 import { money } from "../route-helpers";
 import { computeLineAmounts, formatQty, getBaseExclusive, getPricingQty } from "./cartMath";
@@ -16,7 +17,8 @@ export function buildInvoiceReceiptLines(postPayment: PostPaymentSummary, store:
     { label: "Time", value: formatReceiptTime(createdAt) },
     { label: "Cashier", value: cashierName ?? "" },
     { label: "Customer", value: postPayment.customerName },
-    { label: "GSTIN", value: store.businessSettings.data?.gstNumber ?? "" },
+    // From the invoice, not the current settings: the GSTIN it was made under.
+    ...gstMetadata(postPayment.gst),
   ];
 
   const items = postPayment.lines.map((line) => {
@@ -33,6 +35,7 @@ export function buildInvoiceReceiptLines(postPayment: PostPaymentSummary, store:
     return {
       name: line.name,
       detailRows: [
+        ...hsnDetailRow(line.hsnCode),
         {
           label: `${qtyLabel} x ${money(baseUnitRate)}`,
           value: money(baseExclusive),
@@ -61,6 +64,7 @@ export function buildInvoiceReceiptLines(postPayment: PostPaymentSummary, store:
           },
         ]
       : []),
+    ...gstTaxTotals(postPayment.gst),
     { label: "TOTAL", value: money(postPayment.grandTotal), isGrandTotal: true },
   ];
 
@@ -77,13 +81,16 @@ export function buildInvoiceReceiptLines(postPayment: PostPaymentSummary, store:
     { label: "Remaining Due", value: money(remainingDue) },
   ];
 
-  const footerLines =
-    store.invoiceFooterLines.length > 0 ? store.invoiceFooterLines : store.receiptFooterLines;
+  const footerLines = [
+    ...(store.invoiceFooterLines.length > 0 ? store.invoiceFooterLines : store.receiptFooterLines),
+    ...gstFooterLines(postPayment.gst),
+  ];
 
   return buildReceiptLines({
     width: store.receiptCharWidth,
     storeName: store.storeDisplayName,
     headerLines: store.invoiceHeaderLines,
+    title: gstDocumentTitle(postPayment.gst),
     metadata,
     items,
     totals,

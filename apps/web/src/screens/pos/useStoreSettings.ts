@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { sanitizeReceiptCss } from "@pos/contracts";
+import { chargesGst, sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, authHeaders } from "../../lib/api";
 import { resolveReceiptWidth } from "../../lib/receiptFormat";
 
@@ -108,11 +108,15 @@ export function useStoreSettings(branchId: string) {
 
   const taxCalculationMode =
     businessSettings.data?.taxCalculationMode ?? "AFTER_DISCOUNT";
+  // A composition taxpayer can't charge GST, so the cart is priced without tax. The server
+  // decides at checkout; this only keeps the totals shown the same as what it will charge.
+  const chargeTax = chargesGst(businessSettings.data?.taxpayerType ?? "REGULAR");
 
   return {
     branchSettings,
     businessSettings,
     taxCalculationMode,
+    chargeTax,
     invoiceHeaderLines,
     invoiceFooterLines,
     receiptFooterLines,

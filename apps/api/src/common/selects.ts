@@ -14,7 +14,8 @@ export const businessSettingsSelect = {
   taxCalculationMode: true,
   cashierMaxDiscountPercent: true,
   customerScope: true,
-  timezone: true
+  timezone: true,
+  hsnMinDigits: true
 } as const;
 
 export const branchSettingsSelect = {
@@ -30,7 +31,9 @@ export const branchSettingsSelect = {
   receiptHeader: true,
   receiptFooter: true,
   invoiceCss: true,
-  receiptCss: true
+  receiptCss: true,
+  gstin: true,
+  stateCode: true
 } as const;
 
 export const saleInvoiceInclude = {

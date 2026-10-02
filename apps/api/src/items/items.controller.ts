@@ -1,3 +1,4 @@
+import type { GstSupplyType } from '@pos/contracts';
 import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { join } from 'path';
@@ -58,6 +59,9 @@ export class ItemsController {
       saleUoms?: Array<{ uom: string; conversionQty: number; sellPrice: number; mrp?: number }>;
       taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
       taxRate: number;
+      hsnCode?: string | null;
+      uqc?: string | null;
+      supplyType?: GstSupplyType;
       imageUrl?: string;
     },
     @Headers() headers: RequestHeaders
@@ -81,6 +85,9 @@ export class ItemsController {
       saleUoms?: Array<{ uom: string; conversionQty: number; sellPrice: number; mrp?: number }>;
       taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
       taxRate?: number;
+      hsnCode?: string | null;
+      uqc?: string | null;
+      supplyType?: GstSupplyType;
       imageUrl?: string | null;
       isActive?: boolean;
     },

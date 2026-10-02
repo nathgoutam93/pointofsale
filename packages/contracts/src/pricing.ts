@@ -49,23 +49,50 @@ export function lineTax(input: {
   return { tax, net: round2(taxable + tax) };
 }
 
+/** A sale line's (or return line's) taxable value and tax, by kind. */
+export type GstAmounts = { taxable: number; cgst: number; sgst: number; igst: number };
+
+const GST_PARTS = ['taxable', 'cgst', 'sgst', 'igst'] as const;
+
 /**
- * Refund for returning `qty` units of a sale line. Prorated from the line total (not a
- * rounded unit price), and the last units refund exactly what is left, so returning a
- * line in parts always adds up to what was charged for it.
+ * What returning `qty` more units of a sale line refunds, part by part. Each part
+ * (taxable value, CGST, SGST, IGST) is prorated on the units returned so far, less what
+ * earlier returns took, so the parts never exceed the line's and returning a line in any
+ * number of steps adds back up to it exactly. The last units take whatever is left.
+ * `amount` (the refund) is the parts' sum.
  */
-export function returnLineRefund(input: {
-  lineNet: number;
+export function returnLineAmounts(input: {
+  line: GstAmounts;
   soldQty: number;
   alreadyReturnedQty: number;
-  alreadyRefunded: number;
+  alreadyReturned: GstAmounts;
   qty: number;
-}) {
-  const { lineNet, soldQty, alreadyReturnedQty, alreadyRefunded, qty } = input;
-  if (soldQty <= 0 || qty <= 0) return 0;
-  const remaining = round2(Math.max(0, lineNet - alreadyRefunded));
-  const isLastOfLine = Math.abs(alreadyReturnedQty + qty - soldQty) < 1e-9;
-  return isLastOfLine ? remaining : round2(Math.min((lineNet * qty) / soldQty, remaining));
+}): GstAmounts & { tax: number; amount: number } {
+  const { line, soldQty, alreadyReturnedQty, alreadyReturned, qty } = input;
+  const parts: GstAmounts = { taxable: 0, cgst: 0, sgst: 0, igst: 0 };
+  if (soldQty > 0 && qty > 0) {
+    const returnedQty = alreadyReturnedQty + qty;
+    const isLastOfLine = Math.abs(returnedQty - soldQty) < 1e-9;
+    for (const part of GST_PARTS) {
+      const remaining = Math.max(0, round2(line[part] - alreadyReturned[part]));
+      const target = round2((line[part] * returnedQty) / soldQty);
+      parts[part] = isLastOfLine ? remaining : Math.min(remaining, Math.max(0, round2(target - alreadyReturned[part])));
+    }
+  }
+  const tax = round2(parts.cgst + parts.sgst + parts.igst);
+  return { ...parts, tax, amount: round2(parts.taxable + tax) };
+}
+
+/**
+ * A line's GST split by kind. An inter-state sale is all IGST. Within a state it is half
+ * CGST and half SGST: CGST is the half rounded down to the paisa and SGST the rest, so the
+ * two always add up to the tax (15.25 is 7.62 + 7.63).
+ */
+export function splitGst(tax: number, interState: boolean) {
+  if (interState) return { cgst: 0, sgst: 0, igst: round2(tax) };
+  const cents = Math.round(tax * 100);
+  const cgst = Math.floor(cents / 2) / 100;
+  return { cgst, sgst: round2(cents / 100 - cgst), igst: 0 };
 }
 
 export type DiscountInput = { type: 'PERCENTAGE' | 'FIXED'; value: number };
@@ -186,9 +213,21 @@ export type PricedLineInput = {
 export function computeSaleTotals<L extends PricedLineInput>(
   lines: L[],
   orderDiscounts: DiscountInput[] | undefined,
-  taxCalculationMode: TaxCalculationMode
+  taxCalculationMode: TaxCalculationMode,
+  options: {
+    /**
+     * False when the seller may not charge GST (a composition taxpayer): every line is
+     * priced as untaxed, so the customer pays the shelf price less discounts and the tax
+     * is 0. The returned lines say so (taxRate 0, EXCLUSIVE).
+     */
+    chargeTax?: boolean;
+    /** True when the goods go to another state (IGST); otherwise the tax is CGST + SGST. */
+    interState?: boolean;
+  } = {}
 ) {
-  const normalized = lines.map((line) => {
+  const pricedLines =
+    options.chargeTax === false ? lines.map((line) => ({ ...line, taxRate: 0, taxMode: 'EXCLUSIVE' as const })) : lines;
+  const normalized = pricedLines.map((line) => {
     const gross = round2((line.saleUomQty ?? line.qty) * line.rate);
     const baseExclusive = exclusiveBase(gross, line.taxMode, line.taxRate);
     const itemDiscounts = resolveDiscountAmounts(line.discounts, baseExclusive);
@@ -216,7 +255,7 @@ export function computeSaleTotals<L extends PricedLineInput>(
       taxRate: entry.line.taxRate,
       taxCalculationMode
     });
-    return { ...entry, orderDiscount, discountAmount, taxable, tax, net };
+    return { ...entry, orderDiscount, discountAmount, taxable, tax, ...splitGst(tax, options.interState === true), net };
   });
 
   const sum = (pick: (line: (typeof computed)[number]) => number) => round2(computed.reduce((acc, line) => acc + pick(line), 0));
@@ -229,6 +268,9 @@ export function computeSaleTotals<L extends PricedLineInput>(
     discountTotal: sum((line) => line.discountAmount),
     orderDiscountTotal: sum((line) => line.orderDiscount),
     taxTotal: sum((line) => line.tax),
+    cgstTotal: sum((line) => line.cgst),
+    sgstTotal: sum((line) => line.sgst),
+    igstTotal: sum((line) => line.igst),
     grandTotal: sum((line) => line.net)
   };
 }
