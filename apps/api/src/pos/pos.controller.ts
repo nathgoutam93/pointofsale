@@ -276,8 +276,8 @@ export class PosController {
 
   @Get('/customers/:id/wallet')
   getWallet(@Param('id') customerId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
-    this.requireOpenRegisterSession(headers);
-    return this.posService.getWallet(customerId);
+    const session = this.requireOpenRegisterSession(headers);
+    return this.posService.getWallet(session.branchId!, customerId);
   }
 
   @Post('/customers/:id/wallet/topup')
@@ -287,8 +287,9 @@ export class PosController {
     @Body() body: { amount: number; reference?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
-    this.requireAdmin(this.requireOpenRegisterSession(headers));
-    return this.posService.topupWallet(customerId, body.amount, body.reference);
+    const session = this.requireOpenRegisterSession(headers);
+    this.requireAdmin(session);
+    return this.posService.topupWallet(session.branchId!, customerId, body.amount, body.reference);
   }
 
   @Get('/users')
@@ -544,8 +545,8 @@ export class PosController {
 
   @Get('/sales/:id')
   getSaleById(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
-    this.requireOpenRegisterSession(headers);
-    return this.posService.getSaleById(id);
+    const session = this.requireOpenRegisterSession(headers);
+    return this.posService.getSaleById(session.branchId!, id);
   }
 
   @Post('/sales/:id/return')
@@ -559,14 +560,14 @@ export class PosController {
 
   @Get('/receipts/:id')
   getReceipt(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
-    this.requireOpenRegisterSession(headers);
-    return this.posService.getReceiptById(id);
+    const session = this.requireOpenRegisterSession(headers);
+    return this.posService.getReceiptById(session.branchId!, id);
   }
 
   @Get('/receipts/by-invoice/:invoiceId')
   getReceiptsByInvoice(@Param('invoiceId') invoiceId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
-    this.requireOpenRegisterSession(headers);
-    return this.posService.getReceiptsByInvoice(invoiceId);
+    const session = this.requireOpenRegisterSession(headers);
+    return this.posService.getReceiptsByInvoice(session.branchId!, invoiceId);
   }
 
   @Get('/returns')

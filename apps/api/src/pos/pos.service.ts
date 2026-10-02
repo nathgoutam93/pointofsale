@@ -1187,15 +1187,15 @@ export class PosService {
     return this.ensureWalkInCustomer(branchId);
   }
 
-  async getWallet(customerId: string) {
-    const wallet = await this.prisma.walletAccount.findUnique({ where: { customerId } });
+  async getWallet(branchId: string, customerId: string) {
+    const wallet = await this.prisma.walletAccount.findFirst({ where: { customerId, branchId } });
     if (!wallet) throw new NotFoundException('Wallet not found');
     return { customerId, branchId: wallet.branchId, balance: this.toNumber(wallet.balance) };
   }
 
-  async topupWallet(customerId: string, amount: number, reference?: string) {
+  async topupWallet(branchId: string, customerId: string, amount: number, reference?: string) {
     return this.prisma.$transaction(async (tx) => {
-      const wallet = await tx.walletAccount.findUnique({ where: { customerId } });
+      const wallet = await tx.walletAccount.findFirst({ where: { customerId, branchId } });
       if (!wallet) throw new NotFoundException('Wallet not found');
 
       await tx.walletAccount.update({
@@ -1780,9 +1780,9 @@ export class PosService {
     return this.withCreatedByNames(invoices);
   }
 
-  async getSaleById(id: string) {
-    const invoice = await this.prisma.saleInvoice.findUnique({
-      where: { id },
+  async getSaleById(branchId: string, id: string) {
+    const invoice = await this.prisma.saleInvoice.findFirst({
+      where: { id, branchId },
       include: {
         lines: {
           include: {
@@ -1904,22 +1904,22 @@ export class PosService {
     });
   }
 
-  async getReceiptById(id: string) {
-    const receipt = await this.prisma.receipt.findUnique({ where: { id } });
+  async getReceiptById(branchId: string, id: string) {
+    const receipt = await this.prisma.receipt.findFirst({ where: { id, invoice: { branchId } } });
     if (!receipt) throw new NotFoundException('Receipt not found');
     return receipt;
   }
 
-  async getReceiptsByInvoice(invoiceId: string) {
+  async getReceiptsByInvoice(branchId: string, invoiceId: string) {
     const key = invoiceId.trim();
     const receiptsById = await this.prisma.receipt.findMany({
-      where: { invoiceId: key },
+      where: { invoiceId: key, invoice: { branchId } },
       orderBy: { createdAt: 'desc' }
     });
     if (receiptsById.length > 0) return receiptsById;
 
     const receiptsByInvoiceNo = await this.prisma.receipt.findMany({
-      where: { invoice: { invoiceNo: key } },
+      where: { invoice: { invoiceNo: key, branchId } },
       orderBy: { createdAt: 'desc' }
     });
 

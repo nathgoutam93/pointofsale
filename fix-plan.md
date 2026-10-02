@@ -27,7 +27,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
   - Web: on a 401, the session is cleared and the user is sent to `/login`.
 - **Follow-ups (not done):** limit repeated login attempts; let admins force a password reset; move the token to an httpOnly cookie instead of localStorage; the three raw `fetch` uploads (`BranchSettingsPage.tsx` business/branch logo, `ItemsPage.tsx` item image) skip the 401 redirect in `api.ts`, so route them through a shared helper.
 
-### [ ] 2. Check which branch a record belongs to on every endpoint that takes an id
+### [x] 2. Check which branch a record belongs to on every endpoint that takes an id
 - **Where:** `pos.controller.ts` around line 566. These routes take an id but never check its branch: `GET /sales/:id`, `GET /receipts/:id`, `GET /receipts/by-invoice/:id`, `GET /customers/:id/wallet`, `POST /customers/:id/wallet/topup`.
 - **Problem:** Staff at branch A can read branch B's invoices, receipts and wallets, and an admin can top up branch-B wallets.
 - **Fix:** Pass `session.branchId` into each service method and add `branchId` to the `where` clause (return 404 if it doesn't match). Then check every other `:id` route for the same gap.
@@ -161,3 +161,6 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
   - API, restart with plain-text users added: both were hashed at startup, the `default password` warning was logged for the user whose password was `password`, and both can still log in with their old passwords.
   - API, startup config: it refuses to start when `AUTH_SECRET` is empty or shorter than 32 characters. Note: the Prisma client also loads `apps/api/.env` when imported, so `AUTH_SECRET` is still set even when the process is started from another directory.
   - Web (Playwright): after logging in, the app goes to `/open-register`. After the user is deactivated in the database and the page is reloaded, the API returns 401, the session is cleared, and the login form is shown.
+- **2026-10-02 (session 2):** Finished #2. Five service methods now take the session's branch: `getSaleById`, `getReceiptById`, `getReceiptsByInvoice` (both the invoice-id and invoice-number lookups), `getWallet` and `topupWallet`. Each adds `branchId` to its `where`, so a record from another branch returns 404 as if it didn't exist.
+  - Checked the other `:id` routes; none needed changes. Settle, return, `GET /returns/:id` and `PATCH /customers/:id` already check the branch, and `createSale` checks the customer's branch. Items have no branch. The admin-only branch and user routes skip the check when no branch is selected. That's by design: `createBranch` gives every admin access to every branch, so admins work across the whole business.
+  - Tested with the app running (two branches): from branch A, all six requests succeed. From branch B, the same requests for branch A's records all return 404, including a ₹5,000 wallet top-up, and the wallet balance stays the same.
