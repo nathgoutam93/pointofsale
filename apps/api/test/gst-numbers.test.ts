@@ -83,7 +83,7 @@ describe('GST document numbers', () => {
     await t.ok('PATCH', `/branches/${a.branch.id}`, admin, { invoicePrefix: series });
     await a.sell();
     await a.sell();
-    await t.ok('PATCH', `/branches/${a.branch.id}`, admin, { invoicePrefix: `${series.slice(0, 4)}A` });
+    await t.ok('PATCH', `/branches/${a.branch.id}`, admin, { invoicePrefix: `${series.slice(0, 4)}Z` });
     await t.ok('PATCH', `/branches/${b.branch.id}`, admin, { invoicePrefix: series });
     expect((await b.sell()).invoiceNo).toBe(`${series}/${fy}/00003`);
   });

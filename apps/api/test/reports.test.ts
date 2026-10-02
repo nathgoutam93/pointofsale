@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { checkoutBody, line, startApp, type TestApp } from './helpers';
+import { ADMIN, checkoutBody, line, startApp, type TestApp } from './helpers';
 
 // #11: net sales, tax, cost of goods sold and gross profit. #15: periods in the business time zone.
 let t: TestApp;
@@ -14,6 +14,19 @@ const overall = async (token: string, branchId: string) =>
   (await t.ok('GET', `/reports/sales-summary?branchId=${branchId}`, token)).ranges.find((r: { label: string }) => r.label === 'Overall');
 
 describe('sales summary', () => {
+  it("lets an admin report on other branches they can access, but not on ones they can't", async () => {
+    const here = await t.branchWithRegister(admin);
+    const other = await t.branchWithRegister(admin);
+    // The admin's register is open in `here`; another branch they can access is still reportable.
+    expect((await t.call('GET', `/reports/sales-summary?branchId=${other.branch.id}`, here.token)).status).toBe(200);
+
+    const adminUser = await t.db.user.findUniqueOrThrow({ where: { username: ADMIN.username } });
+    await t.db.userBranchAccess.delete({ where: { userId_branchId: { userId: adminUser.id, branchId: other.branch.id } } });
+    const denied = await t.call('GET', `/reports/sales-summary?branchId=${other.branch.id}`, here.token);
+    expect(denied.status).toBe(400);
+    expect(denied.body.message).toBe('You do not have access to this branch');
+  });
+
   it('reports gross profit from net sales and the cost recorded when sold', async () => {
     const ctx = await t.branchWithRegister(admin);
     const a = await t.item(ctx.token, ctx.branch.id, { sellPrice: 100, costPrice: 60, taxRate: 18, stock: 1000 });

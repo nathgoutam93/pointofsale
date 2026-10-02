@@ -1,16 +1,18 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { reportPeriods } from './zoned-dates';
 import type { SessionUser } from '../common/types';
 import { toNumber, round2 } from '../common/numbers';
 import { SettingsService } from '../settings/settings.service';
+import { BranchesService } from '../branches/branches.service';
 
 @Injectable()
 export class ReportsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly settings: SettingsService
+    private readonly settings: SettingsService,
+    private readonly branches: BranchesService
   ) {}
 
   /**
@@ -77,10 +79,10 @@ export class ReportsService {
   }
 
   async getSalesSummary(session: SessionUser, branchId: string) {
-    if (session.branchId && session.branchId !== branchId) {
-      throw new BadRequestException('Branch mismatch');
-    }
+    // Admins compare branches, so any branch they have access to is allowed, not just the
+    // one their register is open in.
     await this.settings.ensureBranchExists(branchId);
+    await this.branches.ensureUserHasBranchAccess(session.userId, branchId);
 
     const now = new Date();
     // Periods follow the shop's clock (business time zone), not the server's.
