@@ -4,7 +4,15 @@ import { RECEIPT_CSS_MAX_LENGTH, sanitizeReceiptCss } from './receiptCss.js';
 
 export { RECEIPT_CSS_MAX_LENGTH, RECEIPT_CSS_SCOPE, sanitizeReceiptCss } from './receiptCss.js';
 export type { ReceiptCssResult } from './receiptCss.js';
-export { exclusiveBase, lineTax, returnLineRefund } from './pricing.js';
+export {
+  allocateDiscountAcrossBases,
+  computeSaleTotals,
+  exclusiveBase,
+  lineTax,
+  resolveDiscountAmounts,
+  returnLineRefund
+} from './pricing.js';
+export type { DiscountInput, PricedLineInput, ResolvedDiscount } from './pricing.js';
 
 const c = initContract();
 

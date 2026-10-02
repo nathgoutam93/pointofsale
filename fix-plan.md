@@ -100,7 +100,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 
 ## Phase 4: Code quality
 
-### [ ] 16. Share the pricing maths
+### [x] 16. Share the pricing maths
 - Move the discount and tax line calculation into one shared package (for example `packages/pricing` or `packages/contracts`) used by both `PosPage.tsx` and `pos.service.ts`, with unit tests (the ₹100.01 case, multiple discounts, conversions between units).
 
 ### [x] 17. Remove stale build files
@@ -408,3 +408,16 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - The earlier browser flows (checkout, dropped-response retry, close register, cashier limit, walk-in) still pass.
 - **2026-10-02 (session 2):** Started Phase 4, in the order #17, #16, #20, #18, #19, so the riskier refactors (#18, #19) happen with tests in place.
 - **#17 done:** deleted the tracked compiled leftovers `packages/contracts/src/index.{js,d.ts}` and their `.map` files; nothing referenced them. `.gitignore` now ignores `*.js`, `*.js.map`, `*.d.ts` and `*.d.ts.map` under `packages/*/src`, like `apps/web/src`. Contracts build, both type checks and the web production build pass.
+- **#16 done:** all sale maths now lives in `packages/contracts/src/pricing.ts`.
+  - It already had `exclusiveBase`, `lineTax` and `returnLineRefund` (from #6 and #8). Added: `resolveDiscountAmounts`, `allocateDiscountAcrossBases`, and `computeSaleTotals`, which does the whole sale (lines, order-discount plans, `orderDiscountBase`, totals).
+  - The API's `calculateSaleTotals` now wraps `computeSaleTotals`, and its private copies are deleted (−170 lines). Before switching, a differential run of the old private code against the shared code on **20,000 random carts** (mixed tax modes, sale units, stacked item discounts, order discounts over 100%, both tax-calculation modes) found **0 differences**.
+  - The POS builds the discounts once (`itemDiscountsFor`, `orderDiscounts`), uses them in the checkout request, and runs `computeSaleTotals` on that same input for the screen.
+    - This fixes a real mismatch: the POS used to work out a percentage order discount from unrounded item-discount amounts.
+    - The "Base eligible / Applied" figures in the order-discount dialog come from the same result.
+  - Unit tests: **Vitest** added to `@pos/contracts` (`pnpm --filter @pos/contracts test`, also run by `pnpm test` through turbo). `src/pricing.test.ts` has 14 tests:
+    - ₹100 @18% incl. = 84.75 + 15.25; tax-exclusive tax added on top; every price ₹0.01–₹200 at all GST rates stays at its shelf price; BEFORE_DISCOUNT tax.
+    - Several discounts on one base, and scaling when they exceed it; allocation in whole paise that adds up and never exceeds a line.
+    - A box sale unit; a hand-worked mixed sale (₹297.36); invariants on 3,000 random carts.
+    - Return refunds 66.67 + 66.67 + 66.66, and 133.33 + 66.67.
+  - Test files are excluded from the package build.
+  - Verified: all 12 API suites and the UI flows (rounding, checkout, cashier limit, 20 draft checks) pass on the refactored server. In the browser, a cart with a 7.5% order discount showed tax 80.71 / discount 36.36 / total 529.10, exactly what the server charged.

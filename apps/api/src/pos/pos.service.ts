@@ -9,18 +9,14 @@ import {
   CustomerScope,
   WalletTxnType
 } from '@prisma/client';
-import { exclusiveBase, lineTax, returnLineRefund } from '@pos/contracts';
+import { computeSaleTotals, exclusiveBase, resolveDiscountAmounts, returnLineRefund } from '@pos/contracts';
+import type { DiscountInput } from '@pos/contracts';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma.service';
 import { reportPeriods } from './zoned-dates';
 import { hashPassword, isPasswordHash, validateNewPassword, verifyPassword } from '../auth/password';
 import { signToken } from '../auth/token';
 import { PaymentInput, SessionUser } from './pos.types';
-
-type DiscountInput = {
-  type: 'PERCENTAGE' | 'FIXED';
-  value: number;
-};
 
 type SaleLineInput = {
   itemId: string;
@@ -59,19 +55,6 @@ type ComputedSaleLine = SaleLineInput & {
   baseExclusive: number;
   itemDiscountAmount: number;
   orderDiscountAmount: number;
-};
-
-type ResolvedDiscount = {
-  type: 'PERCENTAGE' | 'FIXED';
-  value: number;
-  amount: number;
-};
-
-type DiscountAllocationPlan = {
-  type: 'PERCENTAGE' | 'FIXED';
-  value: number;
-  amount: number;
-  allocations: number[];
 };
 
 type ItemSaleUomInput = {
@@ -675,118 +658,6 @@ export class PosService {
     }
   }
 
-  private resolveDiscountAmounts(discounts: DiscountInput[] | undefined, base: number): ResolvedDiscount[] {
-    const normalizedBase = this.round2(Math.max(0, base));
-    if (normalizedBase <= 0 || !discounts || discounts.length === 0) {
-      return [];
-    }
-
-    const rawDiscounts = discounts.map((discount) => ({
-      type: discount.type,
-      value: this.round2(Math.max(0, discount.value)),
-      amount: this.round2(
-        discount.type === 'PERCENTAGE'
-          ? (normalizedBase * Math.max(0, discount.value)) / 100
-          : Math.max(0, discount.value)
-      )
-    }));
-
-    const totalRaw = this.round2(rawDiscounts.reduce((acc, discount) => acc + discount.amount, 0));
-    if (totalRaw <= normalizedBase) {
-      return rawDiscounts;
-    }
-
-    const scale = normalizedBase / totalRaw;
-    const scaled = rawDiscounts.map((discount) => ({
-      ...discount,
-      amount: this.round2(discount.amount * scale)
-    }));
-    let scaledTotal = this.round2(scaled.reduce((acc, discount) => acc + discount.amount, 0));
-    if (scaledTotal > normalizedBase) {
-      let excessCents = Math.round(this.round2(scaledTotal - normalizedBase) * 100);
-      const descending = scaled
-        .map((discount, idx) => ({ idx, amount: discount.amount }))
-        .sort((a, b) => b.amount - a.amount || a.idx - b.idx);
-      while (excessCents > 0 && descending.length > 0) {
-        for (const entry of descending) {
-          if (excessCents <= 0) break;
-          if (scaled[entry.idx].amount < 0.01) continue;
-          scaled[entry.idx] = {
-            ...scaled[entry.idx],
-            amount: this.round2(scaled[entry.idx].amount - 0.01)
-          };
-          excessCents -= 1;
-        }
-      }
-      scaledTotal = this.round2(scaled.reduce((acc, discount) => acc + discount.amount, 0));
-    }
-
-    let remainingCents = Math.round(this.round2(normalizedBase - scaledTotal) * 100);
-
-    const fractions = rawDiscounts.map((discount, idx) => discount.amount * scale - scaled[idx].amount);
-    const order = scaled
-      .map((discount, idx) => ({ idx, frac: fractions[idx] ?? 0 }))
-      .sort((a, b) => b.frac - a.frac || a.idx - b.idx);
-
-    while (remainingCents > 0 && order.length > 0) {
-      for (const entry of order) {
-        if (remainingCents <= 0) break;
-        scaled[entry.idx] = {
-          ...scaled[entry.idx],
-          amount: this.round2(scaled[entry.idx].amount + 0.01)
-        };
-        remainingCents -= 1;
-      }
-    }
-
-    return scaled;
-  }
-
-  private allocateDiscountAcrossBases(bases: number[], discountAmount: number) {
-    const totalBase = this.round2(bases.reduce((acc, base) => acc + base, 0));
-    const cappedDiscount = this.round2(Math.min(Math.max(0, discountAmount), totalBase));
-    if (totalBase <= 0 || cappedDiscount <= 0) {
-      return new Array(bases.length).fill(0);
-    }
-
-    const rawShares = bases.map((base) => (base / totalBase) * cappedDiscount);
-    const floored = rawShares.map((share) => this.round2(Math.floor(share * 100) / 100));
-    const fractions = rawShares.map((share, idx) => share - floored[idx]);
-    let remainingCents = Math.round(this.round2(cappedDiscount - floored.reduce((acc, share) => acc + share, 0)) * 100);
-
-    const order = bases
-      .map((base, idx) => ({
-        idx,
-        frac: fractions[idx] ?? 0,
-        headroom: this.round2(base - floored[idx])
-      }))
-      .filter((entry) => entry.headroom >= 0.01)
-      .sort((a, b) => b.frac - a.frac || a.idx - b.idx);
-
-    while (remainingCents > 0 && order.length > 0) {
-      let progressed = false;
-      for (const entry of order) {
-        if (remainingCents <= 0) break;
-        if (this.round2(bases[entry.idx] - floored[entry.idx]) < 0.01) continue;
-        floored[entry.idx] = this.round2(floored[entry.idx] + 0.01);
-        remainingCents -= 1;
-        progressed = true;
-      }
-      if (!progressed) break;
-    }
-
-    return floored;
-  }
-
-  private buildOrderDiscountPlans(lines: Array<{ baseAfterItem: number }>, discounts: DiscountInput[] | undefined) {
-    const bases = lines.map((line) => line.baseAfterItem);
-    const totalBase = this.round2(bases.reduce((acc, base) => acc + base, 0));
-    return this.resolveDiscountAmounts(discounts, totalBase).map((discount) => ({
-      ...discount,
-      allocations: this.allocateDiscountAcrossBases(bases, discount.amount)
-    }));
-  }
-
   /** The quantity a line is priced in: sale units when it has one, otherwise base units. */
   private pricingQty(line: Pick<SaleLineInput, 'qty' | 'saleUomQty'>) {
     return line.saleUomQty ?? line.qty;
@@ -883,56 +754,33 @@ export class PosService {
     }
   }
 
+  /** The sale's amounts, from the maths shared with the POS (@pos/contracts computeSaleTotals). */
   private calculateSaleTotals(
     lines: SaleLineInput[],
     orderDiscounts: DiscountInput[] | undefined,
     taxCalculationMode: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT'
   ) {
-    const normalized = lines.map((line) => {
-      const gross = this.round2(this.pricingQty(line) * line.rate);
-      const baseExclusive = this.exclusiveBase(gross, line.taxMode, line.taxRate);
-      const itemDiscounts = this.resolveDiscountAmounts(line.discounts, baseExclusive);
-      const itemDiscount = this.round2(itemDiscounts.reduce((acc, discount) => acc + discount.amount, 0));
-      const baseAfterItem = this.round2(Math.max(0, baseExclusive - itemDiscount));
-      return { line, gross, baseExclusive, itemDiscounts, itemDiscount, baseAfterItem };
-    });
-
-    const orderDiscountPlans = this.buildOrderDiscountPlans(normalized, orderDiscounts);
-
-    const computedLines: ComputedSaleLine[] = normalized.map((entry, idx) => {
-      const orderDiscount = this.round2(
-        orderDiscountPlans.reduce((acc, discount) => acc + (discount.allocations[idx] ?? 0), 0)
-      );
-      const discountTotal = this.round2(entry.itemDiscount + orderDiscount);
-      const taxable = this.round2(Math.max(0, entry.baseExclusive - discountTotal));
-      const { tax, net } = lineTax({
-        gross: entry.gross,
-        baseExclusive: entry.baseExclusive,
-        taxable,
-        taxMode: entry.line.taxMode,
-        taxRate: entry.line.taxRate,
-        taxCalculationMode
-      });
-      return {
-        ...entry.line,
-        discountAmount: discountTotal,
-        taxableAmount: taxable,
-        taxAmount: tax,
-        netAmount: net,
-        grossAmount: entry.gross,
-        baseExclusive: entry.baseExclusive,
-        itemDiscountAmount: entry.itemDiscount,
-        orderDiscountAmount: orderDiscount
-      };
-    });
-
-    const subTotal = this.round2(computedLines.reduce((acc, l) => acc + l.baseExclusive, 0));
-    const discountTotal = this.round2(computedLines.reduce((acc, l) => acc + l.discountAmount, 0));
-    const orderDiscountTotal = this.round2(computedLines.reduce((acc, l) => acc + l.orderDiscountAmount, 0));
-    const taxTotal = this.round2(computedLines.reduce((acc, l) => acc + l.taxAmount, 0));
-    const grandTotal = this.round2(computedLines.reduce((acc, l) => acc + l.netAmount, 0));
-
-    return { computedLines, orderDiscountPlans, subTotal, discountTotal, orderDiscountTotal, taxTotal, grandTotal };
+    const totals = computeSaleTotals(lines, orderDiscounts, taxCalculationMode);
+    const computedLines: ComputedSaleLine[] = totals.lines.map((entry) => ({
+      ...entry.line,
+      discountAmount: entry.discountAmount,
+      taxableAmount: entry.taxable,
+      taxAmount: entry.tax,
+      netAmount: entry.net,
+      grossAmount: entry.gross,
+      baseExclusive: entry.baseExclusive,
+      itemDiscountAmount: entry.itemDiscount,
+      orderDiscountAmount: entry.orderDiscount
+    }));
+    return {
+      computedLines,
+      orderDiscountPlans: totals.orderDiscountPlans,
+      subTotal: totals.subTotal,
+      discountTotal: totals.discountTotal,
+      orderDiscountTotal: totals.orderDiscountTotal,
+      taxTotal: totals.taxTotal,
+      grandTotal: totals.grandTotal
+    };
   }
 
   private async nextSequence(branchId: string, type: 'invoice' | 'receipt' | 'return' | 'customer', tx: Prisma.TransactionClient) {
@@ -1862,7 +1710,7 @@ export class PosService {
     for (let lineIdx = 0; lineIdx < computedLines.length; lineIdx += 1) {
       const line = computedLines[lineIdx];
       const persistedLine = createdLines[lineIdx];
-      const itemDiscounts = this.resolveDiscountAmounts(line.discounts, line.baseExclusive);
+      const itemDiscounts = resolveDiscountAmounts(line.discounts, line.baseExclusive);
       for (const discount of itemDiscounts) {
         const createdDiscount = await tx.discount.create({
           data: {

@@ -67,3 +67,168 @@ export function returnLineRefund(input: {
   const isLastOfLine = Math.abs(alreadyReturnedQty + qty - soldQty) < 1e-9;
   return isLastOfLine ? remaining : round2(Math.min((lineNet * qty) / soldQty, remaining));
 }
+
+export type DiscountInput = { type: 'PERCENTAGE' | 'FIXED'; value: number };
+export type ResolvedDiscount = DiscountInput & { amount: number };
+
+/**
+ * Amounts for a list of discounts on one base. Percentages are of the base; if together
+ * they exceed the base they are scaled down to it, paisa by paisa, so they add up exactly.
+ */
+export function resolveDiscountAmounts(discounts: DiscountInput[] | undefined, base: number): ResolvedDiscount[] {
+  const normalizedBase = round2(Math.max(0, base));
+  if (normalizedBase <= 0 || !discounts || discounts.length === 0) {
+    return [];
+  }
+
+  const rawDiscounts = discounts.map((discount) => ({
+    type: discount.type,
+    value: round2(Math.max(0, discount.value)),
+    amount: round2(
+      discount.type === 'PERCENTAGE' ? (normalizedBase * Math.max(0, discount.value)) / 100 : Math.max(0, discount.value)
+    )
+  }));
+
+  const totalRaw = round2(rawDiscounts.reduce((acc, discount) => acc + discount.amount, 0));
+  if (totalRaw <= normalizedBase) {
+    return rawDiscounts;
+  }
+
+  const scale = normalizedBase / totalRaw;
+  const scaled = rawDiscounts.map((discount) => ({ ...discount, amount: round2(discount.amount * scale) }));
+  let scaledTotal = round2(scaled.reduce((acc, discount) => acc + discount.amount, 0));
+  if (scaledTotal > normalizedBase) {
+    let excessCents = Math.round(round2(scaledTotal - normalizedBase) * 100);
+    const descending = scaled
+      .map((discount, idx) => ({ idx, amount: discount.amount }))
+      .sort((a, b) => b.amount - a.amount || a.idx - b.idx);
+    while (excessCents > 0 && descending.length > 0) {
+      for (const entry of descending) {
+        if (excessCents <= 0) break;
+        if (scaled[entry.idx].amount < 0.01) continue;
+        scaled[entry.idx] = { ...scaled[entry.idx], amount: round2(scaled[entry.idx].amount - 0.01) };
+        excessCents -= 1;
+      }
+    }
+    scaledTotal = round2(scaled.reduce((acc, discount) => acc + discount.amount, 0));
+  }
+
+  let remainingCents = Math.round(round2(normalizedBase - scaledTotal) * 100);
+  const fractions = rawDiscounts.map((discount, idx) => discount.amount * scale - scaled[idx].amount);
+  const order = scaled
+    .map((_discount, idx) => ({ idx, frac: fractions[idx] ?? 0 }))
+    .sort((a, b) => b.frac - a.frac || a.idx - b.idx);
+  while (remainingCents > 0 && order.length > 0) {
+    for (const entry of order) {
+      if (remainingCents <= 0) break;
+      scaled[entry.idx] = { ...scaled[entry.idx], amount: round2(scaled[entry.idx].amount + 0.01) };
+      remainingCents -= 1;
+    }
+  }
+
+  return scaled;
+}
+
+/**
+ * Splits one discount across lines in proportion to their bases, in whole paise: shares
+ * are floored, then the leftover paise go to the largest remainders. Never gives a line
+ * more than its base, and the shares add up to the (capped) discount.
+ */
+export function allocateDiscountAcrossBases(bases: number[], discountAmount: number): number[] {
+  const totalBase = round2(bases.reduce((acc, base) => acc + base, 0));
+  const cappedDiscount = round2(Math.min(Math.max(0, discountAmount), totalBase));
+  if (totalBase <= 0 || cappedDiscount <= 0) {
+    return new Array(bases.length).fill(0);
+  }
+
+  const rawShares = bases.map((base) => (base / totalBase) * cappedDiscount);
+  const floored = rawShares.map((share) => round2(Math.floor(share * 100) / 100));
+  const fractions = rawShares.map((share, idx) => share - floored[idx]);
+  let remainingCents = Math.round(round2(cappedDiscount - floored.reduce((acc, share) => acc + share, 0)) * 100);
+
+  const order = bases
+    .map((base, idx) => ({ idx, frac: fractions[idx] ?? 0, headroom: round2(base - floored[idx]) }))
+    .filter((entry) => entry.headroom >= 0.01)
+    .sort((a, b) => b.frac - a.frac || a.idx - b.idx);
+
+  while (remainingCents > 0 && order.length > 0) {
+    let progressed = false;
+    for (const entry of order) {
+      if (remainingCents <= 0) break;
+      if (round2(bases[entry.idx] - floored[entry.idx]) < 0.01) continue;
+      floored[entry.idx] = round2(floored[entry.idx] + 0.01);
+      remainingCents -= 1;
+      progressed = true;
+    }
+    if (!progressed) break;
+  }
+
+  return floored;
+}
+
+export type PricedLineInput = {
+  /** Base-unit quantity. */
+  qty: number;
+  /** Quantity in the sale unit, when the line is sold in one (e.g. boxes); prices are per this unit. */
+  saleUomQty?: number | null;
+  /** Price per pricing unit, tax-inclusive for INCLUSIVE lines. */
+  rate: number;
+  taxRate: number;
+  taxMode?: TaxMode;
+  discounts?: DiscountInput[];
+};
+
+/**
+ * The whole sale: each line's gross, pre-tax base, item discounts, share of the order
+ * discounts, taxable amount, tax and net, plus the totals. The API saves exactly this, and
+ * the POS shows it computed from the same request, so the two always agree.
+ */
+export function computeSaleTotals<L extends PricedLineInput>(
+  lines: L[],
+  orderDiscounts: DiscountInput[] | undefined,
+  taxCalculationMode: TaxCalculationMode
+) {
+  const normalized = lines.map((line) => {
+    const gross = round2((line.saleUomQty ?? line.qty) * line.rate);
+    const baseExclusive = exclusiveBase(gross, line.taxMode, line.taxRate);
+    const itemDiscounts = resolveDiscountAmounts(line.discounts, baseExclusive);
+    const itemDiscount = round2(itemDiscounts.reduce((acc, discount) => acc + discount.amount, 0));
+    const baseAfterItem = round2(Math.max(0, baseExclusive - itemDiscount));
+    return { line, gross, baseExclusive, itemDiscounts, itemDiscount, baseAfterItem };
+  });
+
+  const bases = normalized.map((entry) => entry.baseAfterItem);
+  const orderDiscountBase = round2(bases.reduce((acc, base) => acc + base, 0));
+  const orderDiscountPlans = resolveDiscountAmounts(orderDiscounts, orderDiscountBase).map((discount) => ({
+    ...discount,
+    allocations: allocateDiscountAcrossBases(bases, discount.amount)
+  }));
+
+  const computed = normalized.map((entry, idx) => {
+    const orderDiscount = round2(orderDiscountPlans.reduce((acc, plan) => acc + (plan.allocations[idx] ?? 0), 0));
+    const discountAmount = round2(entry.itemDiscount + orderDiscount);
+    const taxable = round2(Math.max(0, entry.baseExclusive - discountAmount));
+    const { tax, net } = lineTax({
+      gross: entry.gross,
+      baseExclusive: entry.baseExclusive,
+      taxable,
+      taxMode: entry.line.taxMode,
+      taxRate: entry.line.taxRate,
+      taxCalculationMode
+    });
+    return { ...entry, orderDiscount, discountAmount, taxable, tax, net };
+  });
+
+  const sum = (pick: (line: (typeof computed)[number]) => number) => round2(computed.reduce((acc, line) => acc + pick(line), 0));
+  return {
+    lines: computed,
+    orderDiscountPlans,
+    /** Pre-tax amount after item discounts: what an order discount applies to. */
+    orderDiscountBase,
+    subTotal: sum((line) => line.baseExclusive),
+    discountTotal: sum((line) => line.discountAmount),
+    orderDiscountTotal: sum((line) => line.orderDiscount),
+    taxTotal: sum((line) => line.tax),
+    grandTotal: sum((line) => line.net)
+  };
+}

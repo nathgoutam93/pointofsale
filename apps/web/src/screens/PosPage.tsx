@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { exclusiveBase, lineTax, sanitizeReceiptCss } from "@pos/contracts";
+import { computeSaleTotals, exclusiveBase, lineTax, sanitizeReceiptCss } from "@pos/contracts";
+import type { DiscountInput } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { newUuid } from "../lib/id";
 import { readDrafts, removeDrafts, subscribeDrafts, upsertDraft } from "../lib/draftStore";
@@ -473,49 +474,6 @@ export function PosPage() {
     return round3(Math.max(unit, steps * unit));
   };
 
-  function allocateDiscountAcrossBases(
-    bases: number[],
-    discountAmount: number,
-  ) {
-    const totalBase = round2(bases.reduce((acc, base) => acc + base, 0));
-    const cappedDiscount = round2(Math.min(Math.max(0, discountAmount), totalBase));
-    if (totalBase <= 0 || cappedDiscount <= 0) {
-      return new Array(bases.length).fill(0);
-    }
-
-    const rawShares = bases.map((base) => (base / totalBase) * cappedDiscount);
-    const floored = rawShares.map((share) =>
-      round2(Math.floor(share * 100) / 100),
-    );
-    const fractions = rawShares.map((share, idx) => share - floored[idx]);
-    let remainingCents = Math.round(
-      round2(cappedDiscount - floored.reduce((acc, val) => acc + val, 0)) * 100,
-    );
-
-    const order = fractions
-      .map((frac, idx) => ({
-        idx,
-        frac,
-        headroom: round2(bases[idx] - floored[idx]),
-      }))
-      .filter((entry) => entry.headroom >= 0.01)
-      .sort((a, b) => b.frac - a.frac || a.idx - b.idx);
-
-    while (remainingCents > 0) {
-      let progressed = false;
-      for (const entry of order) {
-        if (remainingCents <= 0) break;
-        if (round2(bases[entry.idx] - floored[entry.idx]) < 0.01) continue;
-        floored[entry.idx] = round2(floored[entry.idx] + 0.01);
-        remainingCents -= 1;
-        progressed = true;
-      }
-      if (!progressed) break;
-    }
-
-    return floored;
-  }
-
   function computeLineAmounts(
     line: Pick<
       CartLine,
@@ -537,69 +495,45 @@ export function PosPage() {
     return { taxable, tax, net };
   }
 
-  const orderDiscountBase = useMemo(
+  // The discounts exactly as checkout sends them, so the totals shown here are the
+  // totals the server computes (same request, same computeSaleTotals).
+  const itemDiscountsFor = (line: Pick<CartLine, "discountAmount">): DiscountInput[] =>
+    line.discountAmount > 0 ? [{ type: "FIXED", value: line.discountAmount }] : [];
+  const orderDiscounts = useMemo<DiscountInput[]>(
     () =>
-      cart.reduce((acc, line) => {
-        const baseExclusive = getBaseExclusive(line);
-        return acc + Math.max(0, baseExclusive - line.discountAmount);
-      }, 0),
-    [cart],
+      Number(orderDiscountValue) > 0
+        ? [{ type: orderDiscountMode === "PERCENT" ? "PERCENTAGE" : "FIXED", value: Number(orderDiscountValue) }]
+        : [],
+    [orderDiscountMode, orderDiscountValue],
   );
 
-  const resolvedOrderDiscountAmount = useMemo(() => {
-    const input = Number(orderDiscountValue);
-    if (!Number.isFinite(input) || input <= 0) return 0;
-    if (orderDiscountMode === "PERCENT") {
-      return Math.min(orderDiscountBase, (orderDiscountBase * input) / 100);
-    }
-    return Math.min(orderDiscountBase, input);
-  }, [orderDiscountBase, orderDiscountMode, orderDiscountValue]);
-
   const computedCart = useMemo(() => {
-    const normalized = cart.map((line) => {
-      const gross = round2(getPricingQty(line) * line.rate);
-      const baseExclusive = getBaseExclusive(line);
-      const itemDiscount = round2(Math.min(Math.max(0, line.discountAmount), baseExclusive));
-      const baseAfterItem = round2(Math.max(0, baseExclusive - itemDiscount));
-      return { line, gross, baseExclusive, itemDiscount, baseAfterItem };
-    });
-
-    const bases = normalized.map((entry) => entry.baseAfterItem);
-    const allocations = allocateDiscountAcrossBases(bases, resolvedOrderDiscountAmount);
-
-    const lines = normalized.map((entry, idx) => {
-      const orderDiscount = round2(allocations[idx] ?? 0);
-      const discountAmount = round2(entry.itemDiscount + orderDiscount);
-      const taxable = round2(Math.max(0, entry.baseExclusive - discountAmount));
-      const { tax, net } = lineTax({
-        gross: entry.gross,
-        baseExclusive: entry.baseExclusive,
-        taxable,
-        taxMode: entry.line.taxMode,
-        taxRate: entry.line.taxRate,
-        taxCalculationMode,
-      });
-      return {
+    const totals = computeSaleTotals(
+      cart.map((line) => ({ ...line, discounts: itemDiscountsFor(line) })),
+      orderDiscounts,
+      taxCalculationMode,
+    );
+    return {
+      lines: totals.lines.map((entry) => ({
         ...entry.line,
         gross: entry.gross,
         baseExclusive: entry.baseExclusive,
         itemDiscount: entry.itemDiscount,
-        orderDiscount,
-        discountAmount,
-        taxable,
-        tax,
-        net,
-      };
-    });
-
-    return {
-      lines,
-      subTotal: round2(lines.reduce((acc, line) => acc + line.baseExclusive, 0)),
-      taxTotal: round2(lines.reduce((acc, line) => acc + line.tax, 0)),
-      grandTotal: round2(lines.reduce((acc, line) => acc + line.net, 0)),
-      orderDiscountTotal: round2(lines.reduce((acc, line) => acc + line.orderDiscount, 0)),
+        orderDiscount: entry.orderDiscount,
+        discountAmount: entry.discountAmount,
+        taxable: entry.taxable,
+        tax: entry.tax,
+        net: entry.net,
+      })),
+      subTotal: totals.subTotal,
+      taxTotal: totals.taxTotal,
+      grandTotal: totals.grandTotal,
+      orderDiscountTotal: totals.orderDiscountTotal,
+      orderDiscountBase: totals.orderDiscountBase,
     };
-  }, [cart, resolvedOrderDiscountAmount, taxCalculationMode]);
+  }, [cart, orderDiscounts, taxCalculationMode]);
+  const orderDiscountBase = computedCart.orderDiscountBase;
+  const resolvedOrderDiscountAmount = computedCart.orderDiscountTotal;
 
   const getCartLineKey = (line: Pick<CartLine, "cartKey" | "itemId" | "saleUom">) =>
     line.cartKey || `${line.itemId}:${line.saleUom ?? "BASE"}`;
@@ -1410,23 +1344,9 @@ export function PosPage() {
         saleUomConversionQty: line.saleUomConversionQty,
         taxRate: line.taxRate,
         taxMode: line.taxMode,
-        discounts:
-          line.discountAmount > 0
-            ? [{ type: "FIXED" as const, value: line.discountAmount }]
-            : [],
+        discounts: itemDiscountsFor(line),
       })),
-      discounts:
-        Number(orderDiscountValue) > 0
-          ? [
-              {
-                type:
-                  orderDiscountMode === "PERCENT"
-                    ? ("PERCENTAGE" as const)
-                    : ("FIXED" as const),
-                value: Number(orderDiscountValue),
-              },
-            ]
-          : [],
+      discounts: orderDiscounts,
     };
   };
 
