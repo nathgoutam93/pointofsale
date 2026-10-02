@@ -117,31 +117,31 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 
 ## Phase 5: POS draft handling (from the review of commit 59a0213, all in `apps/web/src/screens/PosPage.tsx`)
 
-### [ ] 21. A paid cart can stay saved as a draft (around line 1288)
+### [x] 21. A paid cart can stay saved as a draft (around line 1288)
 - If the user leaves or refreshes during an in-flight checkout, the cart is saved as a draft with a new id. `onSuccess` only removes the old `activeDraftId`, so the paid cart remains and can be billed again. **Fix:** Don't block or auto-save while `checkout.isPending`, and remove the draft whose id is in the latest state (use a ref), not the id captured when checkout started.
 
-### [ ] 22. Logout and Close Register break if the leave prompt is cancelled (around line 1279)
+### [x] 22. Logout and Close Register break if the leave prompt is cancelled (around line 1279)
 - The native `beforeunload` prompt appears after `clearSession()` or the register close has already run. **Fix:** Turn the blocker off (with a ref flag) before setting `window.location.href`, or navigate with the router instead.
 
-### [ ] 23. No "leave without saving" option (around line 1282)
+### [x] 23. No "leave without saving" option (around line 1282)
 - **Fix:** Use a custom dialog with three choices: Save draft / Discard / Stay.
 
-### [ ] 24. Emptying a resumed draft doesn't discard it (around line 1240)
+### [x] 24. Emptying a resumed draft doesn't discard it (around line 1240)
 - **Fix:** In `backToOrders`, when the cart is empty and `activeDraftId` is set, remove that draft.
 
-### [ ] 25. Auto-save overwrites other tabs' drafts (around line 1302)
+### [x] 25. Auto-save overwrites other tabs' drafts (around line 1302)
 - **Fix:** Read the latest drafts from localStorage before writing, and listen for the `storage` event to keep each tab in sync.
 
-### [ ] 26. A failed storage write after checkout keeps the paid draft (around line 1583)
+### [x] 26. A failed storage write after checkout keeps the paid draft (around line 1583)
 - **Fix:** Use the functional form of `setLocalDrafts`, and show an error if the write fails.
 
-### [ ] 27. Tablets often don't fire `beforeunload` (around line 1310)
+### [x] 27. Tablets often don't fire `beforeunload` (around line 1310)
 - **Fix:** Also save on `pagehide` and on `visibilitychange` when the page becomes hidden.
 
-### [ ] 28. `beforeunload` registered twice, listener re-added on every cart change (around line 1297)
+### [x] 28. `beforeunload` registered twice, listener re-added on every cart change (around line 1297)
 - **Fix:** Keep one listener that calls the latest save function through a ref.
 
-### [ ] 29. Unneeded branch in `saveCurrentCartAsLocalDraft` (around line 1209)
+### [x] 29. Unneeded branch in `saveCurrentCartAsLocalDraft` (around line 1209)
 - **Fix:** Replace it with `[draft, ...localDrafts.filter(d => d.id !== draft.id)].slice(0, 20)`.
 
 ---
@@ -387,3 +387,22 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - With the app running, sales at 01:30 IST on 2 Oct (still 1 Oct in UTC) and 00:30 IST on 3 Oct (still 2 Oct in UTC): "Today" counts the first in Asia/Kolkata and the second in UTC. An unknown zone gets 400.
     - In a browser set to Los Angeles, the Reports page still labels Today 2 Oct, the week 28 Sep–4 Oct and the month October, with "Asia/Kolkata time" in the header. The picker loads Asia/Kolkata (419 zones).
     - All 11 API suites and the UI checkout still pass.
+- **2026-10-02 (session 2):** Finished Phase 5 (#21–#29), before Phase 4, because these are live cashier bugs and splitting `PosPage.tsx` (#19) is easier once its draft logic is fixed. Since #10 a duplicate draft can't create a second sale by retrying, but a stale draft re-opened later still could.
+  - The root cause of #22/#23/#27/#28 was relying on the browser's native "leave page?" prompt: it fired after Logout or Close Register had run, offered only OK/Cancel, and tablets often skip it. It's gone (`enableBeforeUnload: false`).
+  - `lib/draftStore.ts` (#25, #26, #29): `readDrafts` / `updateDrafts` (always re-read the latest list before writing) / `upsertDraft` (newest first, replacing the same id, max 20) / `removeDrafts` / `subscribeDrafts` (the `storage` event keeps tabs in sync). A failed write throws, and the caller tells the cashier.
+  - Leaving with an unsaved cart (#22, #23):
+    - In-app navigation (an async `useBlocker` `shouldBlockFn`) shows a custom dialog: **Save draft and leave / Discard cart and leave / Stay**.
+    - `lib/leaveGuard.ts` lets the shell ask the open screen first: Logout and Close Register call `confirmLeave()` *before* clearing the session or opening the close dialog, so Stay keeps everything.
+    - Discard resets the cart, so the reload afterwards doesn't auto-save it.
+  - Closing, reloading or hiding the page (#27, #28): the cart is saved silently as a draft on `beforeunload`, `pagehide` and `visibilitychange` → hidden, through one set of listeners added once that call the latest save through a ref.
+  - Paid carts (#21): the active draft id lives in a ref (`activeDraftIdRef`). Nothing auto-saves and leaving is refused while `checkout.isPending`. On success, checkout removes both the draft the cart had when checkout started (`onMutate` context) and the current one. If that removal fails (#26), the success message tells the cashier to delete the draft by hand.
+  - #24: going back to orders with an empty cart deletes the resumed draft.
+  - Tested in the browser (20 checks):
+    - #21: a resumed draft is gone after paying; `pagehide`/`beforeunload` during a slow checkout saves nothing.
+    - #22/#23: Logout → Stay keeps the session and cart; Save draft signs out and the draft is there after signing back in. Close Register → Stay doesn't open the dialog; Discard opens it with no draft, even after the reload. Menu navigation → Stay stays on /pos; Save goes to /sales with the draft saved.
+    - #24: an emptied resumed draft is removed.
+    - #25: two tabs each save a draft; storage holds both and tab 1 lists both.
+    - #26: with `localStorage.setItem` throwing, the sale completes and the message explains what to do.
+    - #27: `pagehide` saves; a hidden tab updates the same draft (1 draft, 2 items).
+    - #28: one POS `beforeunload` listener after 5 cart changes. The router's history adds its own, which isn't part of this.
+    - The earlier browser flows (checkout, dropped-response retry, close register, cashier limit, walk-in) still pass.

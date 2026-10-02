@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { exclusiveBase, lineTax, sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { newUuid } from "../lib/id";
+import { readDrafts, removeDrafts, subscribeDrafts, upsertDraft } from "../lib/draftStore";
+import { setLeaveGuard } from "../lib/leaveGuard";
 import {
   buildReceiptLines,
   escapeHtml,
@@ -51,6 +53,8 @@ type PostPaymentSummary = {
 
 type PaymentMode = "CASH" | "CARD" | "WALLET";
 type PaymentMethod = PaymentMode | "CREDIT";
+
+type LeaveChoice = "save" | "discard" | "stay";
 
 type LocalSaleDraft = {
   id: string;
@@ -117,33 +121,18 @@ export function PosPage() {
   );
   const [localDrafts, setLocalDrafts] = useState<LocalSaleDraft[]>([]);
   const [isOrderOpen, setIsOrderOpen] = useState(false);
-  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+
+  // The draft the current cart was saved as (or resumed from). A ref, not state, so
+  // handlers that run later (checkout success, page unload) always see the latest id.
+  const activeDraftIdRef = useRef<string | null>(null);
+  const setActiveDraft = (id: string | null) => {
+    activeDraftIdRef.current = id;
+  };
 
   useEffect(() => {
-    const raw = localStorage.getItem(draftStorageKey);
-    if (!raw) {
-      setLocalDrafts([]);
-      return;
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) {
-        setLocalDrafts([]);
-        return;
-      }
-      setLocalDrafts(
-        parsed.filter((draft): draft is LocalSaleDraft => {
-          return (
-            !!draft &&
-            typeof draft.id === "string" &&
-            typeof draft.savedAt === "string" &&
-            Array.isArray(draft.cart)
-          );
-        }),
-      );
-    } catch {
-      setLocalDrafts([]);
-    }
+    setLocalDrafts(readDrafts<LocalSaleDraft>(draftStorageKey));
+    // Another tab saved or removed a draft: show the same list here.
+    return subscribeDrafts<LocalSaleDraft>(draftStorageKey, setLocalDrafts);
   }, [draftStorageKey]);
 
   const branchSettings = useQuery({
@@ -1185,7 +1174,7 @@ export function PosPage() {
     setPaymentLines([]);
     setPaymentModalError("");
     setPaymentModalOpen(false);
-    setActiveDraftId(null);
+    setActiveDraft(null);
   };
 
   const startNewOrder = () => {
@@ -1193,15 +1182,10 @@ export function PosPage() {
     setIsOrderOpen(true);
   };
 
-  const persistLocalDrafts = (drafts: LocalSaleDraft[]) => {
-    localStorage.setItem(draftStorageKey, JSON.stringify(drafts));
-    setLocalDrafts(drafts);
-  };
-
   const buildLocalDraft = () => {
     const now = new Date().toISOString();
     return {
-      id: activeDraftId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: activeDraftIdRef.current ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       savedAt: now,
       customerId,
       customerName: displayCustomerName,
@@ -1216,18 +1200,11 @@ export function PosPage() {
     };
   };
 
+  /** Saves the cart as a draft (throws if storage fails). */
   const saveCurrentCartAsLocalDraft = (options?: { resetOrder?: boolean }) => {
     const draft = buildLocalDraft();
-    const existingIndex = localDrafts.findIndex((item) => item.id === draft.id);
-    const nextDrafts =
-      existingIndex === -1
-        ? [draft, ...localDrafts].slice(0, 20)
-        : [
-            draft,
-            ...localDrafts.filter((item) => item.id !== draft.id),
-          ].slice(0, 20);
-    persistLocalDrafts(nextDrafts);
-    setActiveDraftId(draft.id);
+    setLocalDrafts(upsertDraft(draftStorageKey, draft));
+    setActiveDraft(draft.id);
     if (options?.resetOrder ?? true) {
       resetCurrentOrder();
       setIsOrderOpen(false);
@@ -1237,6 +1214,15 @@ export function PosPage() {
 
   const backToOrders = () => {
     if (cart.length === 0) {
+      // Emptying a resumed draft means it's no longer wanted.
+      if (activeDraftIdRef.current) {
+        try {
+          setLocalDrafts(removeDrafts<LocalSaleDraft>(draftStorageKey, [activeDraftIdRef.current]));
+          setMessage("Empty draft discarded.");
+        } catch {
+          setMessage("Could not remove the empty draft.");
+        }
+      }
       resetCurrentOrder();
       setIsOrderOpen(false);
       return;
@@ -1259,7 +1245,7 @@ export function PosPage() {
     setPostPayment(null);
     setMessage(`Draft restored: ${draft.customerName}`);
     setIsOrderOpen(true);
-    setActiveDraftId(draft.id);
+    setActiveDraft(draft.id);
     setReceiptContact("");
     setCustomerId(draft.customerId);
     setWalkInCustomerName(draft.walkInCustomerName ?? "");
@@ -1276,66 +1262,14 @@ export function PosPage() {
   };
 
   const deleteLocalDraft = (draftId: string) => {
-    const nextDrafts = localDrafts.filter((draft) => draft.id !== draftId);
     try {
-      persistLocalDrafts(nextDrafts);
-      if (activeDraftId === draftId) setActiveDraftId(null);
+      setLocalDrafts(removeDrafts<LocalSaleDraft>(draftStorageKey, [draftId]));
+      if (activeDraftIdRef.current === draftId) setActiveDraft(null);
       setMessage("Local draft deleted.");
     } catch {
       setMessage("Could not delete local draft.");
     }
   };
-
-  useBlocker({
-    disabled: cart.length === 0,
-    enableBeforeUnload: cart.length > 0,
-    shouldBlockFn: ({ next }) => {
-      if (next.pathname === "/pos") return false;
-      const shouldSave = window.confirm(
-        "Save the current cart as a draft before leaving POS?",
-      );
-      if (!shouldSave) return true;
-
-      try {
-        saveCurrentCartAsLocalDraft({ resetOrder: false });
-        return false;
-      } catch {
-        window.alert("Could not save the current cart as a draft. Staying on POS.");
-        return true;
-      }
-    },
-  });
-
-  useEffect(() => {
-    if (cart.length === 0) return;
-
-    const handleBeforeUnload = () => {
-      try {
-        saveCurrentCartAsLocalDraft({ resetOrder: false });
-      } catch {
-        // The router blocker handles in-app navigation failures; browser unload has no recovery path.
-      }
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [
-    activeDraftId,
-    cart,
-    customerId,
-    displayCustomerName,
-    displayCustomerPhone,
-    draftStorageKey,
-    isWalkInSelected,
-    localDrafts,
-    normalizedWalkInCustomerName,
-    normalizedWalkInCustomerPhone,
-    orderDiscountMode,
-    orderDiscountValue,
-    total,
-    totalItems,
-    walkIn.data?.id,
-  ]);
 
   const formatDraftSavedAt = (savedAt: string) => {
     const date = new Date(savedAt);
@@ -1524,7 +1458,10 @@ export function PosPage() {
       checkoutKeyRef.current = null;
       return res.body;
     },
-    onSuccess: (result) => {
+    // The cart's draft at the moment checkout started, removed on success along with the
+    // current one, so a paid cart can't stay behind as a draft.
+    onMutate: () => ({ draftIdAtStart: activeDraftIdRef.current }),
+    onSuccess: (result, _payload, context) => {
       const cartSnapshotByKey = new Map(cart.map((line) => [getCartLineKey(line), line]));
       const cartSnapshotByItemId = new Map(cart.map((line) => [line.itemId, line]));
       const itemDiscountIds = new Set(
@@ -1586,23 +1523,24 @@ export function PosPage() {
         }),
       });
       setReceiptContact(result.invoice.customerPhone ?? "");
-      if (activeDraftId) {
-        const nextDrafts = localDrafts.filter((draft) => draft.id !== activeDraftId);
+      let draftCleanupFailed = false;
+      if (context?.draftIdAtStart || activeDraftIdRef.current) {
         try {
-          persistLocalDrafts(nextDrafts);
+          setLocalDrafts(removeDrafts<LocalSaleDraft>(draftStorageKey, [context?.draftIdAtStart, activeDraftIdRef.current]));
         } catch {
-          setLocalDrafts(nextDrafts);
+          draftCleanupFailed = true;
         }
       }
-      setActiveDraftId(null);
+      setActiveDraft(null);
       setCart([]);
       setPaymentAmount("0");
       setPaymentLines([]);
       setPaymentModalOpen(false);
       setMessage(
-        result.receipt
+        (result.receipt
           ? `Done: ${result.invoice.invoiceNo}, Receipt: ${result.receipt.receiptNo}, Status: ${result.invoice.status}`
-          : `Done: ${result.invoice.invoiceNo}, Full credit, Status: ${result.invoice.status}`,
+          : `Done: ${result.invoice.invoiceNo}, Full credit, Status: ${result.invoice.status}`) +
+          (draftCleanupFailed ? ". Couldn't remove this cart's saved draft: delete it from Saved drafts so it isn't billed again." : ""),
       );
       queryClient.invalidateQueries({
         queryKey: ["sales-module", session.branchId],
@@ -1612,6 +1550,83 @@ export function PosPage() {
       });
     },
   });
+
+  // ---- Leaving the POS with an unsaved cart ----
+  // In-app navigation, Logout and Close Register ask Save draft / Discard / Stay first.
+  // Closing, reloading or hiding the page can't show a dialog, so the cart is saved as a
+  // draft silently instead. Nothing is saved while a checkout is in flight: that cart is
+  // being paid for.
+  const [leavePrompt, setLeavePrompt] = useState<((choice: LeaveChoice) => void) | null>(null);
+
+  const askToLeave = async (): Promise<boolean> => {
+    if (checkout.isPending) {
+      setMessage("Checkout is in progress. Wait for it to finish before leaving.");
+      return false;
+    }
+    if (cart.length === 0) return true;
+    const choice = await new Promise<LeaveChoice>((resolve) => {
+      setLeavePrompt(() => (picked: LeaveChoice) => {
+        setLeavePrompt(null);
+        resolve(picked);
+      });
+    });
+    if (choice === "stay") return false;
+    if (choice === "discard") {
+      resetCurrentOrder();
+      return true;
+    }
+    try {
+      saveCurrentCartAsLocalDraft();
+      return true;
+    } catch {
+      setMessage("Could not save the cart as a draft, so you're still on POS.");
+      return false;
+    }
+  };
+  const askToLeaveRef = useRef(askToLeave);
+  askToLeaveRef.current = askToLeave;
+
+  useEffect(() => {
+    setLeaveGuard(() => askToLeaveRef.current());
+    return () => setLeaveGuard(null);
+  }, []);
+
+  useBlocker({
+    disabled: cart.length === 0 && !checkout.isPending,
+    enableBeforeUnload: false,
+    shouldBlockFn: async ({ next }) => {
+      if (next.pathname === "/pos") return false;
+      return !(await askToLeaveRef.current());
+    },
+  });
+
+  const saveOnUnload = () => {
+    if (cart.length === 0 || checkout.isPending) return;
+    try {
+      saveCurrentCartAsLocalDraft({ resetOrder: false });
+    } catch {
+      // Nothing can be shown while the page is going away.
+    }
+  };
+  const saveOnUnloadRef = useRef(saveOnUnload);
+  saveOnUnloadRef.current = saveOnUnload;
+
+  useEffect(() => {
+    // One set of listeners for the page's lifetime; they call the latest save through a ref.
+    // Tablets often skip beforeunload, so pagehide and going to the background save too.
+    const save = () => saveOnUnloadRef.current();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") save();
+    };
+    window.addEventListener("beforeunload", save);
+    window.addEventListener("pagehide", save);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("beforeunload", save);
+      window.removeEventListener("pagehide", save);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   useEffect(() => {
     if (!paymentModalOpen) return;
@@ -2735,6 +2750,28 @@ export function PosPage() {
             {customerModalError ? (
               <p className="mt-2 text-sm text-red-700">{customerModalError}</p>
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {leavePrompt ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/50 p-4 print:hidden">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" role="dialog" aria-label="Unsaved cart">
+            <h2 className="text-lg font-semibold text-slate-900">Leave POS?</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              The current cart ({totalItems} items, ₹ {money(total)}) hasn't been billed.
+            </p>
+            <div className="mt-5 grid gap-2">
+              <button className="rounded-lg bg-slate-900 px-3 py-2 font-semibold text-white" onClick={() => leavePrompt("save")}>
+                Save draft and leave
+              </button>
+              <button className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 font-semibold text-rose-700" onClick={() => leavePrompt("discard")}>
+                Discard cart and leave
+              </button>
+              <button className="rounded-lg border border-slate-300 px-3 py-2" onClick={() => leavePrompt("stay")}>
+                Stay
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

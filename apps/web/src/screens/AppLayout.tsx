@@ -1,5 +1,6 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
+import { confirmLeave } from "../lib/leaveGuard";
 import { clearSession, getSession } from "../lib/session";
 import { CloseRegisterDialog } from "./CloseRegisterDialog";
 
@@ -123,8 +124,10 @@ export function AppLayout() {
           {session?.registerId ? (
             <button
               className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-left"
-              onClick={() => {
+              onClick={async () => {
                 setOpen(false);
+                // Ask the open screen (e.g. an unsaved POS cart) before closing.
+                if (!(await confirmLeave())) return;
                 setClosingRegister(true);
               }}
             >
@@ -133,7 +136,10 @@ export function AppLayout() {
           ) : null}
           <button
             className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-left"
-            onClick={() => {
+            onClick={async () => {
+              setOpen(false);
+              // Only sign out once the open screen agrees; cancelling keeps the session.
+              if (!(await confirmLeave())) return;
               clearSession();
               window.location.href = "/";
             }}
