@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { GST_SUPPLY_TYPE_LABELS } from "@pos/contracts";
 import { inr, requireSession } from "./route-helpers";
+import { BranchPricesSection } from "./items/BranchPricesSection";
 import { effectiveSupplyType, effectiveUqc, emptyGstItemForm, GstItemFields, type GstItemForm } from "./items/GstItemFields";
 
 type ItemFormState = {
@@ -67,7 +68,7 @@ function normalizeSaleUomRows(rows: SaleUomFormState[], baseUom: string) {
 }
 
 export function ItemsPage() {
-  requireSession();
+  const session = requireSession();
   const queryClient = useQueryClient();
   const normalizedApiBaseUrl = API_BASE_URL.replace(/\/$/, "");
   const [form, setForm] = useState(initialForm);
@@ -102,6 +103,14 @@ export function ItemsPage() {
     () => items.data?.find((item) => item.id === selectedItemId) ?? null,
     [items.data, selectedItemId],
   );
+  // The units the selected item is sold in, base unit first, for its branch prices.
+  const selectedItemUnits = useMemo(() => {
+    if (!selectedItem) return null;
+    const saleUnits = selectedItem.saleUoms ?? [];
+    return saleUnits.some((unit) => unit.isDefault)
+      ? saleUnits
+      : [{ uom: selectedItem.uom, sellPrice: selectedItem.sellPrice, mrp: selectedItem.mrp }, ...saleUnits];
+  }, [selectedItem]);
 
   const filteredItems = useMemo(() => {
     if (!items.data) return [];
@@ -1198,6 +1207,13 @@ export function ItemsPage() {
                   </table>
                 </div>
               </div>
+              {session.role === "ADMIN" && selectedItemUnits ? (
+                <BranchPricesSection
+                  itemId={selectedItem.id}
+                  baseUom={selectedItem.uom}
+                  units={selectedItemUnits}
+                />
+              ) : null}
             </div>
           </>
         ) : (

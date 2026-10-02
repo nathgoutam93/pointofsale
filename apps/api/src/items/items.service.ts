@@ -3,7 +3,10 @@ import { Prisma } from '@prisma/client';
 import { defaultSupplyType, hsnProblem, suggestUqc, supplyTypeProblem, type GstSupplyType } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import type { ItemSaleUomInput } from '../common/types';
+import { BranchesService } from '../branches/branches.service';
+import type { ItemSaleUomInput, SessionUser } from '../common/types';
+import { requireAdmin } from '../common/request-session';
+import { withBranchPrices } from '../common/branch-prices';
 import { toNumber, round2 } from '../common/numbers';
 import { normalizeLeastCount } from '../common/quantities';
 
@@ -11,7 +14,8 @@ import { normalizeLeastCount } from '../common/quantities';
 export class ItemsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly settings: SettingsService
+    private readonly settings: SettingsService,
+    private readonly branches: BranchesService
   ) {}
 
   /** Rejects an HSN code shorter than the business requires (the format is checked by the contract). */
@@ -84,12 +88,101 @@ export class ItemsService {
     return normalized;
   }
 
-  async listItems(activeOnly?: boolean) {
-    return this.prisma.item.findMany({
+  /** With a branch, each item carries that branch's prices (see withBranchPrices). */
+  async listItems(session: SessionUser, activeOnly?: boolean, branchId?: string) {
+    if (branchId) {
+      await this.settings.ensureBranchExists(branchId);
+      await this.branches.ensureUserHasBranchAccess(session.userId, branchId);
+    }
+    const items = await this.prisma.item.findMany({
       where: activeOnly ? { isActive: true } : undefined,
       include: { saleUoms: { orderBy: { sortOrder: 'asc' } } },
       orderBy: { createdAt: 'desc' }
     });
+    if (!branchId) return items;
+
+    const prices = await this.prisma.itemBranchPrice.findMany({ where: { branchId } });
+    const pricesByItem = new Map<string, typeof prices>();
+    for (const price of prices) {
+      pricesByItem.set(price.itemId, [...(pricesByItem.get(price.itemId) ?? []), price]);
+    }
+    return items.map((item) => withBranchPrices(item, pricesByItem.get(item.id) ?? []));
+  }
+
+  /** A branch's own prices for an item, for pricing a sale line. */
+  async branchPricesFor(tx: Prisma.TransactionClient, branchId: string, itemId: string) {
+    return tx.itemBranchPrice.findMany({ where: { branchId, itemId }, select: { uom: true, sellPrice: true, mrp: true } });
+  }
+
+  async listBranchPrices(session: SessionUser, itemId: string) {
+    requireAdmin(session);
+    const item = await this.prisma.item.findUnique({ where: { id: itemId }, select: { id: true } });
+    if (!item) throw new NotFoundException('Item not found');
+    const branchIds = (await this.branches.listAccessibleBranches(session)).map((branch) => branch.id);
+    return this.prisma.itemBranchPrice.findMany({
+      where: { itemId, branchId: { in: branchIds } },
+      orderBy: [{ branchId: 'asc' }, { uom: 'asc' }]
+    });
+  }
+
+  /**
+   * Replaces a branch's own prices for an item. Each unit must be one the item is sold in;
+   * an MRP left out is the item's MRP for that unit. An empty list clears them.
+   */
+  async setBranchPrices(
+    session: SessionUser,
+    itemId: string,
+    branchId: string,
+    prices: Array<{ uom: string; sellPrice: number; mrp?: number }>
+  ) {
+    requireAdmin(session);
+    await this.settings.ensureBranchExists(branchId);
+    await this.branches.ensureUserHasBranchAccess(session.userId, branchId);
+    return this.prisma.$transaction(async (tx) => {
+      const item = await tx.item.findUnique({
+        where: { id: itemId },
+        select: { uom: true, mrp: true, saleUoms: { select: { uom: true, mrp: true } } }
+      });
+      if (!item) throw new NotFoundException('Item not found');
+      const units = [{ uom: item.uom, mrp: item.mrp }, ...item.saleUoms];
+
+      const rows = prices.map((price) => {
+        const unit = units.find((entry) => entry.uom.toLowerCase() === price.uom.trim().toLowerCase());
+        if (!unit) throw new BadRequestException(`This item is not sold in ${price.uom}`);
+        return {
+          branchId,
+          itemId,
+          uom: unit.uom,
+          sellPrice: round2(price.sellPrice),
+          mrp: round2(price.mrp ?? toNumber(unit.mrp))
+        };
+      });
+      await tx.itemBranchPrice.deleteMany({ where: { branchId, itemId } });
+      await tx.itemBranchPrice.createMany({ data: rows });
+      return tx.itemBranchPrice.findMany({ where: { branchId, itemId }, orderBy: { uom: 'asc' } });
+    });
+  }
+
+  /**
+   * Keeps branch prices on the item's units after they change: a renamed base unit takes its
+   * prices along, and prices for units the item no longer has are dropped.
+   */
+  private async syncBranchPriceUnits(tx: Prisma.TransactionClient, itemId: string, previousBaseUom: string) {
+    const item = await tx.item.findUniqueOrThrow({
+      where: { id: itemId },
+      select: { uom: true, saleUoms: { select: { uom: true } } }
+    });
+    if (previousBaseUom.toLowerCase() !== item.uom.toLowerCase()) {
+      await tx.itemBranchPrice.deleteMany({ where: { itemId, uom: { equals: item.uom, mode: 'insensitive' } } });
+      await tx.itemBranchPrice.updateMany({ where: { itemId, uom: previousBaseUom }, data: { uom: item.uom } });
+    }
+    const units = new Set([item.uom, ...item.saleUoms.map((unit) => unit.uom)].map((uom) => uom.toLowerCase()));
+    const stale = (await tx.itemBranchPrice.findMany({ where: { itemId }, select: { uom: true } }))
+      .map((price) => price.uom)
+      .filter((uom) => !units.has(uom.toLowerCase()));
+    if (stale.length > 0) {
+      await tx.itemBranchPrice.deleteMany({ where: { itemId, uom: { in: stale } } });
+    }
   }
 
   async createItem(input: {
@@ -171,6 +264,7 @@ export class ItemsService {
       await this.assertHsnCode(data.hsnCode, tx);
       if (data.hsnCode === '') data.hsnCode = null;
       if (data.uqc === undefined && !gst.uqc) data.uqc = suggestUqc(data.uom ?? gst.uom);
+      const previousBaseUom = gst.uom;
 
       if (saleUomInput !== undefined) {
         const current = await tx.item.findUnique({
@@ -190,11 +284,15 @@ export class ItemsService {
         });
       }
 
-      return tx.item.update({
+      const updated = await tx.item.update({
         where: { id },
         data,
         include: { saleUoms: { orderBy: { sortOrder: 'asc' } } }
       });
+      if (data.uom !== undefined || saleUomInput !== undefined) {
+        await this.syncBranchPriceUnits(tx, id, previousBaseUom);
+      }
+      return updated;
     });
   }
 

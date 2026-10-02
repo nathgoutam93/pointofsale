@@ -33,6 +33,20 @@ enum StockTxnType {
   RETURN
   /// Stock put back when an unpaid invoice is cancelled.
   SALE_CANCEL
+  /// Goods received from a supplier (see Purchase).
+  PURCHASE
+  /// Stock sent to another branch (see StockTransfer).
+  TRANSFER_OUT
+  /// Stock received from another branch.
+  TRANSFER_IN
+  /// Stock put back at the sending branch when a transfer in transit is cancelled.
+  TRANSFER_CANCEL
+}
+
+enum StockTransferStatus {
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
 }
 
 enum CustomerScope {
@@ -122,6 +136,9 @@ model Branch {
   /// Before GST numbering: see invoiceSeq.
   returnSeq     Int                @default(0)
   customerSeq   Int                @default(0)
+  purchaseSeq   Int                @default(0)
+  /// Numbers transfers sent from this branch.
+  transferSeq   Int                @default(0)
   users         User[]
   userAccesses  UserBranchAccess[]
   registers     RegisterSession[]
@@ -131,6 +148,10 @@ model Branch {
   stockLedgers  StockLedger[]
   stock         ItemStock[]
   saleInvoices  SaleInvoice[]
+  purchases     Purchase[]
+  transfersOut  StockTransfer[]    @relation("TransferFrom")
+  transfersIn   StockTransfer[]    @relation("TransferTo")
+  itemPrices    ItemBranchPrice[]
 }
 
 model BusinessSettings {
@@ -293,29 +314,32 @@ model WalletTxn {
 }
 
 model Item {
-  id           String            @id @default(uuid())
-  code         String            @unique
-  name         String
-  category     String?
-  uom          String
-  leastCount   Decimal           @default(1) @db.Decimal(14, 3)
-  costPrice    Decimal           @default(0) @db.Decimal(14, 2)
-  sellPrice    Decimal           @db.Decimal(14, 2)
-  mrp          Decimal           @default(0) @db.Decimal(14, 2)
-  taxMode      TaxMode           @default(EXCLUSIVE)
-  taxRate      Decimal           @db.Decimal(5, 2)
+  id            String              @id @default(uuid())
+  code          String              @unique
+  name          String
+  category      String?
+  uom           String
+  leastCount    Decimal             @default(1) @db.Decimal(14, 3)
+  costPrice     Decimal             @default(0) @db.Decimal(14, 2)
+  sellPrice     Decimal             @db.Decimal(14, 2)
+  mrp           Decimal             @default(0) @db.Decimal(14, 2)
+  taxMode       TaxMode             @default(EXCLUSIVE)
+  taxRate       Decimal             @db.Decimal(5, 2)
   /// HSN (goods) or SAC (services) code: 4, 6 or 8 digits. Null until entered.
-  hsnCode      String?
+  hsnCode       String?
   /// GST unit quantity code (PCS, KGS, LTR...) of the base unit `uom`.
-  uqc          String?
-  supplyType   GstSupplyType     @default(TAXABLE)
-  imageUrl     String?
-  isActive     Boolean           @default(true)
-  lines        SaleInvoiceLine[]
-  stockLedgers StockLedger[]
-  stock        ItemStock[]
-  saleUoms     ItemSaleUom[]
-  createdAt    DateTime          @default(now())
+  uqc           String?
+  supplyType    GstSupplyType       @default(TAXABLE)
+  imageUrl      String?
+  isActive      Boolean             @default(true)
+  lines         SaleInvoiceLine[]
+  stockLedgers  StockLedger[]
+  stock         ItemStock[]
+  saleUoms      ItemSaleUom[]
+  branchPrices  ItemBranchPrice[]
+  purchaseLines PurchaseLine[]
+  transferLines StockTransferLine[]
+  createdAt     DateTime            @default(now())
 }
 
 model ItemSaleUom {
@@ -332,6 +356,23 @@ model ItemSaleUom {
 
   @@unique([itemId, uom])
   @@index([itemId, sortOrder])
+}
+
+/// A branch's own price for one unit an item is sold in (the base unit or a sale unit),
+/// used instead of the item's price at that branch. `uom` is spelt as on the item; changing
+/// the item's units drops prices for units it no longer has.
+model ItemBranchPrice {
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  uom       String
+  sellPrice Decimal  @db.Decimal(14, 2)
+  mrp       Decimal  @db.Decimal(14, 2)
+  updatedAt DateTime @updatedAt
+
+  @@id([branchId, itemId, uom])
+  @@index([itemId])
 }
 
 /// Current stock on hand per branch and item, kept in step with StockLedger: every ledger
@@ -532,4 +573,80 @@ model ReturnInvoiceLine {
   cgstAmount      Decimal         @default(0) @db.Decimal(14, 2)
   sgstAmount      Decimal         @default(0) @db.Decimal(14, 2)
   igstAmount      Decimal         @default(0) @db.Decimal(14, 2)
+}
+
+/// Goods received from a supplier at a branch (a GRN). Adds stock and moves the item's
+/// cost towards the purchase cost (weighted average over stock on hand at all branches).
+model Purchase {
+  id                  String         @id @default(uuid())
+  purchaseNo          String         @unique
+  branchId            String
+  branch              Branch         @relation(fields: [branchId], references: [id])
+  supplierName        String
+  supplierGstin       String?
+  supplierInvoiceNo   String?
+  /// The supplier invoice's date (YYYY-MM-DD), as entered.
+  supplierInvoiceDate String?
+  note                String?
+  /// Sum of the lines' amounts (before tax).
+  totalCost           Decimal        @db.Decimal(14, 2)
+  createdBy           String
+  createdByName       String
+  createdAt           DateTime       @default(now())
+  lines               PurchaseLine[]
+
+  @@index([branchId, createdAt])
+}
+
+model PurchaseLine {
+  id         String   @id @default(uuid())
+  purchaseId String
+  purchase   Purchase @relation(fields: [purchaseId], references: [id])
+  itemId     String
+  item       Item     @relation(fields: [itemId], references: [id])
+  /// In the item's base unit.
+  qty        Decimal  @db.Decimal(14, 3)
+  /// Cost per base unit, before tax.
+  unitCost   Decimal  @db.Decimal(14, 2)
+  amount     Decimal  @db.Decimal(14, 2)
+
+  @@unique([purchaseId, itemId])
+}
+
+/// Stock moved from one branch to another. Sending takes the stock out of the source at
+/// once; it reaches the destination when received there, or goes back if cancelled first.
+model StockTransfer {
+  id            String              @id @default(uuid())
+  transferNo    String              @unique
+  fromBranchId  String
+  fromBranch    Branch              @relation("TransferFrom", fields: [fromBranchId], references: [id])
+  toBranchId    String
+  toBranch      Branch              @relation("TransferTo", fields: [toBranchId], references: [id])
+  status        StockTransferStatus @default(IN_TRANSIT)
+  note          String?
+  createdBy     String
+  createdByName String
+  createdAt     DateTime            @default(now())
+  /// Who received or cancelled it, and when.
+  closedBy      String?
+  closedByName  String?
+  closedAt      DateTime?
+  lines         StockTransferLine[]
+
+  @@index([fromBranchId, createdAt])
+  @@index([toBranchId, createdAt])
+}
+
+model StockTransferLine {
+  id         String        @id @default(uuid())
+  transferId String
+  transfer   StockTransfer @relation(fields: [transferId], references: [id])
+  itemId     String
+  item       Item          @relation(fields: [itemId], references: [id])
+  /// In the item's base unit.
+  qty        Decimal       @db.Decimal(14, 3)
+  /// The item's cost when sent.
+  unitCost   Decimal       @db.Decimal(14, 2)
+
+  @@unique([transferId, itemId])
 }

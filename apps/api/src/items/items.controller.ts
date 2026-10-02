@@ -1,5 +1,5 @@
 import type { GstSupplyType } from '@pos/contracts';
-import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { join } from 'path';
 import { appContract } from '@pos/contracts';
@@ -14,11 +14,25 @@ export class ItemsController {
 
   @Get('/items')
   listItems(
-    @Query(new ZodValidationPipe(appContract.items.list.query)) { activeOnly }: { activeOnly?: boolean },
+    @Query(new ZodValidationPipe(appContract.items.list.query)) { activeOnly, branchId }: { activeOnly?: boolean; branchId?: string },
     @Headers() headers: RequestHeaders
   ) {
-    getSession(headers);
-    return this.items.listItems(activeOnly === true);
+    return this.items.listItems(getSession(headers), activeOnly === true, branchId);
+  }
+
+  @Get('/items/:id/branch-prices')
+  listBranchPrices(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
+    return this.items.listBranchPrices(requireAdminSession(headers), id);
+  }
+
+  @Put('/items/:id/branch-prices')
+  setBranchPrices(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(appContract.items.setBranchPrices.body))
+    body: { branchId: string; prices: Array<{ uom: string; sellPrice: number; mrp?: number }> },
+    @Headers() headers: RequestHeaders
+  ) {
+    return this.items.setBranchPrices(requireAdminSession(headers), id, body.branchId, body.prices);
   }
 
   @Post('/items/upload-image')

@@ -90,10 +90,11 @@ export function PosPage() {
   };
 
   const items = useQuery({
-    queryKey: ["items-pos"],
+    // Priced for this branch: its own prices where it has them.
+    queryKey: ["items-pos", session.branchId],
     queryFn: async () => {
       const res = await api.items.list({
-        query: { activeOnly: true },
+        query: { activeOnly: true, branchId: session.branchId },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load items");

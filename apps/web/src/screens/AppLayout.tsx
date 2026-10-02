@@ -14,6 +14,8 @@ import {
   IconSettings,
   IconStore,
   IconTag,
+  IconTransfer,
+  IconTruck,
   IconUsers,
 } from "../components/icons";
 import { confirmLeave } from "../lib/leaveGuard";
@@ -44,6 +46,8 @@ const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
     items: [
       { to: "/items", label: "Items", icon: IconTag },
       { to: "/stock", label: "Inventory", icon: IconBoxes, needsRegister: true },
+      { to: "/purchases", label: "Purchases", icon: IconTruck, needsRegister: true, adminOnly: true },
+      { to: "/transfers", label: "Transfers", icon: IconTransfer, needsRegister: true, adminOnly: true },
     ],
   },
   {

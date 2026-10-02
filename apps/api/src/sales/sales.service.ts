@@ -8,6 +8,7 @@ import { toNumber, round2, round3 } from '../common/numbers';
 import { assertQtyRespectsLeastCount } from '../common/quantities';
 import { requireSessionBranchId } from '../common/session';
 import { saleInvoiceInclude } from '../common/selects';
+import { withBranchPrices } from '../common/branch-prices';
 import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 import { ItemsService } from '../items/items.service';
@@ -240,7 +241,10 @@ export class SalesService {
       if (!item.isActive) {
         throw new BadRequestException(`${item.name} is no longer for sale`);
       }
-      const pricing = this.resolveLinePricing(item, line);
+      const pricing = this.resolveLinePricing(
+        withBranchPrices(item, await this.items.branchPricesFor(tx, input.branchId, normalizedItemId)),
+        line
+      );
       assertQtyRespectsLeastCount(pricing.qty, toNumber(item.leastCount), `Sale line ${line.itemId}`);
       normalizedLines.push({
         ...line,

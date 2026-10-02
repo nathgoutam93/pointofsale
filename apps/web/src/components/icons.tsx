@@ -54,6 +54,18 @@ export const IconBoxes = (p: IconProps) => (
     <path d="m3 8 9 5 9-5M12 13v8" />
   </Icon>
 );
+export const IconTruck = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 6h11v10H3zM14 9h4l3 3v4h-7" />
+    <circle cx="7" cy="18" r="2" />
+    <circle cx="17" cy="18" r="2" />
+  </Icon>
+);
+export const IconTransfer = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 8h14l-4-4M20 16H6l4 4" />
+  </Icon>
+);
 export const IconTag = (p: IconProps) => (
   <Icon {...p}>
     <path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z" />

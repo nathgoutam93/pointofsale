@@ -4,6 +4,15 @@ import { documentNumber, documentSeriesCandidates, financialYearStart, GST_DOCUM
 import { PrismaService } from '../prisma.service';
 import { localDate } from '../reports/zoned-dates';
 
+const SEQUENCE_FIELDS = {
+  receipt: 'receiptSeq',
+  customer: 'customerSeq',
+  purchase: 'purchaseSeq',
+  transfer: 'transferSeq'
+} as const;
+
+const SEQUENCE_PREFIXES = { customer: 'CUST', purchase: 'PUR', transfer: 'TRF' } as const;
+
 @Injectable()
 export class SequenceService {
   constructor(
@@ -41,18 +50,18 @@ export class SequenceService {
     return { number, series, fiscalYear };
   }
 
-  /** Receipt and customer numbers (not GST documents): one running count per branch. */
-  async nextSequence(branchId: string, type: 'receipt' | 'customer', tx: Prisma.TransactionClient) {
-    const field = type === 'receipt' ? 'receiptSeq' : 'customerSeq';
+  /** Receipt, customer, purchase and transfer numbers (not GST documents): one running count per branch. */
+  async nextSequence(branchId: string, type: 'receipt' | 'customer' | 'purchase' | 'transfer', tx: Prisma.TransactionClient) {
+    const field = SEQUENCE_FIELDS[type];
     const branch = await tx.branch.update({
       where: { id: branchId },
       data: { [field]: { increment: 1 } },
-      select: { code: true, receiptSeq: true, customerSeq: true, receiptPrefix: true }
+      select: { code: true, receiptSeq: true, customerSeq: true, purchaseSeq: true, transferSeq: true, receiptPrefix: true }
     });
     return {
       branchCode: branch.code,
-      seq: type === 'receipt' ? branch.receiptSeq : branch.customerSeq,
-      prefix: type === 'receipt' ? branch.receiptPrefix : 'CUST'
+      seq: branch[field],
+      prefix: type === 'receipt' ? branch.receiptPrefix : SEQUENCE_PREFIXES[type]
     };
   }
 

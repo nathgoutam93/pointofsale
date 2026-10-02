@@ -14,6 +14,8 @@ import { GstService } from './gst/gst.service';
 import { ItemsController } from './items/items.controller';
 import { ItemsService } from './items/items.service';
 import { PrismaService } from './prisma.service';
+import { PurchasesController } from './purchases/purchases.controller';
+import { PurchasesService } from './purchases/purchases.service';
 import { RegistersController } from './registers/registers.controller';
 import { RegistersService } from './registers/registers.service';
 import { ReportsController } from './reports/reports.controller';
@@ -27,6 +29,8 @@ import { SettingsController } from './settings/settings.controller';
 import { SettingsService } from './settings/settings.service';
 import { StockController } from './stock/stock.controller';
 import { StockService } from './stock/stock.service';
+import { TransfersController } from './transfers/transfers.controller';
+import { TransfersService } from './transfers/transfers.service';
 import { UsersController } from './users/users.controller';
 import { UsersService } from './users/users.service';
 
@@ -41,6 +45,8 @@ import { UsersService } from './users/users.service';
     CustomersController,
     ItemsController,
     StockController,
+    PurchasesController,
+    TransfersController,
     SalesController,
     ReturnsController,
     ReportsController,
@@ -52,6 +58,8 @@ import { UsersService } from './users/users.service';
     SequenceService,
     ItemsService,
     StockService,
+    PurchasesService,
+    TransfersService,
     CustomersService,
     BranchesService,
     UsersService,
