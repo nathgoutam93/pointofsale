@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   DiscountScope,
   InvoiceStatus,
@@ -8,7 +8,10 @@ import {
   UserRole,
   WalletTxnType
 } from '@prisma/client';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma.service';
+import { hashPassword, isPasswordHash, validateNewPassword, verifyPassword } from '../auth/password';
+import { signToken } from '../auth/token';
 import { PaymentInput, SessionUser } from './pos.types';
 
 type DiscountInput = {
@@ -62,6 +65,8 @@ type ItemSaleUomInput = {
 
 @Injectable()
 export class PosService {
+  private readonly logger = new Logger(PosService.name);
+
   constructor(private readonly prisma: PrismaService) {}
   private readonly branchSummarySelect = {
     id: true,
@@ -145,14 +150,7 @@ export class PosService {
   }
 
   private buildToken(session: SessionUser) {
-    const parts = [session.userId, session.role];
-    if (session.branchId) {
-      parts.push(session.branchId);
-    }
-    if (session.registerId) {
-      parts.push(session.registerId);
-    }
-    return Buffer.from(parts.join(':')).toString('base64');
+    return signToken(session);
   }
 
   private async ensureBusinessSettings(tx?: Prisma.TransactionClient) {
@@ -323,13 +321,17 @@ export class PosService {
     if (input.role && input.role !== UserRole.CASHIER) {
       throw new BadRequestException('Only cashier accounts can be created here');
     }
+    const passwordError = validateNewPassword(input.password);
+    if (passwordError) {
+      throw new BadRequestException(passwordError);
+    }
     const uniqueBranchIds = Array.from(new Set([branchId, ...(input.branchIds ?? [])]));
     await Promise.all(uniqueBranchIds.map((id) => this.ensureBranchExists(id)));
     const created = await this.prisma.user.create({
       data: {
         branchId,
         username: input.username,
-        password: input.password,
+        password: await hashPassword(input.password),
         role: UserRole.CASHIER,
         branchAccesses: {
           createMany: {
@@ -424,12 +426,18 @@ export class PosService {
     if (input.isActive === false && user.id === session.userId) {
       throw new BadRequestException('Cannot deactivate your own account');
     }
+    if (input.password !== undefined) {
+      const passwordError = validateNewPassword(input.password);
+      if (passwordError) {
+        throw new BadRequestException(passwordError);
+      }
+    }
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
         username: input.username,
-        password: input.password,
+        password: input.password !== undefined ? await hashPassword(input.password) : undefined,
         isActive: input.isActive
       },
       select: {
@@ -469,6 +477,45 @@ export class PosService {
     return item.id;
   }
 
+  /** Creates the first admin only on an empty database; never a fixed default password. */
+  private async seedFirstAdmin(branchId: string) {
+    const userCount = await this.prisma.user.count();
+    if (userCount > 0) {
+      return;
+    }
+
+    const configured = process.env.SEED_ADMIN_PASSWORD;
+    if (configured) {
+      const passwordError = validateNewPassword(configured);
+      if (passwordError) {
+        throw new Error(`SEED_ADMIN_PASSWORD: ${passwordError}`);
+      }
+    }
+    const password = configured || randomBytes(12).toString('base64url');
+    await this.prisma.user.create({
+      data: { username: 'admin', password: await hashPassword(password), role: UserRole.ADMIN, branchId }
+    });
+    if (!configured) {
+      this.logger.warn(`Created first admin account. Username: admin  Password: ${password}  (shown once; change it after signing in)`);
+    }
+  }
+
+  /** Hashes any passwords still stored as plain text, and flags accounts still using "password". */
+  private async hashPlaintextPasswords() {
+    const users = await this.prisma.user.findMany({ select: { id: true, username: true, password: true, isActive: true } });
+    for (const user of users) {
+      const plaintext = isPasswordHash(user.password) ? null : user.password;
+      if (plaintext !== null) {
+        await this.prisma.user.update({ where: { id: user.id }, data: { password: await hashPassword(plaintext) } });
+      }
+      const usesDefault =
+        plaintext !== null ? plaintext === 'password' : await verifyPassword('password', user.password);
+      if (usesDefault && user.isActive) {
+        this.logger.warn(`User "${user.username}" still uses the default password "password". Reset it in Branch Settings.`);
+      }
+    }
+  }
+
   async onModuleInitSeed() {
     const branch = await this.prisma.branch.upsert({
       where: { code: 'MAIN' },
@@ -476,17 +523,8 @@ export class PosService {
       create: { name: 'Main Branch', code: 'MAIN' }
     });
 
-    await this.prisma.user.upsert({
-      where: { username: 'admin' },
-      update: {},
-      create: { username: 'admin', password: 'password', role: UserRole.ADMIN, branchId: branch.id }
-    });
-
-    await this.prisma.user.upsert({
-      where: { username: 'cashier' },
-      update: {},
-      create: { username: 'cashier', password: 'password', role: UserRole.CASHIER, branchId: branch.id }
-    });
+    await this.seedFirstAdmin(branch.id);
+    await this.hashPlaintextPasswords();
 
     const users = await this.prisma.user.findMany({ select: { id: true, branchId: true } });
     await Promise.all(
@@ -829,7 +867,7 @@ export class PosService {
         }
       }
     });
-    if (!user || user.password !== password) {
+    if (!user || typeof password !== 'string' || !(await verifyPassword(password, user.password))) {
       throw new BadRequestException('Invalid credentials');
     }
     if (!user.isActive) {

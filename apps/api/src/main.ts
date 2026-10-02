@@ -4,8 +4,14 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { AppModule } from './app.module';
+import { assertAuthConfigured } from './auth/token';
 
 async function bootstrap() {
+  const envFile = join(process.cwd(), '.env');
+  if (existsSync(envFile)) {
+    process.loadEnvFile(envFile);
+  }
+  assertAuthConfigured();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableCors();

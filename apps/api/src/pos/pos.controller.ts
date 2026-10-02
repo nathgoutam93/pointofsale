@@ -19,6 +19,8 @@ import { join } from 'path';
 import { PaymentMode, UserRole } from '@prisma/client';
 import { PosService } from './pos.service';
 import { SessionUser } from './pos.types';
+import { Public } from '../auth/auth.guard';
+import { readBearerToken, verifyToken } from '../auth/token';
 
 const uploadsDir = process.env.UPLOADS_DIR ? process.env.UPLOADS_DIR : join(process.cwd(), 'uploads');
 
@@ -26,37 +28,14 @@ const uploadsDir = process.env.UPLOADS_DIR ? process.env.UPLOADS_DIR : join(proc
 export class PosController {
   constructor(private readonly posService: PosService) {}
 
+  // AuthGuard has already verified the token and re-checked it against the database.
   private getSession(headers: Record<string, string | string[] | undefined>): SessionUser {
-    const authorization = headers.authorization;
-    const authValue = Array.isArray(authorization) ? authorization[0] : authorization;
-    if (!authValue || !authValue.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing bearer token');
-    }
-
-    try {
-      const token = authValue.slice('Bearer '.length);
-      const decoded = Buffer.from(token, 'base64').toString('utf8');
-      const [userId, role, branchId, registerId, ...rest] = decoded.split(':');
-
-      if (!userId || !role || rest.length > 0) {
-        throw new UnauthorizedException('Invalid token');
-      }
-      if (role !== UserRole.ADMIN && role !== UserRole.CASHIER) {
-        throw new UnauthorizedException('Invalid role');
-      }
-      if (registerId && !branchId) {
-        throw new UnauthorizedException('Invalid token');
-      }
-
-      return {
-        userId,
-        role,
-        branchId: branchId || undefined,
-        registerId: registerId || undefined
-      };
-    } catch {
+    const token = readBearerToken(headers);
+    const session = token ? verifyToken(token) : null;
+    if (!session) {
       throw new UnauthorizedException('Invalid bearer token');
     }
+    return session;
   }
 
   private requireBranchSession(headers: Record<string, string | string[] | undefined>) {
@@ -87,6 +66,7 @@ export class PosController {
     }
   }
 
+  @Public()
   @Post('/auth/login')
   @HttpCode(200)
   login(@Body() body: { username: string; password: string }) {
