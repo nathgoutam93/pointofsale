@@ -103,7 +103,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 ### [ ] 16. Share the pricing maths
 - Move the discount and tax line calculation into one shared package (for example `packages/pricing` or `packages/contracts`) used by both `PosPage.tsx` and `pos.service.ts`, with unit tests (the ₹100.01 case, multiple discounts, conversions between units).
 
-### [ ] 17. Remove stale build files
+### [x] 17. Remove stale build files
 - `packages/contracts/src/index.js` and `index.d.ts` are compiled leftovers (no `saleUoms`). Delete them and add them to `.gitignore`.
 
 ### [ ] 18. Faster stock-on-hand lookups
@@ -406,3 +406,5 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - #27: `pagehide` saves; a hidden tab updates the same draft (1 draft, 2 items).
     - #28: one POS `beforeunload` listener after 5 cart changes. The router's history adds its own, which isn't part of this.
     - The earlier browser flows (checkout, dropped-response retry, close register, cashier limit, walk-in) still pass.
+- **2026-10-02 (session 2):** Started Phase 4, in the order #17, #16, #20, #18, #19, so the riskier refactors (#18, #19) happen with tests in place.
+- **#17 done:** deleted the tracked compiled leftovers `packages/contracts/src/index.{js,d.ts}` and their `.map` files; nothing referenced them. `.gitignore` now ignores `*.js`, `*.js.map`, `*.d.ts` and `*.d.ts.map` under `packages/*/src`, like `apps/web/src`. Contracts build, both type checks and the web production build pass.
