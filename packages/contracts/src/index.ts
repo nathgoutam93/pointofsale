@@ -526,7 +526,13 @@ export const appContract = c.router({
     list: {
       method: 'GET',
       path: '/items',
-      query: z.object({ activeOnly: z.coerce.boolean().optional() }),
+      // Query strings arrive as text; z.coerce.boolean() would turn "false" into true.
+      query: z.object({
+        activeOnly: z
+          .union([z.boolean(), z.enum(['true', 'false'])])
+          .transform((value) => value === true || value === 'true')
+          .optional()
+      }),
       responses: { 200: z.array(itemWithSaleUomsSchema) }
     },
     create: {

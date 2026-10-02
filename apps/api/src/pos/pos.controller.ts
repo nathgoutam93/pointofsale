@@ -7,6 +7,7 @@ import {
   HttpCode,
   Headers,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -169,7 +170,7 @@ export class PosController {
   }
 
   @Get('/branches/:id')
-  getBranch(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+  getBranch(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
     const session = this.getSession(headers);
     if (session.branchId && session.branchId !== id) {
       throw new BadRequestException('Branch mismatch');
@@ -179,7 +180,7 @@ export class PosController {
 
   @Patch('/branches/:id')
   updateBranch(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.branches.update.body))
     body: {
       name?: string;
@@ -219,7 +220,7 @@ export class PosController {
     })
   )
   uploadBranchLogo(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @UploadedFile() file: { filename: string } | undefined,
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
@@ -234,7 +235,10 @@ export class PosController {
   }
 
   @Get('/customers')
-  listCustomers(@Query('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+  listCustomers(
+    @Query(new ZodValidationPipe(appContract.customers.list.query)) { branchId }: { branchId: string },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
     const session = this.requireOpenRegisterSession(headers);
     if (session.branchId !== branchId) {
       throw new BadRequestException('Branch mismatch');
@@ -256,7 +260,7 @@ export class PosController {
 
   @Patch('/customers/:id')
   updateCustomer(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.customers.update.body)) body: { name?: string; phone?: string | null },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
@@ -268,7 +272,7 @@ export class PosController {
   }
 
   @Get('/customers/walk-in/:branchId')
-  getWalkIn(@Param('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+  getWalkIn(@Param('branchId', ParseUUIDPipe) branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
     const session = this.requireOpenRegisterSession(headers);
     if (session.branchId !== branchId) {
       throw new BadRequestException('Branch mismatch');
@@ -277,7 +281,7 @@ export class PosController {
   }
 
   @Get('/customers/:id/wallet')
-  getWallet(@Param('id') customerId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+  getWallet(@Param('id', ParseUUIDPipe) customerId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
     const session = this.requireOpenRegisterSession(headers);
     return this.posService.getWallet(session.branchId!, customerId);
   }
@@ -285,7 +289,7 @@ export class PosController {
   @Post('/customers/:id/wallet/topup')
   @HttpCode(200)
   topupWallet(
-    @Param('id') customerId: string,
+    @Param('id', ParseUUIDPipe) customerId: string,
     @Body(new ZodValidationPipe(appContract.customers.topupWallet.body)) body: { amount: number; reference?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
@@ -295,7 +299,10 @@ export class PosController {
   }
 
   @Get('/users')
-  listUsers(@Query('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+  listUsers(
+    @Query(new ZodValidationPipe(appContract.users.list.query)) { branchId }: { branchId: string },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
     const session = this.requireAdminSession(headers);
     if (session.branchId && session.branchId !== branchId) {
       throw new BadRequestException('Branch mismatch');
@@ -317,7 +324,7 @@ export class PosController {
 
   @Patch('/users/:id')
   updateUser(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.users.update.body)) body: { username?: string; password?: string; isActive?: boolean },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
@@ -328,8 +335,8 @@ export class PosController {
   @Post('/users/:id/branches/:branchId')
   @HttpCode(204)
   addUserBranchAccess(
-    @Param('id') id: string,
-    @Param('branchId') branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireAdminSession(headers);
@@ -339,8 +346,8 @@ export class PosController {
   @Delete('/users/:id/branches/:branchId')
   @HttpCode(204)
   removeUserBranchAccess(
-    @Param('id') id: string,
-    @Param('branchId') branchId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireAdminSession(headers);
@@ -348,9 +355,12 @@ export class PosController {
   }
 
   @Get('/items')
-  listItems(@Query('activeOnly') activeOnly: string | undefined, @Headers() headers: Record<string, string | string[] | undefined>) {
+  listItems(
+    @Query(new ZodValidationPipe(appContract.items.list.query)) { activeOnly }: { activeOnly?: boolean },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
     this.getSession(headers);
-    return this.posService.listItems(activeOnly === 'true');
+    return this.posService.listItems(activeOnly === true);
   }
 
   @Post('/items/upload-image')
@@ -401,7 +411,7 @@ export class PosController {
 
   @Patch('/items/:id')
   updateItem(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.items.update.body))
     body: {
       name?: string;
@@ -424,7 +434,7 @@ export class PosController {
   }
 
   @Delete('/items/:id')
-  deleteItem(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+  deleteItem(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
     this.requireAdminSession(headers);
     return this.posService.deleteItem(id);
   }
@@ -470,8 +480,7 @@ export class PosController {
 
   @Get('/stock/on-hand')
   onHand(
-    @Query('branchId') branchId: string,
-    @Query('itemId') itemId: string | undefined,
+    @Query(new ZodValidationPipe(appContract.stock.onHand.query)) { branchId, itemId }: { branchId: string; itemId?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireOpenRegisterSession(headers);
@@ -483,8 +492,7 @@ export class PosController {
 
   @Get('/stock/ledger')
   stockLedger(
-    @Query('branchId') branchId: string,
-    @Query('itemId') itemId: string | undefined,
+    @Query(new ZodValidationPipe(appContract.stock.ledger.query)) { branchId, itemId }: { branchId: string; itemId?: string },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
     const session = this.requireOpenRegisterSession(headers);
@@ -495,7 +503,10 @@ export class PosController {
   }
 
   @Get('/reports/sales-summary')
-  salesSummary(@Query('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+  salesSummary(
+    @Query(new ZodValidationPipe(appContract.reports.salesSummary.query)) { branchId }: { branchId: string },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
     const session = this.requireAdminSession(headers);
     return this.posService.getSalesSummary(session, branchId);
   }
@@ -529,7 +540,7 @@ export class PosController {
   @Post('/sales/:id/settle')
   @HttpCode(200)
   settleSale(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.sales.settle.body)) body: { payments: Array<{ mode: PaymentMode; amount: number; reference?: string }> },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
@@ -537,7 +548,10 @@ export class PosController {
   }
 
   @Get('/sales')
-  listSales(@Query('branchId') branchId: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+  listSales(
+    @Query(new ZodValidationPipe(appContract.sales.list.query)) { branchId }: { branchId: string },
+    @Headers() headers: Record<string, string | string[] | undefined>
+  ) {
     const session = this.requireOpenRegisterSession(headers);
     if (session.branchId !== branchId) {
       throw new BadRequestException('Branch mismatch');
@@ -546,14 +560,14 @@ export class PosController {
   }
 
   @Get('/sales/:id')
-  getSaleById(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+  getSaleById(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
     const session = this.requireOpenRegisterSession(headers);
     return this.posService.getSaleById(session.branchId!, id);
   }
 
   @Post('/sales/:id/return')
   createReturn(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.sales.returns.body)) body: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET' },
     @Headers() headers: Record<string, string | string[] | undefined>
   ) {
@@ -561,7 +575,7 @@ export class PosController {
   }
 
   @Get('/receipts/:id')
-  getReceipt(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+  getReceipt(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
     const session = this.requireOpenRegisterSession(headers);
     return this.posService.getReceiptById(session.branchId!, id);
   }
@@ -579,7 +593,7 @@ export class PosController {
   }
 
   @Get('/returns/:id')
-  getReturnById(@Param('id') id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
+  getReturnById(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: Record<string, string | string[] | undefined>) {
     return this.posService.getReturnById(this.requireOpenRegisterSession(headers), id);
   }
 }
