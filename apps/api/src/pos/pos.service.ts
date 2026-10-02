@@ -1796,7 +1796,12 @@ export class PosService {
 
   async settleSale(session: SessionUser, invoiceId: string, payments: PaymentInput[]) {
     const sessionBranchId = this.requireSessionBranchId(session);
+    if (payments.length === 0 || payments.some((p) => !Number.isFinite(p.amount) || p.amount <= 0)) {
+      throw new BadRequestException('Each payment amount must be greater than zero');
+    }
     return this.prisma.$transaction(async (tx) => {
+      // Lock the invoice so two settle requests for it run one after the other.
+      await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
       const invoice = await tx.saleInvoice.findUnique({
         where: { id: invoiceId },
         include: {
@@ -1807,6 +1812,12 @@ export class PosService {
 
       if (!invoice) throw new NotFoundException('Invoice not found');
       if (invoice.branchId !== sessionBranchId) throw new BadRequestException('Branch mismatch');
+      if (invoice.status === InvoiceStatus.SETTLED) {
+        throw new BadRequestException(`Invoice ${invoice.invoiceNo} is already paid`);
+      }
+      if (invoice.status === InvoiceStatus.CANCELLED) {
+        throw new BadRequestException(`Invoice ${invoice.invoiceNo} is cancelled`);
+      }
 
       const payTotal = this.round2(payments.reduce((acc, p) => acc + p.amount, 0));
       const pending = this.round2(this.toNumber(invoice.grandTotal) - this.toNumber(invoice.paidTotal));
@@ -1816,20 +1827,30 @@ export class PosService {
         throw new BadRequestException('Payment exceeds pending amount');
       }
 
-      const walletPayment = payments.find((p) => p.mode === PaymentMode.WALLET);
-      if (walletPayment) {
+      // All WALLET lines together; the wallet can pay at most what is due, so extra
+      // money credited back to a wallet only ever comes from cash or card.
+      const walletTotal = this.round2(
+        payments.filter((p) => p.mode === PaymentMode.WALLET).reduce((acc, p) => acc + p.amount, 0)
+      );
+      if (walletTotal > pending) {
+        throw new BadRequestException('Wallet payment can\'t be more than the amount due');
+      }
+      if (walletTotal > 0) {
         const wallet = await tx.walletAccount.findUnique({ where: { customerId: invoice.customerId } });
         if (!wallet) throw new NotFoundException('Wallet not found');
-        if (this.toNumber(wallet.balance) < walletPayment.amount) {
+        // Debit only if the balance still covers it, so two sales can't spend the same money.
+        const debited = await tx.walletAccount.updateMany({
+          where: { id: wallet.id, balance: { gte: walletTotal } },
+          data: { balance: { decrement: walletTotal } }
+        });
+        if (debited.count === 0) {
           throw new BadRequestException('Insufficient wallet balance');
         }
-
-        await tx.walletAccount.update({ where: { id: wallet.id }, data: { balance: { decrement: walletPayment.amount } } });
         await tx.walletTxn.create({
           data: {
             walletAccountId: wallet.id,
             type: WalletTxnType.DEBIT_SALE,
-            amount: walletPayment.amount,
+            amount: walletTotal,
             referenceType: 'SALE',
             referenceId: invoice.id
           }

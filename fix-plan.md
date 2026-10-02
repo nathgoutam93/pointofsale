@@ -53,7 +53,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 - **Problem:** MRP ₹100 at 18% inclusive gives pre-tax 84.75 + tax 15.26 = **₹100.01**.
 - **Fix:** Round the pre-tax amount, then set `tax = gross − base` so `base + tax` always equals the shelf price. Fix both copies, or do #16 first.
 
-### [ ] 7. Settling a sale / wallet payments
+### [x] 7. Settling a sale / wallet payments
 - **Where:** `pos.service.ts` around line 1660 (`settleSale`)
 - **Problem:**
   - Only the first WALLET payment line is checked and debited (`payments.find`), so `[{WALLET,0},{WALLET,1000}]` settles a ₹200 bill and credits ₹800 to the wallet.
@@ -229,3 +229,18 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - In the browser, the POS showed "Taxes 15.25, Total 100.00", and the invoice was created and settled at ₹100.
     - The pricing, validation and branch suites and the UI checkout still pass.
   - Invoices already saved keep their stored amounts; returns use the stored line amounts.
+- **2026-10-02 (session 2):** Finished #7. Reproduced first: a ₹5 wallet became ₹805 from one `[WALLET 1, WALLET 1000]` settle, a SETTLED invoice could be paid again (its payment went into the wallet, getting around the admin-only top-up), and 5 concurrent settles of one invoice wrote 5 payment rows.
+  - `settleSale` now:
+    - Locks the invoice row (`SELECT ... FOR UPDATE`) before reading it.
+    - Allows only DRAFT and PARTIALLY_SETTLED invoices: SETTLED gets "already paid", CANCELLED gets "cancelled". PARTIALLY_SETTLED stays allowed because credit sales are paid later from the Sales page; the plan said DRAFT only, which would have broken that.
+    - Adds up **all** WALLET lines. The wallet total can't be more than the amount due.
+    - Debits the wallet with a conditional `updateMany` (`balance >= total`), so concurrent sales can't spend the same balance. There's one DEBIT_SALE row for the total.
+    - Rejects amounts ≤ 0 or not finite, as well as the contract.
+  - Overpayment, a deliberate choice: walk-ins are still rejected. A registered customer can still overpay with cash or card, and the extra is credited to their wallet as before. The POS allows this on purpose for registered customers (store credit or advance). Wallet money can no longer be "overpaid" back into the wallet. Change for cash isn't modelled; the POS makes walk-in payments match the total exactly.
+  - Tested with the app running (11 checks):
+    - Rejected, wallet unchanged: two wallet lines over the amount due, two wallet lines over the balance, re-paying a SETTLED invoice, a wallet overpayment, a walk-in overpayment.
+    - Accepted: an exact wallet+cash split (wallet 5 → 0); partial cash 50 (PARTIALLY_SETTLED) then wallet 150 (SETTLED); a card overpay of 250 on 200 (₹50 credited).
+    - 5 concurrent settles of one invoice: one 200 and four 400, paid 200, one payment row.
+    - Two sales racing for the same ₹200 wallet: one succeeds, balance 200 → 0.
+    - The earlier suites and both UI checkouts still pass.
+  - Left for later: the receipt amount includes any overpayment credited to the wallet, and payments aren't linked to a register (#12).
