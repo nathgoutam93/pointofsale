@@ -1092,32 +1092,77 @@ export class PosService {
     };
   }
 
+  private readonly registerSelect = {
+    id: true,
+    branchId: true,
+    openingBalance: true,
+    closingBalance: true,
+    expectedCash: true,
+    cashDifference: true,
+    openedAt: true,
+    closedAt: true
+  } as const;
+
+  private toRegisterDto(register: Prisma.RegisterSessionGetPayload<{ select: PosService['registerSelect'] }>) {
+    const optional = (value: Prisma.Decimal | null) => (value === null ? null : this.toNumber(value));
+    return {
+      id: register.id,
+      branchId: register.branchId,
+      openingBalance: this.toNumber(register.openingBalance),
+      closingBalance: optional(register.closingBalance),
+      expectedCash: optional(register.expectedCash),
+      cashDifference: optional(register.cashDifference),
+      openedAt: register.openedAt,
+      closedAt: register.closedAt
+    };
+  }
+
+  /**
+   * Cash that should be in a register's drawer: the opening balance plus cash payments
+   * taken on it, minus cash refunds given from it. Card and wallet don't touch the drawer.
+   */
+  private async registerCash(client: Prisma.TransactionClient | PrismaService, registerId: string, openingBalance: number) {
+    const [cashIn, cashOut] = await Promise.all([
+      client.payment.aggregate({
+        where: { registerSessionId: registerId, mode: PaymentMode.CASH },
+        _sum: { amount: true }
+      }),
+      client.returnInvoice.aggregate({
+        where: { registerSessionId: registerId, refundMode: PaymentMode.CASH },
+        _sum: { totalAmount: true }
+      })
+    ]);
+    const cashSales = this.round2(this.toNumber(cashIn._sum.amount));
+    const cashRefunds = this.round2(this.toNumber(cashOut._sum.totalAmount));
+    return { cashSales, cashRefunds, expectedCash: this.round2(openingBalance + cashSales - cashRefunds) };
+  }
+
+  /**
+   * Money moving through a register must land before it closes: share-lock the register
+   * row (close takes it exclusively) and check it is still open.
+   */
+  private async assertRegisterOpen(tx: Prisma.TransactionClient, session: SessionUser) {
+    const registerId = this.requireSessionRegisterId(session);
+    const rows = await tx.$queryRaw<Array<{ closedAt: Date | null }>>`
+      SELECT "closedAt" FROM "RegisterSession" WHERE id = ${registerId} FOR SHARE`;
+    if (rows.length === 0 || rows[0].closedAt !== null) {
+      throw new BadRequestException('Register is closed. Open a register to continue.');
+    }
+  }
+
   async getCurrentRegister(session: SessionUser) {
     if (!session.registerId) {
       return null;
     }
     const register = await this.prisma.registerSession.findFirst({
       where: { id: session.registerId, userId: session.userId, closedAt: null },
-      select: {
-        id: true,
-        branchId: true,
-        openingBalance: true,
-        closingBalance: true,
-        openedAt: true,
-        closedAt: true
-      }
+      select: this.registerSelect
     });
     if (!register) {
       return null;
     }
-    return {
-      id: register.id,
-      branchId: register.branchId,
-      openingBalance: this.toNumber(register.openingBalance),
-      closingBalance: register.closingBalance ? this.toNumber(register.closingBalance) : null,
-      openedAt: register.openedAt,
-      closedAt: register.closedAt
-    };
+    const dto = this.toRegisterDto(register);
+    return { ...dto, ...(await this.registerCash(this.prisma, register.id, dto.openingBalance)) };
   }
 
   async getRegisterSummaries(session: SessionUser) {
@@ -1141,28 +1186,14 @@ export class PosService {
 
     const openRegisters = await this.prisma.registerSession.findMany({
       where: { branchId: { in: branchIds }, closedAt: null },
-      select: {
-        id: true,
-        branchId: true,
-        openingBalance: true,
-        closingBalance: true,
-        openedAt: true,
-        closedAt: true
-      }
+      select: this.registerSelect
     });
 
     const lastClosedRegisters = await this.prisma.registerSession.findMany({
       where: { branchId: { in: branchIds }, closedAt: { not: null } },
       orderBy: { closedAt: 'desc' },
       distinct: ['branchId'],
-      select: {
-        id: true,
-        branchId: true,
-        openingBalance: true,
-        closingBalance: true,
-        openedAt: true,
-        closedAt: true
-      }
+      select: this.registerSelect
     });
 
     const openByBranch = new Map(openRegisters.map((register) => [register.branchId, register]));
@@ -1170,28 +1201,8 @@ export class PosService {
       lastClosedRegisters.map((register) => [register.branchId, register])
     );
 
-    const toDto = (
-      register:
-        | {
-            id: string;
-            branchId: string;
-            openingBalance: Prisma.Decimal;
-            closingBalance: Prisma.Decimal | null;
-            openedAt: Date;
-            closedAt: Date | null;
-          }
-        | undefined
-    ) => {
-      if (!register) return null;
-      return {
-        id: register.id,
-        branchId: register.branchId,
-        openingBalance: this.toNumber(register.openingBalance),
-        closingBalance: register.closingBalance ? this.toNumber(register.closingBalance) : null,
-        openedAt: register.openedAt,
-        closedAt: register.closedAt
-      };
-    };
+    const toDto = (register: Parameters<PosService['toRegisterDto']>[0] | undefined) =>
+      register ? this.toRegisterDto(register) : null;
 
     return branchIds.map((branchId) => ({
       branchId,
@@ -1206,40 +1217,33 @@ export class PosService {
     }
     const registerId = this.requireSessionRegisterId(session);
     const branchId = this.requireSessionBranchId(session);
-    const register = await this.prisma.registerSession.findFirst({
-      where: { id: registerId, userId: session.userId, branchId, closedAt: null },
-      select: { id: true, branchId: true, openingBalance: true, openedAt: true }
-    });
-    if (!register) {
-      throw new NotFoundException('Open register not found');
-    }
-
-    const updated = await this.prisma.registerSession.update({
-      where: { id: register.id },
-      data: {
-        closingBalance,
-        closedAt: new Date()
-      },
-      select: {
-        id: true,
-        branchId: true,
-        openingBalance: true,
-        closingBalance: true,
-        openedAt: true,
-        closedAt: true
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Lock the register so a sale or refund can't land between counting and closing.
+      await tx.$queryRaw`SELECT id FROM "RegisterSession" WHERE id = ${registerId} FOR UPDATE`;
+      const register = await tx.registerSession.findFirst({
+        where: { id: registerId, userId: session.userId, branchId, closedAt: null },
+        select: { id: true, openingBalance: true }
+      });
+      if (!register) {
+        throw new NotFoundException('Open register not found');
       }
+      const cash = await this.registerCash(tx, register.id, this.toNumber(register.openingBalance));
+      const updated = await tx.registerSession.update({
+        where: { id: register.id },
+        data: {
+          closingBalance,
+          expectedCash: cash.expectedCash,
+          cashDifference: this.round2(closingBalance - cash.expectedCash),
+          closedAt: new Date()
+        },
+        select: this.registerSelect
+      });
+      return { ...this.toRegisterDto(updated), cashSales: cash.cashSales, cashRefunds: cash.cashRefunds };
     });
 
     return {
       token: this.buildToken({ userId: session.userId, role: session.role }),
-      register: {
-        id: updated.id,
-        branchId: updated.branchId,
-        openingBalance: this.toNumber(updated.openingBalance),
-        closingBalance: updated.closingBalance ? this.toNumber(updated.closingBalance) : null,
-        openedAt: updated.openedAt,
-        closedAt: updated.closedAt
-      }
+      register: result
     };
   }
 
@@ -1987,12 +1991,14 @@ export class PosService {
       });
     }
 
+    await this.assertRegisterOpen(tx, session);
     await tx.payment.createMany({
       data: payments.map((p) => ({
         invoiceId: invoice.id,
         mode: p.mode,
         amount: p.amount,
-        reference: p.reference
+        reference: p.reference,
+        registerSessionId: session.registerId
       }))
     });
 
@@ -2159,12 +2165,14 @@ export class PosService {
       const seq = await this.nextSequence(invoice.branchId, 'return', tx);
       const returnNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
 
+      await this.assertRegisterOpen(tx, session);
       const returnInvoice = await tx.returnInvoice.create({
         data: {
           saleInvoiceId,
           returnNo,
           totalAmount,
           refundMode: input.refundMode,
+          registerSessionId: session.registerId,
           lines: { create: returnLineCreates }
         }
       });

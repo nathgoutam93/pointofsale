@@ -64,9 +64,21 @@ export const registerSessionSchema = z.object({
   id: z.string().uuid(),
   branchId: z.string().uuid(),
   openingBalance: moneySchema,
+  /** Cash counted at close. */
   closingBalance: moneySchema.nullable(),
+  /** Opening balance + cash taken − cash refunded, worked out at close. */
+  expectedCash: moneySchema.nullable(),
+  /** closingBalance − expectedCash; negative means cash was short. */
+  cashDifference: moneySchema.nullable(),
   openedAt: z.string().datetime(),
   closedAt: z.string().datetime().nullable()
+});
+
+/** Running cash for a register: cash payments taken on it and cash refunds given from it. */
+const registerCashSchema = z.object({
+  cashSales: moneySchema,
+  cashRefunds: moneySchema,
+  expectedCash: moneySchema
 });
 
 export const registerSummarySchema = z.object({
@@ -552,7 +564,7 @@ export const appContract = c.router({
       method: 'GET',
       path: '/registers/current',
       responses: {
-        200: registerSessionSchema.nullable()
+        200: registerSessionSchema.merge(registerCashSchema).nullable()
       }
     },
     close: {
@@ -564,7 +576,7 @@ export const appContract = c.router({
       responses: {
         200: z.object({
           token: z.string(),
-          register: registerSessionSchema
+          register: registerSessionSchema.merge(registerCashSchema.omit({ expectedCash: true }))
         })
       }
     }

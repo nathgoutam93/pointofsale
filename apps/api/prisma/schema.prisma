@@ -133,10 +133,17 @@ model RegisterSession {
   branchId      String
   branch        Branch   @relation(fields: [branchId], references: [id])
   openingBalance Decimal @db.Decimal(14, 2)
+  /// Cash counted in the drawer at close.
   closingBalance Decimal? @db.Decimal(14, 2)
+  /// Opening balance + cash taken − cash refunded on this register, worked out at close.
+  expectedCash  Decimal? @db.Decimal(14, 2)
+  /// closingBalance − expectedCash (negative means cash is short).
+  cashDifference Decimal? @db.Decimal(14, 2)
   openedAt      DateTime @default(now())
   closedAt      DateTime?
   createdAt     DateTime @default(now())
+  payments      Payment[]
+  returns       ReturnInvoice[]
 
   @@index([userId, closedAt])
   @@index([branchId, closedAt])
@@ -319,7 +326,12 @@ model Payment {
   mode       PaymentMode
   amount     Decimal      @db.Decimal(14, 2)
   reference  String?
+  /// The register the payment was taken on; null for payments made before this was recorded.
+  registerSessionId String?
+  registerSession   RegisterSession? @relation(fields: [registerSessionId], references: [id])
   createdAt  DateTime     @default(now())
+
+  @@index([registerSessionId])
 }
 
 model Receipt {
@@ -338,8 +350,13 @@ model ReturnInvoice {
   returnNo      String             @unique
   totalAmount   Decimal            @db.Decimal(14, 2)
   refundMode    PaymentMode
+  /// The register the refund was given from; null for returns made before this was recorded.
+  registerSessionId String?
+  registerSession   RegisterSession? @relation(fields: [registerSessionId], references: [id])
   lines         ReturnInvoiceLine[]
   createdAt     DateTime           @default(now())
+
+  @@index([registerSessionId])
 }
 
 model ReturnInvoiceLine {

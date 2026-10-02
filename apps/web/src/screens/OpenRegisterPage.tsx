@@ -205,6 +205,16 @@ export function OpenRegisterPage() {
                           Opening: ₹{money(lastClosed.openingBalance)} · Closing: ₹
                           {money(lastClosed.closingBalance)}
                         </p>
+                        {lastClosed.expectedCash !== null && lastClosed.cashDifference !== null ? (
+                          <p className={Math.abs(lastClosed.cashDifference) < 0.005 ? "text-emerald-700" : "text-rose-700"}>
+                            Expected: ₹{money(lastClosed.expectedCash)} ·{" "}
+                            {Math.abs(lastClosed.cashDifference) < 0.005
+                              ? "Balanced"
+                              : lastClosed.cashDifference > 0
+                                ? `Over by ₹${money(lastClosed.cashDifference)}`
+                                : `Short by ₹${money(-lastClosed.cashDifference)}`}
+                          </p>
+                        ) : null}
                       </div>
                     ) : (
                       <p className="mt-1 text-sm text-slate-500">

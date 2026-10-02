@@ -1,35 +1,18 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { api, authHeaders } from "../lib/api";
-import { clearSession, getSession, updateSession } from "../lib/session";
+import { clearSession, getSession } from "../lib/session";
+import { CloseRegisterDialog } from "./CloseRegisterDialog";
 
 export function AppLayout() {
   const location = useRouterState({ select: (s) => s.location.pathname });
   const session = getSession();
   const [open, setOpen] = useState(false);
+  const [closingRegister, setClosingRegister] = useState(false);
   const userLabel = session ? session.username?.trim() || session.role : "";
   const branchLabel = session?.branchId
     ? (session.branches.find((branch) => branch.id === session.branchId)
         ?.name ?? "Selected Branch")
     : "";
-
-  const closeRegister = useMutation({
-    mutationFn: async (closingBalance: number) => {
-      const res = await api.registers.close({
-        body: { closingBalance },
-        extraHeaders: authHeaders(),
-      });
-      if (res.status !== 200) {
-        throw new Error("Failed to close register");
-      }
-      return res.body;
-    },
-    onSuccess: (data) => {
-      updateSession({ token: data.token, branchId: null, registerId: null });
-      window.location.href = "/open-register";
-    },
-  });
 
   if (!session && location === "/") {
     return (
@@ -141,11 +124,8 @@ export function AppLayout() {
             <button
               className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-left"
               onClick={() => {
-                const value = window.prompt("Enter closing cash balance");
-                if (value == null) return;
-                const amount = Number(value);
-                if (!Number.isFinite(amount) || amount < 0) return;
-                closeRegister.mutate(amount);
+                setOpen(false);
+                setClosingRegister(true);
               }}
             >
               Close Register
@@ -166,6 +146,7 @@ export function AppLayout() {
       <main className="">
         <Outlet />
       </main>
+      {closingRegister ? <CloseRegisterDialog onCancel={() => setClosingRegister(false)} /> : null}
     </div>
   );
 }

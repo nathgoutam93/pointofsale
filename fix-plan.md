@@ -83,7 +83,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 - **Problem:** Gross sales include GST, and every opening-stock or stock-adjustment-in entry is subtracted as an expense. Loading ₹1 lakh of stock shows a ₹1 lakh loss that day.
 - **Fix:** Report net sales (excluding tax), tax collected, returns, and cost of goods sold (the item's cost price or average cost at the time of sale, stored on the sale line). Gross profit = net sales − cost of goods sold. Count only SETTLED invoices.
 
-### [ ] 12. Balance the register at close
+### [x] 12. Balance the register at close
 - **Problem:** Payments and refunds aren't linked to a register, so the expected cash in the drawer can't be worked out.
 - **Fix:** Add `registerSessionId` to payments and refunds. At close, show expected cash (opening balance + cash sales − cash refunds), what was counted, and the difference. Save the difference.
 
@@ -323,3 +323,21 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - The Reports page shows the same figures, and "All branches" adds up.
     - All API suites and the UI checkout still pass. `checkout-test` now checks `unpaidSales` for the cancelled draft.
   - Not done: average or FIFO costing (it uses the item's cost price when sold); payments aren't linked to registers (#12); report dates use the server's time zone (#15).
+- **2026-10-02 (session 2):** Finished #12.
+  - Migration `20261002140000_register_cash_balance`:
+    - `Payment.registerSessionId` and `ReturnInvoice.registerSessionId` (nullable foreign keys with indexes; older rows stay null).
+    - `RegisterSession.expectedCash` and `cashDifference`.
+  - Payments (settle and checkout) and refunds are stamped with the session's register. Before writing, they share-lock the register row and check it's still open (`assertRegisterOpen`). Close takes the row exclusively, so nothing can land on a register after it closes.
+  - Expected cash = opening + CASH payments on the register − CASH refunds from it (`registerCash`). Card and wallet are excluded. A registered customer's cash overpayment counts in full, because it's in the drawer.
+  - `GET /registers/current` returns `cashSales`, `cashRefunds` and `expectedCash`. `POST /registers/close` works out the expected cash under the lock and saves the counted amount, the expected amount and the difference (counted − expected; negative = short).
+  - Web:
+    - The `window.prompt` close is replaced by `CloseRegisterDialog`: opening, cash taken, cash refunded and expected; a live "Short by / Over by / Balanced" as the cashier types the count; then the saved result before going to the open-register page.
+    - The open-register page shows the last close's expected cash and difference.
+  - Tested with the app running (7 API checks), on a fresh branch with ₹500 opening:
+    - Sales: cash 236, card 118, a registered customer's cash 300 on a 236 bill, wallet 118. Refunds: cash 118, wallet 1.
+    - Current register: cash 536, refunded 118, expected 918. All 4 payments linked to the register.
+    - Close with 900 counted: expected 918, difference −18, saved on the row and shown in the summary. The old token gets 401 afterwards.
+    - 12 checkouts racing a close: 4 landed before it, 8 refused, 0 payments after the close, and expected equalled opening + the cash on the register.
+    - Browser: the dialog showed 100 + 236 = 336, "Short by ₹6.00" at 330, "Balanced" at 336, then the result and the open-register line "Expected: ₹336.00 · Balanced".
+    - All earlier suites and the UI checkout still pass.
+  - Not counted: admin wallet top-ups have no payment mode, so cash taken for a top-up isn't in expected cash. Payments and refunds made before this change aren't linked to any register.
