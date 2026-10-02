@@ -139,14 +139,18 @@ export class SalesService {
     lines: SaleLineInput[],
     orderDiscounts: DiscountInput[] | undefined,
     taxCalculationMode: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT',
-    chargeTax: boolean
+    chargeTax: boolean,
+    interState: boolean
   ) {
-    const totals = computeSaleTotals(lines, orderDiscounts, taxCalculationMode, { chargeTax });
+    const totals = computeSaleTotals(lines, orderDiscounts, taxCalculationMode, { chargeTax, interState });
     const computedLines: ComputedSaleLine[] = totals.lines.map((entry) => ({
       ...entry.line,
       discountAmount: entry.discountAmount,
       taxableAmount: entry.taxable,
       taxAmount: entry.tax,
+      cgstAmount: entry.cgst,
+      sgstAmount: entry.sgst,
+      igstAmount: entry.igst,
       netAmount: entry.net,
       grossAmount: entry.gross,
       baseExclusive: entry.baseExclusive,
@@ -160,6 +164,9 @@ export class SalesService {
       discountTotal: totals.discountTotal,
       orderDiscountTotal: totals.orderDiscountTotal,
       taxTotal: totals.taxTotal,
+      cgstTotal: totals.cgstTotal,
+      sgstTotal: totals.sgstTotal,
+      igstTotal: totals.igstTotal,
       grandTotal: totals.grandTotal
     };
   }
@@ -182,6 +189,7 @@ export class SalesService {
     const chargeTax = chargesGst(taxpayer.taxpayerType);
     const seller = await this.settings.gstRegistrationFor(input.branchId, tx);
     const placeOfSupplyStateCode = this.resolvePlaceOfSupply(seller.stateCode, input.placeOfSupplyStateCode, taxpayer.taxpayerType);
+    const interState = !!seller.stateCode && !!placeOfSupplyStateCode && placeOfSupplyStateCode !== seller.stateCode;
     const customer = await tx.customer.findUnique({
       where: { id: input.customerId },
       select: { id: true, branchId: true, name: true, phone: true, isWalkIn: true }
@@ -272,12 +280,16 @@ export class SalesService {
       discountTotal,
       orderDiscountTotal,
       taxTotal,
+      cgstTotal,
+      sgstTotal,
+      igstTotal,
       grandTotal
     } = this.calculateSaleTotals(
       normalizedLines,
       input.discounts ?? [],
       businessSettings.taxCalculationMode,
-      chargeTax
+      chargeTax,
+      interState
     );
     if (session.role !== UserRole.ADMIN) {
       this.assertWithinCashierDiscountLimit(
@@ -301,6 +313,9 @@ export class SalesService {
         discountTotal,
         orderDiscountAmount: orderDiscountTotal,
         taxTotal,
+        cgstTotal,
+        sgstTotal,
+        igstTotal,
         grandTotal,
         paidTotal: 0,
         createdBy: session.userId,
@@ -335,6 +350,9 @@ export class SalesService {
             taxRate: line.taxRate,
             taxableAmount: line.taxableAmount,
             taxAmount: line.taxAmount,
+            cgstAmount: line.cgstAmount,
+            sgstAmount: line.sgstAmount,
+            igstAmount: line.igstAmount,
             netAmount: line.netAmount,
             hsnCode: line.hsnCode,
             uqc: line.uqc,

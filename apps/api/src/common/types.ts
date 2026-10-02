@@ -52,6 +52,9 @@ export type ComputedSaleLine = SaleLineInput & {
   discountAmount: number;
   taxableAmount: number;
   taxAmount: number;
+  cgstAmount: number;
+  sgstAmount: number;
+  igstAmount: number;
   netAmount: number;
   grossAmount: number;
   baseExclusive: number;

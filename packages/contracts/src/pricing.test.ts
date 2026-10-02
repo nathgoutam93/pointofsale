@@ -6,6 +6,7 @@ import {
   lineTax,
   resolveDiscountAmounts,
   returnLineRefund,
+  splitGst,
   type PricedLineInput
 } from './pricing.js';
 
@@ -147,9 +148,54 @@ describe('computeSaleTotals', () => {
         expect(line.taxable).toBeGreaterThanOrEqual(0);
         expect(line.net).toBeGreaterThanOrEqual(line.taxable);
         if (line.discountAmount === 0 && line.line.taxMode === 'INCLUSIVE') expect(line.net).toBe(line.gross);
+        expect(round2(line.cgst + line.sgst + line.igst)).toBe(line.tax);
       }
+      expect(round2(totals.cgstTotal + totals.sgstTotal + totals.igstTotal)).toBe(totals.taxTotal);
       expect(totals.grandTotal).toBe(sum(totals.lines.map((l) => l.net)));
     }
+  });
+});
+
+describe('splitGst', () => {
+  it('splits intra-state tax into CGST and SGST that add up, SGST taking the odd paisa', () => {
+    expect(splitGst(15.25, false)).toEqual({ cgst: 7.62, sgst: 7.63, igst: 0 });
+    expect(splitGst(36, false)).toEqual({ cgst: 18, sgst: 18, igst: 0 });
+    expect(splitGst(0.01, false)).toEqual({ cgst: 0, sgst: 0.01, igst: 0 });
+    expect(splitGst(0, false)).toEqual({ cgst: 0, sgst: 0, igst: 0 });
+  });
+
+  it('makes inter-state tax all IGST', () => {
+    expect(splitGst(15.25, true)).toEqual({ cgst: 0, sgst: 0, igst: 15.25 });
+  });
+
+  it('always adds back up to the tax', () => {
+    for (let cents = 0; cents < 100000; cents += 7) {
+      const tax = cents / 100;
+      const { cgst, sgst } = splitGst(tax, false);
+      expect(round2(cgst + sgst)).toBe(tax);
+      expect(Math.abs(cgst - sgst)).toBeLessThanOrEqual(0.01 + 1e-9);
+    }
+  });
+});
+
+describe('computeSaleTotals tax split', () => {
+  const lines: PricedLineInput[] = [
+    { qty: 1, rate: 100, taxRate: 18, taxMode: 'INCLUSIVE' }, // tax 15.25
+    { qty: 3, rate: 33.33, taxRate: 5, taxMode: 'EXCLUSIVE' } // tax 5.00
+  ];
+
+  it('gives each line and the sale its CGST and SGST within a state', () => {
+    const totals = computeSaleTotals(lines, [], 'AFTER_DISCOUNT');
+    expect(totals.lines.map((l) => [l.cgst, l.sgst, l.igst])).toEqual([[7.62, 7.63, 0], [2.5, 2.5, 0]]);
+    expect([totals.cgstTotal, totals.sgstTotal, totals.igstTotal]).toEqual([10.12, 10.13, 0]);
+    expect(round2(totals.cgstTotal + totals.sgstTotal)).toBe(totals.taxTotal);
+  });
+
+  it('makes it all IGST between states, and nothing for a composition taxpayer', () => {
+    const inter = computeSaleTotals(lines, [], 'AFTER_DISCOUNT', { interState: true });
+    expect([inter.cgstTotal, inter.sgstTotal, inter.igstTotal]).toEqual([0, 0, inter.taxTotal]);
+    const composition = computeSaleTotals(lines, [], 'AFTER_DISCOUNT', { chargeTax: false });
+    expect([composition.cgstTotal, composition.sgstTotal, composition.igstTotal]).toEqual([0, 0, 0]);
   });
 });
 

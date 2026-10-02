@@ -189,7 +189,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
 - **Backfill:** existing items get `TAXABLE` (or `NIL_RATED` when the rate is 0) and an empty HSN. The return builder lists every sold item with no HSN, so the admin can fill them in before exporting.
 - **Copied onto each sale line at sale time:** `hsnCode`, `uqc` and `supplyType`, the same way `listRate` is copied.
 
-### [ ] 33. Store the tax split on every sale line
+### [x] 33. Store the tax split on every sale line
 - **Where:** `@pos/contracts` pricing (`computeSaleTotals`, `lineTax`), `SaleInvoiceLine`, the sales service.
 - **Change:**
   - Store `cgstAmount`, `sgstAmount` and `igstAmount` per line next to `taxAmount`. Intra-state, CGST = round half down to the paisa and SGST = tax − CGST, so the two always add up to the tax (₹15.25 → 7.62 + 7.63).
@@ -668,4 +668,21 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - Verified:
     - 10 new tests: 4 in contracts, 6 for the API. All 120 tests pass.
     - Browser test: HSN length 6 saved; the list flags items without HSN; "Kg" suggests KGS; a 0% item offers nil rated, exempt and non-GST; 5- and 4-digit HSN codes are flagged; saved 100630 / KGS / EXEMPT; the detail view shows them; changing the rate to 5% makes it taxable. The run before the selection fix edited the wrong item.
+    - The POS snapshot is identical, and the earlier browser flows pass.
+- **#33 done.** Every sale line and invoice stores its tax as CGST + SGST or IGST.
+  - `splitGst(tax, interState)` in `@pos/contracts` pricing:
+    - Inter-state: all IGST.
+    - Within a state: CGST is the half rounded down to the paisa, SGST the rest (15.25 → 7.62 + 7.63).
+    - `computeSaleTotals` takes `{ interState }`, gives each line `cgst`, `sgst` and `igst`, and returns `cgstTotal`, `sgstTotal` and `igstTotal`.
+  - Inter-state means the place of supply differs from the branch's state. A branch with no state is treated as selling within its state. Composition sales have no tax, so every split is 0.
+  - Schema:
+    - `SaleInvoiceLine` gets `cgstAmount`, `sgstAmount` and `igstAmount`; `SaleInvoice` gets `cgstTotal`, `sgstTotal` and `igstTotal`.
+    - A database check makes each line's split add up to its tax, and stops a line having both IGST and CGST/SGST.
+  - Migration `20261003120000_sale_tax_split`:
+    - Old lines become IGST when their sale went to another state, otherwise CGST + SGST (using the same rounding as `splitGst`). Invoice totals are summed from their lines.
+    - Dev data: 2 IGST lines, 343 CGST/SGST lines, and every invoice's split equals its tax.
+  - The POS needs no change: it shows only the total tax, which doesn't depend on the split. Receipts print the split in #35.
+  - Verified:
+    - 10 new tests: 5 in contracts (including every paisa value up to ₹1,000 and the random-cart invariants), 5 for the API (counter, shipped, no branch state, composition, database check). All 130 tests pass.
+    - The place-of-supply browser test now also checks the server charges a shipped sale as IGST 36.00, and a counter sale as CGST 18 + SGST 18.
     - The POS snapshot is identical, and the earlier browser flows pass.

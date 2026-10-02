@@ -10,7 +10,8 @@ export {
   exclusiveBase,
   lineTax,
   resolveDiscountAmounts,
-  returnLineRefund
+  returnLineRefund,
+  splitGst
 } from './pricing.js';
 export type { DiscountInput, PricedLineInput, ResolvedDiscount, TaxCalculationMode, TaxMode } from './pricing.js';
 export {
@@ -362,6 +363,10 @@ const saleLineSchema = saleLineInput.omit({ discounts: true }).extend({
   listRate: moneySchema.nullable(),
   taxableAmount: moneySchema,
   taxAmount: moneySchema,
+  /** taxAmount by kind: CGST + SGST within a state, IGST between states. */
+  cgstAmount: moneySchema.default(0),
+  sgstAmount: moneySchema.default(0),
+  igstAmount: moneySchema.default(0),
   netAmount: moneySchema,
   /** The item's GST details when it was sold. */
   hsnCode: z.string().nullable().default(null),
@@ -397,6 +402,9 @@ const saleInvoiceSchema = z.object({
   discountTotal: moneySchema,
   orderDiscountAmount: moneySchema.default(0),
   taxTotal: moneySchema,
+  cgstTotal: moneySchema.default(0),
+  sgstTotal: moneySchema.default(0),
+  igstTotal: moneySchema.default(0),
   grandTotal: moneySchema,
   paidTotal: moneySchema,
   status: invoiceStatusSchema,

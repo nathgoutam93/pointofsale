@@ -68,6 +68,18 @@ export function returnLineRefund(input: {
   return isLastOfLine ? remaining : round2(Math.min((lineNet * qty) / soldQty, remaining));
 }
 
+/**
+ * A line's GST split by kind. An inter-state sale is all IGST. Within a state it is half
+ * CGST and half SGST: CGST is the half rounded down to the paisa and SGST the rest, so the
+ * two always add up to the tax (15.25 is 7.62 + 7.63).
+ */
+export function splitGst(tax: number, interState: boolean) {
+  if (interState) return { cgst: 0, sgst: 0, igst: round2(tax) };
+  const cents = Math.round(tax * 100);
+  const cgst = Math.floor(cents / 2) / 100;
+  return { cgst, sgst: round2(cents / 100 - cgst), igst: 0 };
+}
+
 export type DiscountInput = { type: 'PERCENTAGE' | 'FIXED'; value: number };
 export type ResolvedDiscount = DiscountInput & { amount: number };
 
@@ -194,6 +206,8 @@ export function computeSaleTotals<L extends PricedLineInput>(
      * is 0. The returned lines say so (taxRate 0, EXCLUSIVE).
      */
     chargeTax?: boolean;
+    /** True when the goods go to another state (IGST); otherwise the tax is CGST + SGST. */
+    interState?: boolean;
   } = {}
 ) {
   const pricedLines =
@@ -226,7 +240,7 @@ export function computeSaleTotals<L extends PricedLineInput>(
       taxRate: entry.line.taxRate,
       taxCalculationMode
     });
-    return { ...entry, orderDiscount, discountAmount, taxable, tax, net };
+    return { ...entry, orderDiscount, discountAmount, taxable, tax, ...splitGst(tax, options.interState === true), net };
   });
 
   const sum = (pick: (line: (typeof computed)[number]) => number) => round2(computed.reduce((acc, line) => acc + pick(line), 0));
@@ -239,6 +253,9 @@ export function computeSaleTotals<L extends PricedLineInput>(
     discountTotal: sum((line) => line.discountAmount),
     orderDiscountTotal: sum((line) => line.orderDiscount),
     taxTotal: sum((line) => line.tax),
+    cgstTotal: sum((line) => line.cgst),
+    sgstTotal: sum((line) => line.sgst),
+    igstTotal: sum((line) => line.igst),
     grandTotal: sum((line) => line.net)
   };
 }
