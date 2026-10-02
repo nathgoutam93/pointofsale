@@ -31,4 +31,22 @@ export class GstController {
     requireAdminSession(headers);
     return this.gst.gstr3b(query.gstin, query.from, query.to);
   }
+
+  @Get('/gst/cmp08')
+  cmp08(
+    @Query(new ZodValidationPipe(appContract.gst.cmp08.query)) query: { gstin: string; from: string; to: string },
+    @Headers() headers: RequestHeaders
+  ) {
+    requireAdminSession(headers);
+    return this.gst.cmp08(query.gstin, query.from, query.to);
+  }
+
+  @Get('/gst/gstr4')
+  gstr4(
+    @Query(new ZodValidationPipe(appContract.gst.gstr4.query)) query: { gstin: string; fy: number },
+    @Headers() headers: RequestHeaders
+  ) {
+    requireAdminSession(headers);
+    return this.gst.gstr4(query.gstin, query.fy);
+  }
 }

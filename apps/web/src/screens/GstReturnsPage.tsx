@@ -3,11 +3,12 @@ import { useEffect, useMemo, useState } from "react";
 import { financialYearLabel, financialYearStart } from "@pos/contracts";
 import { api, authHeaders } from "../lib/api";
 import { Gstr1View } from "./gst/Gstr1View";
+import { CompositionView } from "./gst/CompositionView";
 import { Gstr3bView } from "./gst/Gstr3bView";
 import { requireAdmin } from "./route-helpers";
 
 type PeriodKind = "month" | "quarter";
-type ReturnKind = "GSTR1" | "GSTR3B";
+type ReturnKind = "GSTR1" | "GSTR3B" | "CMP08" | "GSTR4";
 
 const QUARTERS = [
   { label: "April - June", months: [4, 6] },
@@ -18,7 +19,7 @@ const QUARTERS = [
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** GST returns for a GSTIN and period: GSTR-1 and the sales side of GSTR-3B. */
+/** GST returns for a GSTIN and period: GSTR-1 and GSTR-3B (regular), CMP-08 and GSTR-4 (composition). */
 export function GstReturnsPage() {
   requireAdmin();
   const today = useMemo(() => new Date(), []);
@@ -46,12 +47,15 @@ export function GstReturnsPage() {
     if (!gstin && gstins.data?.length) setGstin(gstins.data[0].gstin);
   }, [gstin, gstins.data]);
 
+  // CMP-08 is always for a quarter; GSTR-4 for a whole financial year.
+  const periodKind: PeriodKind | "year" = returnKind === "CMP08" ? "quarter" : returnKind === "GSTR4" ? "year" : kind;
   const period = useMemo(() => {
-    if (kind === "month") return { from: month, to: month };
+    if (periodKind === "year") return { from: `${fyStart}-04`, to: `${fyStart + 1}-03` };
+    if (periodKind === "month") return { from: month, to: month };
     const [first, last] = QUARTERS[quarter].months;
     const year = first <= 3 ? fyStart + 1 : fyStart;
     return { from: `${year}-${pad(first)}`, to: `${year}-${pad(last)}` };
-  }, [kind, month, fyStart, quarter]);
+  }, [periodKind, month, fyStart, quarter]);
 
   return (
     <section className="mx-auto max-w-6xl space-y-4 p-6">
@@ -68,6 +72,8 @@ export function GstReturnsPage() {
             <select className="rounded border border-slate-300 px-3 py-2" value={returnKind} onChange={(e) => setReturnKind(e.target.value as ReturnKind)}>
               <option value="GSTR1">GSTR-1 (outward supplies)</option>
               <option value="GSTR3B">GSTR-3B (summary)</option>
+              <option value="CMP08">CMP-08 (composition, quarterly)</option>
+              <option value="GSTR4">GSTR-4 (composition, yearly)</option>
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm text-slate-600">
@@ -80,14 +86,16 @@ export function GstReturnsPage() {
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-sm text-slate-600">
-            Filing
-            <select className="rounded border border-slate-300 px-3 py-2" value={kind} onChange={(e) => setKind(e.target.value as PeriodKind)}>
-              <option value="month">Monthly</option>
-              <option value="quarter">Quarterly (QRMP)</option>
-            </select>
-          </label>
-          {kind === "month" ? (
+          {returnKind === "GSTR1" || returnKind === "GSTR3B" ? (
+            <label className="flex flex-col gap-1 text-sm text-slate-600">
+              Filing
+              <select className="rounded border border-slate-300 px-3 py-2" value={kind} onChange={(e) => setKind(e.target.value as PeriodKind)}>
+                <option value="month">Monthly</option>
+                <option value="quarter">Quarterly (QRMP)</option>
+              </select>
+            </label>
+          ) : null}
+          {periodKind === "month" ? (
             <label className="flex flex-col gap-1 text-sm text-slate-600">
               Month
               <input type="month" className="rounded border border-slate-300 px-3 py-2" value={month} onChange={(e) => setMonth(e.target.value)} />
@@ -104,16 +112,18 @@ export function GstReturnsPage() {
                   ))}
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-sm text-slate-600">
-                Quarter
-                <select className="rounded border border-slate-300 px-3 py-2" value={quarter} onChange={(e) => setQuarter(Number(e.target.value))}>
-                  {QUARTERS.map((q, idx) => (
-                    <option key={q.label} value={idx}>
-                      {q.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {periodKind === "quarter" ? (
+                <label className="flex flex-col gap-1 text-sm text-slate-600">
+                  Quarter
+                  <select className="rounded border border-slate-300 px-3 py-2" value={quarter} onChange={(e) => setQuarter(Number(e.target.value))}>
+                    {QUARTERS.map((q, idx) => (
+                      <option key={q.label} value={idx}>
+                        {q.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </>
           )}
         </div>
@@ -126,8 +136,10 @@ export function GstReturnsPage() {
       {gstin ? (
         returnKind === "GSTR1" ? (
           <Gstr1View gstin={gstin} period={period} />
-        ) : (
+        ) : returnKind === "GSTR3B" ? (
           <Gstr3bView gstin={gstin} period={period} />
+        ) : (
+          <CompositionView gstin={gstin} kind={returnKind} period={period} fy={fyStart} />
         )
       ) : null}
     </section>

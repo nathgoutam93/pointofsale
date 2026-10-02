@@ -241,7 +241,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - Table 3.2: inter-state supplies to unregistered buyers, by state.
 - **Limits:** input tax credit needs purchase bills, which this system doesn't record, so this is a report for the admin to copy from, not a complete return.
 
-### [ ] 39. CMP-08 and GSTR-4 figures (composition)
+### [x] 39. CMP-08 and GSTR-4 figures (composition)
 - **Change:**
   - **CMP-08 (quarterly):** turnover of `COMPOSITION` invoices net of returns, and tax at the composition rate split into CGST and SGST. It is only a few figures, so a report is enough.
   - **GSTR-4 (yearly):** the outward summary. Purchases aren't recorded, so as with 3B this is partial.
@@ -784,3 +784,25 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
     - A builder test (3.1 net of a B2CL credit note, nil and non-GST, 3.2 by state) and an API test against the real sales from the GSTR-1 test (taxable 152,000, IGST 27,180, CGST/SGST 90; exempt 200; Maharashtra 151,000 / IGST 27,180; quarter rule).
     - Browser test extended: GSTR-3B shows 3.1(a) 600.00 with IGST 36, CGST 36, SGST 36, 3.2 Maharashtra 200.00 / 36.00, and the input tax credit note.
     - All 159 tests pass.
+- **#39 done, so Phase 6 is complete.** Composition returns.
+  - `apps/api/src/gst/composition.ts`: `buildComposition` over the sales made as a composition taxpayer (cancelled ones excluded), net of returns, by category:
+    - Turnover (exempt included), taxable turnover, and the base the rate applies to: taxable supplies for traders, all turnover for manufacturers, restaurants and service providers.
+    - CGST/SGST at half the rate each (1%, 5%, 6%), split like invoice tax.
+    - Warnings: regular-taxpayer sales left out; inward supplies missing (purchases aren't recorded).
+    - Turnover limit, on the business's turnover this financial year across all GSTINs: a warning at 80% of the limit and an error past it, telling the admin to move to regular (schedule the change, file CMP-04). Limit: ₹1.5 crore, or ₹50 lakh for services. Special category states have lower limits; this is noted, not built.
+  - API (admins only):
+    - `GET /gst/cmp08?gstin&from&to`: quarters only.
+    - `GET /gst/gstr4?gstin&fy`: April–March, with `byQuarter` (the four CMP-08s).
+    - The service now validates the period once (month / quarter / year) and computes year turnover with two aggregate queries.
+  - Web: the Return choice adds CMP-08 (quarter picker only) and GSTR-4 (financial year only). The view shows business turnover this year, the problem list, the table by category, and, for GSTR-4, quarter by quarter.
+  - Verified:
+    - 5 builder tests (trader vs restaurant base, odd-paisa split, returns netted, cancelled and regular sales excluded, the limit at 87% / past it / services / no longer composition, the quarter split).
+    - 3 API tests with real sales: a regular sale, then a composition change, phones and exempt rice and a return. CMP-08 shows 2,200 turnover, tax on 2,000 = CGST 10 + SGST 10, with the regular sale left out; GSTR-4 shows it in this quarter; month and year validation.
+    - Browser test: two composition sales of the 200 item. CMP-08 shows Trader at 1%, 400.00, CGST 2.00 + SGST 2.00. GSTR-4 shows them in October–December. The period choices change with the return.
+    - All 167 tests pass.
+  - **Phase 6 recap.** Regular and composition taxpayers are supported end to end:
+    - Each sale records its GSTIN, place of supply, HSN/UQC/supply type, CGST/SGST/IGST and a GST number.
+    - Returns record their tax parts.
+    - Receipts print a Tax Invoice or a Bill of Supply.
+    - The GST Returns page gives GSTR-1 (JSON), GSTR-3B, CMP-08 and GSTR-4.
+  - **Before relying on it:** import a real month's GSTR-1 JSON into the current GST offline tool (`GSTR1_JSON_VERSION`, `B2CL_THRESHOLD` and the HSN table layout are the likely places to adjust), and have a CA review one month of all four reports.

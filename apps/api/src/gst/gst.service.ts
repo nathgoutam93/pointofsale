@@ -2,10 +2,12 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InvoiceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { toNumber } from '../common/numbers';
-import { startOfLocalDay } from '../reports/zoned-dates';
+import { financialYearStart } from '@pos/contracts';
+import { localDate, startOfLocalDay } from '../reports/zoned-dates';
 import { SettingsService } from '../settings/settings.service';
 import { buildGstr1, type Gstr1Invoice, type Gstr1Line } from './gstr1';
 import { buildGstr3b } from './gstr3b';
+import { buildComposition } from './composition';
 
 const invoiceSelect = {
   invoiceNo: true,
@@ -13,6 +15,7 @@ const invoiceSelect = {
   createdAt: true,
   status: true,
   taxpayerType: true,
+  compositionCategory: true,
   sellerGstin: true,
   sellerStateCode: true,
   placeOfSupplyStateCode: true,
@@ -40,6 +43,7 @@ type InvoiceRow = {
   createdAt: Date;
   status: InvoiceStatus;
   taxpayerType: 'REGULAR' | 'COMPOSITION';
+  compositionCategory: Gstr1Invoice['compositionCategory'];
   sellerGstin: string | null;
   sellerStateCode: string | null;
   placeOfSupplyStateCode: string | null;
@@ -83,6 +87,7 @@ function toInvoice(row: InvoiceRow): Gstr1Invoice {
     createdAt: row.createdAt,
     cancelled: row.status === InvoiceStatus.CANCELLED,
     taxpayerType: row.taxpayerType,
+    compositionCategory: row.compositionCategory,
     sellerGstin: row.sellerGstin,
     sellerStateCode: row.sellerStateCode,
     placeOfSupplyStateCode: row.placeOfSupplyStateCode,
@@ -95,6 +100,24 @@ function toInvoice(row: InvoiceRow): Gstr1Invoice {
 function parseMonth(value: string) {
   const [year, month] = value.split('-').map(Number);
   return { year, month };
+}
+
+/** One month, a financial-year quarter, a financial year (April-March), or none of these. */
+function periodKind(from: string, to: string) {
+  const start = parseMonth(from);
+  const end = parseMonth(to);
+  const months = (end.year - start.year) * 12 + (end.month - start.month) + 1;
+  if (months === 1) return 'month';
+  if (months === 3 && [1, 4, 7, 10].includes(start.month)) return 'quarter';
+  if (months === 12 && start.month === 4) return 'year';
+  return null;
+}
+
+function assertMonthOrQuarter(from: string, to: string) {
+  const kind = periodKind(from, to);
+  if (kind !== 'month' && kind !== 'quarter') {
+    throw new BadRequestException('Choose one month, or a quarter: April-June, July-September, October-December or January-March');
+  }
 }
 
 @Injectable()
@@ -130,23 +153,61 @@ export class GstService {
    * October-December, January-March) for quarterly filers.
    */
   async gstr1(gstin: string, from: string, to: string) {
+    assertMonthOrQuarter(from, to);
     return { gstin, from, to, ...buildGstr1(await this.loadPeriod(gstin, from, to)) };
   }
 
   /** The sales side of GSTR-3B for the same periods, from the same figures as GSTR-1. */
   async gstr3b(gstin: string, from: string, to: string) {
+    assertMonthOrQuarter(from, to);
     return { gstin, from, to, ...buildGstr3b(buildGstr1(await this.loadPeriod(gstin, from, to))) };
+  }
+
+  /** CMP-08: a composition taxpayer's quarter. */
+  async cmp08(gstin: string, from: string, to: string) {
+    if (periodKind(from, to) !== 'quarter') {
+      throw new BadRequestException('CMP-08 is for a quarter: April-June, July-September, October-December or January-March');
+    }
+    const start = parseMonth(from);
+    return { gstin, from, to, ...(await this.composition(gstin, from, to, financialYearStart(start.year, start.month))) };
+  }
+
+  /** GSTR-4: a composition taxpayer's financial year (April to March), quarter by quarter. */
+  async gstr4(gstin: string, fy: number) {
+    const from = `${fy}-04`;
+    const to = `${fy + 1}-03`;
+    const { timezone } = await this.settings.ensureBusinessSettings();
+    const quarterOf = (at: Date) => Math.floor(((localDate(at, timezone).month + 8) % 12) / 3) + 1;
+    return { gstin, fy, ...(await this.composition(gstin, from, to, fy, quarterOf)) };
+  }
+
+  private async composition(gstin: string, from: string, to: string, fy: number, quarterOf?: (at: Date) => number) {
+    const [period, yearTurnover, current] = await Promise.all([
+      this.loadPeriod(gstin, from, to),
+      this.turnoverForYear(fy),
+      this.settings.taxpayerTypeAt(new Date())
+    ]);
+    return buildComposition({ ...period, yearTurnover, currentCategory: current.compositionCategory, quarterOf });
+  }
+
+  /** The business's turnover (taxable value, all GSTINs) in a financial year, net of returns. */
+  private async turnoverForYear(fy: number) {
+    const { timezone } = await this.settings.ensureBusinessSettings();
+    const range = { gte: startOfLocalDay(fy, 4, 1, timezone), lt: startOfLocalDay(fy + 1, 4, 1, timezone) };
+    const [sold, returned] = await Promise.all([
+      this.prisma.saleInvoiceLine.aggregate({
+        _sum: { taxableAmount: true },
+        where: { invoice: { createdAt: range, status: { not: InvoiceStatus.CANCELLED } } }
+      }),
+      this.prisma.returnInvoiceLine.aggregate({ _sum: { taxableAmount: true }, where: { returnInvoice: { createdAt: range } } })
+    ]);
+    return num(sold._sum.taxableAmount) - num(returned._sum.taxableAmount);
   }
 
   /** A GSTIN's invoices and returns for a month or quarter, as the return builders take them. */
   private async loadPeriod(gstin: string, from: string, to: string) {
     const start = parseMonth(from);
     const end = parseMonth(to);
-    const months = (end.year - start.year) * 12 + (end.month - start.month) + 1;
-    const isQuarter = months === 3 && [1, 4, 7, 10].includes(start.month);
-    if (months !== 1 && !isQuarter) {
-      throw new BadRequestException('Choose one month, or a quarter: April-June, July-September, October-December or January-March');
-    }
 
     const { timezone } = await this.settings.ensureBusinessSettings();
     const periodStart = startOfLocalDay(start.year, start.month, 1, timezone);

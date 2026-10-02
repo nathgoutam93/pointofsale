@@ -40,6 +40,8 @@ export type Gstr1Invoice = {
   createdAt: Date;
   cancelled: boolean;
   taxpayerType: 'REGULAR' | 'COMPOSITION';
+  /** For a composition sale: the category (and so the rate) it was made under. */
+  compositionCategory?: 'MANUFACTURER' | 'TRADER' | 'RESTAURANT' | 'SERVICES' | null;
   sellerGstin: string | null;
   sellerStateCode: string | null;
   placeOfSupplyStateCode: string | null;

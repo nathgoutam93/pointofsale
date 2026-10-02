@@ -559,10 +559,36 @@ const gstPeriodQuerySchema = z.object({
   from: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Use YYYY-MM' }),
   to: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Use YYYY-MM' })
 });
+const compositionTotalsSchema = z.object({ turnover: z.number(), taxBase: z.number(), cgst: z.number(), sgst: z.number() });
+const compositionReturnSchema = z.object({
+  gstin: z.string(),
+  rows: z.array(
+    compositionTotalsSchema.extend({ category: compositionCategorySchema, rate: z.number(), taxableTurnover: z.number() })
+  ),
+  totals: compositionTotalsSchema,
+  /** The business's turnover this financial year (all GSTINs), for the composition limit. */
+  yearTurnover: z.number(),
+  problems: z.array(z.object({ severity: z.enum(['error', 'warning']), message: z.string() })),
+  byQuarter: z.array(compositionTotalsSchema.extend({ quarter: z.number() })).nullable()
+});
 const gstTaxRowSchema = z.object({ txval: z.number(), iamt: z.number(), camt: z.number(), samt: z.number(), csamt: z.number() });
 
 export const appContract = c.router({
   gst: {
+    /** CMP-08: a composition taxpayer's quarter (turnover and tax at the composition rate). */
+    cmp08: {
+      method: 'GET',
+      path: '/gst/cmp08',
+      query: gstPeriodQuerySchema,
+      responses: { 200: compositionReturnSchema.extend({ from: z.string(), to: z.string() }) }
+    },
+    /** GSTR-4: a composition taxpayer's financial year (April-March), quarter by quarter. */
+    gstr4: {
+      method: 'GET',
+      path: '/gst/gstr4',
+      query: z.object({ gstin: gstinSchema, fy: z.coerce.number().int().min(2017).max(2100) }),
+      responses: { 200: compositionReturnSchema.extend({ fy: z.number() }) }
+    },
     /** The sales side of GSTR-3B: Tables 3.1 and 3.2 (no input tax credit: purchases aren't recorded). */
     gstr3b: {
       method: 'GET',
