@@ -61,7 +61,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
   - Invoices that are already SETTLED or CANCELLED can be paid again.
 - **Fix:** Add up all WALLET lines and check the total against the balance. Reject amounts that are ≤ 0 or not finite. Allow settling only from DRAFT. Decide what to do with overpayment: give change for cash, and reject it for other payment methods unless credited to a wallet on purpose.
 
-### [ ] 8. Return quantity can be counted twice
+### [x] 8. Return quantity can be counted twice
 - **Where:** `pos.service.ts` around line 1809 (`createReturn`)
 - **Problem:** Repeated `saleLineId`s within one request aren't added up before the "already returned" check. Unpaid DRAFT invoices can be returned for a CASH refund.
 - **Fix:** Group the lines by `saleLineId` first. Allow returns only on SETTLED invoices. Don't refund more than was paid; for credit sales, refund to the customer's wallet or reduce what they owe.
@@ -244,3 +244,18 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - Two sales racing for the same ₹200 wallet: one succeeds, balance 200 → 0.
     - The earlier suites and both UI checkouts still pass.
   - Left for later: the receipt amount includes any overpayment credited to the wallet, and payments aren't linked to a register (#12).
+- **2026-10-02 (session 2):** Finished #8. `createReturn` now:
+  - Locks the invoice row, so concurrent returns can't both pass the quantity check.
+  - Accepts only SETTLED invoices. DRAFT and PARTIALLY_SETTLED get "isn't fully paid yet. Collect the payment before returning items."; CANCELLED gets "is cancelled". This is the plan's rule. Returns on unpaid credit sales would need a way to reduce what the customer owes, which the data model doesn't have; that's a follow-up if wanted.
+  - Groups request lines by `saleLineId` before checking. The contract already rejects duplicates; this is defence in depth.
+  - Caps the total refunded across all returns at what was paid (`min(paidTotal, grandTotal)`).
+  - Refund maths, shared as `returnLineRefund` in `packages/contracts/src/pricing.ts` and used by the API and the Returns page: prorated from the line total, and the last units refund exactly what's left. Before, it was `round2(net / sold) × qty`, so a ₹200 line of 3 returned one at a time refunded 3 × 66.67 = ₹200.01. Now it's 66.67 + 66.67 + 66.66 = ₹200.00.
+  - The Returns page shows the API's validation messages (`apiErrorMessage`).
+  - Tested with the app running (11 checks):
+    - Rejected, stock unchanged: DRAFT, PARTIALLY_SETTLED, CANCELLED, a 4th unit of a 3-unit line, duplicate lines.
+    - Three 1-unit returns add up to exactly the line total.
+    - 5 concurrent 1-unit returns on a 2-unit line: 2 accepted, stock +2.
+    - A wallet refund credits the right amount.
+    - In the browser, the Returns page showed the same amount the API refunded (₹66.67 after a 2-unit return worth ₹133.33), and showed the "not fully paid" message for an unpaid invoice.
+    - The validation, settle and pricing suites still pass.
+  - I didn't reproduce the concurrent-return race on the old code; the test only shows the new lock holds.

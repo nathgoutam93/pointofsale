@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { sanitizeReceiptCss } from "@pos/contracts";
-import { API_BASE_URL, api, authHeaders } from "../lib/api";
+import { returnLineRefund, sanitizeReceiptCss } from "@pos/contracts";
+import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import {
   buildReceiptLines,
   formatReceiptDate,
@@ -275,10 +275,18 @@ export function ReturnsPage() {
         0,
       );
       const availableQty = Math.max(0, soldQty - alreadyReturned);
-      const netAmount = Number(line.netAmount);
-      const unitRate = soldQty > 0 ? round2(netAmount / soldQty) : 0;
+      const alreadyRefunded = (line.returnLines ?? []).reduce(
+        (acc, returnedLine) => acc + Number(returnedLine.amount),
+        0,
+      );
       const returnQty = Number(lineQtyMap[line.id] ?? 0);
-      const amount = returnQty > 0 ? round2(returnQty * unitRate) : 0;
+      const amount = returnLineRefund({
+        lineNet: Number(line.netAmount),
+        soldQty,
+        alreadyReturnedQty: alreadyReturned,
+        alreadyRefunded,
+        qty: returnQty,
+      });
       const leastCount = itemLeastCountById.get(line.itemId) ?? 1;
 
       return {
@@ -386,11 +394,7 @@ export function ReturnsPage() {
       });
 
       if (res.status !== 201) {
-        const apiMessage =
-          typeof (res.body as { message?: unknown })?.message === "string"
-            ? (res.body as { message: string }).message
-            : "";
-        throw new Error(apiMessage || "Failed to create return");
+        throw new Error(apiErrorMessage(res.body, "Failed to create return"));
       }
 
       return res.body;

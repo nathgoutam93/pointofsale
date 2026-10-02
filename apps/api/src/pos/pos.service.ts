@@ -8,7 +8,7 @@ import {
   UserRole,
   WalletTxnType
 } from '@prisma/client';
-import { exclusiveBase, lineTax } from '@pos/contracts';
+import { exclusiveBase, lineTax, returnLineRefund } from '@pos/contracts';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma.service';
 import { hashPassword, isPasswordHash, validateNewPassword, verifyPassword } from '../auth/password';
@@ -1958,13 +1958,33 @@ export class PosService {
         throw new BadRequestException('Return refund mode must be CASH or WALLET');
       }
 
+      // Lock the invoice so two returns against it can't both pass the quantity checks.
+      await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${saleInvoiceId} FOR UPDATE`;
       const invoice = await tx.saleInvoice.findUnique({
         where: { id: saleInvoiceId },
-        include: { lines: { include: { returnLines: true } } }
+        include: { lines: { include: { returnLines: true } }, returns: { select: { totalAmount: true } } }
       });
 
       if (!invoice) throw new NotFoundException('Invoice not found');
       if (invoice.branchId !== sessionBranchId) throw new BadRequestException('Branch mismatch');
+      // Only paid invoices can be returned; refunding an unpaid or part-paid sale would
+      // hand back money that was never taken.
+      if (invoice.status !== InvoiceStatus.SETTLED) {
+        throw new BadRequestException(
+          invoice.status === InvoiceStatus.CANCELLED
+            ? `Invoice ${invoice.invoiceNo} is cancelled`
+            : `Invoice ${invoice.invoiceNo} isn't fully paid yet. Collect the payment before returning items.`
+        );
+      }
+
+      // Add up repeated lines so the same sale line can't be counted twice.
+      const requestedQtyByLine = new Map<string, number>();
+      for (const reqLine of input.lines) {
+        requestedQtyByLine.set(
+          reqLine.saleLineId,
+          this.round3((requestedQtyByLine.get(reqLine.saleLineId) ?? 0) + reqLine.qty)
+        );
+      }
 
       let totalAmount = 0;
       const returnLineCreates: Array<{ saleLineId: string; qty: number; amount: number }> = [];
@@ -1980,22 +2000,31 @@ export class PosService {
         }
       }
 
-      for (const reqLine of input.lines) {
-        const saleLine = invoice.lines.find((l) => l.id === reqLine.saleLineId);
-        if (!saleLine) throw new BadRequestException(`Sale line not found: ${reqLine.saleLineId}`);
+      for (const [saleLineId, qty] of requestedQtyByLine) {
+        const saleLine = invoice.lines.find((l) => l.id === saleLineId);
+        if (!saleLine) throw new BadRequestException(`Sale line not found: ${saleLineId}`);
         const leastCount = itemLeastCounts.get(saleLine.itemId) ?? 1;
-        this.assertQtyRespectsLeastCount(reqLine.qty, leastCount, `Return line ${saleLine.id}`);
+        this.assertQtyRespectsLeastCount(qty, leastCount, `Return line ${saleLine.id}`);
 
-        const alreadyReturned = saleLine.returnLines.reduce((acc, rl) => acc + this.toNumber(rl.qty), 0);
+        const alreadyReturned = this.round3(saleLine.returnLines.reduce((acc, rl) => acc + this.toNumber(rl.qty), 0));
+        const alreadyRefunded = this.round2(saleLine.returnLines.reduce((acc, rl) => acc + this.toNumber(rl.amount), 0));
         const soldQty = this.toNumber(saleLine.qty);
-        if (alreadyReturned + reqLine.qty > soldQty) {
+        const lineNet = this.toNumber(saleLine.netAmount);
+        if (alreadyReturned + qty > soldQty + 1e-9) {
           throw new BadRequestException(`Return qty exceeds sold qty for line ${saleLine.id}`);
         }
 
-        const perQty = this.round2(this.toNumber(saleLine.netAmount) / soldQty);
-        const amount = this.round2(perQty * reqLine.qty);
+        // Shared with the Returns page so the amount shown is the amount refunded.
+        const amount = returnLineRefund({ lineNet, soldQty, alreadyReturnedQty: alreadyReturned, alreadyRefunded, qty });
         totalAmount = this.round2(totalAmount + amount);
-        returnLineCreates.push({ saleLineId: saleLine.id, qty: reqLine.qty, amount });
+        returnLineCreates.push({ saleLineId: saleLine.id, qty, amount });
+      }
+
+      // Never refund more than the customer paid for this invoice in total.
+      const refundedBefore = this.round2(invoice.returns.reduce((acc, r) => acc + this.toNumber(r.totalAmount), 0));
+      const paidForGoods = Math.min(this.toNumber(invoice.paidTotal), this.toNumber(invoice.grandTotal));
+      if (totalAmount > this.round2(paidForGoods - refundedBefore) + 1e-9) {
+        throw new BadRequestException('Refund would be more than was paid for this invoice');
       }
 
       const seq = await this.nextSequence(invoice.branchId, 'return', tx);

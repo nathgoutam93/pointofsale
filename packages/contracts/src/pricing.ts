@@ -48,3 +48,22 @@ export function lineTax(input: {
   const tax = round2((taxBase * taxRate) / 100);
   return { tax, net: round2(taxable + tax) };
 }
+
+/**
+ * Refund for returning `qty` units of a sale line. Prorated from the line total (not a
+ * rounded unit price), and the last units refund exactly what is left, so returning a
+ * line in parts always adds up to what was charged for it.
+ */
+export function returnLineRefund(input: {
+  lineNet: number;
+  soldQty: number;
+  alreadyReturnedQty: number;
+  alreadyRefunded: number;
+  qty: number;
+}) {
+  const { lineNet, soldQty, alreadyReturnedQty, alreadyRefunded, qty } = input;
+  if (soldQty <= 0 || qty <= 0) return 0;
+  const remaining = round2(Math.max(0, lineNet - alreadyRefunded));
+  const isLastOfLine = Math.abs(alreadyReturnedQty + qty - soldQty) < 1e-9;
+  return isLastOfLine ? remaining : round2(Math.min((lineNet * qty) / soldQty, remaining));
+}
