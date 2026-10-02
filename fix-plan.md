@@ -258,6 +258,15 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
 
 ---
 
+## Phase 7: Multiple counters per branch
+
+### [x] 40. Counters (tills) per branch, configured by admins
+- **Problem:** A branch could have only one open register, owned by whoever opened it, so a second cashier in the same shop couldn't sell.
+- **Change:**
+  - A `Counter` per till (name, active flag), set up by admins under Settings → Branches. Each register session runs on a counter: at most one open register per counter, and a cashier runs one counter per branch at a time. Other counters in the branch can be open by other cashiers at once, each with its own cash drawer and close-out.
+  - Every branch starts with "Counter 1" (existing branches get it in the migration, with their register history moved onto it). Counters are renamed or deactivated, never deleted; an open counter, or a branch's last active counter, can't be deactivated.
+  - Invoice, receipt and credit-note numbering stay per branch (shared by its counters).
+
 ## Progress log
 
 - **2026-10-02:** Created this plan and finished #1 in code: signed tokens, a guard that re-checks the database on every request, scrypt hashing, a seed with no fixed password, and a web redirect on 401.
@@ -806,3 +815,14 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
     - Receipts print a Tax Invoice or a Bill of Supply.
     - The GST Returns page gives GSTR-1 (JSON), GSTR-3B, CMP-08 and GSTR-4.
   - **Before relying on it:** import a real month's GSTR-1 JSON into the current GST offline tool (`GSTR1_JSON_VERSION`, `B2CL_THRESHOLD` and the HSN table layout are the likely places to adjust), and have a CA review one month of all four reports.
+- **#40 done.** Multiple counters per branch.
+  - Migration `20261004100000_branch_counters`: `Counter` table (unique name per branch); one "Counter 1" per existing branch; `RegisterSession.counterId` backfilled, then required.
+  - API:
+    - `GET /branches/:branchId/counters` (anyone with access to the branch; `?includeInactive=true` for all), `POST /branches/:branchId/counters` and `PATCH /counters/:id` (admins: name, isActive).
+    - `POST /registers/open` takes `counterId`. It may be left out only when the branch has a single active counter. The open check runs under the per-branch lock (`lockBranchRegisters`, shared with deactivation), so a counter can't be opened twice or deactivated while it opens.
+    - `GET /registers/summary` returns each branch's active counters with their open and last closed register. Register responses carry `counterId`, `counterName` and `openedBy`; login returns the open register's counter.
+    - New branches (and the first-run "Main Branch") get "Counter 1".
+  - Web: the open-register page picks a branch, then a free counter (who has each one open, or its last close), then the opening cash. Settings → Branches has a Counters card (add, rename, deactivate/activate, who has each open). The header shows the counter ("Counter 2 open") and the close dialog names it.
+  - Counter names are unique per branch ignoring case (checked under the branch lock; the database index is exact-case only).
+  - Verified: 4 API tests (default counter and admin-only management, case-insensitive names; two cashiers on two counters with separate cash; wrong-branch and inactive counters refused; 5 cashiers racing for one counter, 1 opens). All 125 API tests pass. Dev database migrated: 49 register sessions moved onto their branch's Counter 1. Browser test: added Counter 2 to Bengaluru (a case-only duplicate is refused); the open-register page shows Counter 1 in use by admin and Counter 2 free, and blocks a second counter for the same user; opened Mysuru Counter 1, the header showed "Counter 1 open", closed it balanced, back to the counter list.
+  - Not done: assigning cashiers to particular counters, per-counter numbering series, and the counter on printed receipts and in reports.

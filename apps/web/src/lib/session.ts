@@ -3,6 +3,9 @@ export type Session = {
   userId: string;
   branchId: string | null;
   registerId: string | null;
+  /** The counter the open register runs on (older sessions don't have it). */
+  counterId?: string | null;
+  counterName?: string | null;
   branches: Array<{ id: string; name: string; code: string }>;
   username?: string;
   role: 'ADMIN' | 'CASHIER';

@@ -170,9 +170,23 @@ export const branchSchema = z.object({
   code: z.string()
 });
 
+/** A till in a branch. Each counter has its own register session and cash drawer. */
+export const counterSchema = z.object({
+  id: z.string().uuid(),
+  branchId: z.string().uuid(),
+  name: z.string(),
+  isActive: z.boolean()
+});
+
+const counterNameSchema = z.string().trim().min(1).max(40);
+
 export const registerSessionSchema = z.object({
   id: z.string().uuid(),
   branchId: z.string().uuid(),
+  counterId: z.string().uuid(),
+  counterName: z.string(),
+  /** Who opened the register (and runs it until it is closed). */
+  openedBy: z.string(),
   openingBalance: moneySchema,
   /** Cash counted at close. */
   closingBalance: moneySchema.nullable(),
@@ -191,10 +205,16 @@ const registerCashSchema = z.object({
   expectedCash: moneySchema
 });
 
+/** A branch's active counters, each with its open register (if any) and its last closed one. */
 export const registerSummarySchema = z.object({
   branchId: z.string().uuid(),
-  current: registerSessionSchema.nullable(),
-  lastClosed: registerSessionSchema.nullable()
+  counters: z.array(
+    z.object({
+      counter: counterSchema,
+      current: registerSessionSchema.nullable(),
+      lastClosed: registerSessionSchema.nullable()
+    })
+  )
 });
 
 export const branchSettingsSchema = branchSchema.extend({
@@ -661,6 +681,9 @@ export const appContract = c.router({
           role: roleSchema,
           branchId: z.string().uuid().nullable(),
           registerId: z.string().uuid().nullable(),
+          /** The counter of the open register, if any. */
+          counterId: z.string().uuid().nullable(),
+          counterName: z.string().nullable(),
           branches: z.array(branchSchema)
         })
       }
@@ -853,12 +876,36 @@ export const appContract = c.router({
       responses: { 204: z.undefined() }
     }
   },
+  counters: {
+    list: {
+      method: 'GET',
+      path: '/branches/:branchId/counters',
+      query: z.object({ includeInactive: z.enum(['true', 'false']).optional() }),
+      responses: { 200: z.array(counterSchema) }
+    },
+    create: {
+      method: 'POST',
+      path: '/branches/:branchId/counters',
+      body: z.object({ name: counterNameSchema }),
+      responses: { 201: counterSchema }
+    },
+    update: {
+      method: 'PATCH',
+      path: '/counters/:id',
+      body: z
+        .object({ name: counterNameSchema.optional(), isActive: z.boolean().optional() })
+        .refine((body) => body.name !== undefined || body.isActive !== undefined, 'Nothing to update'),
+      responses: { 200: counterSchema }
+    }
+  },
   registers: {
     open: {
       method: 'POST',
       path: '/registers/open',
       body: z.object({
         branchId: z.string().uuid(),
+        /** Required when the branch has more than one active counter. */
+        counterId: z.string().uuid().optional(),
         openingBalance: moneySchema.nonnegative()
       }),
       responses: {

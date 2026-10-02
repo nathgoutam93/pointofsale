@@ -49,6 +49,9 @@ export const saleInvoiceInclude = {
 export const registerSelect = {
   id: true,
   branchId: true,
+  counterId: true,
+  counter: { select: { name: true } },
+  user: { select: { username: true } },
   openingBalance: true,
   closingBalance: true,
   expectedCash: true,

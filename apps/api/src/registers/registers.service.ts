@@ -7,6 +7,7 @@ import { toNumber, round2 } from '../common/numbers';
 import { requireSessionBranchId, requireSessionRegisterId } from '../common/session';
 import { branchSummarySelect, registerSelect } from '../common/selects';
 import { SettingsService } from '../settings/settings.service';
+import { lockBranchRegisters } from '../common/counters';
 import { BranchesService } from '../branches/branches.service';
 
 @Injectable()
@@ -17,16 +18,14 @@ export class RegistersService {
     private readonly branches: BranchesService
   ) {}
 
-  /** Holds a lock per branch until the transaction ends, so only one register can be opened at a time. */
-  private async lockBranchRegister(tx: Prisma.TransactionClient, branchId: string) {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`register:${branchId}`}, 0))`;
-  }
-
   private toRegisterDto(register: Prisma.RegisterSessionGetPayload<{ select: typeof registerSelect }>) {
     const optional = (value: Prisma.Decimal | null) => (value === null ? null : toNumber(value));
     return {
       id: register.id,
       branchId: register.branchId,
+      counterId: register.counterId,
+      counterName: register.counter.name,
+      openedBy: register.user.username,
       openingBalance: toNumber(register.openingBalance),
       closingBalance: optional(register.closingBalance),
       expectedCash: optional(register.expectedCash),
@@ -69,7 +68,12 @@ export class RegistersService {
     }
   }
 
-  async openRegister(session: SessionUser, branchId: string, openingBalance: number) {
+  /**
+   * Opens a register on one of the branch's counters. Each counter holds one open register,
+   * and a user runs one counter per branch at a time; other counters in the branch can be
+   * open by other cashiers at the same time.
+   */
+  async openRegister(session: SessionUser, branchId: string, openingBalance: number, counterId?: string) {
     if (!Number.isFinite(openingBalance) || openingBalance < 0) {
       throw new BadRequestException('Opening balance must be 0 or more');
     }
@@ -77,33 +81,62 @@ export class RegistersService {
     await this.branches.ensureUserHasBranchAccess(session.userId, branchId);
 
     const register = await this.prisma.$transaction(async (tx) => {
-      await this.lockBranchRegister(tx, branchId);
-      const openRegister = await tx.registerSession.findFirst({
-        where: { branchId, closedAt: null },
-        select: { id: true }
-      });
-      if (openRegister) {
-        throw new BadRequestException('This branch already has an open register. Close it before opening a new one.');
+      await lockBranchRegisters(tx, branchId);
+
+      let counter: { id: string; name: string; isActive: boolean } | null;
+      if (counterId) {
+        counter = await tx.counter.findFirst({
+          where: { id: counterId, branchId },
+          select: { id: true, name: true, isActive: true }
+        });
+        if (!counter) {
+          throw new BadRequestException('Counter not found in this branch');
+        }
+        if (!counter.isActive) {
+          throw new BadRequestException(`${counter.name} is inactive`);
+        }
+      } else {
+        // Without a counter the choice must be unambiguous.
+        const active = await tx.counter.findMany({
+          where: { branchId, isActive: true },
+          select: { id: true, name: true, isActive: true },
+          take: 2
+        });
+        if (active.length !== 1) {
+          throw new BadRequestException(active.length === 0 ? 'This branch has no active counter' : 'Choose a counter');
+        }
+        counter = active[0];
       }
+
+      const mine = await tx.registerSession.findFirst({
+        where: { branchId, userId: session.userId, closedAt: null },
+        select: { counter: { select: { name: true } } }
+      });
+      if (mine) {
+        throw new BadRequestException(`You already have ${mine.counter.name} open in this branch. Close it before opening another.`);
+      }
+      const taken = await tx.registerSession.findFirst({
+        where: { counterId: counter.id, closedAt: null },
+        select: { user: { select: { username: true } } }
+      });
+      if (taken) {
+        throw new BadRequestException(`${counter.name} is already open (by ${taken.user.username}). Choose another counter.`);
+      }
+
       return tx.registerSession.create({
         data: {
           userId: session.userId,
           branchId,
+          counterId: counter.id,
           openingBalance
-        }
+        },
+        select: registerSelect
       });
     });
 
     return {
       token: signToken({ userId: session.userId, role: session.role, branchId, registerId: register.id }),
-      register: {
-        id: register.id,
-        branchId: register.branchId,
-        openingBalance: toNumber(register.openingBalance),
-        closingBalance: register.closingBalance ? toNumber(register.closingBalance) : null,
-        openedAt: register.openedAt,
-        closedAt: register.closedAt
-      }
+      register: this.toRegisterDto(register)
     };
   }
 
@@ -141,30 +174,39 @@ export class RegistersService {
       return [];
     }
 
+    const counters = await this.prisma.counter.findMany({
+      where: { branchId: { in: branchIds }, isActive: true },
+      orderBy: [{ createdAt: 'asc' }, { name: 'asc' }],
+      select: { id: true, branchId: true, name: true, isActive: true }
+    });
+    const counterIds = counters.map((counter) => counter.id);
+
     const openRegisters = await this.prisma.registerSession.findMany({
-      where: { branchId: { in: branchIds }, closedAt: null },
+      where: { counterId: { in: counterIds }, closedAt: null },
       select: registerSelect
     });
-
     const lastClosedRegisters = await this.prisma.registerSession.findMany({
-      where: { branchId: { in: branchIds }, closedAt: { not: null } },
+      where: { counterId: { in: counterIds }, closedAt: { not: null } },
       orderBy: { closedAt: 'desc' },
-      distinct: ['branchId'],
+      distinct: ['counterId'],
       select: registerSelect
     });
 
-    const openByBranch = new Map(openRegisters.map((register) => [register.branchId, register]));
-    const lastClosedByBranch = new Map(
-      lastClosedRegisters.map((register) => [register.branchId, register])
-    );
+    const openByCounter = new Map(openRegisters.map((register) => [register.counterId, register]));
+    const lastClosedByCounter = new Map(lastClosedRegisters.map((register) => [register.counterId, register]));
 
     const toDto = (register: Parameters<RegistersService['toRegisterDto']>[0] | undefined) =>
       register ? this.toRegisterDto(register) : null;
 
     return branchIds.map((branchId) => ({
       branchId,
-      current: toDto(openByBranch.get(branchId)),
-      lastClosed: toDto(lastClosedByBranch.get(branchId))
+      counters: counters
+        .filter((counter) => counter.branchId === branchId)
+        .map((counter) => ({
+          counter,
+          current: toDto(openByCounter.get(counter.id)),
+          lastClosed: toDto(lastClosedByCounter.get(counter.id))
+        }))
     }));
   }
 

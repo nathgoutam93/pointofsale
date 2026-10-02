@@ -11,10 +11,11 @@ export class RegistersController {
   @Post('/registers/open')
   @HttpCode(200)
   openRegister(
-    @Body(new ZodValidationPipe(appContract.registers.open.body)) body: { branchId: string; openingBalance: number },
+    @Body(new ZodValidationPipe(appContract.registers.open.body))
+    body: { branchId: string; counterId?: string; openingBalance: number },
     @Headers() headers: RequestHeaders
   ) {
-    return this.registers.openRegister(getSession(headers), body.branchId, body.openingBalance);
+    return this.registers.openRegister(getSession(headers), body.branchId, body.openingBalance, body.counterId);
   }
 
   @Get('/registers/current')

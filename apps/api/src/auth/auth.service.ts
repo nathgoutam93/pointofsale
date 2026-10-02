@@ -7,6 +7,7 @@ import { signToken } from './token';
 import type { SessionUser } from '../common/types';
 import { toNumber } from '../common/numbers';
 import { branchSummarySelect } from '../common/selects';
+import { DEFAULT_COUNTER_NAME } from '../common/counters';
 import { CustomersService } from '../customers/customers.service';
 import { SequenceService } from '../sequences/sequences.service';
 
@@ -39,7 +40,8 @@ export class AuthService {
 
     const openRegister = await this.prisma.registerSession.findFirst({
       where: { userId: user.id, closedAt: null },
-      select: { id: true, branchId: true }
+      orderBy: { openedAt: 'desc' },
+      select: { id: true, branchId: true, counter: { select: { id: true, name: true } } }
     });
 
     const token = signToken({
@@ -55,6 +57,8 @@ export class AuthService {
       role: user.role,
       branchId: openRegister?.branchId ?? null,
       registerId: openRegister?.id ?? null,
+      counterId: openRegister?.counter.id ?? null,
+      counterName: openRegister?.counter.name ?? null,
       branches: user.branchAccesses.map((access) => access.branch)
     };
   }
@@ -138,9 +142,13 @@ export class AuthService {
   async onModuleInitSeed() {
     const branch =
       (await this.prisma.branch.findUnique({ where: { code: 'MAIN' } })) ??
-      (await this.prisma.$transaction(async (tx) =>
-        tx.branch.create({ data: { name: 'Main Branch', code: 'MAIN', ...(await this.sequences.freeDocumentSeries(tx, 'MAIN')) } })
-      ));
+      (await this.prisma.$transaction(async (tx) => {
+        const created = await tx.branch.create({
+          data: { name: 'Main Branch', code: 'MAIN', ...(await this.sequences.freeDocumentSeries(tx, 'MAIN')) }
+        });
+        await tx.counter.create({ data: { branchId: created.id, name: DEFAULT_COUNTER_NAME } });
+        return created;
+      }));
 
     await this.seedFirstAdmin(branch.id);
     await this.hashPlaintextPasswords();

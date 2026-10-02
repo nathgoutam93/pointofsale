@@ -5,6 +5,8 @@ import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { BranchesController } from './branches/branches.controller';
 import { BranchesService } from './branches/branches.service';
+import { CountersController } from './counters/counters.controller';
+import { CountersService } from './counters/counters.service';
 import { CustomersController } from './customers/customers.controller';
 import { CustomersService } from './customers/customers.service';
 import { GstController } from './gst/gst.controller';
@@ -34,6 +36,7 @@ import { UsersService } from './users/users.service';
     BranchesController,
     SettingsController,
     RegistersController,
+    CountersController,
     UsersController,
     CustomersController,
     ItemsController,
@@ -53,6 +56,7 @@ import { UsersService } from './users/users.service';
     BranchesService,
     UsersService,
     AuthService,
+    CountersService,
     RegistersService,
     SalesService,
     ReturnsService,

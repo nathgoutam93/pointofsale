@@ -40,7 +40,7 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
       return res.body;
     },
     onSuccess: (data) => {
-      updateSession({ token: data.token, branchId: null, registerId: null });
+      updateSession({ token: data.token, branchId: null, registerId: null, counterId: null, counterName: null });
       setClosed(data.register);
     },
   });
@@ -54,6 +54,11 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
     <div className="modal-backdrop z-50">
       <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl">
         <h2 className="text-lg font-semibold">Close Register</h2>
+        {current.data?.counterName ? (
+          <p className="mt-0.5 text-sm text-slate-500">
+            {current.data.counterName} · opened by {current.data.openedBy}
+          </p>
+        ) : null}
         {closed ? (
           <>
             <dl className="mt-4 space-y-2 text-sm">

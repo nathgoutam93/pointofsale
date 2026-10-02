@@ -262,7 +262,7 @@ export function AppLayout() {
                 className={`hidden items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium md:inline-flex ${hasRegister ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}
               >
                 <span className={`h-1.5 w-1.5 rounded-full ${hasRegister ? "bg-emerald-500" : "bg-amber-500"}`} />
-                {hasRegister ? "Register open" : "No register"}
+                {hasRegister ? `${session.counterName ?? "Register"} open` : "No register"}
               </span>
               <div className="flex items-center gap-2 border-l border-slate-200 pl-2 sm:pl-3">
                 <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-brand-100 text-[11px] font-semibold text-brand-700">

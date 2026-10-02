@@ -3,6 +3,7 @@ import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
 import { branchSummarySelect } from '../common/selects';
+import { DEFAULT_COUNTER_NAME } from '../common/counters';
 import { CustomersService } from '../customers/customers.service';
 import { SequenceService } from '../sequences/sequences.service';
 
@@ -63,6 +64,9 @@ export class BranchesService {
           update: {},
           create: { userId: session.userId, branchId: created.id }
         });
+
+        // A branch can sell straight away; admins add more counters in Settings.
+        await tx.counter.create({ data: { branchId: created.id, name: DEFAULT_COUNTER_NAME } });
 
         return created;
       });

@@ -85,3 +85,4 @@ re-checked against the database (user active, same role, branch access, register
 - If active session exists: app opens directly to `/pos`.
 - POS is the primary screen with product grid (left) and order summary/customer/payment (right).
 - Other modules are in the left sidebar (collapsible; a drawer on small screens).
+- Counters per branch (set up by admins in Settings → Branches): each counter runs its own register and cash drawer, so several cashiers can sell in a branch at once

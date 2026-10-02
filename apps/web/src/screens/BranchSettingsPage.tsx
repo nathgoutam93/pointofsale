@@ -12,6 +12,7 @@ import {
 } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
+import { CountersSection } from "./settings/CountersSection";
 import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
 
 type SettingsForm = {
@@ -747,7 +748,7 @@ export function BranchSettingsPage() {
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-lg font-semibold tracking-tight text-slate-900">Branch Settings</h2>
               <select
-                className="field"
+                className="field w-auto"
                 value={selectedBranch.id}
                 onChange={(e) => {
                   setSelectedBranchId(e.target.value);
@@ -961,6 +962,8 @@ export function BranchSettingsPage() {
               {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
             </div>
           </div>
+
+          <CountersSection branchId={selectedBranch.id} branchName={selectedBranch.name} />
         </div>
       ) : null}
 
