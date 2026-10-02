@@ -220,7 +220,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - Check the 16-character limit when the admin saves a prefix.
   - Keep counts of issued and cancelled documents per series, for the document summary in GSTR-1.
 
-### [ ] 37. GSTR-1 export (regular)
+### [x] 37. GSTR-1 export (regular)
 - **Where:** a new `gst/` module in the API, and an admin "GST returns" screen.
 - **Change:**
   - Pick a GSTIN and a period (monthly, or quarterly for small taxpayers).
@@ -749,3 +749,25 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
     - 4 new contracts tests and 6 new API tests: series from the code; numbering 00001, 00002 within 16 characters; credit notes; uniqueness, length and character rules; a series handed to another branch continuing at 00003; 6 sales at once getting 6 different numbers. Two existing tests updated: the prefix test, and the branch-isolation test now URL-encodes the number. All 147 tests pass.
     - Browser test: example numbers shown; a slash flagged as you type; another branch's series refused; a sale numbered MAIN/2627/00001; the Sales page finds it by number.
     - The POS snapshot is identical (the snapshot script now hides new-style numbers too). The other browser flows pass after updating three scripts for the new format.
+- **#37 done.** GSTR-1 for one GSTIN over one month, or a quarter (Apr–Jun, Jul–Sep, Oct–Dec, Jan–Mar): a preview, a problem list, and the JSON to upload.
+  - `apps/api/src/gst/gstr1.ts`: `buildGstr1` as plain functions over invoice and return records, so it can be tested without a database. Sections:
+    - **B2CS:** by intra/inter-state, place of supply and rate, net of returns made in the period.
+    - **B2CL:** inter-state invoices above `B2CL_THRESHOLD` (₹1,00,000 since August 2024), items grouped by rate.
+    - **CDNUR:** returns of B2CL invoices.
+    - **Nil / exempt / non-GST:** within and between states.
+    - **HSN summary:** `hsn.hsn_b2c`, quantity in GST units, net of returns.
+    - **Document summary:** per series, from/to, total and cancelled, for invoices (doc 1) and credit notes (doc 5).
+  - What's included: only invoices recorded as REGULAR and carrying this GSTIN. Cancelled invoices are counted in the document summary only. The period uses the business time zone; `fp` is MMYYYY of the last month.
+  - Problems:
+    - **Errors** (they block the download): items sold with no HSN code or no GST unit.
+    - **Warnings:** composition sales left out; sales with no GSTIN that could be this GSTIN's (same state, or a branch with no state); returns larger than sales in a B2CS row; numbers longer than 16 characters from before GST numbering.
+  - API (admins only): `GET /gst/gstins` lists branch GSTINs, the business GSTIN and GSTINs on past sales. `GET /gst/gstr1?gstin&from=YYYY-MM&to=YYYY-MM` returns `{ json, problems, summary }`.
+  - Web: a "GST Returns" page (menu, admins only):
+    - Choose the GSTIN, and monthly or quarterly filing; it defaults to last month.
+    - Errors and warnings are listed, with preview tables for every section.
+    - "Download GSTR-1 JSON" is disabled while there are errors.
+  - **Check before filing:** the layout follows the GSTR-1 offline tool from memory, and the format changes from time to time (the HSN table split into B2B/B2C recently). `GSTR1_JSON_VERSION` and `B2CL_THRESHOLD` are single constants. Import the file into the current offline tool, adjust anything it rejects, and have a CA review a real month before filing.
+  - Verified:
+    - 6 builder tests (B2CS, B2CL with the threshold boundary, nil/exempt/non-GST, returns netted vs CDNUR plus HSN net of returns, cancelled invoices, problems) and 4 API tests with real sales (GSTIN list; all sections from counter, shipped, B2CL and exempt sales plus a return; month or quarter only; admins only). All 157 tests pass.
+    - Browser test against a production build (the dev server had stopped at its time limit): three sales under a fresh GSTIN. The page shows 3 invoices, intra-state 400.00 with CGST 36 + SGST 36, inter-state 200.00 with IGST 36, HSN 8517 for 3 PCS. The downloaded `GSTR1_<gstin>_<MMYYYY>.json` matches. A sale of an item with no HSN shows an error and disables the download.
+    - POS snapshot identical; other browser flows pass. The draft listener-count check reports 0 against a production build, because it finds listeners by source file name and the bundle has none; it passed against the dev server.

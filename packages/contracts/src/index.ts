@@ -554,6 +554,48 @@ const saleCreateBodySchema = z.object({
 const paymentInputSchema = z.object({ mode: paymentModeSchema, amount: moneySchema.positive(), reference: z.string().optional() });
 
 export const appContract = c.router({
+  gst: {
+    gstins: {
+      method: 'GET',
+      path: '/gst/gstins',
+      responses: { 200: z.array(z.object({ gstin: z.string(), label: z.string() })) }
+    },
+    /** GSTR-1 for one GSTIN: a month, or a quarter (Apr-Jun, Jul-Sep, Oct-Dec, Jan-Mar). */
+    gstr1: {
+      method: 'GET',
+      path: '/gst/gstr1',
+      query: z.object({
+        gstin: gstinSchema,
+        from: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Use YYYY-MM' }),
+        to: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Use YYYY-MM' })
+      }),
+      responses: {
+        200: z.object({
+          gstin: z.string(),
+          from: z.string(),
+          to: z.string(),
+          /** The file to upload: the GSTR-1 offline tool JSON. */
+          json: z.record(z.unknown()),
+          /** Errors must be fixed before filing; warnings should be read. */
+          problems: z.array(z.object({ severity: z.enum(['error', 'warning']), message: z.string() })),
+          summary: z.object({
+            invoices: z.number(),
+            cancelledInvoices: z.number(),
+            creditNotes: z.number(),
+            b2cs: z.array(z.object({ sply_ty: z.string(), pos: z.string(), rt: z.number(), txval: z.number(), iamt: z.number(), camt: z.number(), samt: z.number() })),
+            b2cl: z.array(z.object({ pos: z.string(), inum: z.string(), idt: z.string(), val: z.number() }).passthrough()),
+            cdnur: z.array(z.object({ nt_num: z.string(), nt_dt: z.string(), pos: z.string(), val: z.number() }).passthrough()),
+            nil: z.array(z.object({ sply_ty: z.string(), nil_amt: z.number(), expt_amt: z.number(), ngsup_amt: z.number() })),
+            hsn: z.array(z.object({ num: z.number(), hsn_sc: z.string(), desc: z.string(), uqc: z.string(), qty: z.number(), rt: z.number(), txval: z.number(), iamt: z.number(), camt: z.number(), samt: z.number() }).passthrough()),
+            documents: z.object({
+              invoices: z.array(z.object({ series: z.string(), from: z.string(), to: z.string(), totnum: z.number(), cancel: z.number(), net_issue: z.number() })),
+              creditNotes: z.array(z.object({ series: z.string(), from: z.string(), to: z.string(), totnum: z.number(), cancel: z.number(), net_issue: z.number() }))
+            })
+          })
+        })
+      }
+    }
+  },
   auth: {
     login: {
       method: 'POST',
