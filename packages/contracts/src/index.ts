@@ -10,10 +10,10 @@ export {
   exclusiveBase,
   lineTax,
   resolveDiscountAmounts,
-  returnLineRefund,
+  returnLineAmounts,
   splitGst
 } from './pricing.js';
-export type { DiscountInput, PricedLineInput, ResolvedDiscount, TaxCalculationMode, TaxMode } from './pricing.js';
+export type { DiscountInput, GstAmounts, PricedLineInput, ResolvedDiscount, TaxCalculationMode, TaxMode } from './pricing.js';
 export {
   chargesGst,
   COMPOSITION_CATEGORIES,
@@ -375,11 +375,21 @@ const saleLineSchema = saleLineInput.omit({ discounts: true }).extend({
   discountAllocations: z.array(discountAllocationSchema)
 });
 
+/** A return line's refund split into taxable value and tax by kind (amount = taxable + tax). */
+const returnLineGstShape = {
+  taxableAmount: moneySchema.default(0),
+  taxAmount: moneySchema.default(0),
+  cgstAmount: moneySchema.default(0),
+  sgstAmount: moneySchema.default(0),
+  igstAmount: moneySchema.default(0)
+};
+
 const returnLineForSaleLineSchema = z.object({
   id: z.string().uuid(),
   returnInvoiceId: z.string().uuid(),
   qty: z.number().positive(),
-  amount: moneySchema
+  amount: moneySchema,
+  ...returnLineGstShape
 });
 
 const paymentSchema = z.object({
@@ -458,6 +468,12 @@ const returnSchema = z.object({
   saleInvoiceId: z.string().uuid(),
   returnNo: z.string(),
   totalAmount: moneySchema,
+  /** totalAmount split into taxable value and tax by kind. */
+  taxableTotal: moneySchema.default(0),
+  taxTotal: moneySchema.default(0),
+  cgstTotal: moneySchema.default(0),
+  sgstTotal: moneySchema.default(0),
+  igstTotal: moneySchema.default(0),
   refundMode: returnRefundModeSchema,
   createdAt: z.string().datetime()
 });
@@ -478,7 +494,8 @@ const returnDetailSchema = returnSchema.extend({
       itemId: z.string().uuid(),
       itemName: z.string(),
       qty: z.number().positive(),
-      amount: moneySchema
+      amount: moneySchema,
+      ...returnLineGstShape
     })
   )
 });

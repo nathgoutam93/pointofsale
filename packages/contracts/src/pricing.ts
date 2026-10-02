@@ -49,23 +49,38 @@ export function lineTax(input: {
   return { tax, net: round2(taxable + tax) };
 }
 
+/** A sale line's (or return line's) taxable value and tax, by kind. */
+export type GstAmounts = { taxable: number; cgst: number; sgst: number; igst: number };
+
+const GST_PARTS = ['taxable', 'cgst', 'sgst', 'igst'] as const;
+
 /**
- * Refund for returning `qty` units of a sale line. Prorated from the line total (not a
- * rounded unit price), and the last units refund exactly what is left, so returning a
- * line in parts always adds up to what was charged for it.
+ * What returning `qty` more units of a sale line refunds, part by part. Each part
+ * (taxable value, CGST, SGST, IGST) is prorated on the units returned so far, less what
+ * earlier returns took, so the parts never exceed the line's and returning a line in any
+ * number of steps adds back up to it exactly. The last units take whatever is left.
+ * `amount` (the refund) is the parts' sum.
  */
-export function returnLineRefund(input: {
-  lineNet: number;
+export function returnLineAmounts(input: {
+  line: GstAmounts;
   soldQty: number;
   alreadyReturnedQty: number;
-  alreadyRefunded: number;
+  alreadyReturned: GstAmounts;
   qty: number;
-}) {
-  const { lineNet, soldQty, alreadyReturnedQty, alreadyRefunded, qty } = input;
-  if (soldQty <= 0 || qty <= 0) return 0;
-  const remaining = round2(Math.max(0, lineNet - alreadyRefunded));
-  const isLastOfLine = Math.abs(alreadyReturnedQty + qty - soldQty) < 1e-9;
-  return isLastOfLine ? remaining : round2(Math.min((lineNet * qty) / soldQty, remaining));
+}): GstAmounts & { tax: number; amount: number } {
+  const { line, soldQty, alreadyReturnedQty, alreadyReturned, qty } = input;
+  const parts: GstAmounts = { taxable: 0, cgst: 0, sgst: 0, igst: 0 };
+  if (soldQty > 0 && qty > 0) {
+    const returnedQty = alreadyReturnedQty + qty;
+    const isLastOfLine = Math.abs(returnedQty - soldQty) < 1e-9;
+    for (const part of GST_PARTS) {
+      const remaining = Math.max(0, round2(line[part] - alreadyReturned[part]));
+      const target = round2((line[part] * returnedQty) / soldQty);
+      parts[part] = isLastOfLine ? remaining : Math.min(remaining, Math.max(0, round2(target - alreadyReturned[part])));
+    }
+  }
+  const tax = round2(parts.cgst + parts.sgst + parts.igst);
+  return { ...parts, tax, amount: round2(parts.taxable + tax) };
 }
 
 /**

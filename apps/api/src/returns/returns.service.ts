@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InvoiceStatus, PaymentMode, StockTxnType, WalletTxnType } from '@prisma/client';
-import { returnLineRefund } from '@pos/contracts';
+import { InvoiceStatus, PaymentMode, Prisma, StockTxnType, WalletTxnType } from '@prisma/client';
+import { returnLineAmounts, type GstAmounts } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
 import { toNumber, round2, round3 } from '../common/numbers';
@@ -10,6 +10,35 @@ import { SequenceService } from '../sequences/sequences.service';
 import { StockService } from '../stock/stock.service';
 import { CustomersService } from '../customers/customers.service';
 import { RegistersService } from '../registers/registers.service';
+
+type StoredGstAmounts = {
+  taxableAmount: Prisma.Decimal | number;
+  cgstAmount: Prisma.Decimal | number;
+  sgstAmount: Prisma.Decimal | number;
+  igstAmount: Prisma.Decimal | number;
+};
+
+/** A sale or return line's taxable value and tax parts, as numbers. */
+function gstAmountsOf(row: StoredGstAmounts): GstAmounts {
+  return {
+    taxable: toNumber(row.taxableAmount),
+    cgst: toNumber(row.cgstAmount),
+    sgst: toNumber(row.sgstAmount),
+    igst: toNumber(row.igstAmount)
+  };
+}
+
+function sumGstAmounts(rows: GstAmounts[]): GstAmounts {
+  return rows.reduce(
+    (acc, row) => ({
+      taxable: round2(acc.taxable + row.taxable),
+      cgst: round2(acc.cgst + row.cgst),
+      sgst: round2(acc.sgst + row.sgst),
+      igst: round2(acc.igst + row.igst)
+    }),
+    { taxable: 0, cgst: 0, sgst: 0, igst: 0 }
+  );
+}
 
 @Injectable()
 export class ReturnsService {
@@ -68,8 +97,16 @@ export class ReturnsService {
         );
       }
 
-      let totalAmount = 0;
-      const returnLineCreates: Array<{ saleLineId: string; qty: number; amount: number }> = [];
+      const returnLineCreates: Array<{
+        saleLineId: string;
+        qty: number;
+        amount: number;
+        taxableAmount: number;
+        taxAmount: number;
+        cgstAmount: number;
+        sgstAmount: number;
+        igstAmount: number;
+      }> = [];
       const itemIds = Array.from(new Set(invoice.lines.map((line) => line.itemId)));
       const itemLeastCounts = new Map<string, number>();
       if (itemIds.length > 0) {
@@ -89,18 +126,33 @@ export class ReturnsService {
         assertQtyRespectsLeastCount(qty, leastCount, `Return line ${saleLine.id}`);
 
         const alreadyReturned = round3(saleLine.returnLines.reduce((acc, rl) => acc + toNumber(rl.qty), 0));
-        const alreadyRefunded = round2(saleLine.returnLines.reduce((acc, rl) => acc + toNumber(rl.amount), 0));
         const soldQty = toNumber(saleLine.qty);
-        const lineNet = toNumber(saleLine.netAmount);
         if (alreadyReturned + qty > soldQty + 1e-9) {
           throw new BadRequestException(`Return qty exceeds sold qty for line ${saleLine.id}`);
         }
 
         // Shared with the Returns page so the amount shown is the amount refunded.
-        const amount = returnLineRefund({ lineNet, soldQty, alreadyReturnedQty: alreadyReturned, alreadyRefunded, qty });
-        totalAmount = round2(totalAmount + amount);
-        returnLineCreates.push({ saleLineId: saleLine.id, qty, amount });
+        const refund = returnLineAmounts({
+          line: gstAmountsOf(saleLine),
+          soldQty,
+          alreadyReturnedQty: alreadyReturned,
+          alreadyReturned: sumGstAmounts(saleLine.returnLines.map(gstAmountsOf)),
+          qty
+        });
+        returnLineCreates.push({
+          saleLineId: saleLine.id,
+          qty,
+          amount: refund.amount,
+          taxableAmount: refund.taxable,
+          taxAmount: refund.tax,
+          cgstAmount: refund.cgst,
+          sgstAmount: refund.sgst,
+          igstAmount: refund.igst
+        });
       }
+      const total = (pick: (line: (typeof returnLineCreates)[number]) => number) =>
+        round2(returnLineCreates.reduce((acc, line) => acc + pick(line), 0));
+      const totalAmount = total((line) => line.amount);
 
       // Never refund more than the customer paid for this invoice in total.
       const refundedBefore = round2(invoice.returns.reduce((acc, r) => acc + toNumber(r.totalAmount), 0));
@@ -118,6 +170,11 @@ export class ReturnsService {
           saleInvoiceId,
           returnNo,
           totalAmount,
+          taxableTotal: total((line) => line.taxableAmount),
+          taxTotal: total((line) => line.taxAmount),
+          cgstTotal: total((line) => line.cgstAmount),
+          sgstTotal: total((line) => line.sgstAmount),
+          igstTotal: total((line) => line.igstAmount),
           refundMode: input.refundMode,
           registerSessionId: session.registerId,
           lines: { create: returnLineCreates }
@@ -217,6 +274,11 @@ export class ReturnsService {
       saleInvoiceId: returnInvoice.saleInvoiceId,
       returnNo: returnInvoice.returnNo,
       totalAmount: returnInvoice.totalAmount,
+      taxableTotal: returnInvoice.taxableTotal,
+      taxTotal: returnInvoice.taxTotal,
+      cgstTotal: returnInvoice.cgstTotal,
+      sgstTotal: returnInvoice.sgstTotal,
+      igstTotal: returnInvoice.igstTotal,
       refundMode: returnInvoice.refundMode,
       createdAt: returnInvoice.createdAt,
       saleInvoiceNo: returnInvoice.saleInvoice.invoiceNo,
@@ -227,7 +289,12 @@ export class ReturnsService {
         itemId: line.saleLine.item.id,
         itemName: line.saleLine.item.name,
         qty: line.qty,
-        amount: line.amount
+        amount: line.amount,
+        taxableAmount: line.taxableAmount,
+        taxAmount: line.taxAmount,
+        cgstAmount: line.cgstAmount,
+        sgstAmount: line.sgstAmount,
+        igstAmount: line.igstAmount
       }))
     };
   }

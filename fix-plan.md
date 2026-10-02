@@ -197,7 +197,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - The API and POS share this function, so both change together. Add tests for the split, odd paise, inter-state and composition.
 - **Backfill:** old lines become intra-state, with CGST/SGST split the same way.
 
-### [ ] 34. Store taxable value and tax on return lines
+### [x] 34. Store taxable value and tax on return lines
 - **Where:** `ReturnInvoiceLine`, the returns service, `returnLineRefund`.
 - **Problem:** return lines store only the refund amount. Credit notes and the period's net B2C figures need the taxable value and the tax split.
 - **Change:**
@@ -686,3 +686,20 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
     - 10 new tests: 5 in contracts (including every paisa value up to ₹1,000 and the random-cart invariants), 5 for the API (counter, shipped, no branch state, composition, database check). All 130 tests pass.
     - The place-of-supply browser test now also checks the server charges a shipped sale as IGST 36.00, and a counter sale as CGST 18 + SGST 18.
     - The POS snapshot is identical, and the earlier browser flows pass.
+- **#34 done.** Each return line stores its refund as taxable value plus CGST/SGST/IGST.
+  - `returnLineAmounts` in `@pos/contracts` replaces `returnLineRefund`:
+    - Each part (taxable value, CGST, SGST, IGST) is prorated on the units returned so far, minus what earlier returns took. The last units take whatever is left. The refund is the sum of the parts.
+    - So no part can go negative or past the sale line's, and returning a line in any number of steps adds back up to it exactly. Prorating each return on its own could overrun: four single-unit returns of a 0.04 tax (0.02 + 0.02) would take 0.03 of SGST.
+    - Refunds can differ from before by a paisa. A ₹200 line of 3 now refunds 66.67 + 66.66 + 66.67 (was 66.67 + 66.67 + 66.66), still exactly 200 in total.
+    - The API and the Returns page both use it, so the refund shown before returning is the refund given.
+  - Schema:
+    - `ReturnInvoiceLine` gets `taxableAmount`, `taxAmount`, `cgstAmount`, `sgstAmount` and `igstAmount`; `ReturnInvoice` gets the matching totals.
+    - A database check: the parts add up to the refund, none is negative, and a line never has IGST together with CGST/SGST.
+  - Migration `20261003130000_return_tax_split`:
+    - Old return lines keep the refund they gave. Their tax is the sale line's share (tax ÷ net), split the way the sale line was. Return totals are summed from the lines.
+    - Dev data: 128 lines, 44 with tax, and every return's parts add up to its total.
+  - Responses: the return detail and the return lines inside a sale's detail include the parts. The Returns page needs those to prorate the next return.
+  - Verified:
+    - 5 new contracts tests, including 3,000 random partial-return sequences that each add back up exactly, and 3 new API tests (CGST/SGST, IGST, parts shown with the sale). One existing test was updated for the new 66.67 + 66.66 + 66.67 order. All 136 tests pass.
+    - Browser test: 3 × ₹100 including 18% returned one unit at a time from the Returns page. Each amount shown matched the refund (100.01, 99.98, 100.01 = 300.00), and the returned parts add up to the sale line (254.24 / 22.88 / 22.88).
+    - The POS snapshot is identical, and the walk-in, register-close, draft and place-of-supply flows pass.

@@ -5,8 +5,9 @@ import {
   exclusiveBase,
   lineTax,
   resolveDiscountAmounts,
-  returnLineRefund,
+  returnLineAmounts,
   splitGst,
+  type GstAmounts,
   type PricedLineInput
 } from './pricing.js';
 
@@ -199,18 +200,76 @@ describe('computeSaleTotals tax split', () => {
   });
 });
 
-describe('returnLineRefund', () => {
-  it('refunds a ₹200 line of 3 one unit at a time as 66.67 + 66.67 + 66.66', () => {
-    const refunds: number[] = [];
-    for (let returned = 0; returned < 3; returned++) {
-      refunds.push(returnLineRefund({ lineNet: 200, soldQty: 3, alreadyReturnedQty: returned, alreadyRefunded: sum(refunds), qty: 1 }));
-    }
-    expect(refunds).toEqual([66.67, 66.67, 66.66]);
+describe('returnLineAmounts', () => {
+  const zero: GstAmounts = { taxable: 0, cgst: 0, sgst: 0, igst: 0 };
+  const add = (a: GstAmounts, b: GstAmounts): GstAmounts => ({
+    taxable: round2(a.taxable + b.taxable),
+    cgst: round2(a.cgst + b.cgst),
+    sgst: round2(a.sgst + b.sgst),
+    igst: round2(a.igst + b.igst)
+  });
+  /** Returns `steps` of a line one after another; the refunds and the running totals. */
+  function returnInSteps(line: GstAmounts, soldQty: number, steps: number[]) {
+    let returnedQty = 0;
+    let returned = zero;
+    const refunds = steps.map((qty) => {
+      const result = returnLineAmounts({ line, soldQty, alreadyReturnedQty: returnedQty, alreadyReturned: returned, qty });
+      returnedQty += qty;
+      returned = add(returned, result);
+      return result;
+    });
+    return { refunds, returned };
+  }
+
+  it('refunds a ₹200 line of 3 one unit at a time, adding up to 200', () => {
+    const { refunds } = returnInSteps({ ...zero, taxable: 200 }, 3, [1, 1, 1]);
+    expect(refunds.map((r) => r.amount)).toEqual([66.67, 66.66, 66.67]);
   });
 
-  it('gives the last unit whatever is left', () => {
-    const first = returnLineRefund({ lineNet: 200, soldQty: 3, alreadyReturnedQty: 0, alreadyRefunded: 0, qty: 2 });
-    const last = returnLineRefund({ lineNet: 200, soldQty: 3, alreadyReturnedQty: 2, alreadyRefunded: first, qty: 1 });
-    expect([first, last]).toEqual([133.33, 66.67]);
+  it('splits the refund into taxable value and tax the way the line was', () => {
+    // ₹100 including 18%: 84.75 + CGST 7.62 + SGST 7.63, sold as 2 units.
+    const line = { taxable: 84.75, cgst: 7.62, sgst: 7.63, igst: 0 };
+    const [first, second] = returnInSteps(line, 2, [1, 1]).refunds;
+    expect(first).toEqual({ taxable: 42.38, cgst: 3.81, sgst: 3.82, igst: 0, tax: 7.63, amount: 50.01 });
+    expect(second).toEqual({ taxable: 42.37, cgst: 3.81, sgst: 3.81, igst: 0, tax: 7.62, amount: 49.99 });
+  });
+
+  it('never lets a part run past the line (four returns of a 0.04 tax)', () => {
+    const line = { taxable: 4, cgst: 0.02, sgst: 0.02, igst: 0 };
+    const { refunds, returned } = returnInSteps(line, 4, [1, 1, 1, 1]);
+    expect(returned).toEqual(line);
+    for (const refund of refunds) expect(refund.cgst >= 0 && refund.sgst >= 0).toBe(true);
+  });
+
+  it('keeps its invariants over random partial returns', () => {
+    let seed = 7;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    for (let i = 0; i < 3000; i++) {
+      const soldQty = 1 + Math.floor(rnd() * 12);
+      const taxable = round2(rnd() * 5000);
+      const tax = round2((taxable * [0, 5, 12, 18, 28][Math.floor(rnd() * 5)]) / 100);
+      const line = { taxable, ...splitGst(tax, rnd() < 0.3) };
+      const steps: number[] = [];
+      for (let left = soldQty; left > 0; ) {
+        const step = 1 + Math.floor(rnd() * left);
+        steps.push(step);
+        left -= step;
+      }
+      let returned = zero;
+      let returnedQty = 0;
+      for (const qty of steps) {
+        const r = returnLineAmounts({ line, soldQty, alreadyReturnedQty: returnedQty, alreadyReturned: returned, qty });
+        for (const part of ['taxable', 'cgst', 'sgst', 'igst'] as const) expect(r[part]).toBeGreaterThanOrEqual(0);
+        expect(r.amount).toBe(round2(r.taxable + r.tax));
+        returnedQty += qty;
+        returned = add(returned, r);
+        for (const part of ['taxable', 'cgst', 'sgst', 'igst'] as const) expect(returned[part]).toBeLessThanOrEqual(line[part]);
+      }
+      expect(returned).toEqual(line);
+    }
+  });
+
+  it('refunds nothing for nothing', () => {
+    expect(returnLineAmounts({ line: { ...zero, taxable: 10 }, soldQty: 1, alreadyReturnedQty: 0, alreadyReturned: zero, qty: 0 }).amount).toBe(0);
   });
 });

@@ -671,7 +671,12 @@ export class SalesService {
                 id: true,
                 returnInvoiceId: true,
                 qty: true,
-                amount: true
+                amount: true,
+                taxableAmount: true,
+                taxAmount: true,
+                cgstAmount: true,
+                sgstAmount: true,
+                igstAmount: true
               }
             }
           }

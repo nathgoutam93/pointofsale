@@ -453,6 +453,12 @@ model ReturnInvoice {
   saleInvoice   SaleInvoice        @relation(fields: [saleInvoiceId], references: [id])
   returnNo      String             @unique
   totalAmount   Decimal            @db.Decimal(14, 2)
+  /// totalAmount split into taxable value and tax by kind; the sums of the lines'.
+  taxableTotal  Decimal            @default(0) @db.Decimal(14, 2)
+  taxTotal      Decimal            @default(0) @db.Decimal(14, 2)
+  cgstTotal     Decimal            @default(0) @db.Decimal(14, 2)
+  sgstTotal     Decimal            @default(0) @db.Decimal(14, 2)
+  igstTotal     Decimal            @default(0) @db.Decimal(14, 2)
   refundMode    PaymentMode
   /// The register the refund was given from; null for returns made before this was recorded.
   registerSessionId String?
@@ -470,5 +476,11 @@ model ReturnInvoiceLine {
   saleLineId      String
   saleLine        SaleInvoiceLine @relation(fields: [saleLineId], references: [id])
   qty             Decimal        @db.Decimal(14, 3)
+  /// The refund: taxableAmount + taxAmount. Prorated from the sale line (see returnLineAmounts).
   amount          Decimal        @db.Decimal(14, 2)
+  taxableAmount   Decimal        @default(0) @db.Decimal(14, 2)
+  taxAmount       Decimal        @default(0) @db.Decimal(14, 2)
+  cgstAmount      Decimal        @default(0) @db.Decimal(14, 2)
+  sgstAmount      Decimal        @default(0) @db.Decimal(14, 2)
+  igstAmount      Decimal        @default(0) @db.Decimal(14, 2)
 }
