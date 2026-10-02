@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { UserRole } from '@prisma/client';
-import { SessionUser } from '../pos/pos.types';
+import type { SessionUser } from '../common/types';
 
 type TokenPayload = {
   sub: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { localDate, reportPeriods, startOfLocalDay } from '../src/pos/zoned-dates';
+import { localDate, reportPeriods, startOfLocalDay } from '../src/reports/zoned-dates';
 
 // #15: calendar maths in a time zone, independent of the server's clock.
 const iso = (d: Date) => d.toISOString();

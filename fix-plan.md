@@ -109,7 +109,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 ### [x] 18. Faster stock-on-hand lookups
 - Stock on hand is recalculated from the full stock history each time. Add an `ItemStock` table (item, branch, qty) updated in the same transaction as each stock entry. This row is also what #9 locks.
 
-### [ ] 19. Split up the big files
+### [~] 19. Split up the big files
 - `pos.service.ts` (2000+ lines) and `pos.controller.ts` handle everything. Split them into modules (auth, users, items, sales, returns, customers, registers, reports). `PosPage.tsx` should likewise be broken into hooks and components.
 
 ### [x] 20. Add tests
@@ -439,3 +439,30 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
   - Locking: the per-item advisory lock from #9 is kept rather than switched to row locks on `ItemStock` (it already works, and changing it adds risk for no gain). `recordStock` takes it too, so stock-in paths can't race when a row is first created.
   - Safety net: every API test file now ends with `assertStockMatchesLedger`, which fails if any `ItemStock` row differs from its ledger sum. It immediately caught two test files that wrote ledger rows directly; they now use `addOpeningStock`, which writes both.
   - Verified: 63 API tests pass with the check after every file. On the dev database after the scratch stock, concurrency (30 sales on 10 units → exactly 10), checkout, return and pricing suites and the UI checkout, 0 rows differ.
+- **#19 backend done** (the POS screen is next). `pos.service.ts` (2,386 lines) and `pos.controller.ts` (639 lines) are replaced by one folder per area, each with a service and controller:
+
+  | Folder | Contents |
+  |---|---|
+  | `auth/` | sign-in, startup seeding |
+  | `settings/` | business and branch settings, logos |
+  | `branches/` | create, list accessible |
+  | `users/` | users and branch access |
+  | `customers/` | customers, wallets, scope rules, walk-in |
+  | `items/` | items |
+  | `stock/` | ledger, `recordStock`, locks, on-hand |
+  | `registers/` | open, close, cash balance |
+  | `sales/` | pricing, create, checkout, settle, cancel, receipts |
+  | `returns/` | returns |
+  | `reports/` | sales summary, `zoned-dates.ts` |
+  | `sequences/` | document numbers |
+  | `common/` | plain helpers: `numbers`, `quantities`, `session`, `request-session` (controllers' session checks), `selects`, `types`, `uploads` |
+
+  - Dependencies only point one way. The largest file is now `sales.service.ts` at about 650 lines.
+  - The move was scripted: members cut out by name, `this.x` calls rewritten to the owning service, members used across services made public, imports generated. Then the result was read through and tidied.
+  - The no-op `withCreatedByName(s)` wrappers and a one-line `exclusiveBase` wrapper were dropped. `AppModule` registers 11 controllers and 13 services.
+  - `apps/api` `build` now clears `dist/` first, so deleted files (like the old `dist/pos/pos.service.js`) don't linger in a deploy.
+  - Verified:
+    - All 63 API tests pass unchanged; the only test edits were two import paths.
+    - A route-by-route comparison of the old and new controllers (method, path and every decorator: `@Public`, `@HttpCode`, validation pipes) is identical for all 44 single-line routes, and the 3 upload routes are present with their interceptors.
+    - All 12 scratch API suites and the browser flows (checkout, rounding, cashier limit, close register, discount match, 20 draft checks) pass against the dev server running the split backend.
+    - The cashier-limit browser script was flaky because it scanned before the POS item list had loaded (the known scan-too-early issue); it now waits and passed 5/5.

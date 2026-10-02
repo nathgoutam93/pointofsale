@@ -234,7 +234,7 @@ model ItemSaleUom {
 }
 
 /// Current stock on hand per branch and item, kept in step with StockLedger: every ledger
-/// entry adjusts this row in the same transaction (see recordStock in pos.service.ts).
+/// entry adjusts this row in the same transaction (see recordStock in stock/stock.service.ts).
 model ItemStock {
   branchId  String
   branch    Branch   @relation(fields: [branchId], references: [id])

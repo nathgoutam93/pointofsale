@@ -1,19 +1,66 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
-import { PosController } from './pos/pos.controller';
-import { PosService } from './pos/pos.service';
+import { AuthService } from './auth/auth.service';
+import { BranchesController } from './branches/branches.controller';
+import { BranchesService } from './branches/branches.service';
+import { CustomersController } from './customers/customers.controller';
+import { CustomersService } from './customers/customers.service';
+import { ItemsController } from './items/items.controller';
+import { ItemsService } from './items/items.service';
 import { PrismaService } from './prisma.service';
+import { RegistersController } from './registers/registers.controller';
+import { RegistersService } from './registers/registers.service';
+import { ReportsController } from './reports/reports.controller';
+import { ReportsService } from './reports/reports.service';
+import { ReturnsController } from './returns/returns.controller';
+import { ReturnsService } from './returns/returns.service';
+import { SalesController } from './sales/sales.controller';
+import { SalesService } from './sales/sales.service';
+import { SequenceService } from './sequences/sequences.service';
+import { SettingsController } from './settings/settings.controller';
+import { SettingsService } from './settings/settings.service';
+import { StockController } from './stock/stock.controller';
+import { StockService } from './stock/stock.service';
+import { UsersController } from './users/users.controller';
+import { UsersService } from './users/users.service';
 
 @Module({
-  imports: [],
-  controllers: [PosController],
-  providers: [PrismaService, PosService, { provide: APP_GUARD, useClass: AuthGuard }]
+  controllers: [
+    AuthController,
+    BranchesController,
+    SettingsController,
+    RegistersController,
+    UsersController,
+    CustomersController,
+    ItemsController,
+    StockController,
+    SalesController,
+    ReturnsController,
+    ReportsController
+  ],
+  providers: [
+    PrismaService,
+    SettingsService,
+    SequenceService,
+    ItemsService,
+    StockService,
+    CustomersService,
+    BranchesService,
+    UsersService,
+    AuthService,
+    RegistersService,
+    SalesService,
+    ReturnsService,
+    ReportsService,
+    { provide: APP_GUARD, useClass: AuthGuard }
+  ]
 })
 export class AppModule implements OnModuleInit {
-  constructor(private readonly posService: PosService) {}
+  constructor(private readonly auth: AuthService) {}
 
   async onModuleInit() {
-    await this.posService.onModuleInitSeed();
+    await this.auth.onModuleInitSeed();
   }
 }

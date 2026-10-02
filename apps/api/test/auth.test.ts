@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isPasswordHash } from '../src/auth/password';
-import { PosService } from '../src/pos/pos.service';
+import { AuthService } from '../src/auth/auth.service';
 import { startApp, type TestApp } from './helpers';
 
 // #1: signed tokens, a guard that re-checks the database, hashed passwords.
@@ -71,7 +71,7 @@ describe('passwords', () => {
   it('hashes plain-text passwords left from before, at startup, and they still log in', async () => {
     const username = `legacy-${Date.now()}`;
     await t.db.user.create({ data: { username, password: 'old-plain-pass', role: 'CASHIER', branchId } });
-    await t.app.get(PosService).onModuleInitSeed();
+    await t.app.get(AuthService).onModuleInitSeed();
     const row = await t.db.user.findUniqueOrThrow({ where: { username } });
     expect(isPasswordHash(row.password)).toBe(true);
     expect((await t.call('POST', '/auth/login', null, { username, password: 'old-plain-pass' })).status).toBe(200);
