@@ -5,6 +5,7 @@ import { toNumber } from '../common/numbers';
 import { startOfLocalDay } from '../reports/zoned-dates';
 import { SettingsService } from '../settings/settings.service';
 import { buildGstr1, type Gstr1Invoice, type Gstr1Line } from './gstr1';
+import { buildGstr3b } from './gstr3b';
 
 const invoiceSelect = {
   invoiceNo: true,
@@ -129,6 +130,16 @@ export class GstService {
    * October-December, January-March) for quarterly filers.
    */
   async gstr1(gstin: string, from: string, to: string) {
+    return { gstin, from, to, ...buildGstr1(await this.loadPeriod(gstin, from, to)) };
+  }
+
+  /** The sales side of GSTR-3B for the same periods, from the same figures as GSTR-1. */
+  async gstr3b(gstin: string, from: string, to: string) {
+    return { gstin, from, to, ...buildGstr3b(buildGstr1(await this.loadPeriod(gstin, from, to))) };
+  }
+
+  /** A GSTIN's invoices and returns for a month or quarter, as the return builders take them. */
+  private async loadPeriod(gstin: string, from: string, to: string) {
     const start = parseMonth(from);
     const end = parseMonth(to);
     const months = (end.year - start.year) * 12 + (end.month - start.month) + 1;
@@ -171,7 +182,7 @@ export class GstService {
       })
     ]);
 
-    const result = buildGstr1({
+    return {
       gstin,
       fp: `${String(end.month).padStart(2, '0')}${end.year}`,
       timeZone: timezone,
@@ -196,7 +207,6 @@ export class GstService {
           }))
         };
       })
-    });
-    return { gstin, from, to, ...result };
+    };
   }
 }

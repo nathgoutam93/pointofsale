@@ -70,6 +70,14 @@ describe('GSTR-1', () => {
     expect(credit).toMatchObject({ doc_num: 5, doc_typ: 'Credit Note', docs: [{ totnum: 1 }] });
   });
 
+  it('gives GSTR-3B Tables 3.1 and 3.2 from the same figures', async () => {
+    const res = await t.ok('GET', `/gst/gstr3b?gstin=${GSTIN}&from=${month}&to=${month}`, admin);
+    expect(res.table31.outwardTaxable).toEqual({ txval: 152000, iamt: 27180, camt: 90, samt: 90, csamt: 0 });
+    expect(res.table31.outwardNilExempt.txval).toBe(200);
+    expect(res.table32.unregistered).toEqual([{ pos: '27', txval: 151000, iamt: 27180 }]);
+    expect((await t.call('GET', `/gst/gstr3b?gstin=${GSTIN}&from=2026-05&to=2026-07`, admin)).status).toBe(400);
+  });
+
   it('accepts one month or a whole quarter, nothing else', async () => {
     expect((await t.call('GET', query('2026-04', '2026-06'), admin)).status).toBe(200);
     expect((await t.call('GET', query('2026-05', '2026-07'), admin)).status).toBe(400);

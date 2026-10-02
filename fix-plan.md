@@ -235,7 +235,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - Show a preview and a list of problems to fix (missing HSN, bad GSTIN) before the JSON can be downloaded.
 - **Verify:** import the JSON into the government's GST offline tool. The format changes from time to time, so record which version it was built against.
 
-### [ ] 38. GSTR-3B summary (regular)
+### [x] 38. GSTR-3B summary (regular)
 - **Change:** a report of the sales figures for GSTR-3B:
   - Table 3.1: outward taxable, nil/exempt and non-GST, with tax by type.
   - Table 3.2: inter-state supplies to unregistered buyers, by state.
@@ -771,3 +771,16 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
     - 6 builder tests (B2CS, B2CL with the threshold boundary, nil/exempt/non-GST, returns netted vs CDNUR plus HSN net of returns, cancelled invoices, problems) and 4 API tests with real sales (GSTIN list; all sections from counter, shipped, B2CL and exempt sales plus a return; month or quarter only; admins only). All 157 tests pass.
     - Browser test against a production build (the dev server had stopped at its time limit): three sales under a fresh GSTIN. The page shows 3 invoices, intra-state 400.00 with CGST 36 + SGST 36, inter-state 200.00 with IGST 36, HSN 8517 for 3 PCS. The downloaded `GSTR1_<gstin>_<MMYYYY>.json` matches. A sale of an item with no HSN shows an error and disables the download.
     - POS snapshot identical; other browser flows pass. The draft listener-count check reports 0 against a production build, because it finds listeners by source file name and the bundle has none; it passed against the dev server.
+- **#38 done.** The sales side of GSTR-3B, from the same figures as GSTR-1 so the two always agree.
+  - `apps/api/src/gst/gstr3b.ts`:
+    - **3.1(a)** taxable outward supplies (B2CS + B2CL − CDNUR): taxable value, IGST, CGST, SGST.
+    - **3.1(c)** nil rated and exempt; **3.1(e)** non-GST.
+    - **3.1(b)** zero rated and **(d)** reverse charge are 0: no exports or purchases are recorded.
+    - **3.2** inter-state supplies to unregistered persons, by place of supply, net of credit notes.
+    - Only GSTR-1's warnings carry over (HSN details don't matter for 3B), plus a standing note that input tax credit (Table 4) isn't included.
+  - `GET /gst/gstr3b`, with the same GSTIN and month-or-quarter query as GSTR-1. The service now loads a period once for both returns.
+  - Web: the GST Returns page has a "Return" choice (GSTR-1 / GSTR-3B). The views live in `screens/gst/`: `Gstr1View`, `Gstr3bView`, and `shared.tsx` (table, problem list, status).
+  - Verified:
+    - A builder test (3.1 net of a B2CL credit note, nil and non-GST, 3.2 by state) and an API test against the real sales from the GSTR-1 test (taxable 152,000, IGST 27,180, CGST/SGST 90; exempt 200; Maharashtra 151,000 / IGST 27,180; quarter rule).
+    - Browser test extended: GSTR-3B shows 3.1(a) 600.00 with IGST 36, CGST 36, SGST 36, 3.2 Maharashtra 200.00 / 36.00, and the input tax credit note.
+    - All 159 tests pass.

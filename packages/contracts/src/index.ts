@@ -553,8 +553,38 @@ const saleCreateBodySchema = z.object({
 
 const paymentInputSchema = z.object({ mode: paymentModeSchema, amount: moneySchema.positive(), reference: z.string().optional() });
 
+/** A GSTIN and a month (from = to) or quarter, as YYYY-MM. */
+const gstPeriodQuerySchema = z.object({
+  gstin: gstinSchema,
+  from: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Use YYYY-MM' }),
+  to: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Use YYYY-MM' })
+});
+const gstTaxRowSchema = z.object({ txval: z.number(), iamt: z.number(), camt: z.number(), samt: z.number(), csamt: z.number() });
+
 export const appContract = c.router({
   gst: {
+    /** The sales side of GSTR-3B: Tables 3.1 and 3.2 (no input tax credit: purchases aren't recorded). */
+    gstr3b: {
+      method: 'GET',
+      path: '/gst/gstr3b',
+      query: gstPeriodQuerySchema,
+      responses: {
+        200: z.object({
+          gstin: z.string(),
+          from: z.string(),
+          to: z.string(),
+          table31: z.object({
+            outwardTaxable: gstTaxRowSchema,
+            outwardZeroRated: gstTaxRowSchema,
+            outwardNilExempt: gstTaxRowSchema,
+            inwardReverseCharge: gstTaxRowSchema,
+            outwardNonGst: gstTaxRowSchema
+          }),
+          table32: z.object({ unregistered: z.array(z.object({ pos: z.string(), txval: z.number(), iamt: z.number() })) }),
+          problems: z.array(z.object({ severity: z.enum(['error', 'warning']), message: z.string() }))
+        })
+      }
+    },
     gstins: {
       method: 'GET',
       path: '/gst/gstins',
@@ -564,11 +594,7 @@ export const appContract = c.router({
     gstr1: {
       method: 'GET',
       path: '/gst/gstr1',
-      query: z.object({
-        gstin: gstinSchema,
-        from: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Use YYYY-MM' }),
-        to: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'Use YYYY-MM' })
-      }),
+      query: gstPeriodQuerySchema,
       responses: {
         200: z.object({
           gstin: z.string(),

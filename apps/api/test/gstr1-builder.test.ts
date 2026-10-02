@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { B2CL_THRESHOLD, buildGstr1, type Gstr1Invoice, type Gstr1Line, type Gstr1Return } from '../src/gst/gstr1';
+import { buildGstr3b } from '../src/gst/gstr3b';
 
 // GST #37: the GSTR-1 rules, on hand-made invoices (no database).
 const GSTIN = '29ABCDE1234F1ZW';
@@ -147,5 +148,25 @@ describe('GSTR-1 builder', () => {
     expect(problems[3].message).toMatch(/No GST unit \(UQC\) on: Cable/);
     expect(problems[4].message).toMatch(/INV-G060992-000008/);
     expect((json.b2cs as Array<{ txval: number }>)[0].txval).toBe(300); // composition sale left out
+  });
+});
+
+describe('GSTR-3B builder', () => {
+  it('totals Table 3.1 and 3.2 from the GSTR-1 figures, net of credit notes', () => {
+    const intra = invoice({ lines: [line({ qty: 2, taxable: 200, cgst: 18, sgst: 18 }), line({ supplyType: 'EXEMPT', taxRate: 0, taxable: 40, cgst: 0, sgst: 0 })] });
+    const large = invoice({ placeOfSupplyStateCode: '27', lines: [interLine(200000)] });
+    const small = invoice({ placeOfSupplyStateCode: '33', lines: [interLine(500), line({ supplyType: 'NON_GST', taxRate: 0, taxable: 60, cgst: 0, sgst: 0 })] });
+    const returns: Gstr1Return[] = [
+      { returnNo: 'MAINR/2627/00001', documentSeries: 'MAINR', createdAt: at(10), totalAmount: 23600, invoice: large, lines: [{ saleLine: large.lines[0], qty: 1, taxable: 20000, cgst: 0, sgst: 0, igst: 3600 }] }
+    ];
+    const { table31, table32, problems } = buildGstr3b(build([intra, large, small], returns));
+    expect(table31.outwardTaxable).toEqual({ txval: 180700, iamt: 32490, camt: 18, samt: 18, csamt: 0 });
+    expect(table31.outwardNilExempt.txval).toBe(40);
+    expect(table31.outwardNonGst.txval).toBe(60);
+    expect(table32.unregistered).toEqual([
+      { pos: '27', txval: 180000, iamt: 32400 },
+      { pos: '33', txval: 500, iamt: 90 }
+    ]);
+    expect(problems.map((p) => p.message).join(' ')).toMatch(/Input tax credit \(Table 4\) is not included/);
   });
 });
