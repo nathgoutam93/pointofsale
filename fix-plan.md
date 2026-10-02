@@ -212,7 +212,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - Composition: the title is "Bill of Supply", with no tax lines and the required declaration ("composition taxable person, not eligible to collect tax on supplies").
   - Use the type stored on the invoice, never the current setting.
 
-### [ ] 36. Invoice numbers per financial year
+### [x] 36. Invoice numbers per financial year
 - **Where:** `sequences/` and `Branch` invoice and return sequences.
 - **Problem:** GST invoice numbers must be at most 16 characters and unique within a financial year. Today's numbers (`INV-MAIN-000526`) never restart.
 - **Change:**
@@ -725,3 +725,27 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
     - The POS snapshot changed only as intended: the TAX INVOICE title, and incl. CGST 53.55 + incl. SGST 53.55 (equal to the line's 107.10 tax). It is the new baseline; the old one is kept as `pos-before-pre-gst35.json`.
     - All 136 tests pass, and the browser flows pass.
   - Not covered: the Returns page receipt doesn't print GST details. Credit notes for returns come with the returns in #37.
+- **#36 done.** GST invoices and credit notes are numbered `{series}/{FY}/{number}`, e.g. `MAIN/2627/00001`.
+  - Change from the plan: its example `INV-MAIN-2627-0001` is 18 characters, over GST's limit of 16, and longer branch codes (BLR01) made it worse. Instead, each branch has a short series:
+    - Up to 5 letters or digits.
+    - Unique across branches, because branches sharing a GSTIN must never issue the same number.
+    - Separate series for invoices and returns (e.g. MAIN and MAINR).
+    - So `{series}/{FY}/{5 digits}` is at most 16 characters up to 99,999 documents a year. Past that, the sale still goes through and a warning is logged.
+  - Contracts (`gst.ts`): `financialYearStart` (April to March), `financialYearCode` (2026 → "2627"), `documentNumber`, `documentSeriesProblem`, `documentSeriesCandidates`.
+  - Schema:
+    - New `DocumentSequence` table, keyed by kind, series and financial year. Numbers are issued with one `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`, so they're atomic.
+    - Counted per series, not per branch: a series handed to another branch carries on instead of starting at 1 and colliding.
+    - `SaleInvoice` and `ReturnInvoice` record `documentSeries` and `fiscalYear`, for the document summary in #37. Issued and cancelled counts come from them, with no separate counters.
+  - The branch's `invoicePrefix` and `returnPrefix` are now these series (letters and digits, at most 5, unique). Receipt numbers (not GST documents) and customer codes are unchanged.
+  - Migration `20261003140000_gst_document_numbers`, written by hand because Prisma won't generate unique constraints without a prompt:
+    - Each branch gets an invoice series from its code (first 5 letters or digits), or X0001... where codes clash. Every branch had the same "INV" prefix, which couldn't stay.
+    - Return series: the first 4 characters plus R, or R0001... where that clashes.
+    - Then the unique indexes. Old invoices and returns record their old-style series (e.g. INV-MAIN) and financial year.
+    - `prisma migrate diff` reports no difference from the schema. Dev data: 33 branches, 5 needed the X fallback.
+  - New branches get the first free series from their code (an advisory lock stops two new branches taking the same one). Taking another branch's series is refused with its name.
+  - Invoice numbers now contain "/". `GET /receipts/by-invoice/:invoiceId` still accepts a number, but URL-encoded (`MAIN%2F2627%2F00001`). The web app only passes ids there; invoice-number searches go through query strings, which are encoded.
+  - Admin: "Invoice series" and "Return (credit note) series" fields with upper-casing, a 5-character limit, the rules shown as you type, and example numbers for the current financial year.
+  - Verified:
+    - 4 new contracts tests and 6 new API tests: series from the code; numbering 00001, 00002 within 16 characters; credit notes; uniqueness, length and character rules; a series handed to another branch continuing at 00003; 6 sales at once getting 6 different numbers. Two existing tests updated: the prefix test, and the branch-isolation test now URL-encodes the number. All 147 tests pass.
+    - Browser test: example numbers shown; a slash flagged as you type; another branch's series refused; a sale numbered MAIN/2627/00001; the Sales page finds it by number.
+    - The POS snapshot is identical (the snapshot script now hides new-style numbers too). The other browser flows pass after updating three scripts for the new format.

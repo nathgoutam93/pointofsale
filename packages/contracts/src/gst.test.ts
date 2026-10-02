@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   defaultSupplyType,
+  documentNumber,
+  documentSeriesCandidates,
+  documentSeriesProblem,
+  financialYearCode,
+  financialYearLabel,
+  financialYearStart,
+  GST_DOCUMENT_NUMBER_MAX_LENGTH,
   GST_STATES,
   GST_UQCS,
   gstinCheckCharacter,
@@ -82,5 +89,37 @@ describe('supply type and HSN', () => {
     expect(hsnProblem('1006', 6)).toMatch(/at least 6/);
     expect(hsnProblem('10063', 4)).toMatch(/4, 6 or 8/);
     expect(hsnProblem('10A6', 4)).toMatch(/digits only/);
+  });
+});
+
+describe('document numbers', () => {
+  it('works out the April-March financial year', () => {
+    expect(financialYearStart(2026, 3)).toBe(2025);
+    expect(financialYearStart(2026, 4)).toBe(2026);
+    expect(financialYearStart(2027, 1)).toBe(2026);
+    expect(financialYearCode(2026)).toBe('2627');
+    expect(financialYearCode(2099)).toBe('9900');
+    expect(financialYearLabel(2026)).toBe('2026-27');
+  });
+
+  it('numbers documents {series}/{FY}/{5 digits}, within 16 characters for any valid series', () => {
+    expect(documentNumber('MAIN', 2026, 1)).toBe('MAIN/2627/00001');
+    expect(documentNumber('BLR01', 2026, 99999)).toHaveLength(GST_DOCUMENT_NUMBER_MAX_LENGTH);
+  });
+
+  it('accepts series of up to 5 letters or digits', () => {
+    expect(documentSeriesProblem('BLR01')).toBeNull();
+    expect(documentSeriesProblem('BLR012')).toMatch(/at most 5/);
+    expect(documentSeriesProblem('BL-R')).toMatch(/letters and digits/);
+    expect(documentSeriesProblem('')).toMatch(/letters and digits/);
+  });
+
+  it('suggests series from the branch code', () => {
+    expect(documentSeriesCandidates('main').slice(0, 3)).toEqual(['MAIN', 'MAIN2', 'MAIN3']);
+    expect(documentSeriesCandidates('BLR-01', 'R').slice(0, 2)).toEqual(['BLR0R', 'BLR2R']);
+    expect(documentSeriesCandidates('---')[0]).toBe('B');
+    for (const series of [...documentSeriesCandidates('VERYLONGCODE'), ...documentSeriesCandidates('VERYLONGCODE', 'R')]) {
+      expect(documentSeriesProblem(series)).toBeNull();
+    }
   });
 });

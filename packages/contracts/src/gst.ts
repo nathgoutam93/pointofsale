@@ -254,3 +254,54 @@ export function hsnProblem(code: string, minDigits: number): string | null {
   if (code.length < minDigits) return `HSN codes need at least ${minDigits} digits for this business`;
   return null;
 }
+
+/**
+ * GST invoice and credit note numbers: at most 16 characters, unique within a financial
+ * year (April to March). Numbered {series}/{FY}/{number}, e.g. MAIN/2627/00001: a series
+ * of up to 5 letters or digits per branch, the financial year, and a 5-digit count that
+ * restarts each year.
+ */
+export const GST_DOCUMENT_NUMBER_MAX_LENGTH = 16;
+export const DOCUMENT_SERIES_MAX_LENGTH = 5;
+const DOCUMENT_SEQ_DIGITS = 5;
+
+/** The year a financial year (April to March) starts in, for a calendar date. */
+export function financialYearStart(year: number, month: number) {
+  return month >= 4 ? year : year - 1;
+}
+
+/** 2026 → "2627" (the 2026-27 financial year), as it appears in document numbers. */
+export function financialYearCode(startYear: number) {
+  const two = (value: number) => String(((value % 100) + 100) % 100).padStart(2, '0');
+  return `${two(startYear)}${two(startYear + 1)}`;
+}
+
+/** 2026 → "2026-27". */
+export function financialYearLabel(startYear: number) {
+  return `${startYear}-${financialYearCode(startYear).slice(2)}`;
+}
+
+export function documentNumber(series: string, fiscalYearStart: number, seq: number) {
+  return `${series}/${financialYearCode(fiscalYearStart)}/${String(seq).padStart(DOCUMENT_SEQ_DIGITS, '0')}`;
+}
+
+/** Why a document series can't be used, or null when it can. */
+export function documentSeriesProblem(series: string): string | null {
+  if (!/^[A-Z0-9]+$/.test(series)) return 'A series is letters and digits only';
+  if (series.length > DOCUMENT_SERIES_MAX_LENGTH) {
+    return `A series has at most ${DOCUMENT_SERIES_MAX_LENGTH} characters, so numbers stay within GST's 16`;
+  }
+  return null;
+}
+
+/**
+ * Candidate series for a branch, best first: from its code (MAIN, MAINR for returns),
+ * then with a digit in place of the last character. The caller picks the first one free.
+ */
+export function documentSeriesCandidates(branchCode: string, suffix = ''): string[] {
+  const base = branchCode.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, DOCUMENT_SERIES_MAX_LENGTH - suffix.length) || 'B';
+  const candidates = [`${base}${suffix}`];
+  const stem = base.slice(0, DOCUMENT_SERIES_MAX_LENGTH - suffix.length - 1);
+  for (let digit = 2; digit <= 9; digit++) candidates.push(`${stem}${digit}${suffix}`);
+  return candidates;
+}

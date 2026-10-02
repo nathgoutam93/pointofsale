@@ -1,6 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { GST_STATES, gstinProblem, gstStateLabel, isGstStateCode } from "@pos/contracts";
+import {
+  DOCUMENT_SERIES_MAX_LENGTH,
+  documentNumber,
+  documentSeriesProblem,
+  financialYearStart,
+  GST_STATES,
+  gstinProblem,
+  gstStateLabel,
+  isGstStateCode,
+} from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
 import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
@@ -195,6 +204,14 @@ export function BranchSettingsPage() {
       stateCode: branchSettings.data.stateCode ?? ""
     });
   }, [branchSettings.data]);
+
+  const seriesProblem =
+    [form.invoicePrefix, form.returnPrefix].map((series) => (series ? documentSeriesProblem(series) : null)).find(Boolean) ?? null;
+  const currentFiscalYear = useMemo(() => {
+    const timeZone = businessSettings.data?.timezone ?? "Asia/Kolkata";
+    const [year, month] = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date()).split("-").map(Number);
+    return financialYearStart(year, month);
+  }, [businessSettings.data?.timezone]);
 
   const logoSrc = useMemo(() => {
     if (!form.logoUrl) return null;
@@ -830,11 +847,12 @@ export function BranchSettingsPage() {
 
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
-                    <label className="text-sm text-slate-600">Invoice prefix</label>
+                    <label className="text-sm text-slate-600">Invoice series</label>
                     <input
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 uppercase"
+                      maxLength={DOCUMENT_SERIES_MAX_LENGTH}
                       value={form.invoicePrefix}
-                      onChange={(e) => setForm((prev) => ({ ...prev, invoicePrefix: e.target.value }))}
+                      onChange={(e) => setForm((prev) => ({ ...prev, invoicePrefix: e.target.value.toUpperCase() }))}
                     />
                   </div>
                   <div>
@@ -846,13 +864,21 @@ export function BranchSettingsPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-sm text-slate-600">Return prefix</label>
+                    <label className="text-sm text-slate-600">Return (credit note) series</label>
                     <input
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 uppercase"
+                      maxLength={DOCUMENT_SERIES_MAX_LENGTH}
                       value={form.returnPrefix}
-                      onChange={(e) => setForm((prev) => ({ ...prev, returnPrefix: e.target.value }))}
+                      onChange={(e) => setForm((prev) => ({ ...prev, returnPrefix: e.target.value.toUpperCase() }))}
                     />
                   </div>
+                  <p className="text-xs text-slate-500 sm:col-span-3">
+                    Invoices are numbered like {documentNumber(form.invoicePrefix || "MAIN", currentFiscalYear, 1)} and
+                    returns like {documentNumber(form.returnPrefix || "MAINR", currentFiscalYear, 1)}: up to{" "}
+                    {DOCUMENT_SERIES_MAX_LENGTH} letters or digits, then the financial year, counting from 1 every April. Each
+                    branch needs its own series. GST invoice numbers can be at most 16 characters.
+                    {seriesProblem ? <span className="block text-rose-700">{seriesProblem}</span> : null}
+                  </p>
                 </div>
               </div>
 

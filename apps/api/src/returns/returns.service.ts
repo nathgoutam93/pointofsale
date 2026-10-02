@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InvoiceStatus, PaymentMode, Prisma, StockTxnType, WalletTxnType } from '@prisma/client';
+import { DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, WalletTxnType } from '@prisma/client';
 import { returnLineAmounts, type GstAmounts } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
@@ -161,14 +161,19 @@ export class ReturnsService {
         throw new BadRequestException('Refund would be more than was paid for this invoice');
       }
 
-      const seq = await this.sequences.nextSequence(invoice.branchId, 'return', tx);
-      const returnNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
+      const { number: returnNo, series: documentSeries, fiscalYear } = await this.sequences.nextDocumentNumber(
+        tx,
+        invoice.branchId,
+        DocumentKind.RETURN
+      );
 
       await this.registers.assertRegisterOpen(tx, session);
       const returnInvoice = await tx.returnInvoice.create({
         data: {
           saleInvoiceId,
           returnNo,
+          documentSeries,
+          fiscalYear,
           totalAmount,
           taxableTotal: total((line) => line.taxableAmount),
           taxTotal: total((line) => line.taxAmount),

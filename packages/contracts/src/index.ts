@@ -21,6 +21,14 @@ export {
   COMPOSITION_RATES,
   documentTypeFor,
   defaultSupplyType,
+  DOCUMENT_SERIES_MAX_LENGTH,
+  documentNumber,
+  documentSeriesCandidates,
+  documentSeriesProblem,
+  financialYearCode,
+  financialYearLabel,
+  financialYearStart,
+  GST_DOCUMENT_NUMBER_MAX_LENGTH,
   GST_DOCUMENT_TYPES,
   GST_STATES,
   GST_SUPPLY_TYPE_LABELS,
@@ -40,6 +48,7 @@ export {
 export type { CompositionCategory, GstDocumentType, GstSupplyType, TaxpayerType } from './gst.js';
 import {
   COMPOSITION_CATEGORIES,
+  documentSeriesProblem,
   GST_DOCUMENT_TYPES,
   GST_SUPPLY_TYPES,
   gstinProblem,
@@ -64,6 +73,15 @@ const customerScopeSchema = z.enum(['SHARED', 'BRANCH']);
 const taxpayerTypeSchema = z.enum(TAXPAYER_TYPES);
 const compositionCategorySchema = z.enum(COMPOSITION_CATEGORIES);
 const gstDocumentTypeSchema = z.enum(GST_DOCUMENT_TYPES);
+/** A branch's invoice or credit note series: up to 5 letters or digits, upper-cased. */
+const documentSeriesSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .superRefine((value, ctx) => {
+    const problem = documentSeriesProblem(value);
+    if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+  });
 /** A GSTIN, upper-cased, with its format, state code and check character verified. */
 const gstinSchema = z
   .string()
@@ -644,9 +662,11 @@ export const appContract = c.router({
         name: requiredText.optional(),
         code: documentCodeSchema.optional(),
         logoUrl: z.string().nullable().optional(),
-        invoicePrefix: documentCodeSchema.optional(),
+        /** Invoice series: invoices are numbered {series}/{FY}/{number}, e.g. MAIN/2627/00001. */
+        invoicePrefix: documentSeriesSchema.optional(),
         receiptPrefix: documentCodeSchema.optional(),
-        returnPrefix: documentCodeSchema.optional(),
+        /** Credit note (return) series, numbered like invoices. */
+        returnPrefix: documentSeriesSchema.optional(),
         invoiceHeader: z.string().nullable().optional(),
         invoiceFooter: z.string().nullable().optional(),
         receiptHeader: z.string().nullable().optional(),
@@ -963,6 +983,7 @@ export const appContract = c.router({
     },
     getByInvoice: {
       method: 'GET',
+      // The invoice id, or its number URL-encoded (numbers contain '/', e.g. MAIN%2F2627%2F00001).
       path: '/receipts/by-invoice/:invoiceId',
       responses: { 200: z.array(receiptSchema) }
     }

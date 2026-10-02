@@ -100,9 +100,12 @@ model Branch {
   name        String
   code        String       @unique
   logoUrl     String?
-  invoicePrefix String     @default("INV")
+  /// GST invoice series: invoices are numbered {series}/{FY}/{number}, e.g. MAIN/2627/00001.
+  /// Up to 5 letters or digits, unique across branches (set from the branch code when created).
+  invoicePrefix String     @unique
   receiptPrefix String     @default("RCPT")
-  returnPrefix  String     @default("RTN")
+  /// Credit note (return) series, numbered like invoices; unique across branches.
+  returnPrefix  String     @unique
   invoiceHeader String?
   invoiceFooter String?
   receiptHeader String?
@@ -113,8 +116,10 @@ model Branch {
   gstin        String?
   /// Two-digit GST state code of where the branch is; an over-the-counter sale's place of supply.
   stateCode    String?
+  /// Before GST numbering: invoices and returns now count in DocumentSequence.
   invoiceSeq  Int          @default(0)
   receiptSeq  Int          @default(0)
+  /// Before GST numbering: see invoiceSeq.
   returnSeq   Int          @default(0)
   customerSeq Int          @default(0)
   users       User[]
@@ -143,6 +148,22 @@ model BusinessSettings {
   hsnMinDigits       Int                @default(4)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
+}
+
+enum DocumentKind {
+  INVOICE
+  RETURN
+}
+
+/// The last number issued in each GST document series per financial year (start year).
+/// Counted per series rather than per branch, so a series handed to another branch carries on.
+model DocumentSequence {
+  kind       DocumentKind
+  series     String
+  fiscalYear Int
+  lastSeq    Int          @default(0)
+
+  @@id([kind, series, fiscalYear])
 }
 
 /// Each change of the business's GST registration type. The type in force at a moment is
@@ -350,6 +371,9 @@ model SaleInvoice {
   taxpayerType        TaxpayerType     @default(REGULAR)
   documentType        GstDocumentType  @default(TAX_INVOICE)
   compositionCategory CompositionCategory?
+  /// The document series and financial year (start year, e.g. 2026 for 2026-27) of invoiceNo.
+  documentSeries      String?
+  fiscalYear          Int?
   /// The GSTIN the sale was made under and the selling branch's state, as at the sale.
   sellerGstin         String?
   sellerStateCode     String?
@@ -452,6 +476,9 @@ model ReturnInvoice {
   saleInvoiceId String
   saleInvoice   SaleInvoice        @relation(fields: [saleInvoiceId], references: [id])
   returnNo      String             @unique
+  /// The credit note series and financial year (start year) of returnNo.
+  documentSeries String?
+  fiscalYear    Int?
   totalAmount   Decimal            @db.Decimal(14, 2)
   /// totalAmount split into taxable value and tax by kind; the sums of the lines'.
   taxableTotal  Decimal            @default(0) @db.Decimal(14, 2)

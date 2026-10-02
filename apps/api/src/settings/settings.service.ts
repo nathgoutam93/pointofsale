@@ -137,6 +137,7 @@ export class SettingsService {
       throw new BadRequestException(`Invalid branchId: ${branchId}`);
     }
     const gst = this.resolveBranchGst(existing, input);
+    await this.assertDocumentSeriesFree(branchId, input);
     return this.prisma.branch.update({
       where: { id: branchId },
       data: {
@@ -157,6 +158,22 @@ export class SettingsService {
       },
       select: branchSettingsSelect
     });
+  }
+
+  /** Invoice and credit note series are unique across branches (numbers must never repeat). */
+  private async assertDocumentSeriesFree(branchId: string, input: { invoicePrefix?: string; returnPrefix?: string }) {
+    for (const field of ['invoicePrefix', 'returnPrefix'] as const) {
+      const series = input[field];
+      if (!series) continue;
+      const other = await this.prisma.branch.findFirst({
+        where: { [field]: series, NOT: { id: branchId } },
+        select: { name: true }
+      });
+      if (other) {
+        const what = field === 'invoicePrefix' ? 'Invoice' : 'Return';
+        throw new BadRequestException(`${what} series ${series} is already used by ${other.name}; each branch needs its own`);
+      }
+    }
   }
 
   /**

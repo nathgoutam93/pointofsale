@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { DiscountScope, InvoiceStatus, PaymentMode, Prisma, StockTxnType, TaxpayerType, UserRole, WalletTxnType } from '@prisma/client';
+import { DiscountScope, DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, TaxpayerType, UserRole, WalletTxnType } from '@prisma/client';
 import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, resolveDiscountAmounts } from '@pos/contracts';
 import type { DiscountInput } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
@@ -270,8 +270,11 @@ export class SalesService {
       }
     }
 
-    const seq = await this.sequences.nextSequence(input.branchId, 'invoice', tx);
-    const invoiceNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
+    const { number: invoiceNo, series: documentSeries, fiscalYear } = await this.sequences.nextDocumentNumber(
+      tx,
+      input.branchId,
+      DocumentKind.INVOICE
+    );
 
     const {
       computedLines,
@@ -304,6 +307,8 @@ export class SalesService {
       data: {
         branchId: input.branchId,
         invoiceNo,
+        documentSeries,
+        fiscalYear,
         idempotencyKey: input.idempotencyKey,
         customerId: input.customerId,
         customerName: invoiceCustomerName,
