@@ -37,7 +37,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 - **Problem:** Negative or NaN amounts reach the service methods. For example, `POST /customers/:id/wallet/topup {amount:-5000}` drains a wallet. This is the root cause of #6 and #7.
 - **Fix:** Apply the contract's zod schemas on the server, either with `@ts-rest/nest` (best, since the web app already uses ts-rest) or a small `ZodValidationPipe` per route. Tighten the schemas: amounts must be positive and finite, quantities greater than 0, and the arrays inside payloads non-empty with no duplicates.
 
-### [ ] 4. Sanitise branch receipt CSS
+### [x] 4. Sanitise branch receipt CSS
 - **Where:** The web receipt renderer puts the branch's custom CSS raw into a `<style>` tag.
 - **Fix:** Remove `</style`, `@import`, `url(javascript:` and similar on save (server) and on render. Better still, limit it to a set of allowed properties.
 
@@ -180,3 +180,21 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - The 7 routes with a query string use the contract's `query` schema. This fixed two crashes: `GET /reports/sales-summary` and `GET /users` without `branchId` used to return 500 and now return 400.
     - `items.list`'s `activeOnly` used `z.coerce.boolean()`, which turned `"false"` into `true`. It now accepts `true`/`false` or `"true"`/`"false"`.
     - Every `:id`-style path param uses Nest's `ParseUUIDPipe`, so a malformed id gets 400. The exception is `/receipts/by-invoice/:invoiceId`, which also accepts an invoice number.
+- **2026-10-02 (session 2):** Finished #4. Branch invoice and receipt CSS goes through a shared sanitizer, `sanitizeReceiptCss` in `packages/contracts/src/receiptCss.ts`, used by both the API and the web app.
+  - What it keeps:
+    - Only plain rules and `@media` blocks; every other at-rule (`@import`, `@font-face`, ...) is dropped.
+    - Every selector is scoped to `#printable-invoice`, and a leading `body`/`html`/`:root` points at the receipt instead. Attribute selectors and sibling combinators (`~`, `+`) are rejected.
+    - Only allowlisted properties (typography, colour, spacing, borders, sizes, flex) plus `--receipt-*` variables.
+    - Values can't contain `url(`, `expression(`, `image(`, `attr(`, `:`, `;`, braces, `<`, `\` or `@`.
+    - The output is rebuilt from the parsed pieces, so `</style>` can't get through.
+  - On save: the `branches.update` contract rejects CSS that the sanitizer would change, plus anything over 10,000 characters. The admin sees the reasons, because the Branch Settings page now shows the API's message (`apiErrorMessage` moved from `ItemsPage` to `lib/api.ts`).
+  - On render: the POS, Sales and Returns pages and the downloaded invoice HTML use only the sanitized CSS. That covers CSS saved before this fix. The invoice number in the downloaded file's `<title>` is HTML-escaped.
+  - Also fixed:
+    - `resolveReceiptWidth` used `\\s`/`\\d` in a regex literal, so `--receipt-ch: 32` never matched and the receipt width setting didn't work.
+    - Branch codes and invoice, receipt and return prefixes accepted any text. They're now 1–16 letters, digits, `-` or `/`. A branch whose saved prefix breaks this rule can't be saved until it's changed.
+    - `@pos/contracts` is now `"type": "module"`, so Node doesn't warn when it loads the second file.
+  - Tested with the app running:
+    - The API rejected a `</style><script>` breakout, `@import`/`url()`, attribute selectors, `position: fixed` overlays, CSS over 10,000 characters, and prefixes with markup or spaces. Valid CSS and `INV/26` were saved.
+    - In the browser, with malicious CSS written straight into the database, the script didn't run, `aside { display: none }` didn't hide the app, nothing was fetched from the attacker host, and the legitimate rules still applied (`--receipt-ch: 32`, colour). The downloaded invoice had no script, and its title was escaped.
+    - The settings page showed the rejection reasons. The Sales and Returns pages loaded with no console errors.
+    - The earlier suites (validation, branch checks, UI checkout) still pass.

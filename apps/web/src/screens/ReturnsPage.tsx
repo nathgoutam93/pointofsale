@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, authHeaders } from "../lib/api";
 import {
   buildReceiptLines,
@@ -231,6 +232,11 @@ export function ReturnsPage() {
   }, [businessSettings.data?.name, branchSettings.data?.name]);
 
   const receiptCharWidth = resolveReceiptWidth(branchSettings.data?.receiptCss, 48);
+  // Branch CSS is admin-written; render only the sanitized, receipt-scoped rules.
+  const customReceiptCss = useMemo(
+    () => sanitizeReceiptCss(branchSettings.data?.receiptCss).css,
+    [branchSettings.data?.receiptCss],
+  );
   const receiptTemplateCss = `
     #printable-invoice {
       font-family: "Courier New", Courier, monospace;
@@ -435,7 +441,7 @@ export function ReturnsPage() {
           }
         }
         ${receiptTemplateCss}
-        ${branchSettings.data?.receiptCss ?? ""}
+        ${customReceiptCss}
       `}</style>
       <aside className="overflow-y-auto border-r border-slate-200 bg-white p-4">
         <div className="mb-4 flex items-center justify-between gap-2">

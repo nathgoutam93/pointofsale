@@ -1,5 +1,9 @@
 import { initContract } from '@ts-rest/core';
 import { z } from 'zod';
+import { RECEIPT_CSS_MAX_LENGTH, sanitizeReceiptCss } from './receiptCss.js';
+
+export { RECEIPT_CSS_MAX_LENGTH, RECEIPT_CSS_SCOPE, sanitizeReceiptCss } from './receiptCss.js';
+export type { ReceiptCssResult } from './receiptCss.js';
 
 const c = initContract();
 
@@ -18,6 +22,23 @@ export const moneySchema = z.number().finite();
 const taxRateSchema = z.number().min(0).max(100);
 const requiredText = z.string().trim().min(1);
 const passwordSchema = z.string().min(8).max(128);
+/** Branch codes and document prefixes become part of invoice, receipt and return numbers. */
+const documentCodeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(16)
+  .regex(/^[A-Za-z0-9/-]+$/, 'Use only letters, digits, "-" and "/"');
+/** Branch receipt CSS: rejected when sanitizing would drop anything, so the admin sees why. */
+const receiptCssSchema = z
+  .string()
+  .max(RECEIPT_CSS_MAX_LENGTH)
+  .superRefine((css, ctx) => {
+    if (css.length > RECEIPT_CSS_MAX_LENGTH) return; // already reported by .max()
+    for (const problem of sanitizeReceiptCss(css).problems) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+    }
+  });
 
 /** Rejects arrays where two entries share the same key (e.g. the same sale line twice). */
 const uniqueBy = <T>(key: (entry: T) => string, message: string) =>
@@ -370,7 +391,7 @@ export const appContract = c.router({
       path: '/branches',
       body: z.object({
         name: requiredText,
-        code: requiredText
+        code: documentCodeSchema
       }),
       responses: { 201: branchSchema }
     },
@@ -384,17 +405,17 @@ export const appContract = c.router({
       path: '/branches/:id',
       body: z.object({
         name: requiredText.optional(),
-        code: requiredText.optional(),
+        code: documentCodeSchema.optional(),
         logoUrl: z.string().nullable().optional(),
-        invoicePrefix: z.string().optional(),
-        receiptPrefix: z.string().optional(),
-        returnPrefix: z.string().optional(),
+        invoicePrefix: documentCodeSchema.optional(),
+        receiptPrefix: documentCodeSchema.optional(),
+        returnPrefix: documentCodeSchema.optional(),
         invoiceHeader: z.string().nullable().optional(),
         invoiceFooter: z.string().nullable().optional(),
         receiptHeader: z.string().nullable().optional(),
         receiptFooter: z.string().nullable().optional(),
-        invoiceCss: z.string().nullable().optional(),
-        receiptCss: z.string().nullable().optional()
+        invoiceCss: receiptCssSchema.nullable().optional(),
+        receiptCss: receiptCssSchema.nullable().optional()
       }),
       responses: { 200: branchSettingsSchema }
     }

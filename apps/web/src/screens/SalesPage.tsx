@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, authHeaders } from "../lib/api";
 import {
   buildReceiptLines,
@@ -196,6 +197,11 @@ export function SalesPage() {
   const receiptCharWidth = resolveReceiptWidth(
     branchSettings.data?.receiptCss,
     48,
+  );
+  // Branch CSS is admin-written; render only the sanitized, receipt-scoped rules.
+  const customReceiptCss = useMemo(
+    () => sanitizeReceiptCss(branchSettings.data?.receiptCss).css,
+    [branchSettings.data?.receiptCss],
   );
   const receiptTemplateCss = `
     #printable-invoice {
@@ -977,7 +983,7 @@ export function SalesPage() {
           }
         }
         ${receiptTemplateCss}
-        ${branchSettings.data?.receiptCss ?? ""}
+        ${customReceiptCss}
       `}</style>
 
       <aside className="flex h-full flex-col overflow-hidden border-r border-slate-200 bg-white">

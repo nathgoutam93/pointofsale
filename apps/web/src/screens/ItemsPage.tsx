@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { API_BASE_URL, api, authHeaders } from "../lib/api";
+import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { requireSession } from "./route-helpers";
 
 type ItemFormState = {
@@ -68,15 +68,6 @@ function normalizeSaleUomRows(rows: SaleUomFormState[], baseUom: string) {
       seen.add(key);
       return row.conversionQty > 0 && row.sellPrice >= 0 && row.mrp >= 0;
     });
-}
-
-function apiErrorMessage(body: unknown, fallback: string) {
-  if (body && typeof body === "object" && "message" in body) {
-    const message = (body as { message?: unknown }).message;
-    if (typeof message === "string" && message.trim()) return message;
-    if (Array.isArray(message) && message.length) return message.join(", ");
-  }
-  return fallback;
 }
 
 export function ItemsPage() {

@@ -26,3 +26,13 @@ export function authHeaders(): Record<string, string> {
     Authorization: `Bearer ${session.token}`
   };
 }
+
+/** The API's error message: a string, or a list of validation problems joined together. */
+export function apiErrorMessage(body: unknown, fallback: string) {
+  if (body && typeof body === 'object' && 'message' in body) {
+    const message = (body as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+    if (Array.isArray(message) && message.length) return message.join(', ');
+  }
+  return fallback;
+}

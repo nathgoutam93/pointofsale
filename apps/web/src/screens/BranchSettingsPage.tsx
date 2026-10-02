@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { API_BASE_URL, api, authHeaders } from "../lib/api";
+import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
 
 type SettingsForm = {
@@ -308,7 +308,7 @@ export function BranchSettingsPage() {
         },
         extraHeaders: authHeaders()
       });
-      if (res.status !== 200) throw new Error("Failed to save branch settings");
+      if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to save branch settings"));
       return res.body;
     },
     onSuccess: (updated) => {

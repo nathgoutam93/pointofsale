@@ -46,7 +46,7 @@ export const resolveReceiptWidth = (
   fallback = 48,
 ) => {
   if (!css) return fallback;
-  const match = css.match(/--receipt-ch\\s*:\\s*(\\d+)/i);
+  const match = css.match(/--receipt-ch\s*:\s*(\d+)/i);
   if (!match) return fallback;
   const value = Number(match[1]);
   if (value === 32 || value === 48) return value;
@@ -342,3 +342,12 @@ export const buildReceiptLines = (params: {
 
   return { lines, layout };
 };
+
+/** Escapes text for use inside HTML built as a string (e.g. the downloadable invoice). */
+export const escapeHtml = (text: string) =>
+  text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");

@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBlocker } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, authHeaders } from "../lib/api";
 import {
   buildReceiptLines,
+  escapeHtml,
   formatReceiptDate,
   formatReceiptTime,
   resolveReceiptWidth,
@@ -212,6 +214,11 @@ export function PosPage() {
     branchSettings.data?.invoiceCss,
     48,
   );
+  // Branch CSS is admin-written; render only the sanitized, receipt-scoped rules.
+  const customReceiptCss = useMemo(
+    () => sanitizeReceiptCss(branchSettings.data?.invoiceCss).css,
+    [branchSettings.data?.invoiceCss],
+  );
   const receiptTemplateCss = `
     #printable-invoice {
       font-family: "Courier New", Courier, monospace;
@@ -396,8 +403,7 @@ export function PosPage() {
     if (!invoiceElement) {
       return null;
     }
-    const customCss = branchSettings.data?.invoiceCss ?? "";
-    return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${postPayment.invoiceNo}</title><style>body{font-family:\"Courier New\",Courier,monospace;margin:0;padding:24px;background:#fff;color:#111827;}@media print{body{margin:0;}}${receiptTemplateCss}${customCss}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${escapeHtml(postPayment.invoiceNo)}</title><style>body{font-family:\"Courier New\",Courier,monospace;margin:0;padding:24px;background:#fff;color:#111827;}@media print{body{margin:0;}}${receiptTemplateCss}${customReceiptCss}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
   };
 
   const exportPrintableInvoice = () => {
@@ -1704,7 +1710,7 @@ export function PosPage() {
           }
         }
         ${receiptTemplateCss}
-        ${branchSettings.data?.invoiceCss ?? ""}
+        ${customReceiptCss}
       `}</style>
 
       <aside className="flex h-full flex-col overflow-hidden bg-white">
