@@ -544,6 +544,23 @@ export class PosService {
     }
   }
 
+  /**
+   * Walk-in customers no longer have a usable wallet. Any balance left from before (wallet
+   * refunds paid into the shared walk-in wallet) is frozen as a record; list it so an admin
+   * can settle those refunds by hand.
+   */
+  private async warnAboutWalkInWalletBalances() {
+    const wallets = await this.prisma.walletAccount.findMany({
+      where: { customer: { isWalkIn: true }, NOT: { balance: 0 } },
+      select: { balance: true, branch: { select: { code: true } } }
+    });
+    for (const wallet of wallets) {
+      this.logger.warn(
+        `Branch ${wallet.branch.code}: the walk-in customer's wallet holds ${this.toNumber(wallet.balance).toFixed(2)} from before walk-in wallets were turned off. It can't be spent; settle these refunds by hand.`
+      );
+    }
+  }
+
   async onModuleInitSeed() {
     const branch = await this.prisma.branch.upsert({
       where: { code: 'MAIN' },
@@ -553,6 +570,7 @@ export class PosService {
 
     await this.seedFirstAdmin(branch.id);
     await this.hashPlaintextPasswords();
+    await this.warnAboutWalkInWalletBalances();
 
     const users = await this.prisma.user.findMany({ select: { id: true, branchId: true } });
     await Promise.all(
@@ -1264,6 +1282,17 @@ export class PosService {
     return true;
   }
 
+  /**
+   * Every anonymous shopper at a branch is the same walk-in customer record, so a walk-in
+   * "wallet" would be shared by strangers: a refund paid into it could be spent by the next
+   * shopper. Walk-in customers therefore have no wallet: no wallet payments, refunds or top-ups.
+   */
+  private assertHasWallet(customer: { isWalkIn: boolean }) {
+    if (customer.isWalkIn) {
+      throw new BadRequestException("Walk-in customers don't have a wallet. Use cash, or pick a registered customer.");
+    }
+  }
+
   /** A phone number identifies one customer: across all branches when shared, within the branch otherwise. */
   private async assertPhoneFree(
     phone: string | null | undefined,
@@ -1373,6 +1402,7 @@ export class PosService {
     if (!wallet || !this.customerUsableAt(wallet.customer, branchId, scope)) {
       throw new NotFoundException('Wallet not found');
     }
+    this.assertHasWallet(wallet.customer);
     return wallet;
   }
 
@@ -2025,6 +2055,9 @@ export class PosService {
     const walletTotal = this.round2(
       payments.filter((p) => p.mode === PaymentMode.WALLET).reduce((acc, p) => acc + p.amount, 0)
     );
+    if (walletTotal > 0) {
+      this.assertHasWallet(invoice.customer);
+    }
     if (walletTotal > pending) {
       throw new BadRequestException('Wallet payment can\'t be more than the amount due');
     }
@@ -2156,7 +2189,11 @@ export class PosService {
       await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${saleInvoiceId} FOR UPDATE`;
       const invoice = await tx.saleInvoice.findUnique({
         where: { id: saleInvoiceId },
-        include: { lines: { include: { returnLines: true } }, returns: { select: { totalAmount: true } } }
+        include: {
+          lines: { include: { returnLines: true } },
+          returns: { select: { totalAmount: true } },
+          customer: { select: { isWalkIn: true } }
+        }
       });
 
       if (!invoice) throw new NotFoundException('Invoice not found');
@@ -2169,6 +2206,10 @@ export class PosService {
             ? `Invoice ${invoice.invoiceNo} is cancelled`
             : `Invoice ${invoice.invoiceNo} isn't fully paid yet. Collect the payment before returning items.`
         );
+      }
+
+      if (input.refundMode === PaymentMode.WALLET) {
+        this.assertHasWallet(invoice.customer);
       }
 
       // Add up repeated lines so the same sale line can't be counted twice.

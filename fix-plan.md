@@ -91,7 +91,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 - **Problem:** `listCustomers` returns customers from every branch, but `createSale` rejects customers from another branch.
 - **Fix:** Decide the business rule (are customers shared or per branch?) and apply it the same way in both places.
 
-### [ ] 14. Shared walk-in wallet
+### [x] 14. Shared walk-in wallet
 - **Problem:** All walk-in customers share one wallet, yet returns can refund into it.
 - **Fix:** Turn off wallet refunds and wallet payments for the walk-in customer, and refund cash or the original payment method instead.
 
@@ -356,3 +356,19 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - An invalid setting value gets 400. The settings field saves and reloads.
     - `branch-test` (from #2) now runs in BRANCH mode, where wallets are branch-private. All other suites and the UI checkout still pass.
   - There is no loyalty-points feature yet. When one is added, it can hang off the shared customer.
+- **2026-10-02 (session 2):** Finished #14. Approach agreed with the user first: walk-ins get cash-only refunds, and existing walk-in balances are left frozen with a startup warning.
+  - Reproduced on the old build: a walk-in return refunded ₹100 into the walk-in wallet, and **a different walk-in sale then spent it**. An admin ₹500 top-up and a two-step WALLET settle of a walk-in invoice were also accepted.
+  - The screens already hid the wallet for walk-ins, so the hole was server-side. One rule, `assertHasWallet`: walk-in customers have no wallet. It's checked on:
+    - WALLET payments (`settleSaleInTx`, so both settle and checkout)
+    - WALLET refunds (`createReturn`)
+    - wallet reads and top-ups (`findUsableWallet`)
+
+    The message is "Walk-in customers don't have a wallet. Use cash, or pick a registered customer." Registered customers are unchanged.
+  - Refunds for walk-ins are cash only. Card refunds weren't added (the user agreed); returns can't refund to card for anyone yet.
+  - Existing balances are kept as a record but can't be spent. At startup, `warnAboutWalkInWalletBalances` logs each branch whose walk-in wallet isn't 0, e.g. "Branch W845921: the walk-in customer's wallet holds 400.00 from before walk-in wallets were turned off. It can't be spent; settle these refunds by hand."
+  - POS: the wallet query is skipped when the walk-in customer is picked explicitly, so no error appears.
+  - Tested with the app running:
+    - On the new build, all 5 walk-in wallet actions get 400 and the walk-in wallet stays 0. A cash refund for the same return works. Registered customers can still top up, pay from and refund to their wallet.
+    - The startup warning appeared for the ₹400 left by the old-build reproduction.
+    - Browser: the POS offers walk-ins Cash and Card only, makes no wallet requests and shows no errors. The Returns page offers only "Cash Refund" for a walk-in invoice.
+    - All 10 earlier suites still pass.

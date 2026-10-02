@@ -1119,7 +1119,8 @@ export function PosPage() {
 
   const customerWallet = useQuery({
     queryKey: ["customer-wallet", customerId],
-    enabled: !!customerId,
+    // Walk-in customers have no wallet.
+    enabled: !!customerId && !selectedCustomer?.isWalkIn,
     queryFn: async () => {
       const res = await api.customers.getWallet({
         params: { id: customerId },
