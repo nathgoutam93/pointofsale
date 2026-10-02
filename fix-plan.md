@@ -205,7 +205,7 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
   - The last units returned take exactly what is left, so a line returned in parts adds back up to the sale line.
 - **Backfill:** split stored refund amounts for existing returns using each sale line's ratio of taxable value to tax.
 
-### [ ] 35. Tax Invoice and Bill of Supply documents
+### [x] 35. Tax Invoice and Bill of Supply documents
 - **Where:** `apps/web/src/screens/pos/receipt.ts`, the printable and downloadable invoice, and the Sales page reprint.
 - **Change:**
   - Regular taxpayers: the title is "Tax Invoice". Show the branch GSTIN, place of supply when it differs from the branch state, HSN per line, and CGST/SGST or IGST totals.
@@ -703,3 +703,25 @@ Added 2026-10-02 after a design discussion; nothing here is built yet.
     - 5 new contracts tests, including 3,000 random partial-return sequences that each add back up exactly, and 3 new API tests (CGST/SGST, IGST, parts shown with the sale). One existing test was updated for the new 66.67 + 66.66 + 66.67 order. All 136 tests pass.
     - Browser test: 3 × ₹100 including 18% returned one unit at a time from the Returns page. Each amount shown matched the refund (100.01, 99.98, 100.01 = 300.00), and the returned parts add up to the sale line (254.24 / 22.88 / 22.88).
     - The POS snapshot is identical, and the walk-in, register-close, draft and place-of-supply flows pass.
+- **#35 done.** Receipts print as a Tax Invoice or a Bill of Supply, from what the invoice recorded.
+  - New `apps/web/src/lib/gstReceipt.ts`, used by both the POS receipt (`screens/pos/receipt.ts`) and the Sales page reprint:
+    - The title: TAX INVOICE or BILL OF SUPPLY, from the invoice's `documentType`.
+    - The invoice's own `sellerGstin`. It used to print the current business GSTIN.
+    - "Place of Supply: 27 - Maharashtra" when the goods went to another state.
+    - An "HSN 8517" row under each item.
+    - "incl. CGST / incl. SGST" or "incl. IGST" in the totals, labelled "incl." because the line totals already include tax.
+    - On a Bill of Supply: no tax rows, plus the required declaration "Composition taxable person, not eligible to collect tax on supplies".
+  - Every value comes from the invoice, never the current settings: a sale reprinted after switching to composition is still a Tax Invoice.
+  - Receipt layout (`lib/receiptFormat.ts`):
+    - Takes a `title`.
+    - Centred lines (store name, header, title, footer) now wrap instead of being cut at the paper's width. The declaration was being cut at "Composition taxable person, not" on 32-character receipts; long store headers and footers were cut the same way.
+    - A metadata entry can print as its own line (`fullLine`), so "Place of Supply" isn't shortened to "Place of Sup".
+  - Verified:
+    - Browser test with the branch GSTIN set and an item HSN of 8517:
+      - Counter sale: TAX INVOICE, GSTIN, HSN 8517, incl. CGST 18.00 + incl. SGST 18.00, no place of supply.
+      - Shipped to Maharashtra: Place of Supply 27 - Maharashtra, incl. IGST 36.00 only.
+      - Composition: BILL OF SUPPLY with no tax rows, the full declaration, total 200.00. The downloaded copy is the bill of supply too.
+      - Reprinting the earlier sale from Sales: still a TAX INVOICE with CGST and HSN.
+    - The POS snapshot changed only as intended: the TAX INVOICE title, and incl. CGST 53.55 + incl. SGST 53.55 (equal to the line's 107.10 tax). It is the new baseline; the old one is kept as `pos-before-pre-gst35.json`.
+    - All 136 tests pass, and the browser flows pass.
+  - Not covered: the Returns page receipt doesn't print GST details. Credit notes for returns come with the returns in #37.

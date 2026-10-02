@@ -1,3 +1,5 @@
+import type { InvoiceGst } from "../../lib/gstReceipt";
+
 // Shapes used by the POS screen and its parts.
 
 export type CartLine = {
@@ -19,6 +21,8 @@ export type CartLine = {
   taxMode: "INCLUSIVE" | "EXCLUSIVE";
   imageUrl?: string | null;
   netAmount?: number;
+  /** On a completed sale's lines: the HSN/SAC code it was sold under. */
+  hsnCode?: string | null;
 };
 
 export type PostPaymentSummary = {
@@ -34,6 +38,8 @@ export type PostPaymentSummary = {
   paidTotal: number;
   paymentLines: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
   lines: CartLine[];
+  /** The invoice's GST facts as recorded at the sale (document type, GSTIN, tax split). */
+  gst: InvoiceGst;
 };
 
 export type PaymentMode = "CASH" | "CARD" | "WALLET";

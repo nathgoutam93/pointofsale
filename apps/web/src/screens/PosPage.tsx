@@ -34,6 +34,7 @@ import { useOrderDiscount } from "./pos/useOrderDiscount";
 import { usePayment } from "./pos/usePayment";
 import { useStoreSettings } from "./pos/useStoreSettings";
 import type { CartLine, LocalSaleDraft, PostPaymentSummary } from "./pos/types";
+import { invoiceGstOf } from "../lib/gstReceipt";
 
 export function PosPage() {
   const session = requireOperationalSession();
@@ -589,6 +590,7 @@ export function PosPage() {
         taxTotal: Number(result.invoice.taxTotal),
         grandTotal: Number(result.invoice.grandTotal),
         paidTotal: Number(result.invoice.paidTotal ?? 0),
+        gst: invoiceGstOf(result.invoice),
         paymentLines: result.invoice.payments.map((line) => ({
           mode: line.mode,
           amount: Number(line.amount),
@@ -628,6 +630,7 @@ export function PosPage() {
             taxMode: line.taxMode ?? snapshot?.taxMode ?? "EXCLUSIVE",
             imageUrl: snapshot?.imageUrl,
             netAmount: Number(line.netAmount ?? 0),
+            hsnCode: line.hsnCode ?? null,
           };
         }),
       });

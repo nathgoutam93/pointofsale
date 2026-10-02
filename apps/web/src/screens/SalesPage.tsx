@@ -9,6 +9,7 @@ import {
   formatReceiptTime,
   resolveReceiptWidth,
 } from "../lib/receiptFormat";
+import { gstDocumentTitle, gstFooterLines, gstMetadata, gstTaxTotals, hsnDetailRow, invoiceGstOf, type InvoiceGst } from "../lib/gstReceipt";
 import { money, requireOperationalSession } from "./route-helpers";
 
 type PaymentMode = "CASH" | "CARD" | "WALLET";
@@ -45,8 +46,10 @@ type SettledSummary = {
     taxAmount: number;
     taxableAmount: number;
     netAmount: number;
+    hsnCode?: string | null;
   }>;
   payments: Array<{ mode: PaymentMode; amount: number }>;
+  gst: InvoiceGst;
 };
 
 export function SalesPage() {
@@ -658,7 +661,9 @@ export function SalesPage() {
           taxAmount: Number(line.taxAmount ?? 0),
           taxableAmount: Number(line.taxableAmount ?? 0),
           netAmount: Number(line.netAmount),
+          hsnCode: line.hsnCode ?? null,
         })),
+        gst: invoiceGstOf(result.invoice),
         payments: result.invoice.payments.map((line) => ({
           mode: line.mode,
           amount: Number(line.amount),
@@ -839,6 +844,7 @@ export function SalesPage() {
       taxAmount: Number(line.taxAmount ?? 0),
       taxableAmount: Number(line.taxableAmount ?? 0),
       netAmount: Number(line.netAmount),
+      hsnCode: line.hsnCode ?? null,
     })) ??
     [];
 
@@ -870,6 +876,8 @@ export function SalesPage() {
       ? formatSaleCreator(currentSaleCreatorId, currentSaleCreatorName)
       : "";
 
+    // The GST facts recorded on the invoice, never the current settings.
+    const gst = settledSummary?.gst ?? invoiceGstOf(currentInvoice);
     const metadata = [
       { label: "Invoice", value: currentInvoice.invoiceNo },
       { label: "Receipt", value: previewReceipt?.receiptNo ?? "" },
@@ -877,7 +885,7 @@ export function SalesPage() {
       { label: "Time", value: formatReceiptTime(createdAt) },
       { label: "Cashier", value: cashier },
       { label: "Customer", value: currentInvoice.customerName ?? "" },
-      { label: "GSTIN", value: businessSettings.data?.gstNumber ?? "" },
+      ...gstMetadata(gst),
     ];
 
     const items = saleLines.map((line) => {
@@ -901,6 +909,7 @@ export function SalesPage() {
       return {
         name,
         detailRows: [
+          ...hsnDetailRow(line.hsnCode),
           {
             label: `${qtyLabel} x ${money(baseUnitRate)}`,
             value: money(baseExclusive),
@@ -932,6 +941,7 @@ export function SalesPage() {
             },
           ]
         : []),
+      ...gstTaxTotals(gst),
       { label: "TOTAL", value: money(invoiceGrandTotal), isGrandTotal: true },
     ];
 
@@ -945,13 +955,16 @@ export function SalesPage() {
       { label: "Remaining Due", value: money(remainingDue) },
     ];
 
-    const footerLines =
-      receiptFooterLines.length > 0 ? receiptFooterLines : invoiceFooterLines;
+    const footerLines = [
+      ...(receiptFooterLines.length > 0 ? receiptFooterLines : invoiceFooterLines),
+      ...gstFooterLines(gst),
+    ];
 
     return buildReceiptLines({
       width: receiptCharWidth,
       storeName: storeDisplayName,
       headerLines: receiptHeaderLines,
+      title: gstDocumentTitle(gst),
       metadata,
       items,
       totals,
@@ -968,7 +981,7 @@ export function SalesPage() {
     itemUomById,
     invoiceGrandTotal,
     invoicePaidTotal,
-    businessSettings.data?.gstNumber,
+    settledSummary?.gst,
     storeDisplayName,
     receiptHeaderLines,
     receiptFooterLines,
