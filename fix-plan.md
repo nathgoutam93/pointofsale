@@ -109,7 +109,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 ### [x] 18. Faster stock-on-hand lookups
 - Stock on hand is recalculated from the full stock history each time. Add an `ItemStock` table (item, branch, qty) updated in the same transaction as each stock entry. This row is also what #9 locks.
 
-### [~] 19. Split up the big files
+### [x] 19. Split up the big files
 - `pos.service.ts` (2000+ lines) and `pos.controller.ts` handle everything. Split them into modules (auth, users, items, sales, returns, customers, registers, reports). `PosPage.tsx` should likewise be broken into hooks and components.
 
 ### [x] 20. Add tests
@@ -466,3 +466,19 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - A route-by-route comparison of the old and new controllers (method, path and every decorator: `@Public`, `@HttpCode`, validation pipes) is identical for all 44 single-line routes, and the 3 upload routes are present with their interceptors.
     - All 12 scratch API suites and the browser flows (checkout, rounding, cashier limit, close register, discount match, 20 draft checks) pass against the dev server running the split backend.
     - The cashier-limit browser script was flaky because it scanned before the POS item list had loaded (the known scan-too-early issue); it now waits and passed 5/5.
+- **#19 POS screen done, so #19 is complete.** `PosPage.tsx` goes from 2,221 lines to 795. It still holds the cart, checkout, drafts and the queries; everything else lives in `apps/web/src/screens/pos/`:
+
+  | Kind | Files |
+  |---|---|
+  | Plain helpers | `cartMath.ts` (rounding, quantities, line amounts, `stepLineQty`), `keyboard.ts`, `receipt.ts` (receipt lines, printable and downloadable HTML), `types.ts` |
+  | Hooks | `useStoreSettings`, `useLocalDrafts`, `useLeaveGuard` (blocker, unload listeners), `useOrderDiscount`, `useLineEditor`, `usePayment` |
+  | Dialogs | `OrderDiscountModal`, `LineEditorModal`, `PaymentModal`, `CustomerPickerModal`, `LeaveDialog` |
+  | Layout | `PostPaymentPanel`, `DraftList`, `CartLines`, `CartTotals`, `CustomerSection`, `ProductGrid`, `PrintableInvoice`, `ReceiptPrintStyles` |
+
+  - Each dialog registers its own keyboard shortcuts while it is mounted and reads the latest handlers through a ref. The old effects were re-attached on every render.
+  - The customer picker keeps its own search and create form. They reset because it unmounts on close, which replaces five manual resets.
+  - One bug fixed on the way: Apply in the line editor matched cart lines by item id, so with the same item in two units (e.g. PCS and BOX), editing one replaced the other with a copy of the edited line. It now matches by cart key. A browser test failed on the old code and passes on the new.
+  - Verified:
+    - A browser snapshot of the POS (21 sections: search tiles, categories, the line editor by keypad and keyboard, order discount, customer create and select, payment, receipt text, downloaded invoice, page errors) is identical before and after each step.
+    - The draft checks (20), checkout, rounding, cashier limit, close register, discount match, idempotent retry and walk-in browser flows pass.
+    - The new unit test covers the two-unit edit and the cart's `-`/`+` buttons. Type check, web build and all 88 tests pass.
