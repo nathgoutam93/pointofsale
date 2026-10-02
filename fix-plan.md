@@ -66,7 +66,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 - **Problem:** Repeated `saleLineId`s within one request aren't added up before the "already returned" check. Unpaid DRAFT invoices can be returned for a CASH refund.
 - **Fix:** Group the lines by `saleLineId` first. Allow returns only on SETTLED invoices. Don't refund more than was paid; for credit sales, refund to the customer's wallet or reduce what they owe.
 
-### [ ] 9. Stock can go negative
+### [x] 9. Stock can go negative
 - **Where:** `pos.service.ts` around line 1491 (`createSale`), `openRegister`, and stock adjustment OUT
 - **Problem:** Each line is checked against stock separately, even when two lines are the same item, and nothing locks the stock between the check and the write. Two registers can both sell the last unit, and two registers can open at once.
 - **Fix:** Add up base-unit quantities per item before checking. Do the check and the write in one transaction that locks the rows (`SELECT ... FOR UPDATE` on an item stock row), or use Serializable isolation with a retry. For registers, add a partial unique index on `RegisterSession(branchId) WHERE closedAt IS NULL`.
@@ -259,3 +259,22 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - In the browser, the Returns page showed the same amount the API refunded (₹66.67 after a 2-unit return worth ₹133.33), and showed the "not fully paid" message for an unpaid invoice.
     - The validation, settle and pricing suites still pass.
   - I didn't reproduce the concurrent-return race on the old code; the test only shows the new lock holds.
+- **2026-10-02 (session 2):** Finished #9. Reproduced first:
+  - 5 registers sold the same last unit (on hand -4).
+  - Two lines of one item, or 1 box + 1 piece, oversold.
+  - 5 concurrent adjustment-OUTs reached -2.
+  - 5 registers opened for one branch.
+  - The fix:
+    - **Per-item locks:** `lockItemStock` takes a Postgres transaction-scoped advisory lock per (branch, item) (`pg_advisory_xact_lock(hashtextextended('stock:<branch>:<item>', 0))`), in sorted order to avoid deadlocks. Every path that takes stock out takes it before checking and writing: `createSale`, `createStockAdjustment` (now in a transaction), `updateStockOpening`, and `createStockOpening` (now in a transaction, since there's no unique constraint on opening rows).
+    - **Register opening:** `openRegister` does its check and insert in a transaction under a per-branch lock (`lockBranchRegister`).
+    - **Why not a table row or an index:** this needs no schema change. The plan's partial unique index can't be declared in the Prisma schema, so a later `migrate dev` would detect it and try to drop it. #18's `ItemStock` table can still replace the stock lock later.
+    - **`createSale`:** adds up base-unit quantities per item across all lines (a box and loose pieces share stock) and checks once per item, after locking. The message now names the item: "Insufficient stock for X: N on hand, M needed".
+  - Tested with the app running:
+    - 5 concurrent sales of the last unit: 1 accepted, on hand 0.
+    - Two lines of one item, and box + piece over stock: rejected, stock unchanged. A box alone still sells.
+    - 5 concurrent adjustment-OUTs on stock 3: 3 accepted, 0 left.
+    - Sales + adjustment + opening edit racing: on hand never below 0.
+    - 5 concurrent register opens: 1 accepted, 1 open in the database.
+    - 30 concurrent sales on stock 10: exactly 10 accepted in 251 ms, no transaction timeouts.
+    - The return, settle, pricing, validation and branch suites and the UI checkout still pass.
+  - Note: stock that's already negative (including the test items from the reproduction in this local database) isn't repaired; it needs a stock adjustment IN. Lock waits count toward Prisma's default 5 s interactive-transaction timeout; that's fine at shop scale, but raise it if many registers sell the same item at once.

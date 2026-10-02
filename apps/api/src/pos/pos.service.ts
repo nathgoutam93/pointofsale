@@ -1048,20 +1048,22 @@ export class PosService {
     await this.ensureBranchExists(branchId);
     await this.ensureUserHasBranchAccess(session.userId, branchId);
 
-    const openRegister = await this.prisma.registerSession.findFirst({
-      where: { branchId, closedAt: null },
-      select: { id: true }
-    });
-    if (openRegister) {
-      throw new BadRequestException('This branch already has an open register. Close it before opening a new one.');
-    }
-
-    const register = await this.prisma.registerSession.create({
-      data: {
-        userId: session.userId,
-        branchId,
-        openingBalance
+    const register = await this.prisma.$transaction(async (tx) => {
+      await this.lockBranchRegister(tx, branchId);
+      const openRegister = await tx.registerSession.findFirst({
+        where: { branchId, closedAt: null },
+        select: { id: true }
+      });
+      if (openRegister) {
+        throw new BadRequestException('This branch already has an open register. Close it before opening a new one.');
       }
+      return tx.registerSession.create({
+        data: {
+          userId: session.userId,
+          branchId,
+          openingBalance
+        }
+      });
     });
 
     return {
@@ -1437,20 +1439,21 @@ export class PosService {
     if (!item) throw new NotFoundException('Item not found');
     this.assertQtyRespectsLeastCount(qty, this.toNumber(item.leastCount), 'Opening stock');
 
-    const existingOpening = await this.prisma.stockLedger.findFirst({
-      where: {
-        branchId,
-        itemId: normalizedItemId,
-        txnType: StockTxnType.OPENING
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockItemStock(tx, branchId, [normalizedItemId]);
+      const existingOpening = await tx.stockLedger.findFirst({
+        where: {
+          branchId,
+          itemId: normalizedItemId,
+          txnType: StockTxnType.OPENING
+        }
+      });
+
+      if (existingOpening) {
+        throw new BadRequestException('Opening stock already exists for this item');
       }
-    });
 
-    if (existingOpening) {
-      throw new BadRequestException('Opening stock already exists for this item');
-    }
-
-    try {
-      return await this.prisma.stockLedger.create({
+      return tx.stockLedger.create({
         data: {
           branchId,
           itemId: normalizedItemId,
@@ -1461,12 +1464,7 @@ export class PosService {
           reason
         }
       });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new BadRequestException('Opening stock already exists for this item');
-      }
-      throw error;
-    }
+    });
   }
 
   async updateStockOpening(branchId: string, itemId: string, qty: number, costPrice?: number, reason?: string) {
@@ -1480,6 +1478,7 @@ export class PosService {
     this.assertQtyRespectsLeastCount(qty, this.toNumber(item.leastCount), 'Opening stock');
 
     return this.prisma.$transaction(async (tx) => {
+      await this.lockItemStock(tx, branchId, [normalizedItemId]);
       const opening = await tx.stockLedger.findFirst({
         where: {
           branchId,
@@ -1522,22 +1521,41 @@ export class PosService {
     if (!item) throw new NotFoundException('Item not found');
     this.assertQtyRespectsLeastCount(qty, this.toNumber(item.leastCount), 'Stock adjustment');
 
-    if (direction === 'OUT') {
-      const onHand = await this.getOnHandForItem(branchId, normalizedItemId);
-      if (onHand < qty) throw new BadRequestException('Insufficient stock for adjustment out');
-    }
-
-    return this.prisma.stockLedger.create({
-      data: {
-        branchId,
-        itemId: normalizedItemId,
-        txnType: direction === 'IN' ? StockTxnType.ADJUSTMENT_PLUS : StockTxnType.ADJUSTMENT_MINUS,
-        qtyIn: direction === 'IN' ? qty : 0,
-        qtyOut: direction === 'OUT' ? qty : 0,
-        costPrice: costPrice ?? 0,
-        reason
+    return this.prisma.$transaction(async (tx) => {
+      if (direction === 'OUT') {
+        await this.lockItemStock(tx, branchId, [normalizedItemId]);
+        const onHand = await this.getOnHandForItem(branchId, normalizedItemId, tx);
+        if (onHand < qty) throw new BadRequestException('Insufficient stock for adjustment out');
       }
+
+      return tx.stockLedger.create({
+        data: {
+          branchId,
+          itemId: normalizedItemId,
+          txnType: direction === 'IN' ? StockTxnType.ADJUSTMENT_PLUS : StockTxnType.ADJUSTMENT_MINUS,
+          qtyIn: direction === 'IN' ? qty : 0,
+          qtyOut: direction === 'OUT' ? qty : 0,
+          costPrice: costPrice ?? 0,
+          reason
+        }
+      });
     });
+  }
+
+  /**
+   * Holds a lock per (branch, item) until the transaction ends, so the on-hand check and
+   * the stock write that follows can't interleave with another register's. Every path that
+   * takes stock out calls this first; items are locked in sorted order to avoid deadlocks.
+   */
+  private async lockItemStock(tx: Prisma.TransactionClient, branchId: string, itemIds: string[]) {
+    for (const itemId of Array.from(new Set(itemIds)).sort()) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`stock:${branchId}:${itemId}`}, 0))`;
+    }
+  }
+
+  /** Same idea for opening a branch's register: one at a time per branch. */
+  private async lockBranchRegister(tx: Prisma.TransactionClient, branchId: string) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`register:${branchId}`}, 0))`;
   }
 
   private async getOnHandForItem(branchId: string, itemId: string, tx?: Prisma.TransactionClient) {
@@ -1639,10 +1657,6 @@ export class PosService {
         }
         const pricing = this.resolveLinePricing(item, line);
         this.assertQtyRespectsLeastCount(pricing.qty, this.toNumber(item.leastCount), `Sale line ${line.itemId}`);
-        const onHand = await this.getOnHandForItem(input.branchId, normalizedItemId, tx);
-        if (onHand < pricing.qty) {
-          throw new BadRequestException(`Insufficient stock for item ${line.itemId}`);
-        }
         normalizedLines.push({
           ...line,
           ...pricing,
@@ -1650,6 +1664,21 @@ export class PosService {
           itemName: item.name,
           discounts: line.discounts ?? []
         });
+      }
+
+      // Check stock per item, adding up every line of it in base units (a box and a
+      // loose piece of the same item draw on the same stock), under the item locks.
+      const qtyByItem = new Map<string, { name: string; qty: number }>();
+      for (const line of normalizedLines) {
+        const entry = qtyByItem.get(line.itemId);
+        qtyByItem.set(line.itemId, { name: line.itemName, qty: this.round3((entry?.qty ?? 0) + line.qty) });
+      }
+      await this.lockItemStock(tx, input.branchId, Array.from(qtyByItem.keys()));
+      for (const [itemId, { name, qty }] of qtyByItem) {
+        const onHand = await this.getOnHandForItem(input.branchId, itemId, tx);
+        if (onHand + 1e-9 < qty) {
+          throw new BadRequestException(`Insufficient stock for ${name}: ${this.round3(onHand)} on hand, ${qty} needed`);
+        }
       }
 
       const seq = await this.nextSequence(input.branchId, 'invoice', tx);
