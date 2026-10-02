@@ -85,8 +85,12 @@ export async function startApp() {
   }
 
   async function close() {
-    await db.$disconnect();
-    await app.close();
+    try {
+      await assertStockMatchesLedger(db);
+    } finally {
+      await db.$disconnect();
+      await app.close();
+    }
   }
 
   return { app, baseUrl, db, call, ok, login, branchWithRegister, item, onHand, close };
@@ -112,3 +116,29 @@ export const checkoutBody = (branchId: string, customerId: string, lines: unknow
   idempotencyKey: randomUUID(),
   ...extra
 });
+
+/** On-hand stock (ItemStock) must always equal the sum of the stock ledger. Checked after every test file. */
+export async function assertStockMatchesLedger(db: PrismaClient) {
+  const mismatches = await db.$queryRaw<Array<{ branchId: string; itemId: string; stock: string; ledger: string }>>`
+    SELECT COALESCE(s."branchId", l."branchId") AS "branchId", COALESCE(s."itemId", l."itemId") AS "itemId",
+           COALESCE(s.qty, 0)::text AS stock, COALESCE(l.qty, 0)::text AS ledger
+    FROM "ItemStock" s
+    FULL JOIN (SELECT "branchId", "itemId", SUM("qtyIn" - "qtyOut") AS qty FROM "StockLedger" GROUP BY 1, 2) l
+      ON l."branchId" = s."branchId" AND l."itemId" = s."itemId"
+    WHERE COALESCE(s.qty, 0) <> COALESCE(l.qty, 0)`;
+  if (mismatches.length > 0) {
+    throw new Error(`ItemStock differs from the ledger: ${JSON.stringify(mismatches.slice(0, 5))}`);
+  }
+}
+
+/** Opening stock written straight to the database (ledger and on-hand together, like the app). */
+export async function addOpeningStock(db: PrismaClient, branchId: string, itemId: string, qty: number) {
+  await db.$transaction([
+    db.stockLedger.create({ data: { branchId, itemId, txnType: 'OPENING', qtyIn: qty, qtyOut: 0 } }),
+    db.itemStock.upsert({
+      where: { branchId_itemId: { branchId, itemId } },
+      create: { branchId, itemId, qty },
+      update: { qty: { increment: qty } }
+    })
+  ]);
+}

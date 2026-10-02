@@ -91,6 +91,7 @@ model Branch {
   customers   Customer[]
   wallets     WalletAccount[]
   stockLedgers StockLedger[]
+  stock       ItemStock[]
   saleInvoices SaleInvoice[]
 }
 
@@ -211,6 +212,7 @@ model Item {
   isActive    Boolean         @default(true)
   lines       SaleInvoiceLine[]
   stockLedgers StockLedger[]
+  stock       ItemStock[]
   saleUoms    ItemSaleUom[]
   createdAt   DateTime        @default(now())
 }
@@ -229,6 +231,19 @@ model ItemSaleUom {
 
   @@unique([itemId, uom])
   @@index([itemId, sortOrder])
+}
+
+/// Current stock on hand per branch and item, kept in step with StockLedger: every ledger
+/// entry adjusts this row in the same transaction (see recordStock in pos.service.ts).
+model ItemStock {
+  branchId  String
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id])
+  qty       Decimal  @default(0) @db.Decimal(14, 3)
+  updatedAt DateTime @updatedAt
+
+  @@id([branchId, itemId])
 }
 
 model StockLedger {

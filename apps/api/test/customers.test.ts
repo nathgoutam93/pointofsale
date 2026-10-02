@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { checkoutBody, line, startApp, type TestApp } from './helpers';
+import { addOpeningStock, checkoutBody, line, startApp, type TestApp } from './helpers';
 
 // #13: customers shared across branches (or not, per setting). #14: walk-ins have no wallet.
 let t: TestApp;
@@ -16,7 +16,7 @@ describe('customer scope', () => {
     const x = await t.branchWithRegister(admin);
     const y = await t.branchWithRegister(admin);
     const item = await t.item(x.token, x.branch.id);
-    await t.db.stockLedger.create({ data: { branchId: y.branch.id, itemId: item.id, txnType: 'OPENING', qtyIn: 50, qtyOut: 0 } });
+    await addOpeningStock(t.db, y.branch.id, item.id, 50);
     const phone = `9${Date.now().toString().slice(-9)}`;
     const asha = await t.ok('POST', '/customers', x.token, { branchId: x.branch.id, name: 'Asha', phone });
     await t.ok('POST', `/customers/${asha.id}/wallet/topup`, x.token, { amount: 300 });

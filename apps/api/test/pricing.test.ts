@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { line, startApp, type TestApp } from './helpers';
+import { addOpeningStock, line, startApp, type TestApp } from './helpers';
 
 // #5 / #6: the server prices each line from the item; cashiers have a discount limit.
 let t: TestApp;
@@ -31,7 +31,7 @@ async function asCashier() {
   const base = await t.login(username, 'cashier-pass-1');
   const opened = await t.ok('POST', '/registers/open', base, { branchId: c.branch.id, openingBalance: 0 });
   // Stock for the cashier's branch (opening stock needs that branch's open register).
-  await t.db.stockLedger.create({ data: { branchId: c.branch.id, itemId: phone.id, txnType: 'OPENING', qtyIn: 100, qtyOut: 0 } });
+  await addOpeningStock(t.db, c.branch.id, phone.id, 100);
   return { token: opened.token, branchId: c.branch.id, walkInId: c.walkIn.id };
 }
 

@@ -106,7 +106,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 ### [x] 17. Remove stale build files
 - `packages/contracts/src/index.js` and `index.d.ts` are compiled leftovers (no `saleUoms`). Delete them and add them to `.gitignore`.
 
-### [ ] 18. Faster stock-on-hand lookups
+### [x] 18. Faster stock-on-hand lookups
 - Stock on hand is recalculated from the full stock history each time. Add an `ItemStock` table (item, branch, qty) updated in the same transaction as each stock entry. This row is also what #9 locks.
 
 ### [ ] 19. Split up the big files
@@ -432,3 +432,10 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
   - Checked that the tests catch regressions by re-breaking four fixes one at a time: no stock lock (2 failures), returns on unpaid invoices (1), the guard ignoring a role change (1), the walk-in wallet check removed (1). The last one passed at first because the empty walk-in wallet refused the payment anyway; the test now gives that wallet a frozen ₹500, and it fails as it should.
   - README: the Quick Start now covers Node 22.12+, `AUTH_SECRET` and building the shared packages. The wrong "Default Seed Users admin/password, cashier/password" section is replaced by how the first admin is created, and a Tests section explains `pnpm test` and the `pos_test` database.
   - The scratch scripts used during sessions 1–2 remain outside the repo; the in-repo suites now cover them.
+- **#18 done:** new `ItemStock` table (branch, item, qty; primary key `(branchId, itemId)`).
+  - Migration `20261002170000_item_stock` fills it from the ledger: 198 rows in the dev database, summing to the ledger total.
+  - Every stock movement goes through one helper, `recordStock`: it takes the item locks, writes the ledger entries and moves the `ItemStock` rows in the same transaction. That covers sales, returns, opening stock (create, and update via `adjustItemStock` with the difference), adjustments and sale cancellations; nothing else writes `stockLedger` now.
+  - `getOnHandForItem` / `getOnHand` read one row instead of summing the item's full history.
+  - Locking: the per-item advisory lock from #9 is kept rather than switched to row locks on `ItemStock` (it already works, and changing it adds risk for no gain). `recordStock` takes it too, so stock-in paths can't race when a row is first created.
+  - Safety net: every API test file now ends with `assertStockMatchesLedger`, which fails if any `ItemStock` row differs from its ledger sum. It immediately caught two test files that wrote ledger rows directly; they now use `addOpeningStock`, which writes both.
+  - Verified: 63 API tests pass with the check after every file. On the dev database after the scratch stock, concurrency (30 sales on 10 units → exactly 10), checkout, return and pricing suites and the UI checkout, 0 rows differ.

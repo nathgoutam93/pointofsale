@@ -1411,17 +1411,10 @@ export class PosService {
         throw new BadRequestException('Opening stock already exists for this item');
       }
 
-      return tx.stockLedger.create({
-        data: {
-          branchId,
-          itemId: normalizedItemId,
-          txnType: StockTxnType.OPENING,
-          qtyIn: qty,
-          qtyOut: 0,
-          costPrice: costPrice ?? 0,
-          reason
-        }
-      });
+      const [entry] = await this.recordStock(tx, [
+        { branchId, itemId: normalizedItemId, txnType: StockTxnType.OPENING, qtyIn: qty, qtyOut: 0, costPrice: costPrice ?? 0, reason }
+      ]);
+      return entry;
     });
   }
 
@@ -1457,7 +1450,7 @@ export class PosService {
         throw new BadRequestException('Opening qty cannot be less than already consumed stock');
       }
 
-      return tx.stockLedger.update({
+      const updated = await tx.stockLedger.update({
         where: { id: opening.id },
         data: {
           qtyIn: qty,
@@ -1466,6 +1459,8 @@ export class PosService {
           reason
         }
       });
+      await this.adjustItemStock(tx, branchId, normalizedItemId, this.round3(qty - openingQty));
+      return updated;
     });
   }
 
@@ -1486,8 +1481,8 @@ export class PosService {
         if (onHand < qty) throw new BadRequestException('Insufficient stock for adjustment out');
       }
 
-      return tx.stockLedger.create({
-        data: {
+      const [entry] = await this.recordStock(tx, [
+        {
           branchId,
           itemId: normalizedItemId,
           txnType: direction === 'IN' ? StockTxnType.ADJUSTMENT_PLUS : StockTxnType.ADJUSTMENT_MINUS,
@@ -1496,7 +1491,8 @@ export class PosService {
           costPrice: costPrice ?? 0,
           reason
         }
-      });
+      ]);
+      return entry;
     });
   }
 
@@ -1516,27 +1512,57 @@ export class PosService {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`register:${branchId}`}, 0))`;
   }
 
+  /** Moves the on-hand row for (branch, item) by `delta`. The caller holds the item lock. */
+  private async adjustItemStock(tx: Prisma.TransactionClient, branchId: string, itemId: string, delta: number) {
+    if (delta === 0) return;
+    await tx.itemStock.upsert({
+      where: { branchId_itemId: { branchId, itemId } },
+      create: { branchId, itemId, qty: delta },
+      update: { qty: { increment: delta } }
+    });
+  }
+
+  /**
+   * Every stock movement goes through here: it locks the items, writes the ledger entries
+   * and moves the matching ItemStock rows in the same transaction, so on-hand stock always
+   * equals the sum of the ledger. Returns the created ledger entries.
+   */
+  private async recordStock(
+    tx: Prisma.TransactionClient,
+    entries: Array<Omit<Prisma.StockLedgerUncheckedCreateInput, 'qtyIn' | 'qtyOut'> & { qtyIn: number; qtyOut: number }>
+  ) {
+    const itemsByBranch = new Map<string, string[]>();
+    for (const entry of entries) {
+      itemsByBranch.set(entry.branchId, [...(itemsByBranch.get(entry.branchId) ?? []), entry.itemId]);
+    }
+    for (const [branchId, itemIds] of [...itemsByBranch].sort(([a], [b]) => a.localeCompare(b))) {
+      await this.lockItemStock(tx, branchId, itemIds);
+    }
+    const created = [];
+    for (const entry of entries) {
+      created.push(await tx.stockLedger.create({ data: entry }));
+      await this.adjustItemStock(tx, entry.branchId, entry.itemId, this.round3(entry.qtyIn - entry.qtyOut));
+    }
+    return created;
+  }
+
   private async getOnHandForItem(branchId: string, itemId: string, tx?: Prisma.TransactionClient) {
-    const client = tx ?? this.prisma;
-    const rows = await client.stockLedger.findMany({ where: { branchId, itemId }, select: { qtyIn: true, qtyOut: true } });
-    return rows.reduce((acc, row) => acc + this.toNumber(row.qtyIn) - this.toNumber(row.qtyOut), 0);
+    const row = await (tx ?? this.prisma).itemStock.findUnique({
+      where: { branchId_itemId: { branchId, itemId } },
+      select: { qty: true }
+    });
+    return this.toNumber(row?.qty ?? 0);
   }
 
   async getOnHand(branchId: string, itemId?: string) {
     await this.ensureBranchExists(branchId);
     const normalizedItemId = itemId ? await this.resolveItemId(itemId) : undefined;
 
-    const rows = await this.prisma.stockLedger.findMany({
+    const rows = await this.prisma.itemStock.findMany({
       where: { branchId, ...(normalizedItemId ? { itemId: normalizedItemId } : {}) },
-      select: { itemId: true, qtyIn: true, qtyOut: true }
+      select: { itemId: true, qty: true }
     });
-
-    const grouped = rows.reduce<Record<string, number>>((acc, row) => {
-      acc[row.itemId] = (acc[row.itemId] ?? 0) + this.toNumber(row.qtyIn) - this.toNumber(row.qtyOut);
-      return acc;
-    }, {});
-
-    return Object.entries(grouped).map(([id, onHand]) => ({ itemId: id, onHand }));
+    return rows.map((row) => ({ itemId: row.itemId, onHand: this.toNumber(row.qty) }));
   }
 
   async getLedger(branchId: string, itemId?: string) {
@@ -1763,8 +1789,9 @@ export class PosService {
       throw new NotFoundException('Invoice not found after creation');
     }
 
-    await tx.stockLedger.createMany({
-      data: computedLines.map((line) => ({
+    await this.recordStock(
+      tx,
+      computedLines.map((line) => ({
         branchId: input.branchId,
         itemId: line.itemId,
         txnType: StockTxnType.SALE,
@@ -1773,7 +1800,7 @@ export class PosService {
         referenceType: 'SALE',
         referenceId: invoice.id
       }))
-    });
+    );
 
     return this.withCreatedByName(createdInvoice);
   }
@@ -1845,17 +1872,18 @@ export class PosService {
       if (invoice.status !== InvoiceStatus.DRAFT || this.toNumber(invoice.paidTotal) > 0) {
         throw new BadRequestException(`Only unpaid draft invoices can be cancelled; ${invoice.invoiceNo} is ${invoice.status}`);
       }
-      await tx.stockLedger.createMany({
-        data: invoice.lines.map((line) => ({
+      await this.recordStock(
+        tx,
+        invoice.lines.map((line) => ({
           branchId: invoice.branchId,
           itemId: line.itemId,
           txnType: StockTxnType.SALE_CANCEL,
-          qtyIn: line.qty,
+          qtyIn: this.toNumber(line.qty),
           qtyOut: 0,
           referenceType: 'SALE_CANCEL',
           referenceId: invoice.id
         }))
-      });
+      );
       const updated = await tx.saleInvoice.update({
         where: { id: invoice.id },
         data: { status: InvoiceStatus.CANCELLED },
@@ -2129,20 +2157,18 @@ export class PosService {
         }
       });
 
-      for (const line of returnLineCreates) {
-        const saleLine = invoice.lines.find((l) => l.id === line.saleLineId)!;
-        await tx.stockLedger.create({
-          data: {
-            branchId: invoice.branchId,
-            itemId: saleLine.itemId,
-            txnType: StockTxnType.RETURN,
-            qtyIn: line.qty,
-            qtyOut: 0,
-            referenceType: 'RETURN',
-            referenceId: returnInvoice.id
-          }
-        });
-      }
+      await this.recordStock(
+        tx,
+        returnLineCreates.map((line) => ({
+          branchId: invoice.branchId,
+          itemId: invoice.lines.find((l) => l.id === line.saleLineId)!.itemId,
+          txnType: StockTxnType.RETURN,
+          qtyIn: line.qty,
+          qtyOut: 0,
+          referenceType: 'RETURN',
+          referenceId: returnInvoice.id
+        }))
+      );
 
       if (input.refundMode === PaymentMode.WALLET) {
         const wallet = await tx.walletAccount.findUnique({ where: { customerId: invoice.customerId } });
