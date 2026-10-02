@@ -5,6 +5,19 @@ import { money, requireAdmin } from "./route-helpers";
 
 const ALL_BRANCHES_OPTION = "__all_branches__";
 
+// Report figures that add up across branches for "All branches".
+const SUMMED_FIELDS = [
+  "invoiceCount",
+  "grossSales",
+  "taxCollected",
+  "returnsGross",
+  "returnsNet",
+  "netSales",
+  "costOfGoodsSold",
+  "grossProfit",
+  "unpaidSales",
+] as const;
+
 function formatShortDate(value: string) {
   return new Date(value).toLocaleDateString("en-IN", {
     year: "numeric",
@@ -63,28 +76,12 @@ export function ReportsPage() {
     );
 
     const ranges = first.ranges.map((range, index) => {
-      const totals = datasets.reduce(
-        (acc, data) => {
-          const current = data.ranges[index];
-          return {
-            salesTotal: acc.salesTotal + Number(current?.salesTotal ?? 0),
-            returnsTotal: acc.returnsTotal + Number(current?.returnsTotal ?? 0),
-            netSales: acc.netSales + Number(current?.netSales ?? 0),
-            expensesTotal: acc.expensesTotal + Number(current?.expensesTotal ?? 0),
-            profit: acc.profit + Number(current?.profit ?? 0),
-          };
-        },
-        { salesTotal: 0, returnsTotal: 0, netSales: 0, expensesTotal: 0, profit: 0 }
-      );
-
+      const sum = (key: (typeof SUMMED_FIELDS)[number]) =>
+        datasets.reduce((acc, data) => acc + Number(data.ranges[index]?.[key] ?? 0), 0);
       return {
         ...range,
-        salesTotal: totals.salesTotal,
-        returnsTotal: totals.returnsTotal,
-        netSales: totals.netSales,
-        expensesTotal: totals.expensesTotal,
-        profit: totals.profit,
-      };
+        ...Object.fromEntries(SUMMED_FIELDS.map((key) => [key, sum(key)])),
+      } as typeof range;
     });
 
     return {
@@ -132,7 +129,7 @@ export function ReportsPage() {
               Sales Report
             </p>
             <h2 className="text-2xl font-semibold text-slate-900">
-              Sales, Expenses, and Profit
+              Sales, Cost, and Gross Profit
             </h2>
           </div>
           <div className="flex items-end gap-3">
@@ -183,27 +180,37 @@ export function ReportsPage() {
                 </div>
                 <div className="mt-4 space-y-3 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Sales</span>
-                    <span className="font-semibold">{money(range.salesTotal)}</span>
+                    <span className="text-slate-500">Sales incl. tax ({range.invoiceCount} paid)</span>
+                    <span className="font-semibold">{money(range.grossSales)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Returns</span>
-                    <span className="font-semibold">{money(range.returnsTotal)}</span>
+                    <span className="text-slate-500">Tax collected</span>
+                    <span className="font-semibold">{money(range.taxCollected)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Net Sales</span>
+                    <span className="text-slate-500">Returns before tax</span>
+                    <span className="font-semibold">{money(range.returnsNet)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Net sales (excl. tax)</span>
                     <span className="font-semibold">{money(range.netSales)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Expenses (Stock In)</span>
-                    <span className="font-semibold">{money(range.expensesTotal)}</span>
+                    <span className="text-slate-500">Cost of goods sold</span>
+                    <span className="font-semibold">{money(range.costOfGoodsSold)}</span>
                   </div>
                   <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-                    <span className="text-slate-700">Profit</span>
-                    <span className="text-base font-semibold text-emerald-600">
-                      {money(range.profit)}
+                    <span className="text-slate-700">Gross profit</span>
+                    <span className={`text-base font-semibold ${range.grossProfit < 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                      {money(range.grossProfit)}
                     </span>
                   </div>
+                  {range.unpaidSales > 0 ? (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500">Unpaid credit sales (not counted)</span>
+                      <span className="font-semibold text-amber-700">{money(range.unpaidSales)}</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             );

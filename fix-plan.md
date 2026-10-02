@@ -78,7 +78,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
 
 ## Phase 3: Reports and register
 
-### [ ] 11. Fix "profit" in reports
+### [x] 11. Fix "profit" in reports
 - **Where:** `pos.service.ts` around line 2019
 - **Problem:** Gross sales include GST, and every opening-stock or stock-adjustment-in entry is subtracted as an expense. Loading ₹1 lakh of stock shows a ₹1 lakh loss that day.
 - **Fix:** Report net sales (excluding tax), tax collected, returns, and cost of goods sold (the item's cost price or average cost at the time of sale, stored on the sale line). Gross profit = net sales − cost of goods sold. Count only SETTLED invoices.
@@ -305,3 +305,21 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
     - All API suites still pass.
   - `POST /sales` and `POST /sales/:id/settle` still exist: the Sales page uses settle for credit sales.
   - Seen while testing: a barcode scanned before the POS item list has loaded isn't found. That isn't a regression; one of my test scripts tripped over it.
+- **2026-10-02 (session 2):** Finished #11.
+  - Each sale line now stores `unitCost`: the item's `costPrice` per base unit at the time of sale. Migration `20261002130000_sale_line_unit_cost` adds it and **backfills older lines from each item's current cost**, so history before this change is approximate.
+  - `computeReportRange` runs four SQL aggregates per range (`$queryRaw`, because Prisma can't sum `qty × cost`). New fields replace `salesTotal`/`returnsTotal`/`expensesTotal`/`profit`:
+    - `invoiceCount`, `grossSales`, `taxCollected`: **SETTLED invoices only**.
+    - `returnsGross` / `returnsNet`: the pre-tax part uses each sale line's taxable/net ratio.
+    - `netSales` = grossSales − tax − returnsNet.
+    - `costOfGoodsSold` = sold qty × unitCost − returned qty × unitCost.
+    - `grossProfit` = netSales − COGS.
+    - `unpaidSales`: still owed on DRAFT/PARTIALLY_SETTLED invoices, shown separately and not counted.
+    - Opening stock and stock-ins are no longer an expense.
+  - The Reports page shows the new figures (profit turns red if negative, unpaid credit is shown only when there is some), and the "All branches" total adds every field up.
+  - Tested on a fresh branch with a hand-worked scenario: ₹65,000 of opening stock; 2×A (₹100 + 18%, cost 60) and 1×B (₹118 incl. 18%, cost 50) paid; one credit sale; one cancelled draft; one A returned.
+    - Report: 2 paid, sales 354, tax 54, returns 118/100, net 200, COGS 110, **gross profit 90**, unpaid 118. All 9 figures matched.
+    - The old report would have shown roughly −₹64,646.
+    - Changing A's cost afterwards doesn't change past COGS; a new sale uses the new cost.
+    - The Reports page shows the same figures, and "All branches" adds up.
+    - All API suites and the UI checkout still pass. `checkout-test` now checks `unpaidSales` for the cancelled draft.
+  - Not done: average or FIFO costing (it uses the item's cost price when sold); payments aren't linked to registers (#12); report dates use the server's time zone (#15).

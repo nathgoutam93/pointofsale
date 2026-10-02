@@ -272,6 +272,8 @@ model SaleInvoiceLine {
   rate                Decimal              @db.Decimal(14, 2)
   /// Catalog price per sale unit when the sale was made; rate differs when the price was changed at the POS. Null on older lines.
   listRate            Decimal?             @db.Decimal(14, 2)
+  /// Item cost per base unit when sold, for cost of goods sold in reports. Backfilled from the item's cost at migration time for older lines.
+  unitCost            Decimal?             @db.Decimal(14, 4)
   saleUom             String?
   saleUomQty          Decimal?             @db.Decimal(14, 3)
   saleUomConversionQty Decimal?            @db.Decimal(14, 3)

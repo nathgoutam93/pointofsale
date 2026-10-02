@@ -325,11 +325,22 @@ const reportRangeSchema = z.object({
   label: z.string(),
   startDate: z.string().datetime().nullable(),
   endDate: z.string().datetime().nullable(),
-  salesTotal: moneySchema,
-  returnsTotal: moneySchema,
-  expensesTotal: moneySchema,
+  /** Settled invoices in the range. */
+  invoiceCount: z.number().int().nonnegative(),
+  /** Settled sales including tax. */
+  grossSales: moneySchema,
+  taxCollected: moneySchema,
+  /** Refunds including tax, and their pre-tax part. */
+  returnsGross: moneySchema,
+  returnsNet: moneySchema,
+  /** Pre-tax sales minus pre-tax returns. */
   netSales: moneySchema,
-  profit: moneySchema
+  /** Cost of items sold minus cost of items returned, at the cost recorded when sold. */
+  costOfGoodsSold: moneySchema,
+  /** netSales - costOfGoodsSold. */
+  grossProfit: moneySchema,
+  /** Still owed on unpaid or part-paid (credit) invoices created in the range; not in sales. */
+  unpaidSales: moneySchema
 });
 
 const saleCreateBodySchema = z.object({
