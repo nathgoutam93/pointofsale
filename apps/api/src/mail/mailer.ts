@@ -43,11 +43,8 @@ export class Mailer {
    */
   async sendNotice(mail: Mail) {
     if (this.mode() === null) return;
-    try {
-      await this.send(mail);
-    } catch (error) {
-      this.logger.warn(`Couldn't email "${mail.subject}" to ${mail.to}: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    // send() has logged why.
+    await this.send(mail).catch(() => undefined);
   }
 
   /** Fails (503) when this server can't send email. */
@@ -67,13 +64,19 @@ export class Mailer {
         return;
       case 'smtp': {
         this.transport ??= createTransport(withTimeouts(process.env.SMTP_URL!.trim()));
-        await this.transport.sendMail({
-          from: process.env.MAIL_FROM?.trim() || 'Point of Sale <no-reply@localhost>',
-          to: mail.to,
-          subject: mail.subject,
-          text: mail.text,
-          ...(mail.html ? { html: mail.html } : {})
-        });
+        try {
+          await this.transport.sendMail({
+            from: process.env.MAIL_FROM?.trim() || 'Point of Sale <no-reply@localhost>',
+            to: mail.to,
+            subject: mail.subject,
+            text: mail.text,
+            ...(mail.html ? { html: mail.html } : {})
+          });
+        } catch (error) {
+          // The reason (a wrong SMTP login, a blocked port) is for the server's log, not the app.
+          this.logger.error(`Couldn't email "${mail.subject}" to ${mail.to}: ${error instanceof Error ? error.message : String(error)}`);
+          throw new ServiceUnavailableException("Couldn't send the email just now. Try again in a few minutes; if it keeps failing, contact the server's support.");
+        }
         return;
       }
       default:

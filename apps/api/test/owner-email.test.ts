@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { createServer, type AddressInfo } from 'net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { EMAIL_VERIFICATION_REQUIRED } from '@pos/contracts';
 import { mailOutbox } from '../src/mail/mailer';
@@ -112,5 +113,35 @@ describe('owner email verification', () => {
     const code = codeIn(mailOutbox[0].text);
     expect((await t.call('POST', '/accounts/password-reset/confirm', null, { email, code, newPassword: 'changed-pass-1' })).status).toBe(200);
     expect(mailOutbox.at(-1)!.subject).toBe('Your Point of Sale owner password was changed');
+  });
+});
+
+describe('when the mail server refuses', () => {
+  it('says the email could not be sent (503), not an internal error', async () => {
+    // A mail server that turns every login away, as one does with a wrong SMTP_URL password.
+    const server = createServer((socket) => {
+      socket.write('220 test ESMTP\r\n');
+      socket.on('data', (data) => {
+        for (const line of data.toString().split('\r\n').filter(Boolean)) {
+          if (/^EHLO/i.test(line)) socket.write('250-test\r\n250 AUTH PLAIN LOGIN\r\n');
+          else if (/^AUTH/i.test(line)) socket.write('535 5.7.8 Authentication failed\r\n');
+          else if (/^QUIT/i.test(line)) socket.end('221 bye\r\n');
+          else socket.write('250 ok\r\n');
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    delete process.env.MAIL_TRANSPORT;
+    process.env.SMTP_URL = `smtp://user:wrong@127.0.0.1:${port}`;
+    try {
+      const res = await create(`refused-${randomUUID()}@example.com`);
+      expect(res.status).toBe(503);
+      expect(res.body.message).toMatch(/Couldn't send the email/);
+    } finally {
+      process.env.MAIL_TRANSPORT = 'memory';
+      delete process.env.SMTP_URL;
+      server.close();
+    }
   });
 });
