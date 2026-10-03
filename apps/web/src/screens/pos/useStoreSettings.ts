@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { chargesGst, sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, authHeaders } from "../../lib/api";
 import { branchReceiptTemplate } from "../../lib/receipt";
+import { usePrintTemplate } from "../../lib/printing";
 
 /** Branch and business settings, and the receipt branding the POS derives from them. */
 export function useStoreSettings(branchId: string) {
@@ -78,6 +79,8 @@ export function useStoreSettings(branchId: string) {
   );
   /** How this branch lays its receipts out (paper, layout, what they show). */
   const receiptTemplate = useMemo(() => branchReceiptTemplate(branchSettings.data), [branchSettings.data]);
+  /** The same, on this computer's paper when its printer takes other paper: what receipts print with. */
+  const printTemplate = usePrintTemplate(receiptTemplate);
 
   const taxCalculationMode =
     businessSettings.data?.taxCalculationMode ?? "AFTER_DISCOUNT";
@@ -97,6 +100,7 @@ export function useStoreSettings(branchId: string) {
     storeDisplayName,
     customReceiptCss,
     receiptTemplate,
+    printTemplate,
   };
 }
 

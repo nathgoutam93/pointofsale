@@ -125,7 +125,8 @@ and which parts print (logo, HSN codes, GST summary, savings, bill-number barcod
 GST bill needs always prints. The layout is `renderReceipt` in `packages/contracts`, so the POS,
 Sales and Returns screens and the printer all print the same thing.
 In either mode, each computer can have a receipt printer (Settings → Printer): receipts then
-print in one click with no dialog, sized for the branch's paper, and optionally as soon as a sale is paid. A cash drawer plugged into that printer opens (ESC/POS
+print in one click with no dialog, sized for the branch's paper (or this computer's, when its
+printer takes other paper), and optionally as soon as a sale is paid. A cash drawer plugged into that printer opens (ESC/POS
 drawer kick) when cash is taken or refunded. Without a printer, Print opens the system dialog
 as in a browser. Code: `apps/desktop/src/printing.ts`, `apps/web/src/lib/printing.ts`. The app's
 data and logs are in the OS's app-data folder under "Point of Sale". See

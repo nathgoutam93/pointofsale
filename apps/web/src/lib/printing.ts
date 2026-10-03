@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
 import { desktop, type PrintingSettings } from "./desktop";
-import type { ReceiptStyle } from "./receipt";
+import type { ReceiptStyle, ReceiptTemplate } from "./receipt";
 
 const printing = desktop?.printing ?? null;
 
@@ -17,6 +18,25 @@ export async function receiptPrinterSettings(): Promise<PrintingSettings | null>
   } catch {
     return null;
   }
+}
+
+/** This computer's printing settings, shared by every screen; Settings → Printer updates them. */
+export function useReceiptPrinterSettings() {
+  return useQuery({
+    queryKey: ["desktop-printing"],
+    queryFn: () => printing!.settings(),
+    enabled: !!printing,
+    staleTime: Infinity,
+  });
+}
+
+/**
+ * The branch's receipt layout on the paper this computer's printer takes, when it is set to
+ * other paper. What is shown is what prints, so every screen lays receipts out with this.
+ */
+export function usePrintTemplate(template: ReceiptTemplate) {
+  const paper = useReceiptPrinterSettings().data?.paper ?? null;
+  return useMemo(() => (paper && paper !== template.paper ? { ...template, paper } : template), [template, paper]);
 }
 
 /**

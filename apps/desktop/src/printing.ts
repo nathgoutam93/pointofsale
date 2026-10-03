@@ -14,9 +14,17 @@ export type PrintingSettings = {
   openDrawer: boolean;
   /** The drawer-kick pin of the printer's drawer port: almost always 2. */
   drawerPin: DrawerPin;
+  /**
+   * The paper this computer's printer takes, when it differs from the rest of the branch (one of
+   * RECEIPT_PAPERS in @pos/contracts). null: the branch's receipt layout decides.
+   */
+  paper: string | null;
 };
 
-export const DEFAULT_PRINTING: PrintingSettings = { printerName: null, autoPrint: false, openDrawer: false, drawerPin: 2 };
+export const DEFAULT_PRINTING: PrintingSettings = { printerName: null, autoPrint: false, openDrawer: false, drawerPin: 2, paper: null };
+
+/** The ids of RECEIPT_PAPERS in @pos/contracts (this app doesn't load it). */
+const RECEIPT_PAPER_IDS = ['58MM', '58MM_SMALL', '80MM', '80MM_LARGE', '80MM_SMALL'];
 
 /** Settings as saved or sent by the page, with anything unknown dropped. */
 export function cleanPrintingSettings(raw: unknown): PrintingSettings {
@@ -27,7 +35,9 @@ export function cleanPrintingSettings(raw: unknown): PrintingSettings {
     // Both need a printer: the drawer is opened through it.
     autoPrint: !!printerName && value.autoPrint === true,
     openDrawer: !!printerName && value.openDrawer === true,
-    drawerPin: value.drawerPin === 5 ? 5 : 2
+    drawerPin: value.drawerPin === 5 ? 5 : 2,
+    // Not tied to the printer: it also sizes receipts printed through the system dialog.
+    paper: typeof value.paper === 'string' && RECEIPT_PAPER_IDS.includes(value.paper) ? value.paper : null
   };
 }
 

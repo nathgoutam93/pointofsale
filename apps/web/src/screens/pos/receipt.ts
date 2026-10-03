@@ -49,7 +49,7 @@ export function buildInvoiceReceipt(postPayment: PostPaymentSummary, store: Stor
     payments: postPayment.paymentLines,
     paidTotal: postPayment.paidTotal,
   });
-  return renderReceipt(doc, store.receiptTemplate);
+  return renderReceipt(doc, store.printTemplate);
 }
 
 /**

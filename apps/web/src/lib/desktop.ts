@@ -2,6 +2,8 @@
  * What the desktop app (apps/desktop) exposes to the web app through its preload script.
  * In a plain browser there is no bridge and `desktop` is null.
  */
+import type { ReceiptPaper } from '@pos/contracts';
+
 export type DesktopMode = 'offline' | 'online';
 
 export type DesktopConfig = {
@@ -79,6 +81,8 @@ export type PrintingSettings = {
   /** Open the cash drawer (plugged into the receipt printer) when cash is taken or refunded. */
   openDrawer: boolean;
   drawerPin: 2 | 5;
+  /** The paper this computer's printer takes, overriding the branch's layout. null: the branch's. */
+  paper: ReceiptPaper | null;
 };
 
 export type PrinterInfo = { name: string; displayName: string };

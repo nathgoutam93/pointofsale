@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { returnLineAmounts, sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
-import { useReceiptPrinting } from "../lib/printing";
+import { usePrintTemplate, useReceiptPrinting } from "../lib/printing";
 import { branchReceiptTemplate, rateFromAmounts, receiptStyleFor, renderReceipt, returnReceiptDocument } from "../lib/receipt";
 import { ReceiptView } from "../components/ReceiptView";
 import { ReceiptPrintStyles } from "./pos/ReceiptPrintStyles";
@@ -236,7 +236,9 @@ export function ReturnsPage() {
     () => sanitizeReceiptCss(branchSettings.data?.receiptCss).css,
     [branchSettings.data?.receiptCss],
   );
-  const receiptTemplate = useMemo(() => branchReceiptTemplate(branchSettings.data), [branchSettings.data]);
+  const branchTemplate = useMemo(() => branchReceiptTemplate(branchSettings.data), [branchSettings.data]);
+  // On this computer's paper, when its printer takes other paper than the branch's.
+  const receiptTemplate = usePrintTemplate(branchTemplate);
 
   useEffect(() => {
     if (refundMode === "WALLET" && !walletAllowed) setRefundMode("CASH");

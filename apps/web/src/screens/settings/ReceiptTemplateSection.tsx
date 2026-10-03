@@ -141,6 +141,12 @@ export function ReceiptTemplateSection({
           <p className="mt-1 text-xs text-slate-500">
             The roll your receipt printers take. Small text fits more on a line, if your printer prints it clearly.
           </p>
+          {store.printTemplate.paper !== saved.paper ? (
+            <p className="mt-1 text-xs text-amber-700">
+              This computer's printer is set to {RECEIPT_PAPERS[store.printTemplate.paper].label} under Settings → Printer,
+              so receipts printed here use that instead.
+            </p>
+          ) : null}
         </div>
 
         <fieldset>

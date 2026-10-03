@@ -3,7 +3,7 @@ import { Link, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
-import { useReceiptPrinting } from "../lib/printing";
+import { usePrintTemplate, useReceiptPrinting } from "../lib/printing";
 import { branchReceiptTemplate, receiptStyleFor, renderReceipt, saleReceiptDocument } from "../lib/receipt";
 import { invoiceGstOf, type InvoiceGst } from "../lib/gstReceipt";
 import { formatReceiptDate } from "../lib/receiptFormat";
@@ -199,7 +199,9 @@ export function SalesPage() {
     () => sanitizeReceiptCss(branchSettings.data?.receiptCss).css,
     [branchSettings.data?.receiptCss],
   );
-  const receiptTemplate = useMemo(() => branchReceiptTemplate(branchSettings.data), [branchSettings.data]);
+  const branchTemplate = useMemo(() => branchReceiptTemplate(branchSettings.data), [branchSettings.data]);
+  // On this computer's paper, when its printer takes other paper than the branch's.
+  const receiptTemplate = usePrintTemplate(branchTemplate);
 
   const sales = useQuery({
     queryKey: ["sales-module", session.branchId],

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { DesktopPrinting, PrintingSettings } from "../../lib/desktop";
-import { RECEIPT_PAPERS } from "@pos/contracts";
+import { RECEIPT_PAPER_IDS, RECEIPT_PAPERS, type ReceiptPaper } from "@pos/contracts";
 import { printReceipt } from "../../lib/printing";
 import { receiptMarkup, receiptStyleFor, renderReceipt, sampleReceiptDocument } from "../../lib/receipt";
 import { getSession } from "../../lib/session";
@@ -38,10 +38,10 @@ export function PrinterSection({ printing, branchId }: { printing: DesktopPrinti
           },
           { title: "TEST PRINT" },
         ),
-        store.receiptTemplate,
+        store.printTemplate,
       );
       return printReceipt(
-        receiptStyleFor(receipt, store.receiptTemplate, store.customReceiptCss),
+        receiptStyleFor(receipt, store.printTemplate, store.customReceiptCss),
         receiptMarkup(receipt, store.invoiceLogoSrc),
       );
     },
@@ -66,7 +66,8 @@ export function PrinterSection({ printing, branchId }: { printing: DesktopPrinti
   if (current?.printerName && !printerOptions.some((printer) => printer.name === current.printerName)) {
     printerOptions.unshift({ name: current.printerName, displayName: `${current.printerName} (not found)` });
   }
-  const paper = RECEIPT_PAPERS[store.receiptTemplate.paper];
+  const branchPaper = RECEIPT_PAPERS[store.receiptTemplate.paper];
+  const paper = RECEIPT_PAPERS[store.printTemplate.paper];
 
   return (
     <div className="grid gap-4">
@@ -75,8 +76,7 @@ export function PrinterSection({ printing, branchId }: { printing: DesktopPrinti
           <h2 className="text-lg font-semibold tracking-tight text-slate-900">Receipt printer</h2>
           <p className="mt-1 text-sm text-slate-600">
             Receipts go straight to this printer in one click, with no print dialog. This is set on each computer
-            separately. Receipts are laid out for {paper.label} paper ({paper.columns} characters a line), as chosen
-            under Settings → Receipts.
+            separately. Receipts are laid out for {paper.label} paper ({paper.columns} characters a line).
           </p>
         </div>
 
@@ -123,6 +123,32 @@ export function PrinterSection({ printing, branchId }: { printing: DesktopPrinti
             press Refresh list.
           </p>
         ) : null}
+
+        <div className="mt-4">
+          <label className="field-label" htmlFor="receipt-printer-paper">
+            Paper in this printer
+          </label>
+          <select
+            id="receipt-printer-paper"
+            className="field w-auto"
+            value={current?.paper ?? ""}
+            disabled={!current || save.isPending}
+            onChange={(e) => update({ paper: (e.target.value || null) as ReceiptPaper | null })}
+          >
+            <option value="">
+              Same as the branch: {branchPaper.label}, {branchPaper.columns} characters a line
+            </option>
+            {RECEIPT_PAPER_IDS.map((id) => (
+              <option key={id} value={id}>
+                {RECEIPT_PAPERS[id].label}, {RECEIPT_PAPERS[id].columns} characters a line
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-500">
+            Only when this printer takes other paper than the branch's other tills. The layout and what prints still
+            come from Settings → Receipts.
+          </p>
+        </div>
 
         <label className="mt-4 flex items-start gap-2 text-sm text-slate-700">
           <input

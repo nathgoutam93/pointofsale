@@ -66,7 +66,7 @@ export function PosPage() {
   const [isOrderOpen, setIsOrderOpen] = useState(false);
 
   const store = useStoreSettings(session.branchId);
-  const { taxCalculationMode, chargeTax, invoiceLogoSrc, customReceiptCss, receiptTemplate } = store;
+  const { taxCalculationMode, chargeTax, invoiceLogoSrc, customReceiptCss, printTemplate } = store;
   const lineEditor = useLineEditor({ cart, setCart, chargeTax });
 
   const printableInvoice = useMemo(
@@ -75,7 +75,7 @@ export function PosPage() {
   );
 
   const receiptPrinting = useReceiptPrinting();
-  const receiptStyle = receiptStyleFor(printableInvoice ?? { columns: 48 }, receiptTemplate, customReceiptCss);
+  const receiptStyle = receiptStyleFor(printableInvoice ?? { columns: 48 }, printTemplate, customReceiptCss);
   // Once per sale, as soon as it's paid: the drawer opens for cash, and the receipt prints
   // if this computer is set to. The receipt is on the page by now (effects run after render).
   const handledSaleRef = useRef<string | null>(null);
