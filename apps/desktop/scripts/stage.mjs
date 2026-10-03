@@ -18,6 +18,8 @@ rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
 
 console.log('Building the shared packages, API and web app');
+// The API's types come from its generated Prisma clients, which a fresh checkout doesn't have.
+run('pnpm --filter @pos/api prisma:generate');
 run('pnpm --filter @pos/types --filter @pos/contracts --filter @pos/api --filter @pos/web build');
 
 console.log('Copying the API with its production dependencies');
