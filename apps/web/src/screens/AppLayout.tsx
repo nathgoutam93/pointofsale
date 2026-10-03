@@ -19,6 +19,7 @@ import {
   IconUsers,
 } from "../components/icons";
 import { OnlineOnlyBadge } from "../components/OnlineOnly";
+import { MoveOnlineNotice } from "../components/MoveOnline";
 import { confirmLeave } from "../lib/leaveGuard";
 import { useIsOffline } from "../lib/mode";
 import { clearSession, getSession } from "../lib/session";
@@ -85,7 +86,7 @@ function initials(name: string) {
 }
 
 /** Screens shown before anyone is signed in, without the app's navigation. */
-const FULL_SCREEN_PATHS = new Set(["/", "/welcome", "/setup"]);
+const FULL_SCREEN_PATHS = new Set(["/", "/welcome", "/setup", "/create-business"]);
 
 export function AppLayout() {
   const location = useRouterState({ select: (s) => s.location.pathname });
@@ -99,6 +100,8 @@ export function AppLayout() {
     : undefined;
   const branchLabel = session?.branchId ? (branch?.name ?? "Selected Branch") : "";
   const pageTitle = PAGE_TITLES[location] ?? "";
+  // Above the early return below: hooks must run the same way on every render.
+  const offline = useIsOffline();
 
   useEffect(() => {
     document.title = pageTitle && pageTitle !== "Point of Sale" ? `${pageTitle} · Point of Sale` : "Point of Sale";
@@ -124,7 +127,6 @@ export function AppLayout() {
   };
 
   const hasRegister = Boolean(session?.registerId);
-  const offline = useIsOffline();
   // Labels are hidden only in the desktop rail; the mobile drawer always shows them.
   const labelClass = collapsed ? "lg:hidden" : "";
 
@@ -293,6 +295,7 @@ export function AppLayout() {
           ) : null}
         </header>
 
+        <MoveOnlineNotice />
         <main className="min-h-0 flex-1 overflow-auto print:overflow-visible">
           <Outlet />
         </main>

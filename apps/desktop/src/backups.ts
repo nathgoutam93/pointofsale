@@ -3,7 +3,12 @@ import { baseEnv, latestMigration, runScript } from './api-server.js';
 import type { Logger } from './log.js';
 import { paths } from './paths.js';
 
-export type BackupEntry = { file: string; createdAt: string; reason: 'daily' | 'manual' | 'before-update' | 'before-restore'; bytes: number };
+export type BackupEntry = {
+  file: string;
+  createdAt: string;
+  reason: 'daily' | 'manual' | 'before-update' | 'before-restore' | 'before-move';
+  bytes: number;
+};
 
 type CliResult = { ok: boolean; error?: string; file?: string; skipped?: string; removed?: string[]; backups?: BackupEntry[] };
 
@@ -74,7 +79,7 @@ export class Backups {
     );
   }
 
-  create(reason: 'manual' | 'before-restore') {
+  create(reason: 'manual' | 'before-restore' | 'before-move') {
     return this.serial(() =>
       this.cli(
         ['backup', '--dir', backupsFolder(), '--uploads', paths.uploads(), '--days', String(this.days()), '--reason', reason],

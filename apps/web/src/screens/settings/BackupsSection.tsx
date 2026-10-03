@@ -8,6 +8,7 @@ const REASON_LABELS: Record<BackupEntry["reason"], string> = {
   manual: "Made by hand",
   "before-update": "Before an app update",
   "before-restore": "Before a restore",
+  "before-move": "Before moving online",
 };
 
 const DAY_CHOICES = [2, 3, 4, 5];

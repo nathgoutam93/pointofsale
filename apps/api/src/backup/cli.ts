@@ -1,5 +1,5 @@
 // Backups for the desktop app's offline mode, run by the app as a separate process:
-//   node dist/backup/cli.js backup  --dir D --uploads U --days N --reason daily|manual|before-restore
+//   node dist/backup/cli.js backup  --dir D --uploads U --days N --reason daily|manual|before-restore|before-move
 //                                   [--skip-if-today] [--before-update <latest bundled migration>]
 //   node dist/backup/cli.js restore --file F --uploads U
 //   node dist/backup/cli.js list    --dir D

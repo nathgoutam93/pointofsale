@@ -15,6 +15,7 @@ import { GoOnlineDialog, OnlineOnlyBadge } from "../components/OnlineOnly";
 import { useIsOffline } from "../lib/mode";
 import { desktop } from "../lib/desktop";
 import { BackupsSection } from "./settings/BackupsSection";
+import { canMoveOnline, MoveOnlineDialog } from "../components/MoveOnline";
 import { CountersSection } from "./settings/CountersSection";
 import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
 
@@ -80,6 +81,7 @@ export function BranchSettingsPage() {
   // Backups are kept by the desktop app, on the computer that holds an offline business.
   const localBackups = desktop?.config.mode === "offline" ? desktop.backups : undefined;
   const [goOnlinePrompt, setGoOnlinePrompt] = useState(false);
+  const [movingOnline, setMovingOnline] = useState(false);
   const [userMessage, setUserMessage] = useState("");
   const [cashierForm, setCashierForm] = useState<CashierForm>(emptyCashierForm(initialBranchId));
   const [createBranchForm, setCreateBranchForm] = useState<CreateBranchForm>({ name: "", code: "" });
@@ -550,6 +552,20 @@ export function BranchSettingsPage() {
 
       {activeTab === "business" ? (
         <div className="grid gap-4">
+          {canMoveOnline() ? (
+            <div className="card flex flex-wrap items-center justify-between gap-3 p-5">
+              <div className="max-w-xl">
+                <h2 className="text-lg font-semibold tracking-tight text-slate-900">On this computer only</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Move the business online to add counters and branches and sign in from other computers. Everything moves with it.
+                </p>
+              </div>
+              <button className="btn-primary" onClick={() => setMovingOnline(true)}>
+                Move business online
+              </button>
+              {movingOnline ? <MoveOnlineDialog onClose={() => setMovingOnline(false)} /> : null}
+            </div>
+          ) : null}
           <div className="card p-5">
             <h2 className="text-lg font-semibold tracking-tight text-slate-900">Business Settings</h2>
             <p className="mt-1 text-sm text-slate-600">

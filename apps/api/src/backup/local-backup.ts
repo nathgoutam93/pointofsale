@@ -26,7 +26,7 @@ import yauzl from 'yauzl';
 
 export const BACKUP_KIND = 'pos-local-backup';
 export const BACKUP_FORMAT = 1;
-export const BACKUP_REASONS = ['daily', 'manual', 'before-update', 'before-restore'] as const;
+export const BACKUP_REASONS = ['daily', 'manual', 'before-update', 'before-restore', 'before-move'] as const;
 export type BackupReason = (typeof BACKUP_REASONS)[number];
 
 /** How many days of backups a user may keep. */

@@ -161,7 +161,7 @@ Branch: `feat/desktop-web-modes`. Depends on 1.1 and 1.2. Most items can be test
 - **What:** Business name, GSTIN (optional), taxpayer type, state, timezone, admin username and password (entered twice). Calls `POST /setup` on the local API, then signs in.
 - **Done when:** a fresh install reaches the POS screen with no terminal output needed.
 
-### [ ] 2.5 Online create or join
+### [x] 2.5 Online create or join
 - **Depends on:** 4.5.
 - **What:**
   - **Create:** owner account (email, password, email code), business details, then the business is created on the server, then sign in.
@@ -177,7 +177,7 @@ Branch: `feat/desktop-web-modes`. Depends on 1.1 and 1.2. Most items can be test
   - show a short "Need more counters? Move online" hint linking to 2.7
 - **Done when:** none of the actions refused by 1.4 can be reached from the UI.
 
-### [ ] 2.7 "Move to online" button
+### [x] 2.7 "Move to online" button
 - **Depends on:** 1.6, 5.x.
 - **Where:** Settings (admin only, offline only).
 - **What:** One button, then a dialog with steps:
@@ -318,7 +318,7 @@ Branch: `feat/multi-tenant`. Can run in parallel with Phase 3.
 
 Branch: `feat/go-online`. Depends on 1.6, 1.7, 4.1–4.5.
 
-### [ ] 5.1 Bundle format and shared table list
+### [x] 5.1 Bundle format and shared table list
 - **What:** `packages/contracts/src/migration.ts` holds:
   - the bundle format version
   - the ordered table list
@@ -326,10 +326,10 @@ Branch: `feat/go-online`. Depends on 1.6, 1.7, 4.1–4.5.
 
   Both export (1.6) and import (5.3) use it.
 
-### [ ] 5.2 Version gate
+### [x] 5.2 Version gate
 - **What:** The move is allowed only when bundle `schemaVersion` equals the server's current schema version. Otherwise the server returns 409 `update_required`, the client updates (3.5), restarts and tries again. The local database is never migrated by the server.
 
-### [ ] 5.3 Server import
+### [x] 5.3 Server import
 - **What:** `POST /businesses/import` (signed-in owner account, upload limit sized for real shops, streamed to temp storage). Then:
   1. Validate the manifest and checksums.
   2. Provision a new schema (4.3, without the seed rows).
@@ -343,7 +343,7 @@ Branch: `feat/go-online`. Depends on 1.6, 1.7, 4.1–4.5.
   - Password hashes come across as they are, so staff keep their passwords.
   - Document number counters come across too, so invoice numbering continues (needed for GST).
 
-### [ ] 5.4 Client switch-over and failure handling
+### [x] 5.4 Client switch-over and failure handling
 - **What:**
   1. Back up locally (3.6).
   2. Lock local writes: set `LocalInstance` to a `MIGRATING` state that blocks writes like 1.7.
@@ -352,7 +352,7 @@ Branch: `feat/go-online`. Depends on 1.6, 1.7, 4.1–4.5.
   5. On failure or cancel, set the state back to `ACTIVE` and keep working offline.
 - **Done when:** killing the network mid-upload leaves a working offline app, and a retry succeeds.
 
-### [ ] 5.5 End-to-end test
+### [x] 5.5 End-to-end test
 - **What:** Seed demo data locally (`seed:demo` against an offline instance), move online, then compare totals between the archive and the new online business:
   - Reports totals
   - GSTR-1 and GSTR-3B output
@@ -524,3 +524,46 @@ Branch: whichever phase needs it first (likely Phase 1).
     - 4.8: PgBouncer, backups and monitoring.
     - 2.5: create/join screens in the app. The welcome screen still asks only for a server address; it should offer sign-up via `POST /businesses`.
     - Email verification for owner accounts.
+- 2026-10-03: **Phase 5 (moving online) and 2.5/2.7 (create, join, move screens) done.** Owner verification is deferred (user's call). 174 API tests pass.
+  - **Server address (decision):** `posServerUrl` in `apps/desktop/package.json` (empty for now; `POS_SERVER_URL` overrides it) is the hosted server built into a release. While it's empty, the create, join and move screens ask for an address. Set it once the hosted domain exists, and the fields disappear.
+  - **5.3 Server import:**
+    - `POST /businesses/import` (online, owner token, multipart `bundle` + `importId`) → `ImportService`.
+    - The bundle is unpacked with `src/common/zip.ts`: no `..`, absolute paths or backslashes, 4 GB cap.
+    - The manifest is validated with `migrationManifestSchema`. Its `schemaVersion` must equal the server's newest migration, else 409: "Update the app", or "the server hasn't been updated yet".
+    - Tables must be exactly `MIGRATION_TABLES`, and every table and upload is checksummed.
+    - Then: reserve the business (name from `BusinessSettings`), create and migrate the schema, `TRUNCATE` the migration-inserted rows, and load each table **in FK order with foreign keys checked** (no `session_replication_role`, which hosted Postgres often forbids). Rows go through `json_populate_recordset`, so only real columns are filled. Row counts are compared.
+    - Uploads go to `uploads/imported/<businessId>/…`, and `logoUrl`/`imageUrl` are rewritten to match, so a bundle can't overwrite another business's files.
+    - Finally the business is activated with the owner's membership. A failure drops the schema and the copied uploads.
+    - `importId` is unique in the control schema: a retry returns the same business, another owner gets 409, and a FAILED attempt is cleared and redone.
+    - `ProvisioningService` is now split into `reserve` / `createSchema` / `activate` / `discard`, shared by sign-up and import.
+  - **Owner accounts:** `POST /accounts/signup` creates an account, or signs in to an existing one with its password.
+  - **Offline steps** (`MigrationController`, admin):
+    - `POST /migration/begin`: MIGRATING; refused while a register is open.
+    - `POST /migration/abort` and `/migration/complete {businessId, businessCode, server}`: both `@AllowWhenLocked`.
+    - New `LocalInstance.movedToBusinessCode` / `movedToServer` (migration `20261008100000_local_instance_moved_to`), reported by `/meta` as `movedTo`.
+  - **Desktop** (`apps/desktop/src/move-online.ts`, IPC `pos:move-online` with progress events):
+    - Steps: check the server and that schema versions match (if the app is older, it starts an update check) → owner sign-up/sign-in → `before-move` backup → begin → export to `userData/move-online/business.zip` → upload → complete → switch config to online and stop Postgres. The local data stays as a read-only copy.
+    - Any failure before the server answers → abort, and the computer sells again.
+    - **No answer to the upload** (network or timeout) → stays MIGRATING with `config.pendingImportId` kept, because the server might have the business. A retry re-exports the same paused data and gets the same business.
+    - On start, an offline install whose `/meta` says moved switches to online by itself (covers a crash between "complete" and "switch").
+    - `pos:create-business` sends sign-up from the main process: the page's CSP only allows the current API, which doesn't exist yet on first launch.
+    - `assertAdmin` now says when the session has ended instead of "only an admin".
+  - **Web:**
+    - The welcome screen has three choices: one shop offline / **Create an online business** (`/create-business` = `SetupPage online`: owner email and password, business, admin, then a **business code** screen, then online) / **Join an existing business** (code + address, then the online sign-in with the code filled in).
+    - `MoveOnlineDialog` (`components/MoveOnline.tsx`) shows each step and finishes with the code and "Sign in online". It's reached from the "Online only" prompts, the Transfers panel and a Settings → Business card (desktop, offline, admins).
+    - `MoveOnlineNotice` on every page: paused move → Finish / Cancel (cancel warns); moved → read-only note.
+    - The business code is remembered per device (`lib/business-code.ts`).
+  - **Bugs found and fixed:**
+    - `AppLayout` called `useIsOffline()` after an early return (since the online-only badges), causing React error #310 when going from setup into the app.
+    - The welcome screen asked a non-existent API for `/meta`.
+  - **Verified in the desktop app** (Xvfb, from source, local online API):
+    - **Move:** the offline "Corner Store" was refused while its register was open; after closing it, the move gave code W6EUQM. Signed in online with the same admin password, and it stayed online after a restart.
+    - **Create:** a new online business (code shown, then straight into it).
+    - **Join:** W6EUQM from a fresh computer.
+    - **Offline first launch:** still clean, with no console errors.
+  - **API tests:** `test/move-online.test.ts` (export from a business → import as a new one: per-table counts, money, image link rewrite and file, staff password, retry and other-owner rules, version and damage refusals). `test/offline.test.ts` covers begin/abort/complete.
+  - **Not done:**
+    - owner email verification (deferred)
+    - 4.6 object storage and 4.8 infrastructure
+    - restoring an offline business from a backup file on a fresh install (offered on the welcome screen?)
+    - upload progress for big moves (`fetch` gives none; the step list shows "Uploading")

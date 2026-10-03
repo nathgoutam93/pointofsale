@@ -21,7 +21,8 @@ export function useServerMode(): 'offline' | 'online' | null {
       if (res.status !== 200) throw new Error('Failed to load server details');
       return res.body;
     },
-    enabled: !known,
+    // The desktop app knows its mode (null until chosen, with no API to ask yet).
+    enabled: !desktop,
     staleTime: Infinity
   });
   return known ?? meta.data?.mode ?? null;

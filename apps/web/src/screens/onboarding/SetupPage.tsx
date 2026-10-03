@@ -3,7 +3,9 @@ import { useMutation } from "@tanstack/react-query";
 import { COMPOSITION_CATEGORY_LABELS, GST_STATES } from "@pos/contracts";
 import { FormEvent, useState } from "react";
 import { api, apiErrorMessage } from "../../lib/api";
-import { setSession } from "../../lib/session";
+import { desktop } from "../../lib/desktop";
+import { rememberBusinessCode } from "../../lib/business-code";
+import { setSession, type Session } from "../../lib/session";
 import { ErrorNote, OnboardingShell } from "./OnboardingShell";
 
 type CompositionCategory = keyof typeof COMPOSITION_CATEGORY_LABELS;
@@ -17,12 +19,22 @@ function localTimeZone() {
   }
 }
 
+type Created = { session: Session; code: string; name: string; server: string };
+
 /**
- * First run of a single-counter business: the business details and the admin account.
- * The API accepts this only while it has no users, then signs the new admin in.
+ * A new business: its details and the admin account.
+ * - Offline (one counter): first run of the local API, which accepts it only while it has no users.
+ * - Online (desktop app, first launch): also the owner's account; the server creates the
+ *   business and answers its code, which staff need on every other computer.
  */
-export function SetupPage() {
+export function SetupPage({ online = false }: { online?: boolean }) {
   const navigate = useNavigate();
+  const defaultServer = desktop?.config.defaultServerUrl ?? null;
+  const [server, setServer] = useState("");
+  const [ownerEmail, setOwnerEmail] = useState("");
+  const [ownerPassword, setOwnerPassword] = useState("");
+  const [created, setCreated] = useState<Created | null>(null);
+  const [switching, setSwitching] = useState(false);
   const [businessName, setBusinessName] = useState("");
   const [gstNumber, setGstNumber] = useState("");
   const [stateCode, setStateCode] = useState("");
@@ -36,9 +48,29 @@ export function SetupPage() {
   const gstin = gstNumber.trim().toUpperCase();
   const stateFromGstin = gstin.length >= 2 ? gstin.slice(0, 2) : "";
 
+  const details = () => ({
+    businessName,
+    gstNumber: gstin || null,
+    stateCode: gstin ? null : stateCode || null,
+    timezone: localTimeZone(),
+    taxpayerType: composition ? ("COMPOSITION" as const) : ("REGULAR" as const),
+    compositionCategory: composition ? category : null,
+    branchCode,
+    adminUsername,
+    adminPassword,
+  });
+
+  /** Online: the server (checked by the desktop app) creates the business. */
+  const createOnline = async (): Promise<Created> => {
+    if (!desktop) throw new Error("Creating an online business needs the desktop app.");
+    const created = await desktop.createOnlineBusiness(server, { ...details(), ownerEmail, ownerPassword });
+    return { session: created.session as Session, code: created.business.code, name: created.business.name, server: created.server };
+  };
+
   const setup = useMutation({
     mutationFn: async () => {
       if (adminPassword !== confirmPassword) throw new Error("The two passwords don't match.");
+      if (online) return createOnline();
       const res = await api.setup.run({
         body: {
           businessName,
@@ -60,15 +92,69 @@ export function SetupPage() {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const session = await setup.mutateAsync().catch(() => null);
-    if (!session) return;
-    setSession(session);
+    const result = await setup.mutateAsync().catch(() => null);
+    if (!result) return;
+    if ("code" in result) {
+      setSession(result.session);
+      rememberBusinessCode(result.code);
+      setCreated(result);
+      return;
+    }
+    setSession(result);
     navigate({ to: "/open-register" });
   };
 
+  /** Online: from now on the app works with the server; it reloads straight into the business. */
+  const continueOnline = async () => {
+    if (!created || !desktop) return;
+    setSwitching(true);
+    await desktop.chooseMode({ mode: "online", apiBaseUrl: created.server });
+  };
+
+  if (created) {
+    return (
+      <OnboardingShell title={`${created.name} is ready`} subtitle="Your business is online. Every counter and branch signs in to it.">
+        <BusinessCodeCard code={created.code} />
+        <div className="mt-6 flex justify-end">
+          <button className="btn-primary h-10 px-5" onClick={() => void continueOnline()} disabled={switching}>
+            {switching ? "Opening…" : "Continue"}
+          </button>
+        </div>
+      </OnboardingShell>
+    );
+  }
+
   return (
-    <OnboardingShell title="Set up your business" subtitle="These details appear on your invoices. You can change them later in Settings.">
+    <OnboardingShell
+      title={online ? "Create your online business" : "Set up your business"}
+      subtitle="These details appear on your invoices. You can change them later in Settings."
+    >
       <form onSubmit={onSubmit} className="grid gap-6">
+        {online ? (
+          <section className="card grid gap-4 p-5">
+            <p className="eyebrow">Owner account</p>
+            <p className="-mt-2 text-sm text-slate-600">
+              Yours, as the owner: you use it to create businesses or move one online. Already have one? Use the same email
+              and password.
+            </p>
+            {defaultServer ? null : (
+              <div>
+                <label className="field-label" htmlFor="setup-server">Server address</label>
+                <input id="setup-server" className="field h-10" value={server} onChange={(e) => setServer(e.target.value)} placeholder="https://pos.example.com" inputMode="url" required />
+              </div>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="field-label" htmlFor="setup-owner-email">Email</label>
+                <input id="setup-owner-email" className="field h-10" type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} autoComplete="email" required />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="setup-owner-password">Password</label>
+                <input id="setup-owner-password" className="field h-10" type="password" value={ownerPassword} onChange={(e) => setOwnerPassword(e.target.value)} autoComplete="new-password" minLength={8} maxLength={128} required />
+              </div>
+            </div>
+          </section>
+        ) : null}
         <section className="card grid gap-4 p-5">
           <p className="eyebrow">Business</p>
           <div>
@@ -167,10 +253,24 @@ export function SetupPage() {
 
         <div className="flex justify-end">
           <button className="btn-primary h-10 px-5" type="submit" disabled={setup.isPending}>
-            {setup.isPending ? "Setting up…" : "Create business"}
+            {setup.isPending ? (online ? "Creating your business…" : "Setting up…") : "Create business"}
           </button>
         </div>
       </form>
     </OnboardingShell>
+  );
+}
+
+/** The code staff type on every other computer, shown big enough to read out. */
+export function BusinessCodeCard({ code }: { code: string }) {
+  return (
+    <div className="card p-6 text-center">
+      <p className="text-sm text-slate-600">Business code</p>
+      <p className="mt-2 font-mono text-4xl font-semibold tracking-[0.3em] text-slate-900">{code}</p>
+      <p className="mt-3 text-sm text-slate-600">
+        Write it down. On another computer, choose <span className="font-medium">Join an existing business</span> and enter it
+        with a username and password.
+      </p>
+    </div>
   );
 }

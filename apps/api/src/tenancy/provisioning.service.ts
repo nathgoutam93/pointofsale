@@ -14,9 +14,10 @@ const CODE_LENGTH = 6;
 const newCode = () => Array.from({ length: CODE_LENGTH }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
 
 /**
- * Creates a business on the hosted server: a row in the control schema, its own PostgreSQL
- * schema at the current migration, and its first branch, counter and admin (the same setup
- * an offline install runs). Anything failing on the way removes the schema again.
+ * Creates businesses on the hosted server: a row in the control schema and the business's
+ * own PostgreSQL schema at the current migration. A new business then gets its first branch,
+ * counter and admin (the same setup an offline install runs); a business moving online gets
+ * its data instead (see ImportService). Anything failing on the way removes the schema again.
  */
 @Injectable()
 export class ProvisioningService {
@@ -27,45 +28,59 @@ export class ProvisioningService {
     private readonly setup: SetupService
   ) {}
 
-  /** Reserves a code and a schema name. `code` is for tests and imports; normally random. */
-  private async reserve(name: string, code?: string) {
+  /** Reserves a code and a schema name. `code` is for tests and scripts; normally random. */
+  async reserve(name: string, options: { code?: string; importId?: string } = {}): Promise<ActiveBusiness> {
     for (let attempt = 0; ; attempt += 1) {
       const id = randomUUID();
       try {
         return await this.tenancy.control.business.create({
-          data: { id, code: code ?? newCode(), name, schemaName: `b_${id.replace(/-/g, '')}` },
+          data: { id, code: options.code ?? newCode(), name, schemaName: `b_${id.replace(/-/g, '')}`, importId: options.importId },
           select: { id: true, code: true, name: true, schemaName: true, dbServer: true }
         });
       } catch (error) {
         const clash = error instanceof ControlPrisma.PrismaClientKnownRequestError && error.code === 'P2002';
-        if (!clash || code || attempt >= 5) throw error;
+        if (!clash || options.code || options.importId || attempt >= 5) throw error;
       }
     }
   }
 
+  /** The business's schema, migrated to this version. Schema names are generated (b_ + hex), never from a request. */
+  async createSchema(business: ActiveBusiness) {
+    await this.tenancy.control.$executeRawUnsafe(`CREATE SCHEMA "${business.schemaName}"`);
+    await migrateDeploy(businessSchemaFile(), { DATABASE_URL: schemaUrl(business.schemaName, business.dbServer) });
+  }
+
+  /** Ready for use; `accountId` becomes its owner. */
+  async activate(business: ActiveBusiness, accountId?: string) {
+    await this.tenancy.control.business.update({
+      where: { id: business.id },
+      data: {
+        status: 'ACTIVE',
+        schemaVersion: latestBusinessMigration(),
+        ...(accountId ? { memberships: { create: { accountId } } } : {})
+      }
+    });
+    this.tenancy.forget(business.id);
+    this.logger.log(`Business ${business.code} is ready (${business.schemaName})`);
+  }
+
+  /** After a failure: the schema is dropped and the business marked FAILED. */
+  async discard(business: ActiveBusiness, error: unknown) {
+    this.logger.error(`Creating business ${business.code} failed: ${error instanceof Error ? error.message : String(error)}`);
+    await this.tenancy.control.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${business.schemaName}" CASCADE`).catch(() => undefined);
+    await this.tenancy.control.business.update({ where: { id: business.id }, data: { status: 'FAILED' } }).catch(() => undefined);
+  }
+
+  /** A new, empty business with its first admin signed in. */
   async createBusiness(input: SetupInput, options: { code?: string; accountId?: string } = {}) {
-    const business: ActiveBusiness = await this.reserve(input.businessName, options.code);
-    const control = this.tenancy.control;
-    // Schema names are generated here (b_ + hex), never taken from a request.
-    const schema = `"${business.schemaName}"`;
+    const business = await this.reserve(input.businessName, { code: options.code });
     try {
-      await control.$executeRawUnsafe(`CREATE SCHEMA ${schema}`);
-      await migrateDeploy(businessSchemaFile(), { DATABASE_URL: schemaUrl(business.schemaName, business.dbServer) });
+      await this.createSchema(business);
       const session = await this.tenancy.run(business, () => this.setup.setup(input));
-      await control.business.update({
-        where: { id: business.id },
-        data: {
-          status: 'ACTIVE',
-          schemaVersion: latestBusinessMigration(),
-          ...(options.accountId ? { memberships: { create: { accountId: options.accountId } } } : {})
-        }
-      });
-      this.logger.log(`Created business ${business.code} (${business.schemaName})`);
+      await this.activate(business, options.accountId);
       return { business: { id: business.id, code: business.code, name: business.name, status: 'ACTIVE' as const }, session };
     } catch (error) {
-      this.logger.error(`Creating business ${business.code} failed: ${error instanceof Error ? error.message : String(error)}`);
-      await control.$executeRawUnsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`).catch(() => undefined);
-      await control.business.update({ where: { id: business.id }, data: { status: 'FAILED' } }).catch(() => undefined);
+      await this.discard(business, error);
       throw error;
     }
   }

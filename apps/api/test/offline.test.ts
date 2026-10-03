@@ -103,7 +103,8 @@ describe('offline install', () => {
       mode: 'offline',
       minClientVersion: null,
       setupRequired: true,
-      instanceStatus: 'ACTIVE'
+      instanceStatus: 'ACTIVE',
+      movedTo: null
     });
   });
 
@@ -260,6 +261,34 @@ describe('offline install', () => {
       await setInstanceStatus('ACTIVE');
     }
     expect((await t.call('PATCH', '/business/settings', admin, { name: 'Corner Store' })).status).toBe(200);
+  });
+});
+
+describe('moving online, on this computer', () => {
+  it('pauses, can be cancelled, and once finished points to the online business', async () => {
+    const admin = await t.login(SETUP.adminUsername, SETUP.adminPassword);
+    const branch = await t.db.branch.findFirstOrThrow();
+    const opened = await t.ok<{ token: string }>('POST', '/registers/open', admin, { branchId: branch.id, openingBalance: 0 });
+    expect((await t.call('POST', '/migration/begin', opened.token)).status).toBe(409);
+    const closed = await t.ok<{ token: string }>('POST', '/registers/close', opened.token, { closingBalance: 0 });
+
+    expect((await t.call('POST', '/migration/complete', closed.token, { businessId: randomUUID(), businessCode: 'K7Q2MX', server: 'https://pos.example.com' })).status).toBe(409);
+    expect(await t.ok('POST', '/migration/begin', closed.token)).toEqual({ status: 'MIGRATING' });
+    expect((await t.call('PATCH', '/business/settings', closed.token, { name: 'Changed' })).status).toBe(423);
+    expect(await t.ok('POST', '/migration/abort', closed.token)).toEqual({ status: 'ACTIVE' });
+    expect((await t.call('PATCH', '/business/settings', closed.token, { name: SETUP.businessName })).status).toBe(200);
+
+    await t.ok('POST', '/migration/begin', closed.token);
+    const businessId = randomUUID();
+    const done = { businessId, businessCode: 'K7Q2MX', server: 'https://pos.example.com' };
+    expect(await t.ok('POST', '/migration/complete', closed.token, done)).toEqual({ status: 'ARCHIVED' });
+    expect(await t.ok('POST', '/migration/complete', closed.token, done)).toEqual({ status: 'ARCHIVED' });
+    expect(await t.ok('GET', '/meta')).toMatchObject({
+      instanceStatus: 'ARCHIVED',
+      movedTo: { businessCode: 'K7Q2MX', server: 'https://pos.example.com' }
+    });
+    expect((await t.call('POST', '/migration/abort', closed.token)).status).toBe(409);
+    await t.db.localInstance.update({ where: { id: 'local' }, data: { status: 'ACTIVE', movedToBusinessCode: null, movedToServer: null } });
   });
 });
 

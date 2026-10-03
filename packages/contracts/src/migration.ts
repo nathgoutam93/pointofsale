@@ -76,3 +76,8 @@ export const migrationManifestSchema = z.object({
 });
 
 export type MigrationManifest = z.infer<typeof migrationManifestSchema>;
+
+/** What the server answers once it has imported a bundle as a new online business. */
+export type MigrationImportResult = {
+  business: { id: string; code: string; name: string; status: 'ACTIVE' };
+};

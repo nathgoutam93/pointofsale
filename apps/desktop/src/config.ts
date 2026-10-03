@@ -15,6 +15,11 @@ export type DesktopConfig = {
   authSecret: string | null;
   /** Offline: how many days of local backups to keep (2 to 5). */
   backupDays: number;
+  /**
+   * While moving online: the id the upload is sent with. Kept until the move ends, so a
+   * retry after a lost answer gets the same business instead of a second one.
+   */
+  pendingImportId: string | null;
 };
 
 export const BACKUP_DAYS = { min: 2, max: 5, default: 3 } as const;
@@ -25,7 +30,14 @@ export function clampBackupDays(value: unknown) {
   return Math.min(BACKUP_DAYS.max, Math.max(BACKUP_DAYS.min, days));
 }
 
-const EMPTY: DesktopConfig = { mode: null, apiBaseUrl: null, dbPassword: null, authSecret: null, backupDays: BACKUP_DAYS.default };
+const EMPTY: DesktopConfig = {
+  mode: null,
+  apiBaseUrl: null,
+  dbPassword: null,
+  authSecret: null,
+  backupDays: BACKUP_DAYS.default,
+  pendingImportId: null
+};
 
 export function loadConfig(): DesktopConfig {
   const file = paths.config();

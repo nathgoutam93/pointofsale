@@ -17,7 +17,8 @@ describe('online mode', () => {
       mode: 'online',
       minClientVersion: null,
       setupRequired: false,
-      instanceStatus: null
+      instanceStatus: null,
+      movedTo: null
     });
   });
 

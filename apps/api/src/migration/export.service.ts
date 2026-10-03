@@ -77,6 +77,41 @@ export class ExportService {
     }
   }
 
+  private async setStatus(status: 'ACTIVE' | 'MIGRATING' | 'ARCHIVED', data: Record<string, unknown> = {}) {
+    await this.prisma.localInstance.upsert({
+      where: { id: 'local' },
+      update: { status, ...data },
+      create: { id: 'local', status, ...data }
+    });
+    return { status };
+  }
+
+  /** Moving online starts: no register may be open, and nothing changes here until it ends. */
+  async beginMove() {
+    const status = await this.meta.instanceStatus();
+    if (status === 'MIGRATING') return { status };
+    await this.assertCanExport();
+    return this.setStatus('MIGRATING');
+  }
+
+  async abortMove() {
+    const status = await this.meta.instanceStatus();
+    if (status === 'ARCHIVED') throw new ConflictException('This business has already moved online');
+    return this.setStatus('ACTIVE');
+  }
+
+  async completeMove(target: { businessId: string; businessCode: string; server: string }) {
+    const status = await this.meta.instanceStatus();
+    if (status === 'ARCHIVED') return { status };
+    if (status !== 'MIGRATING') throw new ConflictException('Start moving online first');
+    return this.setStatus('ARCHIVED', {
+      movedToBusinessId: target.businessId,
+      movedToBusinessCode: target.businessCode,
+      movedToServer: target.server,
+      movedAt: new Date()
+    });
+  }
+
   /** Writes every table to a temp folder as NDJSON and builds the manifest. */
   async prepare(): Promise<PreparedExport> {
     const schemaVersion = await this.meta.schemaVersion();

@@ -11,7 +11,7 @@ export {
   MIGRATION_TABLES,
   migrationManifestSchema
 } from './migration.js';
-export type { MigrationManifest, MigrationTable } from './migration.js';
+export type { MigrationImportResult, MigrationManifest, MigrationTable } from './migration.js';
 export {
   allocateDiscountAcrossBases,
   computeSaleTotals,
@@ -716,7 +716,16 @@ export const metaSchema = z.object({
   /** Offline only: true until first-run setup has created the business and its admin. */
   setupRequired: z.boolean(),
   /** Offline only: whether this machine's business is in use, moving online, or has moved. */
-  instanceStatus: localInstanceStatusSchema.nullable()
+  instanceStatus: localInstanceStatusSchema.nullable(),
+  /** Offline, once moved: the online business to sign in to instead. */
+  movedTo: z.object({ businessCode: z.string(), server: z.string() }).nullable()
+});
+
+/** Offline: the last step of moving online, once the server has imported the business. */
+export const migrationCompleteBodySchema = z.object({
+  businessId: z.string().uuid(),
+  businessCode: z.string().min(1).max(16),
+  server: z.string().url()
 });
 
 /** A new business and its first admin: first-run setup offline, sign-up online. */
@@ -868,6 +877,13 @@ export const appContract = c.router({
     }
   },
   accounts: {
+    /** Online only: creates an owner account, or signs in to an existing one with its password. */
+    signup: {
+      method: 'POST',
+      path: '/accounts/signup',
+      body: z.object({ email: emailSchema, password: passwordSchema }),
+      responses: { 200: z.object({ token: z.string(), businesses: z.array(ownedBusinessSchema) }) }
+    },
     /** Online only: an owner's sign-in. The token lists and manages their businesses (not sales). */
     login: {
       method: 'POST',

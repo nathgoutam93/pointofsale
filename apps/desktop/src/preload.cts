@@ -6,7 +6,7 @@ type ModeChoice = { mode: 'offline' } | { mode: 'online'; apiBaseUrl: string };
 
 // Read once: changing mode reloads the window, which runs this again.
 const info = ipcRenderer.sendSync('pos:get-config') as {
-  config: { mode: 'offline' | 'online' | null; apiBaseUrl: string | null };
+  config: { mode: 'offline' | 'online' | null; apiBaseUrl: string | null; defaultServerUrl: string | null };
   version: string;
 };
 
@@ -25,6 +25,17 @@ contextBridge.exposeInMainWorld('posDesktop', {
   version: info.version,
   chooseMode: (choice: ModeChoice) => invoke('pos:choose-mode', choice),
   openLogsFolder: () => invoke('pos:open-logs'),
+  checkServer: (address: string) => invoke('pos:check-server', address),
+  createOnlineBusiness: (address: string, details: Record<string, unknown>) => invoke('pos:create-business', address, details),
+  reload: () => invoke('pos:reload'),
+  // Offline, admins only: moves the business to an online server (see apps/desktop/src/move-online.ts).
+  moveOnline: (token: string, input: { server?: string; ownerEmail: string; ownerPassword: string }) =>
+    invoke('pos:move-online', token, input),
+  onMoveOnlineProgress: (listener: (step: string) => void) => {
+    const forward = (_event: IpcRendererEvent, step: string) => listener(step);
+    ipcRenderer.on('pos:move-online-progress', forward);
+    return () => ipcRenderer.removeListener('pos:move-online-progress', forward);
+  },
   updates: {
     status: () => invoke('pos:updates:status'),
     check: () => invoke('pos:updates:check'),

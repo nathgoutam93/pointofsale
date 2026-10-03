@@ -1,4 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { canMoveOnline, MoveOnlineDialog } from "./MoveOnline";
+import { desktop } from "../lib/desktop";
 
 /** Marks a feature an offline (single-counter) business can see but not use yet. */
 export function OnlineOnlyBadge({ className = "" }: { className?: string }) {
@@ -13,9 +15,25 @@ function GoOnlineText({ feature }: { feature: string }) {
         online. Your items, stock, customers, sales and settings move with it, and every counter and branch then works
         on the same data.
       </p>
-      <p className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">
-        Moving online in one step is coming in an app update. The app checks for updates every day.
-      </p>
+      {canMoveOnline() ? null : (
+        <p className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">
+          {desktop ? "An admin can move it online from this screen." : "Moving online is done from the desktop app."}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Opens the move online, for those who can start it. */
+function MoveOnlineButton() {
+  const [open, setOpen] = useState(false);
+  if (!canMoveOnline()) return null;
+  return (
+    <>
+      <button className="btn-primary" onClick={() => setOpen(true)}>
+        Move business online
+      </button>
+      {open ? <MoveOnlineDialog onClose={() => setOpen(false)} /> : null}
     </>
   );
 }
@@ -44,10 +62,11 @@ export function GoOnlineDialog({ title, feature, onClose }: { title: string; fea
         <div className="mt-3">
           <GoOnlineText feature={feature} />
         </div>
-        <div className="mt-5 flex justify-end">
+        <div className="mt-5 flex justify-end gap-2">
           <button className="btn-secondary" onClick={onClose} autoFocus>
             Close
           </button>
+          <MoveOnlineButton />
         </div>
       </div>
     </div>
@@ -65,6 +84,9 @@ export function GoOnlinePanel({ title, feature }: { title: string; feature: stri
         </div>
         <div className="mt-3">
           <GoOnlineText feature={feature} />
+        </div>
+        <div className="mt-4">
+          <MoveOnlineButton />
         </div>
       </div>
     </section>

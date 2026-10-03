@@ -9,14 +9,20 @@ export type DesktopConfig = {
   mode: DesktopMode | null;
   /** The API this window talks to: the local API offline, the hosted one online. */
   apiBaseUrl: string | null;
+  /** The hosted server built into this app; null when people type an address. */
+  defaultServerUrl: string | null;
 };
+
+export type MoveStep = 'checking' | 'account' | 'backup' | 'pausing' | 'exporting' | 'uploading' | 'finishing';
+
+export type MoveResult = { businessId: string; businessCode: string; businessName: string; server: string };
 
 export type ModeChoice = { mode: 'offline' } | { mode: 'online'; apiBaseUrl: string };
 
 export type BackupEntry = {
   file: string;
   createdAt: string;
-  reason: 'daily' | 'manual' | 'before-update' | 'before-restore';
+  reason: 'daily' | 'manual' | 'before-update' | 'before-restore' | 'before-move';
   bytes: number;
 };
 
@@ -58,6 +64,18 @@ export type DesktopBridge = {
   /** Saves the choice, starts what it needs (the local database and API offline) and reloads the window. */
   chooseMode(choice: ModeChoice): Promise<void>;
   openLogsFolder(): Promise<void>;
+  /** Checks an address (empty: the built-in one) is an online server; answers it tidied. */
+  checkServer(address: string): Promise<string>;
+  /** First launch: creates a business on the server (sent by the app, not the page). */
+  createOnlineBusiness(
+    address: string,
+    details: Record<string, unknown>
+  ): Promise<{ server: string; business: { id: string; code: string; name: string }; session: unknown }>;
+  /** Back to the app's first screen. */
+  reload(): Promise<void>;
+  /** Offline, admins: moves the business online; afterwards this computer works online. */
+  moveOnline(token: string, input: { server?: string; ownerEmail: string; ownerPassword: string }): Promise<MoveResult>;
+  onMoveOnlineProgress(listener: (step: MoveStep) => void): () => void;
   backups?: DesktopBackups;
   updates?: DesktopUpdates;
 };

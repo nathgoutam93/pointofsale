@@ -1,6 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
 import { LocalApi, runMigrations } from './api-server.js';
 import { Backups, backupsFolder } from './backups.js';
+import { moveOnline, type MoveInput } from './move-online.js';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { clampBackupDays, loadConfig, saveConfig, withOfflineSecrets, type DesktopConfig } from './config.js';
 import { logger } from './log.js';
 import { paths } from './paths.js';
@@ -37,6 +40,20 @@ const backups = new Backups(
 let stopping = false;
 let stopped = false;
 
+/**
+ * The hosted server this build signs up and moves businesses to: `posServerUrl` in the
+ * app's package.json (POS_SERVER_URL overrides it). Empty: people type the address.
+ */
+const defaultServerUrl = (() => {
+  if (process.env.POS_SERVER_URL) return process.env.POS_SERVER_URL;
+  try {
+    const manifest = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) as { posServerUrl?: string };
+    return manifest.posServerUrl || null;
+  } catch {
+    return null;
+  }
+})();
+
 /** The API the web app talks to: the local one offline, the hosted one online. */
 function currentApiBaseUrl() {
   if (config.mode === 'offline') return api?.port ? api.baseUrl : null;
@@ -62,10 +79,36 @@ async function startOffline() {
   // is logged, not fatal: the shop must still be able to sell.
   await backups.daily({ beforeUpdate: true }).catch((error) => log(`Backup before start failed: ${describe(error)}`));
   await startApi();
+  if (await switchIfMoved()) return;
   backupTimer = setInterval(() => {
     void backups.daily().catch((error) => log(`Daily backup failed: ${describe(error)}`));
   }, HOUR_MS);
   backupTimer.unref();
+}
+
+/**
+ * The business already moved online (the app stopped right after the move, before switching):
+ * switch now. Returns true when it did.
+ */
+async function switchIfMoved() {
+  if (!api) return false;
+  try {
+    const meta = (await (await fetch(`${api.baseUrl}/meta`)).json()) as { movedTo?: { server: string } | null };
+    if (!meta.movedTo) return false;
+    log(`This business moved online to ${meta.movedTo.server}; switching`);
+    await switchToOnline(meta.movedTo.server);
+    return true;
+  } catch (error) {
+    log(`Couldn't check whether the business moved: ${describe(error)}`);
+    return false;
+  }
+}
+
+/** From now on this computer uses the online business; the local data stays as a read-only copy. */
+async function switchToOnline(server: string) {
+  config = { ...config, mode: 'online', apiBaseUrl: server, pendingImportId: null };
+  saveConfig(config);
+  await stopOffline();
 }
 
 /** Migrations, then the API. Also used to bring the API back after a restore. */
@@ -214,7 +257,10 @@ async function checkOnlineServer(raw: unknown) {
 }
 
 ipcMain.on('pos:get-config', (event) => {
-  event.returnValue = { config: { mode: config.mode, apiBaseUrl: currentApiBaseUrl() }, version: app.getVersion() };
+  event.returnValue = {
+    config: { mode: config.mode, apiBaseUrl: currentApiBaseUrl(), defaultServerUrl },
+    version: app.getVersion()
+  };
 });
 
 ipcMain.handle('pos:choose-mode', async (event, choice: { mode?: unknown; apiBaseUrl?: unknown }) => {
@@ -242,15 +288,16 @@ ipcMain.handle('pos:choose-mode', async (event, choice: { mode?: unknown; apiBas
 });
 
 /**
- * Backups are for admins: the page passes its sign-in token and the local API says whose
- * it is. The bridge can't trust the page's own idea of the role.
+ * Backups and moving online are for admins: the page passes its sign-in token and the local
+ * API says whose it is. The bridge can't trust the page's own idea of the role.
  */
 async function assertAdmin(token: unknown) {
-  if (config.mode !== 'offline' || !api) throw new Error('Backups are only for businesses on this computer');
+  if (config.mode !== 'offline' || !api) throw new Error('Only for a business kept on this computer');
   if (typeof token !== 'string' || !token) throw new Error('Sign in as an admin first');
   const res = await fetch(`${api.baseUrl}/auth/me`, { headers: { authorization: `Bearer ${token}` } });
+  if (res.status === 401) throw new Error('Your session has ended. Sign in again, then try once more.');
   const me = res.ok ? ((await res.json()) as { role?: string }) : null;
-  if (me?.role !== 'ADMIN') throw new Error('Only an admin can manage backups');
+  if (me?.role !== 'ADMIN') throw new Error('Only an admin can do this');
 }
 
 ipcMain.handle('pos:backups:list', async (event, token: unknown) => {
@@ -317,6 +364,73 @@ ipcMain.handle('pos:updates:require', (event, minimum: unknown) => {
   assertFromApp(event);
   if (typeof minimum === 'string') updates.require(minimum);
   return updates.current;
+});
+
+/** Checks an address (or the built-in one) is an online server; answers it tidied. */
+ipcMain.handle('pos:check-server', async (event, address: unknown) => {
+  assertFromApp(event);
+  return checkOnlineServer(typeof address === 'string' && address.trim() ? address : defaultServerUrl);
+});
+
+/**
+ * First launch, "Create an online business": sent from here, not the page, whose security
+ * policy only lets it reach the server it works with (none yet). Answers the new business,
+ * its admin's session and the server; the page then switches to online mode.
+ */
+ipcMain.handle('pos:create-business', async (event, address: unknown, details: Record<string, unknown>) => {
+  assertFromApp(event);
+  if (config.mode) throw new Error('This computer is already set up.');
+  const server = await checkOnlineServer(typeof address === 'string' && address.trim() ? address : defaultServerUrl);
+  const res = await fetch(`${server}/businesses`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-pos-client-version': app.getVersion() },
+    body: JSON.stringify(details ?? {}),
+    signal: AbortSignal.timeout(120_000)
+  });
+  const body = (await res.json().catch(() => null)) as { message?: unknown; business?: unknown; session?: unknown } | null;
+  if (res.status !== 201 || !body) {
+    const message = Array.isArray(body?.message) ? body.message.join(', ') : body?.message;
+    throw new Error(typeof message === 'string' ? message : "The business couldn't be created. Check the details and try again.");
+  }
+  return { server, business: body.business, session: body.session };
+});
+
+/** Offline, admins: the whole move online. Progress goes to the page as 'pos:move-online-progress'. */
+ipcMain.handle('pos:move-online', async (event, token: unknown, input: Partial<MoveInput>) => {
+  assertFromApp(event);
+  await assertAdmin(token);
+  const result = await moveOnline(
+    {
+      server: typeof input?.server === 'string' && input.server.trim() ? input.server : defaultServerUrl ?? '',
+      ownerEmail: String(input?.ownerEmail ?? ''),
+      ownerPassword: String(input?.ownerPassword ?? '')
+    },
+    {
+      log: logger('move-online'),
+      localApi: () => {
+        if (!api) throw new Error('The local service is not running');
+        return api.baseUrl;
+      },
+      token: token as string,
+      checkServer: (address) => checkOnlineServer(address),
+      backup: () => backups.create('before-move'),
+      importId: () => config.pendingImportId,
+      saveImportId: (id) => {
+        config = { ...config, pendingImportId: id };
+        saveConfig(config);
+      },
+      onUpdateNeeded: () => void updates.check(),
+      progress: (step) => event.sender.send('pos:move-online-progress', step)
+    }
+  );
+  await switchToOnline(result.server);
+  return result;
+});
+
+/** Start the app again from its first screen (after moving online, the online sign-in). */
+ipcMain.handle('pos:reload', (event) => {
+  assertFromApp(event);
+  setImmediate(() => void loadApp());
 });
 
 ipcMain.handle('pos:open-logs', async (event) => {

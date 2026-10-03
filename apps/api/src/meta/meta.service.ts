@@ -23,6 +23,17 @@ export class MetaService {
     return instance?.status ?? 'ACTIVE';
   }
 
+  /** Once moved online: where to sign in now. */
+  async movedTo() {
+    const instance = await this.prisma.localInstance.findUnique({
+      where: { id: 'local' },
+      select: { status: true, movedToBusinessCode: true, movedToServer: true }
+    });
+    return instance?.status === 'ARCHIVED' && instance.movedToBusinessCode && instance.movedToServer
+      ? { businessCode: instance.movedToBusinessCode, server: instance.movedToServer }
+      : null;
+  }
+
   async getMeta() {
     const offline = isOffline();
     return {
@@ -33,7 +44,8 @@ export class MetaService {
       mode: posMode(),
       minClientVersion: minClientVersion(),
       setupRequired: offline ? (await this.prisma.user.count()) === 0 : false,
-      instanceStatus: offline ? await this.instanceStatus() : null
+      instanceStatus: offline ? await this.instanceStatus() : null,
+      movedTo: offline ? await this.movedTo() : null
     };
   }
 }

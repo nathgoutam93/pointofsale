@@ -213,12 +213,14 @@ enum LocalInstanceStatus {
 /// Offline (desktop) installs only: the state of this machine's business. One row, id "local";
 /// no row means ACTIVE. Never exported when the business moves online.
 model LocalInstance {
-  id                String              @id @default("local")
-  status            LocalInstanceStatus @default(ACTIVE)
-  /// The online business this one moved to.
-  movedToBusinessId String?
-  movedAt           DateTime?
-  updatedAt         DateTime            @updatedAt
+  id                  String              @id @default("local")
+  status              LocalInstanceStatus @default(ACTIVE)
+  /// The online business this one moved to: its id, sign-in code and server address.
+  movedToBusinessId   String?
+  movedToBusinessCode String?
+  movedToServer       String?
+  movedAt             DateTime?
+  updatedAt           DateTime            @updatedAt
 }
 
 model User {

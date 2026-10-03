@@ -5,22 +5,12 @@ import { IconStore } from "../components/icons";
 import { api, apiErrorMessage } from "../lib/api";
 import { setSession } from "../lib/session";
 import { useServerMode } from "../lib/mode";
-
-/** The business code last used on this device, so staff don't retype it. */
-const BUSINESS_CODE_KEY = "pos_business_code";
-
-function rememberedCode() {
-  try {
-    return localStorage.getItem(BUSINESS_CODE_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
+import { rememberBusinessCode, rememberedBusinessCode } from "../lib/business-code";
 
 export function LoginPage() {
   const navigate = useNavigate();
   const online = useServerMode() === "online";
-  const [businessCode, setBusinessCode] = useState(rememberedCode);
+  const [businessCode, setBusinessCode] = useState(rememberedBusinessCode);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -38,13 +28,7 @@ export function LoginPage() {
     e.preventDefault();
     const data = await login.mutateAsync().catch(() => null);
     if (!data) return;
-    if (online) {
-      try {
-        localStorage.setItem(BUSINESS_CODE_KEY, businessCode.trim().toUpperCase());
-      } catch {
-        // Not remembered; it's typed again next time.
-      }
-    }
+    if (online) rememberBusinessCode(businessCode);
     setSession(data);
     navigate({ to: data.branchId && data.registerId ? "/pos" : "/open-register" });
   };

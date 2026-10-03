@@ -73,6 +73,18 @@ const welcomeRoute = createRoute({
   component: WelcomePage
 });
 
+/** Desktop app, first launch: create a business on the online server. */
+const createBusinessRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/create-business',
+  beforeLoad: () => {
+    if (!desktop || desktop.config.mode) {
+      throw redirect({ to: '/' });
+    }
+  },
+  component: () => <SetupPage online />
+});
+
 /** Offline install with no users yet: create the business and its admin. */
 const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -188,6 +200,7 @@ const settingsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   welcomeRoute,
+  createBusinessRoute,
   setupRoute,
   openRegisterRoute,
   posRoute,

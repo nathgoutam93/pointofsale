@@ -38,6 +38,9 @@ model Business {
   status        BusinessStatus @default(PROVISIONING)
   /// The last migration applied to the business's schema.
   schemaVersion String?
+  /// Set when the business came from an offline install (moved online). A retried upload with
+  /// the same id returns this business instead of creating a second one.
+  importId      String?        @unique
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   memberships   Membership[]
