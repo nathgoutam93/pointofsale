@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { hashPassword, isPasswordHash, verifyPassword } from './password';
+import { hashPassword, isPasswordHash, newPasswordFields, verifyPassword } from './password';
 import { signToken } from './token';
 import type { SessionUser } from '../common/types';
 import { toNumber } from '../common/numbers';
@@ -51,8 +51,26 @@ export class AuthService {
       registerId: openRegister?.id ?? null,
       counterId: openRegister?.counter.id ?? null,
       counterName: openRegister?.counter.name ?? null,
-      branches: user.branchAccesses.map((access) => access.branch)
+      branches: user.branchAccesses.map((access) => access.branch),
+      mustChangePassword: user.mustChangePassword
     };
+  }
+
+  /**
+   * The signed-in user's own new password. Their other sessions end; this one carries on with
+   * the new token returned (same branch and register).
+   */
+  async changePassword(session: SessionUser, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: session.userId }, select: { password: true } });
+    if (!user || !(await verifyPassword(currentPassword, user.password))) {
+      throw new BadRequestException('Your current password is wrong');
+    }
+    if (await verifyPassword(newPassword, user.password)) {
+      throw new BadRequestException('Choose a password different from the current one');
+    }
+    await this.prisma.user.update({ where: { id: session.userId }, data: newPasswordFields(await hashPassword(newPassword), false) });
+    // Signed after the change, so the guard lets this one through.
+    return { token: signToken(session) };
   }
 
   async me(session: SessionUser) {

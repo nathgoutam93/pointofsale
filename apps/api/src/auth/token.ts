@@ -11,6 +11,8 @@ type TokenPayload = {
   branchId?: string;
   registerId?: string;
   iat: number;
+  /** iat in milliseconds, to tell a session from a password change made the same second. */
+  iatMs?: number;
   exp: number;
 };
 
@@ -48,10 +50,20 @@ export function signToken(session: SessionUser) {
     branchId: session.branchId,
     registerId: session.registerId,
     iat: now,
+    iatMs: Date.now(),
     exp: now + getTtlSeconds()
   };
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `${body}.${sign(body)}`;
+}
+
+/** When a token was signed, in milliseconds (older tokens carry seconds only). */
+const issuedAtMs = (payload: { iat?: unknown; iatMs?: unknown }) =>
+  typeof payload.iatMs === 'number' ? payload.iatMs : typeof payload.iat === 'number' ? payload.iat * 1000 : 0;
+
+/** A token signed before the password changed. */
+export function signedBeforePasswordChange(issuedAt: number | undefined, changedAt: Date | null) {
+  return !!changedAt && (issuedAt ?? 0) < changedAt.getTime();
 }
 
 /** Returns the session for a valid, unexpired token, or null. */
@@ -92,21 +104,22 @@ export function verifyToken(token: string): SessionUser | null {
     role: payload.role,
     businessId: typeof payload.bid === 'string' ? payload.bid : undefined,
     branchId: payload.branchId || undefined,
-    registerId: payload.registerId || undefined
+    registerId: payload.registerId || undefined,
+    issuedAt: issuedAtMs(payload)
   };
 }
 
-type AccountPayload = { kind: 'account'; sub: string; iat: number; exp: number };
+type AccountPayload = { kind: 'account'; sub: string; iat: number; iatMs?: number; exp: number };
 
 /** A business owner's token (hosted server): manages their businesses, never sells. */
 export function signAccountToken(accountId: string) {
   const now = Math.floor(Date.now() / 1000);
-  const payload: AccountPayload = { kind: 'account', sub: accountId, iat: now, exp: now + getTtlSeconds() };
+  const payload: AccountPayload = { kind: 'account', sub: accountId, iat: now, iatMs: Date.now(), exp: now + getTtlSeconds() };
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `${body}.${sign(body)}`;
 }
 
-/** The account id of a valid owner token, or null. Staff tokens are not accepted. */
+/** The account and signing time of a valid owner token, or null. Staff tokens are not accepted. */
 export function verifyAccountToken(token: string) {
   const [body, signature, ...rest] = token.split('.');
   if (!body || !signature || rest.length > 0) return null;
@@ -116,7 +129,7 @@ export function verifyAccountToken(token: string) {
   try {
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as AccountPayload;
     if (payload.kind !== 'account' || typeof payload.sub !== 'string' || typeof payload.exp !== 'number') return null;
-    return payload.exp > Math.floor(Date.now() / 1000) ? payload.sub : null;
+    return payload.exp > Math.floor(Date.now() / 1000) ? { accountId: payload.sub, issuedAt: issuedAtMs(payload) } : null;
   } catch {
     return null;
   }

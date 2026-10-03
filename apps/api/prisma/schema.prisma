@@ -110,46 +110,46 @@ enum DiscountType {
 }
 
 model Branch {
-  id            String             @id @default(uuid())
-  name          String
+  id              String             @id @default(uuid())
+  name            String
   /// Exactly 3 letters or digits; starts every invoice and credit note number (see Counter.number).
-  code          String             @unique
-  logoUrl       String?
-  receiptPrefix String             @default("RCPT")
-  invoiceHeader String?
-  invoiceFooter String?
-  receiptHeader String?
-  receiptFooter String?
-  invoiceCss    String?
-  receiptCss    String?
+  code            String             @unique
+  logoUrl         String?
+  receiptPrefix   String             @default("RCPT")
+  invoiceHeader   String?
+  invoiceFooter   String?
+  receiptHeader   String?
+  receiptFooter   String?
+  invoiceCss      String?
+  receiptCss      String?
   /// Receipt layout, paper and sections (see receiptTemplateSchema in @pos/contracts). null: classic.
   receiptTemplate Json?
   /// The branch's own GSTIN. When empty, the business GSTIN is used if it is for this branch's state.
-  gstin         String?
+  gstin           String?
   /// Two-digit GST state code of where the branch is; an over-the-counter sale's place of supply.
-  stateCode     String?
+  stateCode       String?
   /// Before GST numbering: invoices and returns now count in DocumentSequence.
-  invoiceSeq    Int                @default(0)
-  receiptSeq    Int                @default(0)
+  invoiceSeq      Int                @default(0)
+  receiptSeq      Int                @default(0)
   /// Before GST numbering: see invoiceSeq.
-  returnSeq     Int                @default(0)
-  customerSeq   Int                @default(0)
-  purchaseSeq   Int                @default(0)
+  returnSeq       Int                @default(0)
+  customerSeq     Int                @default(0)
+  purchaseSeq     Int                @default(0)
   /// Numbers transfers sent from this branch.
-  transferSeq   Int                @default(0)
-  users         User[]
-  userAccesses  UserBranchAccess[]
-  registers     RegisterSession[]
-  counters      Counter[]
-  customers     Customer[]
-  wallets       WalletAccount[]
-  stockLedgers  StockLedger[]
-  stock         ItemStock[]
-  saleInvoices  SaleInvoice[]
-  purchases     Purchase[]
-  transfersOut  StockTransfer[]    @relation("TransferFrom")
-  transfersIn   StockTransfer[]    @relation("TransferTo")
-  itemPrices    ItemBranchPrice[]
+  transferSeq     Int                @default(0)
+  users           User[]
+  userAccesses    UserBranchAccess[]
+  registers       RegisterSession[]
+  counters        Counter[]
+  customers       Customer[]
+  wallets         WalletAccount[]
+  stockLedgers    StockLedger[]
+  stock           ItemStock[]
+  saleInvoices    SaleInvoice[]
+  purchases       Purchase[]
+  transfersOut    StockTransfer[]    @relation("TransferFrom")
+  transfersIn     StockTransfer[]    @relation("TransferTo")
+  itemPrices      ItemBranchPrice[]
 }
 
 model BusinessSettings {
@@ -230,16 +230,20 @@ model LocalInstance {
 }
 
 model User {
-  id             String             @id @default(uuid())
-  username       String             @unique
-  password       String
-  role           UserRole
-  branchId       String
-  branch         Branch             @relation(fields: [branchId], references: [id])
-  branchAccesses UserBranchAccess[]
-  registers      RegisterSession[]
-  isActive       Boolean            @default(true)
-  createdAt      DateTime           @default(now())
+  id                 String             @id @default(uuid())
+  username           String             @unique
+  password           String
+  role               UserRole
+  branchId           String
+  branch             Branch             @relation(fields: [branchId], references: [id])
+  branchAccesses     UserBranchAccess[]
+  registers          RegisterSession[]
+  isActive           Boolean            @default(true)
+  /// Set when an admin gives the user a new password: they choose their own at next sign-in.
+  mustChangePassword Boolean            @default(false)
+  /// Sessions signed in before this are ended (a reset signs the user out everywhere).
+  passwordChangedAt  DateTime?
+  createdAt          DateTime           @default(now())
 }
 
 model UserBranchAccess {

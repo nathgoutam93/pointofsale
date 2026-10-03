@@ -8,6 +8,8 @@ export type SessionUser = {
   branchId?: string;
   registerId?: string;
   role: UserRole;
+  /** When the token was signed (milliseconds); a password change ends sessions signed before it. */
+  issuedAt?: number;
 };
 
 export type PaymentInput = {

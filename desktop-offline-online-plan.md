@@ -601,3 +601,29 @@ Branch: whichever phase needs it first (likely Phase 1).
     - drive "unplugged" → "The last copy failed … Is the drive plugged in?"
     - plugged back → copy caught up
   - **Tests:** `test/offline.test.ts` covers setup's code format, status and replacement (admin only), the same refusal for wrong code or cashier, a loosely typed code, old code spent, and lockout.
+- 2026-10-03: **Receipt layouts** (per-branch template: paper, layout, sections, preview; one renderer for POS, Sales, Returns and the printer) and a **per-computer paper override** (Settings → Printer). See README.
+- 2026-10-03: **Password resets online** (item 7 of the remaining crucial list). 191 API tests pass.
+  - **Staff, both modes:**
+    - Migration `20261011100000_user_password_change`: `User.mustChangePassword`, `User.passwordChangedAt`.
+    - Tokens now carry `iatMs`. The auth guard refuses a token signed before `passwordChangedAt` ("Your password was changed"), so every reset signs the user out everywhere. Older tokens fall back to `iat` seconds.
+    - While `mustChangePassword` is set, every route except `POST /auth/change-password` and `GET /auth/me` (`@AllowBeforePasswordChange`) answers 403 with `code: PASSWORD_CHANGE_REQUIRED`. The login response carries `mustChangePassword`.
+    - `POST /auth/change-password` `{currentPassword, newPassword}`: the new one must differ; 10 wrong tries per user per 15 minutes. It answers a fresh token, so this session continues.
+    - `PATCH /users/:id` with `password` sets `mustChangePassword` (default: true for someone else, false for yourself; `mustChangePassword` in the body overrides). Offline recovery clears it.
+  - **Online, admin forgot their password:** `POST /accounts/staff-password` (owner token) `{businessId, username, newPassword}` for a business the account owns. An admin is reactivated and keeps the password; a cashier must choose their own.
+  - **Online, owner forgot their password:**
+    - Control migration `20261011100000_password_reset`: `Account.passwordChangedAt`, `PasswordReset {accountId, codeHash, expiresAt, attempts, usedAt}`.
+    - `POST /accounts/password-reset` `{email}` → 202 whether or not the account exists. It emails an 8-digit code (scrypt-hashed, 15 minutes, 5 wrong tries, once only; a new request replaces older codes). 5 requests per address and 3 per email an hour.
+    - `POST /accounts/password-reset/confirm` `{email, code, newPassword}`: sets the password, ends owner tokens signed before it (`accountIdFrom` is now async and checks this), and marks the email verified.
+    - Email: `src/mail/mailer.ts` (nodemailer). `SMTP_URL` + `MAIL_FROM`; `MAIL_TRANSPORT=log` (development) or `memory` (tests). With none, the request answers 503 "Email isn't set up on this server".
+  - **Web:**
+    - `/change-password`: forced, full-screen, after signing in with a password someone else set (route guards and a 403 from the API both send users there); voluntary from the user's name in the header.
+    - Settings → Cashiers & Access: "Ask them to choose their own at next sign-in" (ticked by default) next to Reset Password, and a badge until they do.
+    - Online "Forgot your password?" (`/recover` in online mode): owner email and password, business code, username and new password. Cashiers are told to ask an admin.
+    - `/owner-password`: email → code + new password. In the desktop app it goes through `pos:owner-password-reset` in the main process (the page may not be allowed to reach the server: first launch, offline). Linked from the create-business form, the move-online dialog and the online recover page.
+  - **Verified in the desktop app** against a local hosted server with `MAIL_TRANSPORT=log`:
+    - create business → admin resets a cashier → cashier signs in → forced change screen (other pages redirect back) → chooses one → open register
+    - admin "forgot" → the owner resets it → admin signs in
+    - owner "forgot" → code read from the logged email → new owner password (old refused, new accepted)
+    - own password change from the header keeps you signed in
+    - The offline recovery-code flow still passes its earlier end-to-end run.
+  - **Not done:** owner email verification at sign-up (still deferred); an owner-side screen listing all staff.

@@ -25,7 +25,7 @@ Status key: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped (say 
   - Passwords are hashed with scrypt (`apps/api/src/auth/password.ts`). At startup, any plain-text passwords still in the database are hashed.
   - The seed creates an admin only when there are no users at all. The password comes from `SEED_ADMIN_PASSWORD`, or a random one is printed once. No cashier is seeded. Startup logs a warning for any user whose password is still `password`.
   - Web: on a 401, the session is cleared and the user is sent to `/login`.
-- **Follow-ups (not done):** limit repeated login attempts; let admins force a password reset; move the token to an httpOnly cookie instead of localStorage; the three raw `fetch` uploads (`BranchSettingsPage.tsx` business/branch logo, `ItemsPage.tsx` item image) skip the 401 redirect in `api.ts`, so route them through a shared helper.
+- **Follow-ups (not done):** limit repeated login attempts (since done: `FailureLimiter`); let admins force a password reset (since done: `mustChangePassword`, see desktop-offline-online-plan.md); move the token to an httpOnly cookie instead of localStorage; the three raw `fetch` uploads (`BranchSettingsPage.tsx` business/branch logo, `ItemsPage.tsx` item image) skip the 401 redirect in `api.ts`, so route them through a shared helper.
 
 ### [x] 2. Check which branch a record belongs to on every endpoint that takes an id
 - **Where:** `pos.controller.ts` around line 566. These routes take an id but never check its branch: `GET /sales/:id`, `GET /receipts/:id`, `GET /receipts/by-invoice/:id`, `GET /customers/:id/wallet`, `POST /customers/:id/wallet/topup`.

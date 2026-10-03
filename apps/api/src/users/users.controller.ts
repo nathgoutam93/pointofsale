@@ -35,7 +35,7 @@ export class UsersController {
   @Patch('/users/:id')
   updateUser(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(appContract.users.update.body)) body: { username?: string; password?: string; isActive?: boolean },
+    @Body(new ZodValidationPipe(appContract.users.update.body)) body: { username?: string; password?: string; mustChangePassword?: boolean; isActive?: boolean },
     @Headers() headers: RequestHeaders
   ) {
     const session = requireAdminSession(headers);

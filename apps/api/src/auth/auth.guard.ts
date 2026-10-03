@@ -1,7 +1,8 @@
-import { CanActivate, ExecutionContext, Injectable, SetMetadata, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, SetMetadata, UnauthorizedException } from '@nestjs/common';
+import { PASSWORD_CHANGE_REQUIRED } from '@pos/contracts';
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../prisma.service';
-import { readBearerToken, verifyToken } from './token';
+import { readBearerToken, signedBeforePasswordChange, verifyToken } from './token';
 import { isOffline } from '../common/mode';
 import { TenancyService } from '../tenancy/tenancy.service';
 
@@ -9,6 +10,12 @@ const IS_PUBLIC_KEY = 'isPublic';
 
 /** Marks a route that can be called without a token (e.g. login). */
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+
+const ALLOW_PASSWORD_CHANGE_KEY = 'allowPasswordChange';
+
+/** A route a user who must choose a new password can still use (changing it, who am I). */
+export const AllowBeforePasswordChange = () => SetMetadata(ALLOW_PASSWORD_CHANGE_KEY, true);
+
 
 /**
  * Runs before every route. The token signature only proves what was true when
@@ -51,10 +58,19 @@ export class AuthGuard implements CanActivate {
 
     const user = await this.prisma.user.findUnique({
       where: { id: session.userId },
-      select: { isActive: true, role: true }
+      select: { isActive: true, role: true, mustChangePassword: true, passwordChangedAt: true }
     });
     if (!user || !user.isActive || user.role !== session.role) {
       throw new UnauthorizedException('Session is no longer valid, please sign in again');
+    }
+    if (signedBeforePasswordChange(session.issuedAt, user.passwordChangedAt)) {
+      throw new UnauthorizedException('Your password was changed, please sign in again');
+    }
+    if (
+      user.mustChangePassword &&
+      !this.reflector.getAllAndOverride<boolean>(ALLOW_PASSWORD_CHANGE_KEY, [context.getHandler(), context.getClass()])
+    ) {
+      throw new ForbiddenException({ statusCode: 403, code: PASSWORD_CHANGE_REQUIRED, message: 'Choose a new password first' });
     }
 
     if (session.branchId) {

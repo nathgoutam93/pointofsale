@@ -24,6 +24,7 @@ import { ItemsService } from './items/items.service';
 import { createPrismaService, PrismaService } from './prisma.service';
 import { AccountsController } from './accounts/accounts.controller';
 import { AccountsService } from './accounts/accounts.service';
+import { Mailer } from './mail/mailer';
 import { ProvisioningService } from './tenancy/provisioning.service';
 import { ImportService } from './tenancy/import.service';
 import { TenancyService } from './tenancy/tenancy.service';
@@ -78,6 +79,7 @@ import { UsersService } from './users/users.service';
     ProvisioningService,
     ImportService,
     AccountsService,
+    Mailer,
     SettingsService,
     SequenceService,
     ItemsService,

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma.service';
-import { hashPassword, verifyPassword } from './password';
+import { hashPassword, newPasswordFields, verifyPassword } from './password';
 
 /** No 0/O, 1/I/L: the code is written down and typed back by hand. */
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -59,7 +59,7 @@ export class RecoveryService {
     const passwordHash = await hashPassword(input.newPassword);
     return this.prisma.$transaction(async (tx) => {
       // An admin locked out may also have been deactivated by mistake; recovery restores both.
-      await tx.user.update({ where: { id: user.id }, data: { password: passwordHash, isActive: true } });
+      await tx.user.update({ where: { id: user.id }, data: { ...newPasswordFields(passwordHash, false), isActive: true } });
       return { recoveryCode: await this.replaceCode(tx) };
     });
   }

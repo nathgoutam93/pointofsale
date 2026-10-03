@@ -17,6 +17,9 @@ import { AccountsService } from './accounts.service';
 
 /** Wrong owner passwords: 10 per email and address per 15 minutes. */
 const accountFailures = new FailureLimiter(10, 15 * 60 * 1000);
+/** Owner password reset emails: 5 per address and 3 per email an hour, against mail floods. */
+const resetRequestsByAddress = new FailureLimiter(5, 60 * 60 * 1000);
+const resetRequestsByEmail = new FailureLimiter(3, 60 * 60 * 1000);
 /** New businesses: 5 per address per hour, against sign-up floods. */
 const creations = new FailureLimiter(5, 60 * 60 * 1000);
 
@@ -58,7 +61,7 @@ export class AccountsController {
     @Headers() headers: RequestHeaders
   ) {
     try {
-      const accountId = this.accounts.accountIdFrom(readBearerToken(headers));
+      const accountId = await this.accounts.accountIdFrom(readBearerToken(headers));
       if (!file) throw new BadRequestException('The export file is missing');
       const importId = typeof body?.importId === 'string' ? body.importId : '';
       if (!/^[0-9a-f-]{36}$/i.test(importId)) throw new BadRequestException('importId must be a UUID');
@@ -105,7 +108,51 @@ export class AccountsController {
   /** Owner token, not a staff one. */
   @Public()
   @Get('/accounts/businesses')
-  businesses(@Headers() headers: RequestHeaders) {
-    return this.accounts.businessesOf(this.accounts.accountIdFrom(readBearerToken(headers)));
+  async businesses(@Headers() headers: RequestHeaders) {
+    return this.accounts.businessesOf(await this.accounts.accountIdFrom(readBearerToken(headers)));
+  }
+
+  /** Owner token: a forgotten staff password (usually the business's admin), reset by its owner. */
+  @Public()
+  @Post('/accounts/staff-password')
+  @HttpCode(200)
+  async staffPassword(
+    @Body(new ZodValidationPipe(appContract.accounts.staffPassword.body)) body: { businessId: string; username: string; newPassword: string },
+    @Headers() headers: RequestHeaders
+  ) {
+    const accountId = await this.accounts.accountIdFrom(readBearerToken(headers));
+    return this.accounts.resetStaffPassword(accountId, body);
+  }
+
+  /** A forgotten owner password: emails a code. 5 requests per address, 3 per email, an hour. */
+  @Public()
+  @Post('/accounts/password-reset')
+  @HttpCode(202)
+  async requestPasswordReset(@Body(new ZodValidationPipe(appContract.accounts.requestPasswordReset.body)) body: { email: string }, @Ip() ip: string) {
+    resetRequestsByAddress.assertAllowed(ip);
+    resetRequestsByEmail.assertAllowed(body.email);
+    resetRequestsByAddress.failed(ip);
+    resetRequestsByEmail.failed(body.email);
+    await this.accounts.requestPasswordReset(body.email);
+    return { sent: true as const };
+  }
+
+  @Public()
+  @Post('/accounts/password-reset/confirm')
+  @HttpCode(200)
+  async confirmPasswordReset(
+    @Body(new ZodValidationPipe(appContract.accounts.confirmPasswordReset.body)) body: { email: string; code: string; newPassword: string },
+    @Ip() ip: string
+  ) {
+    const key = `${ip}|${body.email}`;
+    accountFailures.assertAllowed(key);
+    try {
+      await this.accounts.confirmPasswordReset(body);
+    } catch (error) {
+      if (error instanceof BadRequestException) accountFailures.failed(key);
+      throw error;
+    }
+    accountFailures.succeeded(key);
+    return { reset: true as const };
   }
 }

@@ -18,6 +18,8 @@ import { requireAdmin, requireOperationalSession, requireSession } from './scree
 import { WelcomePage } from './screens/onboarding/WelcomePage';
 import { SetupPage } from './screens/onboarding/SetupPage';
 import { RecoverPage } from './screens/onboarding/RecoverPage';
+import { ChangePasswordPage } from './screens/ChangePasswordPage';
+import { OwnerPasswordPage } from './screens/onboarding/OwnerPasswordPage';
 import { api } from './lib/api';
 import { desktop } from './lib/desktop';
 
@@ -50,6 +52,9 @@ const loginRoute = createRoute({
     }
     const session = getSession();
     if (session) {
+      if (session.mustChangePassword) {
+        throw redirect({ to: '/change-password' });
+      }
       if (session.branchId && session.registerId) {
         throw redirect({ to: '/pos' });
       }
@@ -74,16 +79,28 @@ const welcomeRoute = createRoute({
   component: WelcomePage
 });
 
-/** Offline: a forgotten admin password, reset with the recovery code. */
+/**
+ * "Forgot your password?": offline, an admin's with the recovery code; online, any staff
+ * password, reset by the business's owner.
+ */
 const recoverRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/recover',
   beforeLoad: () => {
-    if (getSession() || (desktop && desktop.config.mode !== 'offline')) {
+    if (getSession() || (desktop && !desktop.config.mode)) {
       throw redirect({ to: '/' });
     }
   },
   component: RecoverPage
+});
+
+/** A forgotten owner-account password, reset with a code sent by email. */
+const ownerPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/owner-password',
+  validateSearch: (search: Record<string, unknown>): { email?: string } =>
+    typeof search.email === 'string' && search.email ? { email: search.email } : {},
+  component: OwnerPasswordPage
 });
 
 /** Desktop app, first launch: create a business on the online server. */
@@ -108,6 +125,16 @@ const setupRoute = createRoute({
     }
   },
   component: SetupPage
+});
+
+/** The signed-in user's own new password; required first when one was set for them. */
+const changePasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/change-password',
+  beforeLoad: () => {
+    if (!getSession()) throw redirect({ to: '/' });
+  },
+  component: ChangePasswordPage
 });
 
 const openRegisterRoute = createRoute({
@@ -215,6 +242,8 @@ const routeTree = rootRoute.addChildren([
   welcomeRoute,
   createBusinessRoute,
   recoverRoute,
+  ownerPasswordRoute,
+  changePasswordRoute,
   setupRoute,
   openRegisterRoute,
   posRoute,

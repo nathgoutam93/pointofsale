@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('posDesktop', {
   restoreFromBackup: () => invoke('pos:restore-from-backup'),
   createOnlineBusiness: (address: string, details: Record<string, unknown>) => invoke('pos:create-business', address, details),
   reload: () => invoke('pos:reload'),
+  // A forgotten owner password: an emailed code, then the new password (see main.ts).
+  ownerPasswordReset: (address: string, step: 'request' | 'confirm', details: Record<string, unknown>) =>
+    invoke('pos:owner-password-reset', address, step, details),
   // Offline, admins only: moves the business to an online server (see apps/desktop/src/move-online.ts).
   moveOnline: (token: string, input: { server?: string; ownerEmail: string; ownerPassword: string }) =>
     invoke('pos:move-online', token, input),

@@ -91,6 +91,8 @@ export function BranchSettingsPage() {
   const [cashierForm, setCashierForm] = useState<CashierForm>(emptyCashierForm(initialBranchId));
   const [createBranchForm, setCreateBranchForm] = useState<CreateBranchForm>({ name: "", code: "" });
   const [passwordByUserId, setPasswordByUserId] = useState<Record<string, string>>({});
+  // Unticked: the cashier keeps the password the admin sets. Ticked (the default): they choose their own.
+  const [keepPasswordByUserId, setKeepPasswordByUserId] = useState<Record<string, boolean>>({});
 
   const branchSettings = useQuery({
     queryKey: ["branch-settings", selectedBranchId],
@@ -466,18 +468,24 @@ export function BranchSettingsPage() {
   });
 
   const updateUser = useMutation({
-    mutationFn: async (payload: { id: string; username?: string; password?: string; isActive?: boolean }) => {
+    mutationFn: async (payload: { id: string; username?: string; password?: string; mustChangePassword?: boolean; isActive?: boolean }) => {
       const res = await api.users.update({
         params: { id: payload.id },
-        body: { username: payload.username, password: payload.password, isActive: payload.isActive },
+        body: { username: payload.username, password: payload.password, mustChangePassword: payload.mustChangePassword, isActive: payload.isActive },
         extraHeaders: authHeaders()
       });
-      if (res.status !== 200) throw new Error("Failed to update user");
+      if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to update user"));
       return res.body;
     },
-    onSuccess: () => {
+    onSuccess: (updated, payload) => {
       queryClient.invalidateQueries({ queryKey: ["branch-users", selectedBranchId] });
-      setUserMessage("User updated.");
+      setUserMessage(
+        payload.password === undefined
+          ? "User updated."
+          : updated.mustChangePassword
+            ? `New password set. ${updated.username} is signed out everywhere and chooses their own password at next sign-in.`
+            : `New password set. ${updated.username} is signed out everywhere.`
+      );
     },
     onError: (error) => {
       setUserMessage((error as Error).message);
@@ -1071,7 +1079,14 @@ export function BranchSettingsPage() {
               <div key={user.id} className="rounded border border-slate-200 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="font-semibold text-slate-900">{user.username}</p>
+                    <p className="font-semibold text-slate-900">
+                      {user.username}
+                      {user.mustChangePassword ? (
+                        <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">
+                          Chooses a new password at next sign-in
+                        </span>
+                      ) : null}
+                    </p>
                     <p className="text-xs text-slate-500">
                       Status: {user.isActive ? "Active" : "Inactive"} • Created {new Date(user.createdAt).toLocaleDateString()}
                     </p>
@@ -1100,12 +1115,20 @@ export function BranchSettingsPage() {
                         setUserMessage("Enter a password to reset.");
                         return;
                       }
-                      updateUser.mutate({ id: user.id, password: nextPassword });
+                      updateUser.mutate({ id: user.id, password: nextPassword, mustChangePassword: !keepPasswordByUserId[user.id] });
                       setPasswordByUserId((prev) => ({ ...prev, [user.id]: "" }));
                     }}
                   >
                     Reset Password
                   </button>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={!keepPasswordByUserId[user.id]}
+                      onChange={(e) => setKeepPasswordByUserId((prev) => ({ ...prev, [user.id]: !e.target.checked }))}
+                    />
+                    Ask them to choose their own at next sign-in
+                  </label>
                 </div>
                 <div className="mt-3 rounded border border-slate-200 p-2">
                   <p className="text-xs font-semibold text-slate-600">Branch Access</p>

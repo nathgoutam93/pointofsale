@@ -21,6 +21,9 @@ export function requireSession() {
   if (!session) {
     throw redirect({ to: '/' });
   }
+  if (session.mustChangePassword) {
+    throw redirect({ to: '/change-password' });
+  }
   return session;
 }
 

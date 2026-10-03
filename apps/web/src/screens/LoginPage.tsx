@@ -31,7 +31,7 @@ export function LoginPage() {
     if (!data) return;
     if (online) rememberBusinessCode(businessCode);
     setSession(data);
-    navigate({ to: data.branchId && data.registerId ? "/pos" : "/open-register" });
+    navigate({ to: data.mustChangePassword ? "/change-password" : data.branchId && data.registerId ? "/pos" : "/open-register" });
   };
 
   return (
@@ -126,7 +126,7 @@ export function LoginPage() {
             <button className="btn-primary h-10 w-full" type="submit" disabled={login.isPending}>
               {login.isPending ? "Signing in…" : "Sign in"}
             </button>
-            {serverMode === "offline" ? (
+            {serverMode ? (
               <Link to="/recover" className="text-center text-sm text-slate-600 hover:text-slate-900">
                 Forgot your password?
               </Link>

@@ -327,6 +327,8 @@ export const userSchema = z.object({
   branchId: z.string().uuid(),
   branchIds: z.array(z.string().uuid()),
   isActive: z.boolean(),
+  /** An admin set their password; they haven't chosen their own yet. */
+  mustChangePassword: z.boolean().default(false),
   createdAt: z.string().datetime()
 });
 
@@ -720,8 +722,16 @@ const loginResponseSchema = z.object({
   /** The counter of the open register, if any. */
   counterId: z.string().uuid().nullable(),
   counterName: z.string().nullable(),
-  branches: z.array(branchSchema)
+  branches: z.array(branchSchema),
+  /** An admin set this password: the user chooses their own before doing anything else. */
+  mustChangePassword: z.boolean().default(false)
 });
+
+/** The `code` of the 403 a user gets until they choose a new password (see auth.changePassword). */
+export const PASSWORD_CHANGE_REQUIRED = 'PASSWORD_CHANGE_REQUIRED';
+
+/** The code emailed to an owner to reset their password: 8 digits. */
+const resetCodeSchema = z.string().trim().regex(/^\d{8}$/, 'Enter the 8-digit code from the email');
 
 /** offline: one branch and one counter, all on this machine. online: the hosted, multi-business server. */
 export const posModeSchema = z.enum(['offline', 'online']);
@@ -924,6 +934,33 @@ export const appContract = c.router({
       method: 'GET',
       path: '/accounts/businesses',
       responses: { 200: z.array(ownedBusinessSchema) }
+    },
+    /**
+     * Online, owner token: a new password for a staff user of one of the owner's businesses
+     * (an admin who forgot theirs). Their other sessions end; an inactive admin is reactivated.
+     */
+    staffPassword: {
+      method: 'POST',
+      path: '/accounts/staff-password',
+      body: z.object({ businessId: z.string().uuid(), username: z.string().trim().min(1), newPassword: passwordSchema }),
+      responses: { 200: z.object({ username: z.string() }) }
+    },
+    /**
+     * Online, no sign-in: emails an 8-digit code to reset an owner's password. Answers the same
+     * whether or not the email has an account.
+     */
+    requestPasswordReset: {
+      method: 'POST',
+      path: '/accounts/password-reset',
+      body: z.object({ email: emailSchema }),
+      responses: { 202: z.object({ sent: z.literal(true) }) }
+    },
+    /** Online, no sign-in: the emailed code and a new password. Signs the owner out everywhere. */
+    confirmPasswordReset: {
+      method: 'POST',
+      path: '/accounts/password-reset/confirm',
+      body: z.object({ email: emailSchema, code: resetCodeSchema, newPassword: passwordSchema }),
+      responses: { 200: z.object({ reset: z.literal(true) }) }
     }
   },
   auth: {
@@ -947,6 +984,16 @@ export const appContract = c.router({
       path: '/auth/recover',
       body: z.object({ recoveryCode: z.string().trim().min(1), username: z.string().trim().min(1), newPassword: passwordSchema }),
       responses: { 200: z.object({ recoveryCode: z.string() }) }
+    },
+    /**
+     * Signed in: the user's own new password. Needed before anything else when an admin set
+     * their password. Other sessions end; this one gets a new token.
+     */
+    changePassword: {
+      method: 'POST',
+      path: '/auth/change-password',
+      body: z.object({ currentPassword: z.string().min(1), newPassword: passwordSchema }),
+      responses: { 200: z.object({ token: z.string() }) }
     },
     /** Offline, admins: whether a recovery code exists, and since when. */
     recoveryCodeStatus: {
@@ -1131,6 +1178,11 @@ export const appContract = c.router({
       body: z.object({
         username: requiredText.optional(),
         password: passwordSchema.optional(),
+        /**
+         * With `password`: the user must choose their own at next sign-in. Defaults to true when
+         * an admin sets someone else's password. Either way their sessions end.
+         */
+        mustChangePassword: z.boolean().optional(),
         isActive: z.boolean().optional()
       }),
       responses: { 200: userSchema }

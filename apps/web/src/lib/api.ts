@@ -1,7 +1,7 @@
 import { initClient, tsRestFetchApi } from '@ts-rest/core';
 import { appContract } from '@pos/contracts';
-import { clearSession, getSession } from './session';
-import { CLIENT_VERSION_HEADER, UPDATE_REQUIRED_STATUS } from '@pos/contracts';
+import { clearSession, getSession, updateSession } from './session';
+import { CLIENT_VERSION_HEADER, PASSWORD_CHANGE_REQUIRED, UPDATE_REQUIRED_STATUS } from '@pos/contracts';
 import { desktop } from './desktop';
 import { reportUpdateRequired } from './updates';
 
@@ -27,6 +27,16 @@ export const api = initClient(appContract, {
     if (response.status === 401 && getSession()) {
       clearSession();
       window.location.href = '/';
+    }
+    // An admin set this user's password since they signed in: they choose their own first.
+    if (
+      response.status === 403 &&
+      (response.body as { code?: unknown } | null)?.code === PASSWORD_CHANGE_REQUIRED &&
+      getSession() &&
+      window.location.pathname !== '/change-password'
+    ) {
+      updateSession({ mustChangePassword: true });
+      window.location.href = '/change-password';
     }
     return response;
   }

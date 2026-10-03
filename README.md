@@ -140,6 +140,15 @@ The token is returned by `/auth/login` and is stored by the frontend session hel
 with `AUTH_SECRET`, expires after `AUTH_TOKEN_TTL_HOURS` (default 12), and every request is
 re-checked against the database (user active, same role, branch access, register still open).
 
+Passwords:
+- **Anyone** can change their own password (click your name at the top). Their other sessions end.
+- **An admin** can give a cashier a new password (Settings → Cashiers & Access). By default the
+  cashier must choose their own at next sign-in, and is signed out everywhere until then.
+- **A forgotten admin password:** offline, the recovery code from setup resets it; online, the
+  business's owner resets it with the owner account ("Forgot your password?" on sign-in).
+- **A forgotten owner password** (online): an 8-digit code is emailed to the owner. This needs
+  `SMTP_URL` and `MAIL_FROM` on the server (`MAIL_TRANSPORT=log` prints the email in development).
+
 ## Implemented Modules
 - Customers + walk-in customer + wallet topup/balance
 - Item master (create/list/update)

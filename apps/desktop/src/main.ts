@@ -512,6 +512,36 @@ ipcMain.handle('pos:create-business', async (event, address: unknown, details: R
 });
 
 /**
+ * A forgotten owner password: asks the server to email a code ("request"), then sends the code
+ * and the new password ("confirm"). From here, like creating a business, because the page may
+ * not be allowed to reach that server (first launch, or offline). The server is the one given,
+ * else this computer's online server, else the built-in one.
+ */
+const OWNER_RESET_PATHS: Record<string, string> = {
+  request: '/accounts/password-reset',
+  confirm: '/accounts/password-reset/confirm'
+};
+ipcMain.handle('pos:owner-password-reset', async (event, address: unknown, step: unknown, details: unknown) => {
+  assertFromApp(event);
+  const path = typeof step === 'string' ? OWNER_RESET_PATHS[step] : undefined;
+  if (!path) throw new Error('Unknown step');
+  const fallback = config.mode === 'online' ? currentApiBaseUrl() : defaultServerUrl;
+  const server = await checkOnlineServer(typeof address === 'string' && address.trim() ? address : fallback);
+  const res = await fetch(`${server}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-pos-client-version': app.getVersion() },
+    body: JSON.stringify(details && typeof details === 'object' ? details : {}),
+    signal: AbortSignal.timeout(30_000)
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { message?: unknown } | null;
+    const message = Array.isArray(body?.message) ? body.message.join(', ') : body?.message;
+    throw new Error(typeof message === 'string' ? message : "That didn't work. Try again in a moment.");
+  }
+  return { server };
+});
+
+/**
  * First launch: "Restore from a backup". The person picks a backup file (made by this app on
  * any computer); the business is restored here in offline mode, then the app reloads at the
  * sign-in screen. A backup older than this version is brought up to date by the migrations.

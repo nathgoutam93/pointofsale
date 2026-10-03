@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useState } from "react";
 import { api, apiErrorMessage, API_BASE_URL, authHeaders } from "../lib/api";
@@ -98,7 +99,13 @@ export function MoveOnlineDialog({ onClose }: { onClose: () => void }) {
               <div>
                 <label className="field-label" htmlFor="move-password">Owner password</label>
                 <input id="move-password" className="field h-10" type="password" value={ownerPassword} onChange={(e) => setOwnerPassword(e.target.value)} autoComplete="current-password" minLength={8} required disabled={running} />
-                <p className="mt-1 text-xs text-slate-500">New here? This creates your owner account. Already have one? Use its password.</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  New here? This creates your owner account. Already have one? Use its password (
+                  <Link to="/owner-password" search={ownerEmail ? { email: ownerEmail } : {}} className="underline hover:text-slate-800">
+                    forgot it?
+                  </Link>
+                  ).
+                </p>
               </div>
             </div>
 

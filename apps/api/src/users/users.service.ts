@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
-import { hashPassword, validateNewPassword } from '../auth/password';
+import { hashPassword, newPasswordFields, validateNewPassword } from '../auth/password';
 import type { SessionUser } from '../common/types';
 import { SettingsService } from '../settings/settings.service';
 import { BranchesService } from '../branches/branches.service';
@@ -25,6 +25,7 @@ export class UsersService {
         role: true,
         branchId: true,
         isActive: true,
+        mustChangePassword: true,
         createdAt: true,
         branchAccesses: { select: { branchId: true } }
       }
@@ -36,6 +37,7 @@ export class UsersService {
       branchId: user.branchId,
       branchIds: user.branchAccesses.map((access) => access.branchId),
       isActive: user.isActive,
+      mustChangePassword: user.mustChangePassword,
       createdAt: user.createdAt
     }));
   }
@@ -72,6 +74,7 @@ export class UsersService {
         role: true,
         branchId: true,
         isActive: true,
+        mustChangePassword: true,
         createdAt: true,
         branchAccesses: { select: { branchId: true } }
       }
@@ -83,6 +86,7 @@ export class UsersService {
       branchId: created.branchId,
       branchIds: created.branchAccesses.map((access) => access.branchId),
       isActive: created.isActive,
+      mustChangePassword: created.mustChangePassword,
       createdAt: created.createdAt
     };
   }
@@ -135,7 +139,7 @@ export class UsersService {
   async updateUser(
     session: SessionUser,
     userId: string,
-    input: { username?: string; password?: string; isActive?: boolean; role?: UserRole }
+    input: { username?: string; password?: string; mustChangePassword?: boolean; isActive?: boolean; role?: UserRole }
   ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -164,7 +168,10 @@ export class UsersService {
       where: { id: userId },
       data: {
         username: input.username,
-        password: input.password !== undefined ? await hashPassword(input.password) : undefined,
+        // Someone else's password, set by an admin: they choose their own at next sign-in.
+        ...(input.password !== undefined
+          ? newPasswordFields(await hashPassword(input.password), input.mustChangePassword ?? user.id !== session.userId)
+          : {}),
         isActive: input.isActive
       },
       select: {
@@ -173,6 +180,7 @@ export class UsersService {
         role: true,
         branchId: true,
         isActive: true,
+        mustChangePassword: true,
         createdAt: true,
         branchAccesses: { select: { branchId: true } }
       }
@@ -184,6 +192,7 @@ export class UsersService {
       branchId: updated.branchId,
       branchIds: updated.branchAccesses.map((access) => access.branchId),
       isActive: updated.isActive,
+      mustChangePassword: updated.mustChangePassword,
       createdAt: updated.createdAt
     };
   }

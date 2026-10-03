@@ -116,6 +116,11 @@ export type DesktopBridge = {
     address: string,
     details: Record<string, unknown>
   ): Promise<{ server: string; business: { id: string; code: string; name: string }; session: unknown }>;
+  /**
+   * A forgotten owner password, sent by the app to `address` (empty: this computer's online
+   * server, else the built-in one): "request" emails a code, "confirm" sets the new password.
+   */
+  ownerPasswordReset(address: string, step: "request" | "confirm", details: Record<string, unknown>): Promise<{ server: string }>;
   /** First launch: picks a backup file and restores its business here; false if no file was chosen. */
   restoreFromBackup(): Promise<{ restored: boolean }>;
   /** Back to the app's first screen. */

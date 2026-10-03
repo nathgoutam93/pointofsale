@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { COMPOSITION_CATEGORY_LABELS, GST_STATES } from "@pos/contracts";
 import { FormEvent, useState } from "react";
@@ -160,7 +160,11 @@ export function SetupPage({ online = false }: { online?: boolean }) {
             <p className="eyebrow">Owner account</p>
             <p className="-mt-2 text-sm text-slate-600">
               Yours, as the owner: you use it to create businesses or move one online. Already have one? Use the same email
-              and password.
+              and password (
+              <Link to="/owner-password" search={ownerEmail ? { email: ownerEmail } : {}} className="underline hover:text-slate-900">
+                forgot it?
+              </Link>
+              ).
             </p>
             {defaultServer ? null : (
               <div>

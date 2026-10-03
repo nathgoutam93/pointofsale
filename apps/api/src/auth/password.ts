@@ -37,6 +37,14 @@ export async function verifyPassword(password: string, stored: string) {
   return timingSafeEqual(expected, actual);
 }
 
+/**
+ * The fields to write for a user's new password. Sessions signed in before it end (see the
+ * auth guard); `mustChange` makes the user choose their own at next sign-in.
+ */
+export function newPasswordFields(passwordHash: string, mustChange: boolean) {
+  return { password: passwordHash, passwordChangedAt: new Date(), mustChangePassword: mustChange };
+}
+
 export function validateNewPassword(password: unknown) {
   if (typeof password !== 'string' || password.length < 8) {
     return 'Password must be at least 8 characters';

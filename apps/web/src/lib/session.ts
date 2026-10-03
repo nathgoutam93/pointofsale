@@ -9,6 +9,8 @@ export type Session = {
   branches: Array<{ id: string; name: string; code: string }>;
   username?: string;
   role: 'ADMIN' | 'CASHIER';
+  /** Their password was set for them: they choose their own before anything else. */
+  mustChangePassword?: boolean;
 };
 
 const SESSION_KEY = 'pos_session';

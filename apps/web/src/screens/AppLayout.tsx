@@ -68,6 +68,7 @@ const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
 
 const PAGE_TITLES: Record<string, string> = {
   "/open-register": "Open Register",
+  "/change-password": "Change Password",
   ...Object.fromEntries(NAV_SECTIONS.flatMap((s) => s.items.map((i) => [i.to, i.label]))),
 };
 
@@ -87,7 +88,7 @@ function initials(name: string) {
 }
 
 /** Screens shown before anyone is signed in, without the app's navigation. */
-const FULL_SCREEN_PATHS = new Set(["/", "/welcome", "/setup", "/create-business", "/recover"]);
+const FULL_SCREEN_PATHS = new Set(["/", "/welcome", "/setup", "/create-business", "/recover", "/owner-password"]);
 
 export function AppLayout() {
   const location = useRouterState({ select: (s) => s.location.pathname });
@@ -112,7 +113,8 @@ export function AppLayout() {
     setMobileOpen(false);
   }, [location]);
 
-  if (!session && FULL_SCREEN_PATHS.has(location)) {
+  // Without navigation too: the password someone was given, before they may use anything.
+  if ((!session && FULL_SCREEN_PATHS.has(location)) || (session?.mustChangePassword && location === "/change-password")) {
     return <Outlet />;
   }
 
@@ -285,7 +287,11 @@ export function AppLayout() {
                 <span className={`h-1.5 w-1.5 rounded-full ${hasRegister ? "bg-emerald-500" : "bg-amber-500"}`} />
                 {hasRegister ? `${session.counterName ?? "Register"} open` : "No register"}
               </span>
-              <div className="flex items-center gap-2 border-l border-slate-200 pl-2 sm:pl-3">
+              <Link
+                to="/change-password"
+                title="Change your password"
+                className="flex items-center gap-2 rounded-md border-l border-slate-200 pl-2 hover:bg-slate-50 sm:pl-3"
+              >
                 <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-brand-100 text-[11px] font-semibold text-brand-700">
                   {initials(userLabel)}
                 </div>
@@ -295,7 +301,7 @@ export function AppLayout() {
                     {session.role === "ADMIN" ? "Administrator" : "Cashier"}
                   </p>
                 </div>
-              </div>
+              </Link>
             </div>
           ) : null}
         </header>

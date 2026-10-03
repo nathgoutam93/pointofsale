@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, HttpCode, Headers, Ip, Post, UseGuards } from '@nestjs/common';
 import { appContract } from '@pos/contracts';
-import { Public } from '../auth/auth.guard';
+import { AllowBeforePasswordChange, Public } from '../auth/auth.guard';
 import { AllowWhenLocked } from '../common/instance-status.guard';
 import { getSession, RequestHeaders } from '../common/request-session';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
@@ -13,6 +13,8 @@ import { TenancyService } from '../tenancy/tenancy.service';
 
 /** 10 wrong passwords for one user from one address lock that pair out for 15 minutes. */
 const loginFailures = new FailureLimiter(10, 15 * 60 * 1000);
+/** Wrong current passwords when changing one: 10 per user per 15 minutes. */
+const changeFailures = new FailureLimiter(10, 15 * 60 * 1000);
 /** Wrong recovery codes: 5 per address per 15 minutes (the code is long; this stops scripts). */
 const recoveryFailures = new FailureLimiter(5, 15 * 60 * 1000);
 
@@ -81,6 +83,27 @@ export class AuthController {
     }
   }
 
+  @AllowBeforePasswordChange()
+  @AllowWhenLocked()
+  @Post('/auth/change-password')
+  @HttpCode(200)
+  async changePassword(
+    @Body(new ZodValidationPipe(appContract.auth.changePassword.body)) body: { currentPassword: string; newPassword: string },
+    @Headers() headers: RequestHeaders
+  ) {
+    const session = getSession(headers);
+    changeFailures.assertAllowed(session.userId);
+    try {
+      const result = await this.auth.changePassword(session, body.currentPassword, body.newPassword);
+      changeFailures.succeeded(session.userId);
+      return result;
+    } catch (error) {
+      if (error instanceof BadRequestException) changeFailures.failed(session.userId);
+      throw error;
+    }
+  }
+
+  @AllowBeforePasswordChange()
   @Get('/auth/me')
   me(@Headers() headers: RequestHeaders) {
     return this.auth.me(getSession(headers));
