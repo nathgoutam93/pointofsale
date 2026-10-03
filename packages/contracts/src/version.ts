@@ -3,7 +3,7 @@
  * Change it together with "version" in the root and apps/desktop package.json files (a test
  * checks they match).
  */
-export const APP_VERSION = '0.1.1';
+export const APP_VERSION = '0.1.2';
 
 /** Request header the desktop app sends with its version, so the server can turn away old apps. */
 export const CLIENT_VERSION_HEADER = 'x-pos-client-version';
