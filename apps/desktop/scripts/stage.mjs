@@ -24,6 +24,8 @@ console.log('Copying the API with its production dependencies');
 // A flat node_modules: no symlinks, which installers (Windows above all) handle badly.
 run(`pnpm --filter @pos/api deploy --prod --config.node-linker=hoisted "${join(stage, 'api')}"`);
 run('node node_modules/prisma/build/index.js generate --schema prisma/schema.prisma', join(stage, 'api'));
+// The hosted server's control schema; offline installs never connect to it, but the API loads its client.
+run('node node_modules/prisma/build/index.js generate --schema prisma/control/schema.prisma', join(stage, 'api'));
 
 console.log('Copying the web app');
 cpSync(join(repo, 'apps', 'web', 'dist'), join(stage, 'web'), { recursive: true });
@@ -35,7 +37,7 @@ const postgresHome = dirname(dirname(binaries.postgres));
 // Resolve symlinks (shared libraries link to their versioned names) into real files.
 cpSync(postgresHome, join(stage, 'postgres'), { recursive: true, dereference: true });
 
-for (const required of ['api/dist/main.js', 'api/node_modules/.prisma/client', 'web/index.html', 'postgres/bin']) {
+for (const required of ['api/dist/main.js', 'api/node_modules/.prisma/client', 'api/node_modules/.prisma/control-client', 'web/index.html', 'postgres/bin']) {
   if (!existsSync(join(stage, required))) throw new Error(`Staging is missing ${required}`);
 }
 console.log(`Staged in ${stage}`);

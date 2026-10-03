@@ -1,24 +1,17 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
-import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma.service';
-import { hashPassword, isPasswordHash, validateNewPassword, verifyPassword } from './password';
+import { hashPassword, isPasswordHash, verifyPassword } from './password';
 import { signToken } from './token';
 import type { SessionUser } from '../common/types';
 import { toNumber } from '../common/numbers';
 import { branchSummarySelect } from '../common/selects';
-import { DEFAULT_COUNTER_NAME } from '../common/counters';
-import { CustomersService } from '../customers/customers.service';
 import { isOffline } from '../common/mode';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly customers: CustomersService
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async login(username: string, password: string) {
     const user = await this.prisma.user.findUnique({
@@ -82,29 +75,6 @@ export class AuthService {
     };
   }
 
-  /** Creates the first admin only on an empty database; never a fixed default password. */
-  private async seedFirstAdmin(branchId: string) {
-    const userCount = await this.prisma.user.count();
-    if (userCount > 0) {
-      return;
-    }
-
-    const configured = process.env.SEED_ADMIN_PASSWORD;
-    if (configured) {
-      const passwordError = validateNewPassword(configured);
-      if (passwordError) {
-        throw new Error(`SEED_ADMIN_PASSWORD: ${passwordError}`);
-      }
-    }
-    const password = configured || randomBytes(12).toString('base64url');
-    await this.prisma.user.create({
-      data: { username: 'admin', password: await hashPassword(password), role: UserRole.ADMIN, branchId }
-    });
-    if (!configured) {
-      this.logger.warn(`Created first admin account. Username: admin  Password: ${password}  (shown once; change it after signing in)`);
-    }
-  }
-
   /** Hashes any passwords still stored as plain text, and flags accounts still using "password". */
   private async hashPlaintextPasswords() {
     const users = await this.prisma.user.findMany({ select: { id: true, username: true, password: true, isActive: true } });
@@ -138,47 +108,18 @@ export class AuthService {
     }
   }
 
+  /**
+   * At startup. Offline: tidies data left by older versions. Online: nothing; each business
+   * gets its admin when it is created (sign-up), and the server has no business of its own.
+   */
   async onModuleInitSeed() {
-    if (isOffline()) {
-      // An offline install's business, branch and admin come from first-run setup (POST /setup).
-      if ((await this.prisma.user.count()) > 0) {
-        await this.hashPlaintextPasswords();
-        await this.warnAboutWalkInWalletBalances();
-      }
-      return;
-    }
+    if (!isOffline()) return;
+    if ((await this.prisma.user.count()) > 0) await this.upgradeLegacyData();
+  }
 
-    const branch =
-      (await this.prisma.branch.findUnique({ where: { code: 'MAI' } })) ??
-      (await this.prisma.$transaction(async (tx) => {
-        const created = await tx.branch.create({
-          data: { name: 'Main Branch', code: 'MAI' }
-        });
-        await tx.counter.create({ data: { branchId: created.id, number: 1, name: DEFAULT_COUNTER_NAME } });
-        return created;
-      }));
-
-    await this.seedFirstAdmin(branch.id);
+  /** Hashes passwords left in plain text by older versions and flags old walk-in wallets. */
+  async upgradeLegacyData() {
     await this.hashPlaintextPasswords();
     await this.warnAboutWalkInWalletBalances();
-
-    const users = await this.prisma.user.findMany({ select: { id: true, branchId: true } });
-    await Promise.all(
-      users.map((user) =>
-        this.prisma.userBranchAccess.upsert({
-          where: { userId_branchId: { userId: user.id, branchId: user.branchId } },
-          update: {},
-          create: { userId: user.id, branchId: user.branchId }
-        })
-      )
-    );
-
-    await this.prisma.businessSettings.upsert({
-      where: { id: 'default' },
-      update: {},
-      create: { id: 'default', name: branch.name }
-    });
-
-    await this.customers.ensureWalkInCustomer(branch.id);
   }
 }

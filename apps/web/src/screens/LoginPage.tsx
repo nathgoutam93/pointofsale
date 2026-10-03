@@ -4,15 +4,30 @@ import { FormEvent, useState } from "react";
 import { IconStore } from "../components/icons";
 import { api, apiErrorMessage } from "../lib/api";
 import { setSession } from "../lib/session";
+import { useServerMode } from "../lib/mode";
+
+/** The business code last used on this device, so staff don't retype it. */
+const BUSINESS_CODE_KEY = "pos_business_code";
+
+function rememberedCode() {
+  try {
+    return localStorage.getItem(BUSINESS_CODE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const online = useServerMode() === "online";
+  const [businessCode, setBusinessCode] = useState(rememberedCode);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
   const login = useMutation({
     mutationFn: async () => {
-      const res = await api.auth.login({ body: { username, password } });
+      const code = businessCode.trim().toUpperCase();
+      const res = await api.auth.login({ body: { username, password, ...(online ? { businessCode: code } : {}) } });
       if (res.status === 401) throw new Error("Incorrect username or password.");
       if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Sign-in failed. Try again."));
       return res.body;
@@ -23,6 +38,13 @@ export function LoginPage() {
     e.preventDefault();
     const data = await login.mutateAsync().catch(() => null);
     if (!data) return;
+    if (online) {
+      try {
+        localStorage.setItem(BUSINESS_CODE_KEY, businessCode.trim().toUpperCase());
+      } catch {
+        // Not remembered; it's typed again next time.
+      }
+    }
     setSession(data);
     navigate({ to: data.branchId && data.registerId ? "/pos" : "/open-register" });
   };
@@ -72,6 +94,21 @@ export function LoginPage() {
           <p className="mt-1 text-sm text-slate-500">Use the account your administrator gave you.</p>
 
           <form onSubmit={onSubmit} className="mt-8 grid gap-4">
+            {online ? (
+              <div>
+                <label className="field-label" htmlFor="login-business">Business code</label>
+                <input
+                  id="login-business"
+                  className="field h-10 font-mono uppercase"
+                  value={businessCode}
+                  onChange={(e) => setBusinessCode(e.target.value)}
+                  autoComplete="organization"
+                  maxLength={16}
+                  required
+                />
+                <p className="mt-1 text-xs text-slate-500">Your administrator has it; it's remembered on this device.</p>
+              </div>
+            ) : null}
             <div>
               <label className="field-label" htmlFor="login-username">Username</label>
               <input

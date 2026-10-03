@@ -2,6 +2,8 @@ import { CanActivate, ExecutionContext, Injectable, SetMetadata, UnauthorizedExc
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../prisma.service';
 import { readBearerToken, verifyToken } from './token';
+import { isOffline } from '../common/mode';
+import { TenancyService } from '../tenancy/tenancy.service';
 
 const IS_PUBLIC_KEY = 'isPublic';
 
@@ -17,7 +19,8 @@ export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 export class AuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly tenancy: TenancyService
   ) {}
 
   async canActivate(context: ExecutionContext) {
@@ -37,6 +40,13 @@ export class AuthGuard implements CanActivate {
     const session = verifyToken(token);
     if (!session) {
       throw new UnauthorizedException('Session expired, please sign in again');
+    }
+    if (!isOffline()) {
+      // Hosted server: everything after this runs against the token's business only.
+      if (!session.businessId) {
+        throw new UnauthorizedException('Session is no longer valid, please sign in again');
+      }
+      await this.tenancy.enterById(session.businessId);
     }
 
     const user = await this.prisma.user.findUnique({

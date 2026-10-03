@@ -8,7 +8,12 @@ import { desktop } from './desktop';
  * counters and stock transfers then need the business to move online.
  */
 export function useIsOffline() {
-  const known = desktop?.config.mode === 'offline';
+  return useServerMode() === 'offline';
+}
+
+/** offline or online once known (online: the hosted server, where sign-in needs a business code). */
+export function useServerMode(): 'offline' | 'online' | null {
+  const known = desktop?.config.mode ?? null;
   const meta = useQuery({
     queryKey: ['meta'],
     queryFn: async () => {
@@ -19,5 +24,5 @@ export function useIsOffline() {
     enabled: !known,
     staleTime: Infinity
   });
-  return known || meta.data?.mode === 'offline';
+  return known ?? meta.data?.mode ?? null;
 }

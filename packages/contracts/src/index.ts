@@ -719,6 +719,47 @@ export const metaSchema = z.object({
   instanceStatus: localInstanceStatusSchema.nullable()
 });
 
+/** A new business and its first admin: first-run setup offline, sign-up online. */
+const businessSetupSchema = z.object({
+  businessName: requiredText.pipe(z.string().max(120)),
+  gstNumber: gstinSchema.nullable().optional(),
+  /** Where the shop is; taken from the GSTIN when one is given. */
+  stateCode: gstStateCodeSchema.nullable().optional(),
+  timezone: timeZoneSchema.default('Asia/Kolkata'),
+  taxpayerType: taxpayerTypeSchema.default('REGULAR'),
+  compositionCategory: compositionCategorySchema.nullable().optional(),
+  /** Starts every invoice number; MAI if not given. */
+  branchCode: branchCodeSchema.default('MAI'),
+  adminUsername: requiredText.pipe(z.string().max(64)),
+  adminPassword: passwordSchema
+});
+
+function checkBusinessSetup(
+  body: { taxpayerType: string; compositionCategory?: string | null; gstNumber?: string | null; stateCode?: string | null },
+  ctx: z.RefinementCtx
+) {
+  if ((body.taxpayerType === 'COMPOSITION') !== !!body.compositionCategory) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'A composition taxpayer needs a category, and a regular one must not have one',
+      path: ['compositionCategory']
+    });
+  }
+  if (body.gstNumber && body.stateCode && body.gstNumber.slice(0, 2) !== body.stateCode) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "The state doesn't match the GSTIN", path: ['stateCode'] });
+  }
+}
+
+const emailSchema = z.string().trim().toLowerCase().email().max(254);
+
+/** A business as its owner sees it. `code` is what staff type when signing in. */
+export const ownedBusinessSchema = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  status: z.enum(['PROVISIONING', 'ACTIVE', 'SUSPENDED', 'FAILED'])
+});
+
 export const appContract = c.router({
   gst: {
     /** CMP-08: a composition taxpayer's quarter (turnover and tax at the composition rate). */
@@ -806,36 +847,50 @@ export const appContract = c.router({
     run: {
       method: 'POST',
       path: '/setup',
-      body: z
-        .object({
-          businessName: requiredText.pipe(z.string().max(120)),
-          gstNumber: gstinSchema.nullable().optional(),
-          /** Where the shop is; taken from the GSTIN when one is given. */
-          stateCode: gstStateCodeSchema.nullable().optional(),
-          timezone: timeZoneSchema.default('Asia/Kolkata'),
-          taxpayerType: taxpayerTypeSchema.default('REGULAR'),
-          compositionCategory: compositionCategorySchema.nullable().optional(),
-          /** Starts every invoice number; MAI if not given. */
-          branchCode: branchCodeSchema.default('MAI'),
-          adminUsername: requiredText.pipe(z.string().max(64)),
-          adminPassword: passwordSchema
-        })
-        .refine((body) => (body.taxpayerType === 'COMPOSITION') === !!body.compositionCategory, {
-          message: 'A composition taxpayer needs a category, and a regular one must not have one',
-          path: ['compositionCategory']
-        })
-        .refine((body) => !body.gstNumber || !body.stateCode || body.gstNumber.slice(0, 2) === body.stateCode, {
-          message: "The state doesn't match the GSTIN",
-          path: ['stateCode']
-        }),
+      body: businessSetupSchema.superRefine(checkBusinessSetup),
       responses: { 201: loginResponseSchema }
+    }
+  },
+  businesses: {
+    /**
+     * Online only: creates a business and signs its admin in. The owner's account (email and
+     * password) is created on first use; later businesses need the same password.
+     */
+    create: {
+      method: 'POST',
+      path: '/businesses',
+      body: businessSetupSchema
+        .extend({ ownerEmail: emailSchema, ownerPassword: passwordSchema })
+        .superRefine(checkBusinessSetup),
+      responses: {
+        201: z.object({ business: ownedBusinessSchema, session: loginResponseSchema, accountToken: z.string() })
+      }
+    }
+  },
+  accounts: {
+    /** Online only: an owner's sign-in. The token lists and manages their businesses (not sales). */
+    login: {
+      method: 'POST',
+      path: '/accounts/login',
+      body: z.object({ email: emailSchema, password: z.string() }),
+      responses: { 200: z.object({ token: z.string(), businesses: z.array(ownedBusinessSchema) }) }
+    },
+    businesses: {
+      method: 'GET',
+      path: '/accounts/businesses',
+      responses: { 200: z.array(ownedBusinessSchema) }
     }
   },
   auth: {
     login: {
       method: 'POST',
       path: '/auth/login',
-      body: z.object({ username: z.string(), password: z.string() }),
+      body: z.object({
+        /** Online (hosted) server: which business to sign in to. Not used offline. */
+        businessCode: z.string().trim().toUpperCase().max(16).optional(),
+        username: z.string(),
+        password: z.string()
+      }),
       responses: { 200: loginResponseSchema }
     },
     me: {

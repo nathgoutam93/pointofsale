@@ -45,3 +45,14 @@ export class OfflineOnlyGuard implements CanActivate {
     return true;
   }
 }
+
+/** For routes that exist only on the hosted server: offline they answer 404. */
+@Injectable()
+export class OnlineOnlyGuard implements CanActivate {
+  canActivate() {
+    if (isOffline()) {
+      throw new NotFoundException();
+    }
+    return true;
+  }
+}

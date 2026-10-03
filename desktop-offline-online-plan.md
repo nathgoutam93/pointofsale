@@ -262,7 +262,7 @@ Branch: `feat/desktop-shell`. Can run in parallel with Phase 4.
 
 Branch: `feat/multi-tenant`. Can run in parallel with Phase 3.
 
-### [ ] 4.1 Control schema
+### [x] 4.1 Control schema
 - **What:** A separate Prisma schema `apps/api/prisma/control.prisma` with its own generated client and its own migrations, living in the `control` Postgres schema:
   - `Business { id, code (short, for joining), name, schemaName, dbServer, status (PROVISIONING|ACTIVE|SUSPENDED), schemaVersion, createdAt }`
   - `Account { id, email, passwordHash, emailVerifiedAt }`
@@ -271,7 +271,7 @@ Branch: `feat/multi-tenant`. Can run in parallel with Phase 3.
   - `ImportJob { id, businessId, status, error, counts }`
 - **Note:** store `dbServer` now, even with a single server, so businesses can move to a second Postgres server later.
 
-### [ ] 4.2 Per-request database client
+### [x] 4.2 Per-request database client
 - **Where:** `apps/api/src/prisma.service.ts`, `auth.guard.ts`, `auth/token.ts`.
 - **What:**
   - Keep every service unchanged. `PrismaService` becomes a proxy that hands each call to the client stored in an `AsyncLocalStorage` request context.
@@ -281,7 +281,7 @@ Branch: `feat/multi-tenant`. Can run in parallel with Phase 3.
   - Offline mode uses one fixed client, unchanged.
 - **Done when:** the existing API tests pass in online mode against a provisioned test business.
 
-### [ ] 4.3 Business provisioning
+### [x] 4.3 Business provisioning
 - **What:**
   1. `CREATE SCHEMA tenant_<id>`.
   2. Run `prisma migrate deploy` with `DATABASE_URL=...?schema=tenant_<id>`.
@@ -290,13 +290,13 @@ Branch: `feat/multi-tenant`. Can run in parallel with Phase 3.
 
   If any step fails, drop the schema and mark the business failed.
 
-### [ ] 4.4 Migration runner for all businesses
+### [x] 4.4 Migration runner for all businesses
 - **What:**
   - A deploy script that applies migrations to the control schema, then to every business schema with limited concurrency. It records `schemaVersion` per business and stops on the first error.
   - Write migrations as expand/contract (add the new thing, release, then remove the old) so the running API works with both the old and new schema during a rollout.
 - **Done when:** deploying a new migration to 50 test businesses finishes, and a forced failure stops and reports which business failed.
 
-### [ ] 4.5 Accounts, sign-in and joining
+### [x] 4.5 Accounts, sign-in and joining
 - **What:**
   - Owner signup with an email code, `POST /businesses` (create), and invite and join endpoints.
   - Cashier and admin sign-in becomes `{ businessCode, username, password }`. Extend the `auth.login` contract with an optional `businessCode`, required in online mode. Tokens carry `bid`.
@@ -306,7 +306,7 @@ Branch: `feat/multi-tenant`. Can run in parallel with Phase 3.
 ### [ ] 4.6 Uploads in object storage
 - **What:** Online mode stores uploads in S3-compatible storage under `<businessId>/...` and serves them through signed or proxied URLs. Offline mode keeps the disk folder.
 
-### [ ] 4.7 Business isolation tests
+### [x] 4.7 Business isolation tests
 - **What:** Two businesses with the same usernames, branch codes and item names. Every endpoint must return only the caller's data, and every `:id` route must return 404 for the other business's IDs.
 
 ### [ ] 4.8 Infrastructure
@@ -489,3 +489,38 @@ Branch: whichever phase needs it first (likely Phase 1).
     - **Offline, no minimum:** the banner appeared and Later hid it. Closing the app installed 0.2.0 with Postgres stopped cleanly, and the next start ran 0.2.0 with the business intact.
   - **Bug found and fixed:** after installing on close, the AppImage updater runs the new version with `APPIMAGE_EXIT_AFTER_INSTALL=true` and waits for it. The app must exit at once (`main.ts`, first lines); before the fix it started up fully. In this container (no FUSE, so `APPIMAGE_EXTRACT_AND_RUN=1`) the updater still logs `ENOBUFS`, because extract-and-run prints every file name. The install itself succeeds; on a normal Linux desktop that output doesn't happen.
   - **Not verified:** Windows (NSIS) and macOS install flows, and a real GitHub Releases feed. Check both with the first tagged release.
+- 2026-10-03: **Phase 4: hosted multi-business server.** 4.1–4.5 and 4.7 done; 4.6 (object storage) and 4.8 (infrastructure) not started. 169 API tests pass (10 new in `test/tenancy.test.ts`).
+  - **4.1 Control schema:** `apps/api/prisma/control/schema.prisma` (+ `migrations/`), with `Business`, `Account` and `Membership`.
+    - `Business` holds a 6-character code without 0/O/1/I/L, `schemaName` `b_<uuid hex>`, `dbServer`, `status PROVISIONING|ACTIVE|SUSPENDED|FAILED` and `schemaVersion`.
+    - `Account` is the owner's email and password; `Membership` links accounts to businesses as OWNER.
+    - Its client is generated to `apps/api/node_modules/.prisma/control-client` and imported as `.prisma/control-client` (vitest needs an alias for that; see `vitest.config.mts`).
+    - `pnpm --filter @pos/api prisma:generate` now generates both clients.
+    - No invites: a new counter machine "joins" by signing in with the business code.
+  - **4.2 Per-request business:**
+    - `src/app-config.ts` starts every request with an empty `AsyncLocalStorage` store (`src/tenancy/tenant-context.ts`).
+    - `AuthGuard` enters the token's business (`bid` claim, added by `signToken` from the context). `POST /auth/login` enters the business from `businessCode`.
+    - `PrismaService` is now a proxy built by `createPrismaService()`. Online it hands each call to the current business's client (`TenantClients`: LRU of PrismaClients, `TENANT_CLIENT_CACHE`, `TENANT_CONNECTION_LIMIT`) and **throws when no business is chosen**. Offline it always uses the one local client. No service changed.
+    - Verified that `?schema=` sets `search_path`, so raw SQL and `lockBusiness` (`current_schema()`) stay in the business.
+    - `TenancyService` caches business lookups for 30 s; call `forget(id)` after changing a business.
+  - **4.3 Provisioning** (`src/tenancy/provisioning.service.ts`): reserve a code and schema name, `CREATE SCHEMA`, `prisma migrate deploy` for that schema, then the same `SetupService.setup` an offline install uses (inside the business's context, so the returned session carries `bid`), mark ACTIVE, and add the owner membership. On failure the schema is dropped and the business marked FAILED.
+  - **4.4 Runner:** `pnpm --filter @pos/api migrate:all` (`src/tenancy/cli.ts` → `migrate-all.ts`) migrates the control schema, then ACTIVE and SUSPENDED businesses 4 at a time. It records `schemaVersion` and stops starting new ones after a failure (exit 1). `business:create` creates a business from the terminal.
+  - **4.5 Accounts and sign-in:**
+    - `POST /businesses` (public, online only): owner email and password plus the setup fields. Creates the account on first use; an existing email needs its password. Returns the business, an admin session and an owner token.
+    - `POST /accounts/login` and `GET /accounts/businesses` use owner tokens (`kind: 'account'`). Owner and staff tokens are not interchangeable.
+    - Staff sign-in needs `businessCode` online.
+    - In-memory `FailureLimiter` (`src/common/rate-limit.ts`): 10 wrong passwords per address, code and user, or per address and email, lock that pair out for 15 minutes (429). Business creation is limited to 5 per address per hour. Per process: add a shared limiter in front when running several API processes.
+    - **No email verification yet**, so anyone can sign up. Decide that (open question) before opening sign-up publicly.
+  - **Startup seed removed:** online, nothing is seeded (no `SEED_ADMIN_PASSWORD`). Offline, startup only runs `upgradeLegacyData()` (old plain-text passwords). `/meta` online reports the latest bundled migration as `schemaVersion`.
+  - **Bug found and fixed in old migrations:** `20260310233000_item_fields` checked `pg_type` across all schemas, so the second business ever created failed (`type "TaxMode" does not exist`). `20260315093307_snapshot` checked `table_schema = 'public'`, which would silently skip changes in business schemas. Both now use `current_schema()`. **Local dev databases created with `prisma migrate dev` will report these two migrations as modified; reset them.** A test now diffs a later-created business schema against `schema.prisma`, so this can't come back unnoticed.
+  - **Tests:**
+    - `test/global-setup.ts` drops and recreates `pos_test` with only the control schema.
+    - `helpers.startApp()` creates business `TEST` on first use (same admin and branch as the old seed), points `t.db` at its schema, passes `businessCode` on login, and adds `t.inBusiness(fn)`.
+    - `local-backup.test.ts` now runs offline with `/setup`.
+    - `tenancy.test.ts` covers sign-up, isolation (same usernames, cross-business ids 404, separate schemas), the schema diff, sign-in code errors, a token without a business, lockout, suspension, owner accounts, and the runner.
+  - **Web:** the sign-in page asks for the business code when the server is online and remembers it per device (`pos_business_code`). Checked in the desktop app against a local online API: wrong code refused, `dev` signed in to "Dev Shop".
+  - **Desktop packaging:** `stage.mjs` also generates the control client (the API loads it in both modes). The API's `files` list now includes `prisma/control`.
+  - **Not done:**
+    - 4.6: uploads are still on the server's disk under `/uploads/`, shared by all businesses, with random file names.
+    - 4.8: PgBouncer, backups and monitoring.
+    - 2.5: create/join screens in the app. The welcome screen still asks only for a server address; it should offer sign-up via `POST /businesses`.
+    - Email verification for owner accounts.

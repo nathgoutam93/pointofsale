@@ -17,9 +17,9 @@ import {
   restoreBackup,
   type BackupManifest
 } from '../src/backup/local-backup';
-import { checkoutBody, line, startApp, type TestApp } from './helpers';
+import { ADMIN, checkoutBody, line, startApp, type TestApp } from './helpers';
 
-// Desktop backups, on their own database (a restore renames databases).
+// Desktop (offline) backups, on their own database (a restore renames databases).
 const env = await vi.hoisted(async () => {
   const { mkdtempSync } = await import('fs');
   const { tmpdir } = await import('os');
@@ -28,6 +28,7 @@ const env = await vi.hoisted(async () => {
   const url = new URL(base);
   url.pathname = '/pos_backup_test';
   process.env.DATABASE_URL = url.toString();
+  process.env.POS_MODE = 'offline';
   process.env.UPLOADS_DIR = mkdtempSync(join(tmpdir(), 'pos-backup-uploads-'));
   return { databaseUrl: url.toString(), uploadsDir: process.env.UPLOADS_DIR };
 });
@@ -51,10 +52,24 @@ function databaseUrl(name: string) {
 let t: TestApp;
 let backupDir: string;
 
+/** The app on this database, with its business set up the way the desktop app's first run does. */
+async function startOffline() {
+  const app = await startApp();
+  if ((await app.db.user.count()) === 0) {
+    await app.ok('POST', '/setup', null, {
+      businessName: 'Main Branch',
+      branchCode: 'MAI',
+      adminUsername: ADMIN.username,
+      adminPassword: ADMIN.password
+    });
+  }
+  return app;
+}
+
 beforeAll(async () => {
   resetDatabase(env.databaseUrl);
   backupDir = await mkdtemp(join(tmpdir(), 'pos-backups-'));
-  t = await startApp();
+  t = await startOffline();
 });
 afterAll(async () => {
   await t?.close().catch(() => undefined);
@@ -63,7 +78,11 @@ afterAll(async () => {
 /** A sale, so the backup has money, stock and documents in it. */
 async function makeSale() {
   const admin = await t.login();
-  const ctx = await t.branchWithRegister(admin);
+  // An offline business has its one branch; open its register.
+  const branch = await t.db.branch.findFirstOrThrow({ select: { id: true, code: true } });
+  const opened = await t.ok<{ token: string }>('POST', '/registers/open', admin, { branchId: branch.id, openingBalance: 0 });
+  const walkIn = await t.ok<{ id: string }>('GET', `/customers/walk-in/${branch.id}`, opened.token);
+  const ctx = { branch, token: opened.token, walkIn };
   const item = await t.item(ctx.token, ctx.branch.id, { sellPrice: 99.5, stock: 10 });
   const sale = await t.ok<{ invoice: { id: string } }>(
     'POST',
@@ -129,7 +148,7 @@ describe('local backups', () => {
     expect(manifest.schemaVersion).toBe(migrations[migrations.length - 1]);
     expect(logs.at(-1)).toBe('Restore finished');
 
-    t = await startApp();
+    t = await startOffline();
     expect(await t.db.item.count()).toBe(counts.Item);
     expect(await t.db.item.count({ where: { name: 'Added later' } })).toBe(0);
     expect(await t.db.saleInvoice.count()).toBe(counts.SaleInvoice);
@@ -174,7 +193,7 @@ describe('local backups', () => {
 
     // Put the usual seed back for afterAll's checks.
     resetDatabase(env.databaseUrl);
-    t = await startApp();
+    t = await startOffline();
   });
 
   it('refuses a backup made by a newer version of the app', async () => {

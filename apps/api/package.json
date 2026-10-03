@@ -5,7 +5,8 @@
   "files": [
     "dist",
     "prisma/schema.prisma",
-    "prisma/migrations"
+    "prisma/migrations",
+    "prisma/control"
   ],
   "engines": {
     "node": ">=22.12"
@@ -15,10 +16,12 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prisma:generate": "prisma generate",
+    "prisma:generate": "prisma generate && prisma generate --schema prisma/control/schema.prisma",
     "prisma:migrate": "prisma migrate dev",
     "seed:demo": "node prisma/seed-demo.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "migrate:all": "node dist/tenancy/cli.js migrate",
+    "business:create": "node dist/tenancy/cli.js create"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",

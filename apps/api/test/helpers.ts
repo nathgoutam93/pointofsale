@@ -4,10 +4,41 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app-config';
+import { isOffline } from '../src/common/mode';
+import type { SetupInput } from '../src/setup/setup.service';
+import { schemaUrl } from '../src/tenancy/database-urls';
+import { ProvisioningService } from '../src/tenancy/provisioning.service';
+import { TenancyService } from '../src/tenancy/tenancy.service';
+import type { ActiveBusiness } from '../src/tenancy/tenant-context';
 
 export const ADMIN = { username: 'admin', password: 'admin-test-password' };
 
 export type ApiResponse<T = any> = { status: number; body: T };
+
+/** The business tests run in on the hosted (online) server: like the old single-business seed. */
+export const TEST_BUSINESS_CODE = 'TEST';
+const TEST_BUSINESS: SetupInput = {
+  businessName: 'Main Branch',
+  branchCode: 'MAI',
+  timezone: 'Asia/Kolkata',
+  taxpayerType: 'REGULAR',
+  adminUsername: ADMIN.username,
+  adminPassword: ADMIN.password
+};
+
+/** The test business, created by the first test file that needs it (files run one at a time). */
+async function testBusiness(app: NestExpressApplication): Promise<ActiveBusiness> {
+  const control = app.get(TenancyService).control;
+  const find = () =>
+    control.business.findUnique({
+      where: { code: TEST_BUSINESS_CODE },
+      select: { id: true, code: true, name: true, schemaName: true, dbServer: true }
+    });
+  const existing = await find();
+  if (existing) return existing;
+  await app.get(ProvisioningService).createBusiness(TEST_BUSINESS, { code: TEST_BUSINESS_CODE });
+  return (await find())!;
+}
 
 /** The real app (guard, validation, service) on a random port, plus a direct DB client. */
 export async function startApp() {
@@ -16,7 +47,12 @@ export async function startApp() {
   await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
   const baseUrl = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
-  const db = new PrismaClient();
+  // Online: the test business's own schema. Offline: the one local database.
+  const business = isOffline() ? null : await testBusiness(app);
+  const businessCode = business?.code;
+  const db = new PrismaClient(business ? { datasourceUrl: schemaUrl(business.schemaName) } : undefined);
+  /** Runs `work` as a request for the test business would (services, raw queries). */
+  const inBusiness = <T>(work: () => Promise<T>) => (business ? app.get(TenancyService).run(business, work) : work());
   // Signing in picks up a register the user still has open, so start each file with none
   // left over from earlier files.
   await db.registerSession.updateMany({ where: { closedAt: null }, data: { closedAt: new Date(), closingBalance: 0 } });
@@ -45,7 +81,7 @@ export async function startApp() {
   }
 
   async function login(username = ADMIN.username, password = ADMIN.password) {
-    return (await ok<{ token: string }>('POST', '/auth/login', null, { username, password })).token;
+    return (await ok<{ token: string }>('POST', '/auth/login', null, { businessCode, username, password })).token;
   }
 
   /** A 3-character branch code no branch has yet. */
@@ -109,7 +145,7 @@ export async function startApp() {
     }
   }
 
-  return { app, baseUrl, db, call, ok, login, freeBranchCode, newBranch, branchWithRegister, item, onHand, close };
+  return { app, baseUrl, db, business, businessCode, inBusiness, call, ok, login, freeBranchCode, newBranch, branchWithRegister, item, onHand, close };
 }
 
 export type TestApp = Awaited<ReturnType<typeof startApp>>;

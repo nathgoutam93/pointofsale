@@ -107,7 +107,7 @@ describe('counters', () => {
     expect((await t.call('GET', '/registers/current', rb.body.token)).status).toBe(200);
 
     // Logging in again picks up the cashier's open counter.
-    const login = await t.ok('POST', '/auth/login', null, { username: b.username, password: 'cashier-pass-1' });
+    const login = await t.ok('POST', '/auth/login', null, { businessCode: t.businessCode, username: b.username, password: 'cashier-pass-1' });
     expect(login).toMatchObject({ registerId: rb.body.register.id, counterId: c2.id, counterName: 'Counter 2' });
 
     // The freed counter can be opened by the other cashier.

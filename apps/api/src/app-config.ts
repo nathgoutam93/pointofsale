@@ -6,6 +6,7 @@ import { join } from 'path';
 import { CLIENT_VERSION_HEADER, isOlderVersion, UPDATE_REQUIRED_STATUS } from '@pos/contracts';
 import { minClientVersion, posMode } from './common/mode';
 import { uploadsDir } from './common/uploads';
+import { tenantStorage } from './tenancy/tenant-context';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
@@ -54,6 +55,9 @@ function hostName(host: string | undefined) {
 /** CORS, the offline Host check and the /uploads/ static files, shared by main.ts and the tests. */
 export function configureApp(app: NestExpressApplication) {
   app.enableCors(corsOptions());
+
+  // Every request gets its own business context; sign-in or the token check fills it in.
+  app.use((_req: unknown, _res: unknown, next: () => void) => tenantStorage.run({}, next));
 
   if (posMode() === 'offline') {
     // A web page can point its own domain at 127.0.0.1 (DNS rebinding) and then call the

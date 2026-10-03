@@ -29,12 +29,13 @@ cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
 ```
 Set `AUTH_SECRET` in `apps/api/.env` (at least 32 characters; the file shows how to generate one). The API won't start without it.
+For a quick local start set `POS_MODE=offline` too.
 
-3. Generate Prisma client and migrate database:
+3. Generate the Prisma clients (business data and the hosted server's control schema):
 ```bash
 pnpm --filter @pos/api prisma:generate
-pnpm --filter @pos/api prisma:migrate
 ```
+Then prepare the database for the mode you run (see **Businesses and the first admin**).
 
 4. Build the shared packages, then run both apps:
 ```bash
@@ -45,11 +46,23 @@ pnpm dev
 - Frontend: `http://localhost:3000`
 - Backend: `http://localhost:3001`
 
-## First Admin
-On first startup with an empty database the API creates one `admin` user (branch code `MAI`).
-Its password is `SEED_ADMIN_PASSWORD` from `apps/api/.env`, or, if that is empty, a random
-password printed once in the API log. There are no default passwords; create cashiers from
-Settings → Cashiers & Access.
+## Businesses and the first admin
+The API runs in one of two modes (`POS_MODE` in `apps/api/.env`):
+
+- **`offline`**: one business on one computer, as the desktop app runs it. On first start the
+  web app shows a setup screen that creates the business and its admin. This is also the simplest
+  way to run the app locally.
+- **`online`** (default): the hosted server, many businesses with one PostgreSQL schema each,
+  listed in a `control` schema. Prepare the database and create a business:
+  ```bash
+  pnpm --filter @pos/api build
+  pnpm --filter @pos/api migrate:all       # control schema + every business; run at every deploy
+  pnpm --filter @pos/api business:create -- --name "My Shop" --admin admin --password <password> --code DEV
+  ```
+  Staff sign in with the business code, their username and password. Owners can also create
+  businesses with `POST /businesses` (email and password for their owner account).
+
+There are no default passwords; create cashiers from Settings → Cashiers & Access.
 
 ## Tests
 ```bash
@@ -65,15 +78,18 @@ pnpm test
   idempotency, reports, register balancing, customer sharing and time zones.
 
 ## Local demo data
-After starting the API once, run `pnpm --filter @pos/api seed:demo` to populate the
+Run the API with `POS_MODE=offline` against the `pos_pr_auth_test` database
+(`DATABASE_URL=…/pos_pr_auth_test?schema=public`, then `npx prisma migrate deploy` in
+`apps/api`), finish the setup screen with an admin called `admin`, then run
+`pnpm --filter @pos/api seed:demo` to populate the
 isolated `pos_pr_auth_test` database with three branches, ten everyday products,
 four GST scenario products, placeholder images, and 12 months of regular sales.
 It also adds an earlier composition quarter and GST examples in the last completed
 month: intra and inter-state B2C, B2CL, nil/exempt/non-GST supplies, returns and
 credit notes, and a cancelled invoice. The GSTINs are synthetic demo identifiers;
 the export is for software testing only. The seed refuses other database names and
-can be rerun without duplicating sales. Sign in with the `admin` account configured
-in `apps/api/.env` to browse it.
+can be rerun without duplicating sales. Sign in as `admin` to browse it (the seed writes
+its three branches directly, past the one-branch limit of offline mode).
 
 ## Desktop app
 `apps/desktop` packages the POS as a desktop app (Electron). On first launch the owner picks a
