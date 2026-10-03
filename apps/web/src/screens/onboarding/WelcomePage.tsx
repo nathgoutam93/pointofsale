@@ -6,7 +6,7 @@ import { desktop } from "../../lib/desktop";
 import { clearSession } from "../../lib/session";
 import { ErrorNote, OnboardingShell } from "./OnboardingShell";
 
-type Choice = "offline" | "create" | "join";
+type Choice = "offline" | "create" | "join" | "restore";
 
 const OPTIONS: Array<{ value: Choice; title: string; body: string }> = [
   {
@@ -24,6 +24,11 @@ const OPTIONS: Array<{ value: Choice; title: string; body: string }> = [
     title: "Join an existing business",
     body: "Your business is already online and this is another counter or branch. You need its business code.",
   },
+  {
+    value: "restore",
+    title: "Restore from a backup",
+    body: "Bring back a business kept on a computer, from a backup file the app made (for example after replacing the computer).",
+  },
 ];
 
 /** Desktop app, first launch: how this computer will be used. */
@@ -38,6 +43,11 @@ export function WelcomePage() {
     mutationFn: async () => {
       if (!desktop) throw new Error("This screen only works in the desktop app.");
       clearSession();
+      if (choice === "restore") {
+        // The app asks for the file, restores it and reloads at the sign-in screen.
+        await desktop.restoreFromBackup();
+        return;
+      }
       if (choice === "offline") {
         // The window reloads into the setup screen once the local database is ready.
         await desktop.chooseMode({ mode: "offline" });
@@ -111,14 +121,31 @@ export function WelcomePage() {
           </div>
         ) : null}
 
+        {choice === "restore" ? (
+          <p className="card p-4 text-sm text-slate-600">
+            Backups are in the old computer's backups folder (Settings → Backups → Open backups folder), or wherever you copied
+            them. Sign in afterwards with the usernames and passwords from then.
+          </p>
+        ) : null}
+
         {start.error ? <ErrorNote message={(start.error as Error).message} /> : null}
 
         <div className="flex justify-end">
           <button className="btn-primary h-10 px-5" type="submit" disabled={start.isPending}>
-            {start.isPending ? (choice === "offline" ? "Preparing this computer…" : "Connecting…") : "Continue"}
+            {start.isPending
+              ? choice === "offline"
+                ? "Preparing this computer…"
+                : choice === "restore"
+                  ? "Restoring…"
+                  : "Connecting…"
+              : choice === "restore"
+                ? "Choose backup file…"
+                : "Continue"}
           </button>
         </div>
-        {start.isPending && choice === "offline" ? <p className="text-right text-xs text-slate-500">The first start takes up to a minute.</p> : null}
+        {start.isPending && (choice === "offline" || choice === "restore") ? (
+          <p className="text-right text-xs text-slate-500">This takes up to a minute.</p>
+        ) : null}
       </form>
     </OnboardingShell>
   );

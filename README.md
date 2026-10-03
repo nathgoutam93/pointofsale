@@ -115,7 +115,8 @@ changes the API or database in a way older apps can't handle, set `MIN_CLIENT_VE
 server: older desktop apps are then turned away (426), download the update and ask to restart.
 Otherwise updates install when the app closes, and a note offers to restart sooner.
 In offline mode the app backs up the business every day and before each update, keeping
-the last 2–5 days (Settings → Backups, where admins can also restore). The app's
+the last 2–5 days (Settings → Backups, where admins can also restore). On a new computer,
+the welcome screen's "Restore from a backup" brings a business back from a backup file. The app's
 data and logs are in the OS's app-data folder under "Point of Sale". See
 `desktop-offline-online-plan.md` for the design and what's left.
 

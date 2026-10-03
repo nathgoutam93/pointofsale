@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('posDesktop', {
   chooseMode: (choice: ModeChoice) => invoke('pos:choose-mode', choice),
   openLogsFolder: () => invoke('pos:open-logs'),
   checkServer: (address: string) => invoke('pos:check-server', address),
+  restoreFromBackup: () => invoke('pos:restore-from-backup'),
   createOnlineBusiness: (address: string, details: Record<string, unknown>) => invoke('pos:create-business', address, details),
   reload: () => invoke('pos:reload'),
   // Offline, admins only: moves the business to an online server (see apps/desktop/src/move-online.ts).

@@ -565,5 +565,12 @@ Branch: whichever phase needs it first (likely Phase 1).
   - **Not done:**
     - owner email verification (deferred)
     - 4.6 object storage and 4.8 infrastructure
-    - restoring an offline business from a backup file on a fresh install (offered on the welcome screen?)
     - upload progress for big moves (`fetch` gives none; the step list shows "Uploading")
+- 2026-10-03: **Restore from a backup on the welcome screen** (user's request).
+  - **Flow:** a fourth choice. "Choose backup file…" opens the system file dialog in the main process (IPC `pos:restore-from-backup`; the page never gives a path), then:
+    1. Start the local database and API (fresh, empty).
+    2. `Backups.restoreFile()`: stop the API, run the backup tool's `restore` with the picked file, start the API. Migrations bring an older backup up to date.
+    3. Set mode offline and reload at the sign-in screen.
+  - **Special cases:** a backup of a business that had already moved online switches the computer to online (`switchIfMoved`). On any failure, offline services stop and the welcome screen stays: no mode was chosen.
+  - **Files:** any file name works, not only the app's backup naming. A non-backup file now says "This file is not a Point of Sale backup" instead of the zip library's message.
+  - **Verified in the desktop app** on a fresh computer: cancel → stays; wrong file → that message; a Corner Store backup made at an older migration, renamed `my-shop-backup.zip` → restored, migrated to the latest version, signed in with the old admin password.

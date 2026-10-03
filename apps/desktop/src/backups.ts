@@ -97,6 +97,22 @@ export class Backups {
   }
 
   /**
+   * First launch on a new computer: the business from a backup file the person picked (a
+   * path from the system's file dialog, never from the page). The database is empty, so
+   * there is nothing to back up first.
+   */
+  restoreFile(path: string, hooks: { stopApi: () => Promise<void>; startApi: () => Promise<void> }) {
+    return this.serial(async () => {
+      await hooks.stopApi();
+      try {
+        await this.cli(['restore', '--file', path, '--uploads', paths.uploads()], 'The restore failed');
+      } finally {
+        await hooks.startApi();
+      }
+    });
+  }
+
+  /**
    * Replaces the business with a backup's copy. `stopApi` and `startApi` take the API
    * down around it; the current data is backed up first so a restore can be undone.
    */

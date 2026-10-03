@@ -71,6 +71,8 @@ export type DesktopBridge = {
     address: string,
     details: Record<string, unknown>
   ): Promise<{ server: string; business: { id: string; code: string; name: string }; session: unknown }>;
+  /** First launch: picks a backup file and restores its business here; false if no file was chosen. */
+  restoreFromBackup(): Promise<{ restored: boolean }>;
   /** Back to the app's first screen. */
   reload(): Promise<void>;
   /** Offline, admins: moves the business online; afterwards this computer works online. */

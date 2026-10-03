@@ -241,7 +241,7 @@ export async function createBackup(options: {
 function extractBackup(file: string, tablesDir: string, uploadsDir: string) {
   return new Promise<void>((resolve, reject) => {
     yauzl.open(file, { lazyEntries: true }, (error, zip) => {
-      if (error || !zip) return reject(error ?? new Error('Not a backup file'));
+      if (error || !zip) return reject(new Error('This file is not a Point of Sale backup'));
       zip.on('error', reject);
       zip.on('end', () => resolve());
       zip.on('entry', (entry: yauzl.Entry) => {

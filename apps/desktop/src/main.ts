@@ -395,6 +395,39 @@ ipcMain.handle('pos:create-business', async (event, address: unknown, details: R
   return { server, business: body.business, session: body.session };
 });
 
+/**
+ * First launch: "Restore from a backup". The person picks a backup file (made by this app on
+ * any computer); the business is restored here in offline mode, then the app reloads at the
+ * sign-in screen. A backup older than this version is brought up to date by the migrations.
+ */
+ipcMain.handle('pos:restore-from-backup', async (event) => {
+  assertFromApp(event);
+  if (config.mode) throw new Error('This computer is already set up.');
+  const picked = await dialog.showOpenDialog({
+    title: 'Choose a Point of Sale backup',
+    buttonLabel: 'Restore',
+    properties: ['openFile'],
+    filters: [{ name: 'Point of Sale backups', extensions: ['zip'] }]
+  });
+  const file = picked.filePaths[0];
+  if (picked.canceled || !file) return { restored: false };
+  log(`Restoring a new computer from ${file}`);
+  try {
+    await startOffline();
+    await backups.restoreFile(file, { stopApi, startApi });
+  } catch (error) {
+    // Leaves the computer as it was: no mode chosen, so the welcome screen comes back.
+    await stopOffline();
+    throw new Error(describe(error));
+  }
+  config = { ...config, mode: 'offline' };
+  saveConfig(config);
+  // A business that had already moved online: work with it online instead.
+  await switchIfMoved();
+  setImmediate(() => void loadApp());
+  return { restored: true };
+});
+
 /** Offline, admins: the whole move online. Progress goes to the page as 'pos:move-online-progress'. */
 ipcMain.handle('pos:move-online', async (event, token: unknown, input: Partial<MoveInput>) => {
   assertFromApp(event);
