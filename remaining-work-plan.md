@@ -20,13 +20,50 @@ How to pick one up:
 
 These need an answer from the product owner before the work that depends on them.
 
-- **Hosting:** provider and domain for the online server (needed for items 3 and 4).
+- ~~**Hosting:** provider and domain for the online server.~~ Decided: `pos.hackd.in` on Oracle
+  Cloud (item 3). The domain may change later; see "Hosting modes".
 - **Code signing:** Windows and macOS certificates (needed for item 2).
 - **Browser use:** should online businesses also use the web app in a plain browser? It works
   today if the web app and API are on the same site with the web app in `CORS_ORIGINS`.
 - **After moving online:** how long to keep the computer's read-only copy, and whether to offer
   deleting it.
-- **Pricing and limits:** for online businesses (branches, counters).
+- **Pricing and limits:** plans for managed hosting: price per month and year, how many branches
+  and counters each allows, trial length (needed for item 14).
+- **Payment provider:** for managed hosting subscriptions. Razorpay Subscriptions is the likely
+  choice (INR, UPI AutoPay, cards) (needed for item 14).
+- **Self-hosting price:** free, a license key the server checks, or a one-time fee with paid
+  support (needed for item 15, later).
+
+---
+
+## Hosting modes (decided 2026-10-03)
+
+The product comes in three forms:
+
+1. **Offline:** one branch, one counter, everything on one computer, with local backups the owner
+   controls (number of days, a second folder). Built; see the desktop app in README.md.
+2. **Managed hosting:** our server, `pos.hackd.in` today (the address may change). Businesses
+   sign up, get a trial and pay a subscription. **This comes first** (items 13 and 14).
+3. **Self-hosted:** a business runs the online server on its own infrastructure, with more
+   setup on their side. **Later**, once managed hosting is taking payments (item 15).
+
+How the app tells managed from self-hosted:
+- **The server says what it is,** not the hostname. A `POS_HOSTING` setting (`managed` or
+  `self`, default `self`) is set to `managed` only on our server, and `GET /meta` returns it. The
+  app follows that answer for whatever server it is connected to. Any other server, with any
+  hostname, is self-hosted.
+- Why not the hostname: the domain may change (installed apps have the old one built in), the
+  same server can have other names (a staging server, `www.`, an IP), and billing has to be
+  enforced on the server anyway.
+- `posServerUrl` in `apps/desktop/package.json` stays as the default address for "Create an
+  online business", "Join" and "Move online". It no longer decides anything else.
+- When the domain changes: keep the old domain pointing at the server (or redirecting) until
+  apps have updated, since installed apps keep the full address in their config
+  (`apiBaseUrl`); or have an update rewrite the old address to the new one.
+
+Order of work: 13, then 14. Before charging anyone, also finish the rest of item 3 (off-server
+backups, a practised restore, uptime monitoring) and item 7 (data export), which paying
+customers expect. Item 15 comes after that.
 
 ---
 
@@ -203,6 +240,81 @@ These need an answer from the product owner before the work that depends on them
   - Check that the server can be reached in the background, so the banner appears before a
     request fails.
 
+## [ ] 13. Hosting kind: managed or self-hosted (do first)
+
+- **Why:** billing, plan limits and the screens around them apply only to our managed server.
+  The server has to say which one it is (see "Hosting modes").
+- **What:**
+  - API: `POS_HOSTING` (`managed` | `self`, default `self`) read in `apps/api/src/app-config.ts`,
+    online mode only. `GET /meta` (`apps/api/src/meta/meta.service.ts`) returns `hosting`; add
+    it to the meta contract in `packages/contracts`.
+  - Desktop: `checkOnlineServer` (`apps/desktop/src/main.ts`) already reads `/meta`; keep its
+    `hosting` in the config store and refresh it at each later `/meta` check. Pass it to the page
+    with the rest of `desktop.config`.
+  - Web: a small helper (`isManagedHosting()`) the billing screens of item 14 use.
+  - Our server: `POS_HOSTING=managed` in the API's `.env`; add it to README.md ("Hosting the
+    online server") and `apps/api/.env.example`.
+- **Done when:** `/meta` on `pos.hackd.in` says `managed`, a local online API says `self`, and the
+  desktop app shows which one it is connected to (e.g. in Settings → About).
+
+## [ ] 14. Managed hosting: subscriptions and payments
+
+- **Why:** the managed server is running, but nothing charges for it. `Business.status` has
+  `SUSPENDED`, which today refuses sign-in outright (`apps/api/src/tenancy/tenancy.service.ts`).
+- **Depends on:** 13, and the "Pricing and limits" and "Payment provider" decisions.
+- **What:**
+  - **Plans and subscription state (control schema, `apps/api/prisma/control/schema.prisma`):**
+    plans with price and limits (branches, counters); on `Business`: plan, `trialEndsAt`,
+    `paidUntil`, a billing status (trial, active, past due, read-only, cancelled) and the
+    provider's customer and subscription ids. New businesses and businesses that move online
+    start on the trial.
+  - **Paying:** the owner starts payment from the app; the provider's hosted checkout opens in
+    the system browser, not inside the app window. The server never trusts the app's word that a
+    payment went through: a webhook endpoint checks the provider's signature, handles each event
+    once (keyed by event id) and updates `paidUntil` and the status.
+  - **Limits:** creating a branch or counter checks the plan (managed hosting only; offline keeps
+    its own limit, self-hosted has none). After a downgrade, existing branches and counters keep
+    working but no new ones can be added until the business is within its plan.
+  - **When payment stops:** a grace period with a banner for admins (trial ending, payment
+    failed), then read-only. Read-only means staff can still sign in, see sales and reports,
+    make GST exports and download their data (item 7), but can't sell or change anything (as the
+    offline "archived" state, `apps/api/src/common/instance-status.guard.ts`). Keep `SUSPENDED`
+    for a full block (abuse) and keep it separate from read-only for non-payment.
+  - **Fallback counter:** sales a counter made while the server couldn't be reached still sync
+    when the business is read-only, so no sale is lost.
+  - **Screens:** a Billing page for owners (with item 8's owner screens): plan, trial days left,
+    next payment, pay or change plan, past invoices. Shown only on managed hosting.
+  - **Our GST invoices:** a tax invoice for each payment in our own invoice series, with the
+    subscriber's GSTIN when given (so they can claim input tax credit), emailed and downloadable.
+  - **Emails:** trial ending, payment received, payment failed, read-only from a given date.
+  - **Tests:** webhook signature and replay, plan limits, read-only after the grace period,
+    fallback sync while read-only, and none of it on a `self` server.
+- **Done when:** a new business gets a trial, pays through the provider's test mode, its
+  `paidUntil` moves on from the webhook alone, a missed payment turns it read-only after the grace
+  period, and paying again turns it back.
+
+## [ ] 15. Self-hosted server (later, after managed hosting)
+
+- **Why:** some businesses want the online server on their own infrastructure. The server code
+  is the same; what's missing is the setup and the parts of the app that assume our server.
+- **Depends on:** 13, and the "Self-hosting price" decision. Start after item 14 is live.
+- **What:**
+  - **Connecting the app:** a "Use my own server" link on the welcome screen that shows the server
+    address box (hidden today whenever `posServerUrl` is set, `WelcomePage.tsx`), and the same
+    choice in "Move to online".
+  - **First business:** a first-run setup on the server that creates the business and its owner
+    (as offline's `POST /setup`), after which sign-up closes; `POS_ALLOW_SIGNUP` reopens it.
+  - **Email optional:** without SMTP, owner verification is off and password resets use a
+    recovery code, as offline does.
+  - **Install:** a `docker-compose.yml` (API, PostgreSQL, an HTTPS proxy such as Caddy) with
+    nightly backups, and a self-hosting guide in README.md.
+  - **Updates:** upgrade notes per release, the rule that the server updates before the apps,
+    and a warning on the server's side when apps newer than it connect.
+  - **No billing:** item 14's checks and screens stay off; a license check only if the
+    self-hosting price decision asks for one.
+- **Done when:** someone follows the guide on a fresh VPS, connects a desktop app through "Use my
+  own server", sells, backs up and restores, with no billing screens shown.
+
 ---
 
 ## Progress log
@@ -215,3 +327,4 @@ These need an answer from the product owner before the work that depends on them
 - 2026-10-03: v0.1.1 released; the forced update from 0.1.0 (MIN_CLIENT_VERSION) works end to end.
 - 2026-10-03: CI added (`.github/workflows/ci.yml`) and `fix/auth-hardening` merged into `main` (#1).
 - 2026-10-03: Removed `fix-plan.md` (all done) and `b2b-implementation-plan.md`; added items 10 (B2B GST customers) and 11 (receivables).
+- 2026-10-03: Hosting modes decided (offline, managed, self-hosted; the server says which via `POS_HOSTING`). Added items 13 (hosting kind), 14 (managed subscriptions and payments) and 15 (self-hosted, later). Managed hosting comes first.
