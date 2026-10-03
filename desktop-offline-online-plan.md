@@ -145,7 +145,7 @@ Branch: `feat/desktop-web-modes`. Depends on 1.1 and 1.2. Most items can be test
 
 ### [x] 2.2 Shared upload helper
 - **Where:** the raw `fetch` uploads in `BranchSettingsPage.tsx` (business logo, branch logo) and `ItemsPage.tsx` (item image).
-- **What:** One `uploadFile(path, file)` in `lib/api.ts` that uses `getApiBaseUrl()`, adds auth headers and handles 401 like the ts-rest client. This also closes a follow-up listed in `fix-plan.md` item 1.
+- **What:** One `uploadFile(path, file)` in `lib/api.ts` that uses `getApiBaseUrl()`, adds auth headers and handles 401 like the ts-rest client. This also closed a follow-up of the earlier fix plan (item 1; the plan is in git history).
 - **Done when:** all three uploads use it.
 - **Done 2026-10-03** as `apiFetch(path, init)` in `lib/api.ts` (with session hardening): the cookie, the session header and the same 401/403/426 handling. Item images are now saved as `/uploads/…` and shown through `uploadSrc()`.
 
@@ -301,7 +301,7 @@ Branch: `feat/multi-tenant`. Can run in parallel with Phase 3.
 - **What:**
   - Owner signup with an email code, `POST /businesses` (create), and invite and join endpoints.
   - Cashier and admin sign-in becomes `{ businessCode, username, password }`. Extend the `auth.login` contract with an optional `businessCode`, required in online mode. Tokens carry `bid`.
-  - Rate-limit sign-in. This is also a `fix-plan.md` follow-up.
+  - Rate-limit sign-in. This was also a follow-up of the earlier fix plan.
 - **Done when:** two businesses can each have a user called `admin` without clashing.
 
 ### [ ] 4.6 Uploads in object storage
