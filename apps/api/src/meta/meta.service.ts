@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { APP_VERSION } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
-import { isOffline, minClientVersion, posMode } from '../common/mode';
+import { isOffline, minClientVersion, posHosting, posMode } from '../common/mode';
 import { latestBusinessMigration } from '../tenancy/migrator';
 
 @Injectable()
@@ -42,6 +42,7 @@ export class MetaService {
       // server ships (see the migration runner), which is what an offline business must match.
       schemaVersion: offline ? await this.schemaVersion() : latestBusinessMigration(),
       mode: posMode(),
+      hosting: posHosting(),
       minClientVersion: minClientVersion(),
       setupRequired: offline ? (await this.prisma.user.count()) === 0 : false,
       instanceStatus: offline ? await this.instanceStatus() : null,

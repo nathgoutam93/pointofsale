@@ -15,11 +15,23 @@ describe('online mode', () => {
       appVersion: APP_VERSION,
       schemaVersion: expect.stringMatching(/^\d{14}_/),
       mode: 'online',
+      hosting: 'self',
       minClientVersion: null,
       setupRequired: false,
       instanceStatus: null,
       movedTo: null
     });
+  });
+
+  it('reports managed hosting only when POS_HOSTING says so', async () => {
+    process.env.POS_HOSTING = 'managed';
+    try {
+      expect((await t.ok('GET', '/meta')).hosting).toBe('managed');
+      process.env.POS_HOSTING = 'Self ';
+      expect((await t.ok('GET', '/meta')).hosting).toBe('self');
+    } finally {
+      delete process.env.POS_HOSTING;
+    }
   });
 
   it('has no first-run setup or export', async () => {

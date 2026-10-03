@@ -15,6 +15,8 @@ export type DesktopConfig = {
   defaultServerUrl: string | null;
   /** This computer's id (a fallback counter opens only on its own computer). Missing in older versions. */
   deviceId?: string | null;
+  /** Online: what the server last said it is, kept for when it can't be reached. Missing in older versions. */
+  hosting?: 'managed' | 'self' | null;
 };
 
 export type MoveStep = 'checking' | 'account' | 'backup' | 'pausing' | 'exporting' | 'uploading' | 'finishing';

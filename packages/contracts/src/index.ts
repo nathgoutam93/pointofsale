@@ -818,6 +818,13 @@ const emailCodeSchema = z.string().trim().regex(/^\d{8}$/, 'Enter the 8-digit co
 export const posModeSchema = z.enum(['offline', 'online']);
 export type PosMode = z.infer<typeof posModeSchema>;
 
+/**
+ * Online servers only. managed: our hosted service, where businesses sign up and pay a
+ * subscription. self: a business's own server (any other), with no billing.
+ */
+export const hostingSchema = z.enum(['managed', 'self']);
+export type Hosting = z.infer<typeof hostingSchema>;
+
 /** ACTIVE: in use. MIGRATING: being moved online, writes paused. ARCHIVED: moved online, read-only. */
 export const localInstanceStatusSchema = z.enum(['ACTIVE', 'MIGRATING', 'ARCHIVED']);
 
@@ -826,6 +833,8 @@ export const metaSchema = z.object({
   /** The last database migration applied, e.g. 20261005110000_counter_document_numbers. */
   schemaVersion: z.string().nullable(),
   mode: posModeSchema,
+  /** Online only: our managed service or a self-hosted server. Missing from older servers. */
+  hosting: hostingSchema.nullable().optional(),
   /** Online only: clients older than this must update before using the API. */
   minClientVersion: z.string().nullable(),
   /** Offline only: true until first-run setup has created the business and its admin. */

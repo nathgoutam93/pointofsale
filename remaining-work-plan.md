@@ -240,7 +240,7 @@ customers expect. Item 15 comes after that.
   - Check that the server can be reached in the background, so the banner appears before a
     request fails.
 
-## [ ] 13. Hosting kind: managed or self-hosted (do first)
+## [x] 13. Hosting kind: managed or self-hosted (do first)
 
 - **Why:** billing, plan limits and the screens around them apply only to our managed server.
   The server has to say which one it is (see "Hosting modes").
@@ -256,6 +256,19 @@ customers expect. Item 15 comes after that.
     online server") and `apps/api/.env.example`.
 - **Done when:** `/meta` on `pos.hackd.in` says `managed`, a local online API says `self`, and the
   desktop app shows which one it is connected to (e.g. in Settings → About).
+- **Status (2026-10-03):** built. `posHosting()` in `apps/api/src/common/mode.ts` (checked at
+  startup), `hosting` in `/meta` (optional in the contract, so older servers still parse); the
+  desktop app saves it on connecting, after a move online and at each launch
+  (`checkServerDetails`), and the page gets it with `desktop.config`. Web: `useHosting()` and
+  `useIsManagedHosting()` in `apps/web/src/lib/mode.ts`, preferring the server's own `/meta` and
+  falling back to the app's saved value (a fallback counter's local copy answers as offline).
+  Settings → Business shows a "Server" card. Tests in `online-mode.test.ts` and `offline.test.ts`.
+  Verified in the desktop app (Xvfb, from source, local online API): choosing the server saved
+  `managed`, Settings said "our hosted service"; with `POS_HOSTING` removed and the app
+  relaunched, the saved value and the card turned to self-hosted. Not checked in Electron: a
+  fallback counter while the server is down.
+  - [ ] On `pos.hackd.in`: add `POS_HOSTING=managed` to `/opt/pos/apps/api/.env` with the deploy
+        of this change, then check `curl https://pos.hackd.in/meta` says `"hosting":"managed"`.
 
 ## [ ] 14. Managed hosting: subscriptions and payments
 
@@ -328,3 +341,4 @@ customers expect. Item 15 comes after that.
 - 2026-10-03: CI added (`.github/workflows/ci.yml`) and `fix/auth-hardening` merged into `main` (#1).
 - 2026-10-03: Removed `fix-plan.md` (all done) and `b2b-implementation-plan.md`; added items 10 (B2B GST customers) and 11 (receivables).
 - 2026-10-03: Hosting modes decided (offline, managed, self-hosted; the server says which via `POS_HOSTING`). Added items 13 (hosting kind), 14 (managed subscriptions and payments) and 15 (self-hosted, later). Managed hosting comes first.
+- 2026-10-03: Item 13 done: servers report `hosting` (managed or self) in `/meta`, the desktop app keeps it, Settings shows it. Left: set `POS_HOSTING=managed` on `pos.hackd.in` at the next deploy.

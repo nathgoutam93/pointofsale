@@ -61,6 +61,8 @@ The API runs in one of two modes (`POS_MODE` in `apps/api/.env`):
   ```
   Staff sign in with the business code, their username and password. Owners can also create
   businesses with `POST /businesses` (email and password for their owner account).
+  `POS_HOSTING` says which kind of online server it is: `managed` on our hosted service,
+  `self` (the default) on a business's own server. `GET /meta` reports it as `hosting`.
 
 There are no default passwords; create cashiers from Settings → Cashiers & Access.
 
@@ -205,6 +207,7 @@ the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud.
    SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")
    cat > .env <<EOF
    POS_MODE=online
+   POS_HOSTING=managed
    HOST=127.0.0.1
    PORT=3001
    DATABASE_URL=postgresql://pos:<db-password>@localhost:5432/pos?schema=public
@@ -217,6 +220,9 @@ the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud.
    node dist/tenancy/cli.js migrate        # creates the control schema
    ```
    - Never change `AUTH_SECRET` afterwards: it would sign everyone out.
+   - `POS_HOSTING=managed` marks our hosted service (sign-up and, later, subscriptions). The apps
+     go by what `/meta` says, not by the domain, so leave it out on any other server: a
+     business's own server is `self`, the default.
    - `OWNER_EMAIL_VERIFICATION=off` is only until email works. Then set `SMTP_URL` and
      `MAIL_FROM` (e.g. `MAIL_FROM="POS <no-reply@example.com>"`), remove that line and restart.
      Add the mail provider's SPF and DKIM records to the domain, or mail lands in spam.

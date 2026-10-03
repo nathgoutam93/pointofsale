@@ -6,7 +6,13 @@ type ModeChoice = { mode: 'offline' } | { mode: 'online'; apiBaseUrl: string };
 
 // Read once: changing mode reloads the window, which runs this again.
 const info = ipcRenderer.sendSync('pos:get-config') as {
-  config: { mode: 'offline' | 'online' | null; apiBaseUrl: string | null; defaultServerUrl: string | null; deviceId: string | null };
+  config: {
+    mode: 'offline' | 'online' | null;
+    apiBaseUrl: string | null;
+    defaultServerUrl: string | null;
+    deviceId: string | null;
+    hosting: 'managed' | 'self' | null;
+  };
   version: string;
 };
 

@@ -13,7 +13,7 @@ import {
 import { api, apiErrorMessage, apiFetch, authHeaders, uploadSrc } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
 import { GoOnlineDialog, OnlineOnlyBadge } from "../components/OnlineOnly";
-import { useIsOffline } from "../lib/mode";
+import { useHosting, useIsOffline } from "../lib/mode";
 import { desktop } from "../lib/desktop";
 import { BackupsSection } from "./settings/BackupsSection";
 import { PrinterSection } from "./settings/PrinterSection";
@@ -83,6 +83,7 @@ export function BranchSettingsPage() {
   const [businessMessage, setBusinessMessage] = useState("");
   const [branchMessage, setBranchMessage] = useState("");
   const offline = useIsOffline();
+  const hosting = useHosting();
   // Backups are kept by the desktop app, on the computer that holds an offline business.
   const localBackups = desktop?.config.mode === "offline" ? desktop.backups : undefined;
   // The receipt printer and cash drawer belong to this computer (desktop app, either mode).
@@ -578,6 +579,16 @@ export function BranchSettingsPage() {
                 Move business online
               </button>
               {movingOnline ? <MoveOnlineDialog onClose={() => setMovingOnline(false)} /> : null}
+            </div>
+          ) : null}
+          {hosting ? (
+            <div className="card p-5">
+              <h2 className="text-lg font-semibold tracking-tight text-slate-900">Server</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                {hosting === "managed"
+                  ? "This business is on our hosted service."
+                  : "This business is on its own server (self-hosted)."}
+              </p>
             </div>
           ) : null}
           <div className="card p-5">
