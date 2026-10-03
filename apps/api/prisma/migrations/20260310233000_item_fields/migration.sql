@@ -1,6 +1,6 @@
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'TaxMode') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'TaxMode' AND typnamespace = current_schema()::regnamespace) THEN
     CREATE TYPE "TaxMode" AS ENUM ('INCLUSIVE', 'EXCLUSIVE');
   END IF;
 END

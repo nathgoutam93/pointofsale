@@ -1,36 +1,29 @@
+import './load-env';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
 import { AppModule } from './app.module';
+import { configureApp, listenAddress } from './app-config';
+import { assertAuthConfigured } from './auth/token';
+import { minClientVersion, posMode } from './common/mode';
 
 async function bootstrap() {
+  assertAuthConfigured();
+  const mode = posMode();
+  minClientVersion(); // fails now on a malformed value, not on the first request
+  const { port, host } = listenAddress();
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  app.enableCors();
+  configureApp(app);
+  if (host) {
+    await app.listen(port, host);
+  } else {
+    await app.listen(port);
+  }
 
-  const uploadsDir = process.env.UPLOADS_DIR
-    ? process.env.UPLOADS_DIR
-    : join(process.cwd(), 'uploads');
-  if (!existsSync(uploadsDir)) {
-    mkdirSync(uploadsDir, { recursive: true });
-  }
-  const itemUploadsDir = join(uploadsDir, 'items');
-  if (!existsSync(itemUploadsDir)) {
-    mkdirSync(itemUploadsDir, { recursive: true });
-  }
-  const branchUploadsDir = join(uploadsDir, 'branches');
-  if (!existsSync(branchUploadsDir)) {
-    mkdirSync(branchUploadsDir, { recursive: true });
-  }
-  const businessUploadsDir = join(uploadsDir, 'business');
-  if (!existsSync(businessUploadsDir)) {
-    mkdirSync(businessUploadsDir, { recursive: true });
-  }
-  app.useStaticAssets(uploadsDir, { prefix: '/uploads/' });
-
-  await app.listen(process.env.PORT ? Number(process.env.PORT) : 3001);
+  // One JSON line the desktop app waits for, to learn the port when PORT=0.
+  const address = app.getHttpServer().address();
+  const actualPort = typeof address === 'object' && address ? address.port : port;
+  process.stdout.write(`${JSON.stringify({ event: 'listening', mode, port: actualPort })}\n`);
 }
 
 bootstrap();

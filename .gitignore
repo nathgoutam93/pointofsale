@@ -12,4 +12,8 @@ apps/web/src/**/*.js
 apps/web/src/**/*.js.map
 apps/web/src/**/*.d.ts
 apps/web/src/**/*.d.ts.map
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
 apps/api/uploads/**/*

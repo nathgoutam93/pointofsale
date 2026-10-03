@@ -1,0 +1,31 @@
+# Builds installers from dist/ (the Electron app) and stage/ (see scripts/stage.mjs).
+appId: com.pointofsale.desktop
+productName: Point of Sale
+executableName: point-of-sale
+artifactName: point-of-sale-${version}-${os}-${arch}.${ext}
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+  # The Postgres binaries ship in resources/postgres instead, where they can run.
+  - "!node_modules/@embedded-postgres/**"
+# stage/api, stage/web and stage/postgres go into the resources folder (see scripts/after-pack.cjs).
+afterPack: scripts/after-pack.cjs
+linux:
+  target: [AppImage]
+  category: Office
+win:
+  target: [nsis]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+mac:
+  # zip is what auto-update downloads on macOS.
+  target: [dmg, zip]
+  category: public.app-category.business
+# Where electron-updater looks for new versions (GitHub Releases of this repository).
+publish:
+  provider: github
+  owner: nathgoutam93
+  repo: pointofsale

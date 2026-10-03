@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { API_BASE_URL, api, authHeaders } from "../lib/api";
-import {
-  buildReceiptLines,
-  formatReceiptDate,
-  formatReceiptTime,
-  resolveReceiptWidth,
-} from "../lib/receiptFormat";
-import { money, requireOperationalSession } from "./route-helpers";
+import { invoiceDue, returnLineAmounts, sanitizeReceiptCss, splitReturn } from "@pos/contracts";
+import { api, apiErrorMessage, authHeaders, uploadSrc } from "../lib/api";
+import { usePrintTemplate, useReceiptPrinting } from "../lib/printing";
+import { branchReceiptTemplate, rateFromAmounts, receiptStyleFor, renderReceipt, returnReceiptDocument } from "../lib/receipt";
+import { ReceiptView } from "../components/ReceiptView";
+import { ReceiptPrintStyles } from "./pos/ReceiptPrintStyles";
+import { IconPrinter } from "../components/icons";
+import { inr, money, requireOperationalSession } from "./route-helpers";
 
 type ReturnRefundMode = "CASH" | "WALLET";
 const round2 = (value: number) => Math.round(value * 100) / 100;
@@ -51,6 +51,7 @@ export function ReturnsPage() {
   const [refundMode, setRefundMode] = useState<ReturnRefundMode>("CASH");
   const [lineQtyMap, setLineQtyMap] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
+  const receiptPrinting = useReceiptPrinting();
 
   const returnsList = useQuery({
     queryKey: ["returns-list", session.branchId],
@@ -185,6 +186,7 @@ export function ReturnsPage() {
     if (!query) return [];
     return (sales.data ?? [])
       .filter((invoice) => {
+        if (invoice.status === "CANCELLED") return false;
         const customer = customerById.get(invoice.customerId);
         const haystack = `${invoice.invoiceNo} ${customer?.name ?? ""}`.toLowerCase();
         return haystack.includes(query);
@@ -213,14 +215,7 @@ export function ReturnsPage() {
       .filter(Boolean);
   }, [branchSettings.data?.receiptFooter]);
 
-  const receiptLogoSrc = useMemo(() => {
-    const logoUrl = branchSettings.data?.logoUrl ?? businessSettings.data?.logoUrl;
-    if (!logoUrl) return null;
-    if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
-      return logoUrl;
-    }
-    return `${API_BASE_URL.replace(/\/$/, "")}${logoUrl.startsWith("/") ? "" : "/"}${logoUrl}`;
-  }, [branchSettings.data?.logoUrl, businessSettings.data?.logoUrl]);
+  const receiptLogoSrc = uploadSrc(branchSettings.data?.logoUrl ?? businessSettings.data?.logoUrl);
 
   const storeDisplayName = useMemo(() => {
     return (
@@ -230,32 +225,14 @@ export function ReturnsPage() {
     );
   }, [businessSettings.data?.name, branchSettings.data?.name]);
 
-  const receiptCharWidth = resolveReceiptWidth(branchSettings.data?.receiptCss, 48);
-  const receiptTemplateCss = `
-    #printable-invoice {
-      font-family: "Courier New", Courier, monospace;
-      --receipt-ch: ${receiptCharWidth};
-      width: calc(var(--receipt-ch) * 1ch);
-      max-width: 100%;
-      margin: 0 auto;
-      color: #111827;
-    }
-    #printable-invoice .receipt-line {
-      white-space: pre;
-      font-size: 12px;
-      line-height: 1.25;
-    }
-    #printable-invoice .receipt-strong {
-      font-weight: 700;
-    }
-    #printable-invoice .receipt-logo {
-      display: block;
-      margin: 0 auto 6px;
-      max-height: 64px;
-      max-width: 100%;
-      object-fit: contain;
-    }
-  `;
+  // Branch CSS is admin-written; render only the sanitized, receipt-scoped rules.
+  const customReceiptCss = useMemo(
+    () => sanitizeReceiptCss(branchSettings.data?.receiptCss).css,
+    [branchSettings.data?.receiptCss],
+  );
+  const branchTemplate = useMemo(() => branchReceiptTemplate(branchSettings.data), [branchSettings.data]);
+  // On this computer's paper, when its printer takes other paper than the branch's.
+  const receiptTemplate = usePrintTemplate(branchTemplate);
 
   useEffect(() => {
     if (refundMode === "WALLET" && !walletAllowed) setRefundMode("CASH");
@@ -269,10 +246,30 @@ export function ReturnsPage() {
         0,
       );
       const availableQty = Math.max(0, soldQty - alreadyReturned);
-      const netAmount = Number(line.netAmount);
-      const unitRate = soldQty > 0 ? round2(netAmount / soldQty) : 0;
+      // What earlier returns already took from this line, part by part.
+      const alreadyReturnedParts = (line.returnLines ?? []).reduce(
+        (acc, returnedLine) => ({
+          taxable: round2(acc.taxable + Number(returnedLine.taxableAmount)),
+          cgst: round2(acc.cgst + Number(returnedLine.cgstAmount)),
+          sgst: round2(acc.sgst + Number(returnedLine.sgstAmount)),
+          igst: round2(acc.igst + Number(returnedLine.igstAmount)),
+        }),
+        { taxable: 0, cgst: 0, sgst: 0, igst: 0 },
+      );
       const returnQty = Number(lineQtyMap[line.id] ?? 0);
-      const amount = returnQty > 0 ? round2(returnQty * unitRate) : 0;
+      // The same calculation the server makes, so the amount shown is the amount refunded.
+      const { amount } = returnLineAmounts({
+        line: {
+          taxable: Number(line.taxableAmount),
+          cgst: Number(line.cgstAmount),
+          sgst: Number(line.sgstAmount),
+          igst: Number(line.igstAmount),
+        },
+        soldQty,
+        alreadyReturnedQty: alreadyReturned,
+        alreadyReturned: alreadyReturnedParts,
+        qty: returnQty,
+      });
       const leastCount = itemLeastCountById.get(line.itemId) ?? 1;
 
       return {
@@ -295,63 +292,55 @@ export function ReturnsPage() {
     () => returnLines.reduce((acc, line) => round2(acc + line.amount), 0),
     [returnLines],
   );
+  // A bill not yet paid in full: the return comes off what is still owed first.
+  const selectedDue = selectedInvoice ? invoiceDue(selectedInvoice) : 0;
+  const returnSplit = splitReturn(totalReturnAmount, selectedDue);
 
   const printableReturn = useMemo(() => {
     if (!returnDetail.data) return null;
 
-    const createdAt = returnDetail.data.createdAt ?? new Date().toISOString();
-    const totalAmount = Number(returnDetail.data.totalAmount);
-    const items = returnDetail.data.lines.map((line) => {
+    const detail = returnDetail.data;
+    const items = detail.lines.map((line) => {
       const qty = Number(line.qty);
       const amount = Number(line.amount);
-      const unitAmount = qty > 0 ? round2(amount / qty) : 0;
-
+      const taxable = Number(line.taxableAmount);
+      const taxAmount = Number(line.taxAmount);
       return {
         name: line.itemName,
-        detailRows: [
-          {
-            label: `${formatReceiptQty(qty)} x ${money(unitAmount)}`,
-            value: money(amount),
-          },
-        ],
+        hsn: null,
         qty,
-        price: unitAmount,
+        qtyLabel: formatReceiptQty(qty),
+        rate: qty > 0 ? round2(taxable / qty) : 0,
+        amount: taxable,
+        taxRate: rateFromAmounts(taxable, taxAmount),
+        taxAmount,
+        discount: 0,
         total: amount,
+        taxable,
       };
     });
 
-    return buildReceiptLines({
-      width: receiptCharWidth,
-      storeName: storeDisplayName,
-      headerLines: receiptHeaderLines,
-      metadata: [
-        { label: "Return", value: returnDetail.data.returnNo },
-        { label: "Invoice", value: returnDetail.data.saleInvoiceNo },
-        { label: "Date", value: formatReceiptDate(createdAt) },
-        { label: "Time", value: formatReceiptTime(createdAt) },
-        { label: "Customer", value: returnDetail.data.customerName },
-        { label: "Refund", value: returnDetail.data.refundMode },
-      ],
+    const doc = returnReceiptDocument({
+      branding: { storeName: storeDisplayName, headerLines: receiptHeaderLines, footerLines: receiptFooterLines },
+      returnNo: detail.returnNo,
+      invoiceNo: detail.saleInvoiceNo,
+      createdAt: detail.createdAt ?? new Date().toISOString(),
+      customer: detail.customerName,
+      refundMode: detail.refundMode,
       items,
-      totals: [{ label: "REFUND TOTAL", value: money(totalAmount), isGrandTotal: true }],
-      payments: [
-        {
-          label:
-            returnDetail.data.refundMode === "WALLET"
-              ? "Credited to Wallet"
-              : "Refunded by Cash",
-          value: money(totalAmount),
-        },
-      ],
-      footerLines: receiptFooterLines,
+      totalAmount: Number(detail.totalAmount),
+      dueAdjusted: Number(detail.dueAdjusted ?? 0),
+      tax: { cgst: Number(detail.cgstTotal), sgst: Number(detail.sgstTotal), igst: Number(detail.igstTotal) },
     });
+    return renderReceipt(doc, receiptTemplate);
   }, [
-    receiptCharWidth,
+    receiptTemplate,
     receiptFooterLines,
     receiptHeaderLines,
     returnDetail.data,
     storeDisplayName,
   ]);
+  const receiptStyle = receiptStyleFor(printableReturn ?? { columns: 48 }, receiptTemplate, customReceiptCss);
 
   const createReturn = useMutation({
     mutationFn: async () => {
@@ -380,16 +369,13 @@ export function ReturnsPage() {
       });
 
       if (res.status !== 201) {
-        const apiMessage =
-          typeof (res.body as { message?: unknown })?.message === "string"
-            ? (res.body as { message: string }).message
-            : "";
-        throw new Error(apiMessage || "Failed to create return");
+        throw new Error(apiErrorMessage(res.body, "Failed to create return"));
       }
 
       return res.body;
     },
     onSuccess: (result) => {
+      if (result.refundMode === "CASH" && Number(result.refundAmount) > 0) void receiptPrinting.openDrawer();
       setMessage(`Return created: ${result.returnNo}`);
       setCreateMode(false);
       setSelectedReturnId(result.id);
@@ -408,41 +394,14 @@ export function ReturnsPage() {
   });
 
   return (
-    <section className="grid h-[calc(100vh-48px)] grid-cols-1 xl:grid-cols-[340px_1fr]">
-      <style>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
-          }
-
-          #printable-invoice,
-          #printable-invoice * {
-            visibility: visible !important;
-          }
-
-          #printable-invoice {
-            position: absolute;
-            inset: 0;
-            margin: 0;
-            width: 100%;
-            max-width: none;
-            border: none;
-            border-radius: 0;
-            box-shadow: none;
-            padding: 16px;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-        }
-        ${receiptTemplateCss}
-        ${branchSettings.data?.receiptCss ?? ""}
-      `}</style>
-      <aside className="overflow-y-auto border-r border-slate-200 bg-white p-4">
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold text-slate-900">Returns</h2>
+    <section className="grid grid-cols-1 xl:h-[calc(100vh-48px)] xl:grid-cols-[340px_1fr]">
+      <ReceiptPrintStyles css={receiptStyle.css} />
+      <aside className="flex h-full max-h-[75vh] flex-col overflow-hidden border-r border-slate-200 bg-white xl:max-h-none">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 p-4">
+          <h2 className="page-title">Returns</h2>
           <button
             type="button"
-            className="rounded bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+            className="btn-primary text-xs"
             onClick={() => {
               setCreateMode(true);
               setSelectedInvoiceId("");
@@ -451,15 +410,16 @@ export function ReturnsPage() {
               setMessage("");
             }}
           >
-            Create New Return
+            New Return
           </button>
         </div>
+        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-3">
 
         {returnsList.isLoading ? (
           <p className="text-sm text-slate-500">Loading returns...</p>
         ) : null}
         {(returnsList.data ?? []).length === 0 && !returnsList.isLoading ? (
-          <p className="text-sm text-slate-500">No returns found.</p>
+          <div className="rounded-md border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">No returns yet.</div>
         ) : null}
 
         <div className="space-y-2">
@@ -467,33 +427,37 @@ export function ReturnsPage() {
             <button
               key={row.id}
               type="button"
-              className={`w-full rounded border p-3 text-left ${!createMode && selectedReturnId === row.id ? "border-slate-800 bg-slate-900 text-white" : "border-slate-200 bg-white hover:bg-slate-50"}`}
+              className={`list-row ${!createMode && selectedReturnId === row.id ? "is-active" : ""}`}
               onClick={() => {
                 setCreateMode(false);
                 setSelectedReturnId(row.id);
                 setMessage("");
               }}
             >
-              <p className="text-sm font-semibold">{row.returnNo}</p>
-              <p className={`text-xs ${!createMode && selectedReturnId === row.id ? "text-slate-200" : "text-slate-500"}`}>
-                {row.saleInvoiceNo} · {row.customerName}
-              </p>
-              <p className={`mt-1 text-xs ${!createMode && selectedReturnId === row.id ? "text-slate-100" : "text-slate-600"}`}>
-                ₹ {money(row.totalAmount)} · {row.refundMode}
-              </p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="truncate text-sm font-semibold text-slate-900">{row.returnNo}</p>
+                <p className="text-sm font-semibold text-slate-900 tabular-nums">{inr(row.totalAmount)}</p>
+              </div>
+              <div className="mt-0.5 flex items-center justify-between gap-2 text-xs text-slate-500">
+                <p className="truncate">
+                  {row.saleInvoiceNo} · {row.customerName}
+                </p>
+                <span className="badge bg-slate-100 text-slate-600">{Number(row.refundAmount) > 0 ? row.refundMode : "OFF DUE"}</span>
+              </div>
             </button>
           ))}
         </div>
+        </div>
       </aside>
 
-      <div className="overflow-y-auto bg-slate-100 p-4">
+      <div className="overflow-y-auto bg-slate-100 p-6">
         {createMode ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="card mx-auto max-w-5xl p-5">
             <div className="mb-4 flex items-center justify-between gap-2">
-              <h3 className="text-base font-semibold text-slate-900">Create Return</h3>
+              <h3 className="page-title">New Return</h3>
               <button
                 type="button"
-                className="text-xs text-slate-700 underline"
+                className="btn-ghost"
                 onClick={() => {
                   setCreateMode(false);
                   setSelectedInvoiceId("");
@@ -508,22 +472,22 @@ export function ReturnsPage() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <label className="field-label">
                   Search Invoice
                 </label>
                 <input
-                  className="w-full rounded border border-slate-300 px-3 py-2"
+                  className="field"
                   placeholder="Type invoice no or customer name"
                   value={invoiceSearch}
                   onChange={(e) => setInvoiceSearch(e.target.value)}
                 />
                 {invoiceSearch.trim() ? (
-                  <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded border border-slate-200 p-1">
+                  <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-sm">
                     {filteredInvoices.map((invoice) => (
                       <button
                         key={invoice.id}
                         type="button"
-                        className={`w-full rounded px-2 py-2 text-left text-sm ${selectedInvoiceId === invoice.id ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}
+                        className={`w-full rounded-md px-3 py-2 text-left text-sm ${selectedInvoiceId === invoice.id ? "bg-brand-50 text-brand-800 ring-1 ring-brand-500" : "text-slate-700 hover:bg-slate-50"}`}
                         onClick={() => {
                           setSelectedInvoiceId(invoice.id);
                           setInvoiceSearch(invoice.invoiceNo);
@@ -532,8 +496,9 @@ export function ReturnsPage() {
                         }}
                       >
                         <p className="font-semibold">{invoice.invoiceNo}</p>
-                        <p className={`text-xs ${selectedInvoiceId === invoice.id ? "text-slate-200" : "text-slate-500"}`}>
-                          {customerById.get(invoice.customerId)?.name ?? "Unknown"} · ₹ {money(invoice.grandTotal)}
+                        <p className="text-xs text-slate-500">
+                          {customerById.get(invoice.customerId)?.name ?? "Unknown"} · {inr(invoice.grandTotal)}
+                          {invoiceDue(invoice) > 0 ? <span className="text-amber-700"> · Due {inr(invoiceDue(invoice))}</span> : null}
                         </p>
                       </button>
                     ))}
@@ -545,17 +510,21 @@ export function ReturnsPage() {
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <label className="field-label">
                   Refund Mode
                 </label>
                 <select
-                  className="w-full rounded border border-slate-300 px-3 py-2"
+                  className="field"
                   value={refundMode}
+                  disabled={totalReturnAmount > 0 && returnSplit.refundAmount === 0}
                   onChange={(e) => setRefundMode(e.target.value as ReturnRefundMode)}
                 >
                   <option value="CASH">Cash Refund</option>
                   {walletAllowed ? <option value="WALLET">Wallet Credit</option> : null}
                 </select>
+                {totalReturnAmount > 0 && returnSplit.refundAmount === 0 ? (
+                  <p className="mt-1 text-xs text-slate-500">Nothing to refund: it all comes off what the customer owes.</p>
+                ) : null}
                 {!walletAllowed ? (
                   <p className="mt-1 text-xs text-amber-700">
                     Wallet credit is available only for registered customers.
@@ -565,13 +534,19 @@ export function ReturnsPage() {
             </div>
 
             {selectedInvoice ? (
-              <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                 <p>
                   <span className="font-semibold">Invoice:</span> {selectedInvoice.invoiceNo}
                 </p>
                 <p>
                   <span className="font-semibold">Customer:</span> {selectedCustomer?.name ?? "Unknown"}
                 </p>
+                {selectedDue > 0 ? (
+                  <p className="mt-1 text-amber-800">
+                    <span className="font-semibold">Still owed:</span> {inr(selectedDue)} of {inr(selectedInvoice.grandTotal)}. A
+                    return comes off this first; only the rest is refunded.
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
@@ -597,7 +572,7 @@ export function ReturnsPage() {
                         <td className="px-2 py-2 font-semibold">{formatQty(line.availableQty, line.leastCount)}</td>
                         <td className="px-2 py-2">
                           <input
-                            className="w-28 rounded border border-slate-300 px-2 py-1"
+                            className="field w-28"
                             type="number"
                             min={0}
                             max={line.availableQty}
@@ -609,17 +584,33 @@ export function ReturnsPage() {
                             }}
                           />
                         </td>
-                        <td className="px-2 py-2 text-right font-medium">₹ {money(line.amount)}</td>
+                        <td className="px-2 py-2 text-right font-medium">{inr(line.amount)}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
+                    {returnSplit.dueAdjusted > 0 ? (
+                      <>
+                        <tr className="border-t border-slate-200">
+                          <td colSpan={5} className="px-2 py-2 text-right text-slate-600">
+                            Returned
+                          </td>
+                          <td className="px-2 py-2 text-right font-medium text-slate-900">{inr(totalReturnAmount)}</td>
+                        </tr>
+                        <tr>
+                          <td colSpan={5} className="px-2 py-2 text-right text-slate-600">
+                            Taken off amount due
+                          </td>
+                          <td className="px-2 py-2 text-right font-medium text-slate-900">{inr(returnSplit.dueAdjusted)}</td>
+                        </tr>
+                      </>
+                    ) : null}
                     <tr className="border-t border-slate-200">
                       <td colSpan={5} className="px-2 py-3 text-right font-semibold text-slate-700">
                         Total Refund
                       </td>
                       <td className="px-2 py-3 text-right text-base font-bold text-slate-900">
-                        ₹ {money(totalReturnAmount)}
+                        {inr(returnSplit.refundAmount)}
                       </td>
                     </tr>
                   </tfoot>
@@ -628,7 +619,7 @@ export function ReturnsPage() {
             ) : null}
 
             <button
-              className="mt-4 rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="btn-primary mt-4"
               disabled={createReturn.isPending || !selectedInvoiceId || returnLines.length === 0}
               onClick={() => createReturn.mutate()}
             >
@@ -637,26 +628,35 @@ export function ReturnsPage() {
 
             {message ? (
               <p
-                className={`mt-3 rounded p-2 text-sm ${createReturn.isError ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}
+                className={`mt-3 rounded-md border px-3 py-2 text-sm ${createReturn.isError ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}
               >
                 {message}
               </p>
             ) : null}
           </div>
         ) : (
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="card mx-auto max-w-5xl p-5">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="text-base font-semibold text-slate-900">Return Details</h3>
+              <h3 className="page-title">{returnDetail.data?.returnNo ?? "Return Details"}</h3>
               {returnDetail.data ? (
                 <button
                   type="button"
-                  className="rounded bg-slate-900 px-3 py-2 text-xs font-semibold text-white print:hidden"
-                  onClick={() => window.print()}
+                  className="btn-secondary print:hidden"
+                  disabled={receiptPrinting.busy}
+                  onClick={() =>
+                    void receiptPrinting.print(receiptStyle)
+                  }
                 >
-                  Print Return Receipt
+                  <IconPrinter width={16} height={16} />
+                  {receiptPrinting.busy ? "Printing…" : "Print Receipt"}
                 </button>
               ) : null}
             </div>
+            {receiptPrinting.error ? (
+              <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 print:hidden" role="alert">
+                {receiptPrinting.error}
+              </p>
+            ) : null}
             {!selectedReturnId ? (
               <p className="mt-3 text-sm text-slate-500">Select a return from the left list.</p>
             ) : null}
@@ -665,23 +665,31 @@ export function ReturnsPage() {
             ) : null}
             {returnDetail.data ? (
               <>
-                <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                  <p>
-                    <span className="font-semibold">Return No:</span> {returnDetail.data.returnNo}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Invoice No:</span> {returnDetail.data.saleInvoiceNo}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Customer:</span> {returnDetail.data.customerName}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Refund Mode:</span> {returnDetail.data.refundMode}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Total:</span> ₹ {money(returnDetail.data.totalAmount)}
-                  </p>
-                </div>
+                <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-sm md:grid-cols-4">
+                  <div>
+                    <dt className="eyebrow">Invoice</dt>
+                    <dd className="mt-1 font-medium text-slate-900">{returnDetail.data.saleInvoiceNo}</dd>
+                  </div>
+                  <div>
+                    <dt className="eyebrow">Customer</dt>
+                    <dd className="mt-1 font-medium text-slate-900">{returnDetail.data.customerName}</dd>
+                  </div>
+                  <div>
+                    <dt className="eyebrow">Refund mode</dt>
+                    <dd className="mt-1 font-medium text-slate-900">
+                      {Number(returnDetail.data.refundAmount) > 0 ? returnDetail.data.refundMode : "None"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="eyebrow">Total refund</dt>
+                    <dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inr(returnDetail.data.refundAmount)}</dd>
+                    {Number(returnDetail.data.dueAdjusted) > 0 ? (
+                      <dd className="mt-0.5 text-xs text-slate-500">
+                        {inr(returnDetail.data.dueAdjusted)} of {inr(returnDetail.data.totalAmount)} taken off the amount due
+                      </dd>
+                    ) : null}
+                  </div>
+                </dl>
 
                 <div className="mt-4 overflow-x-auto">
                   <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -697,40 +705,26 @@ export function ReturnsPage() {
                         <tr key={line.id}>
                           <td className="px-2 py-2">{line.itemName}</td>
                           <td className="px-2 py-2">{Number(line.qty).toFixed(3)}</td>
-                          <td className="px-2 py-2 text-right">₹ {money(line.amount)}</td>
+                          <td className="px-2 py-2 text-right">{inr(line.amount)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
 
-                <div className="mt-6 rounded border border-slate-200 bg-slate-50 p-4">
+                <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-4">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 print:hidden">
                     Printable Return Receipt
                   </p>
-                  <div id="printable-invoice" className="bg-white p-4">
-                    {receiptLogoSrc ? (
-                      <img
-                        src={receiptLogoSrc}
-                        alt=""
-                        className="receipt-logo"
-                      />
-                    ) : null}
-                    <div className="receipt-text text-center">
-                      {(printableReturn?.lines ?? []).map((line, idx) => (
-                        <div
-                          key={`${idx}-${line.text}`}
-                          className={`receipt-line ${line.strong ? "receipt-strong" : ""}`}
-                        >
-                          {line.text}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  <ReceiptView
+                    receipt={printableReturn}
+                    logoSrc={receiptLogoSrc}
+                    className="mx-auto w-fit border border-slate-200 bg-white p-4 shadow-xs"
+                  />
                 </div>
               </>
             ) : null}
-            {message ? <p className="mt-3 rounded bg-emerald-100 p-2 text-sm text-emerald-700">{message}</p> : null}
+            {message ? <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{message}</p> : null}
           </div>
         )}
       </div>

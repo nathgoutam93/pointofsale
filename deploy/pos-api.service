@@ -1,0 +1,18 @@
+# The online server's API. Install: sudo cp deploy/pos-api.service /etc/systemd/system/
+# (see "Hosting the online server" in README.md).
+[Unit]
+Description=POS API (online server)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/pos/apps/api
+EnvironmentFile=/opt/pos/apps/api/.env
+ExecStart=/usr/bin/node dist/main.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

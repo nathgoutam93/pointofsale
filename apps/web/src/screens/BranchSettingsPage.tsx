@@ -1,21 +1,42 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { API_BASE_URL, api, authHeaders } from "../lib/api";
+import {
+  BRANCH_CODE_LENGTH,
+  branchCodeProblem,
+  financialYearStart,
+  GST_STATES,
+  gstinProblem,
+  gstStateLabel,
+  isGstStateCode,
+  type CashierPermission,
+} from "@pos/contracts";
+import { api, apiErrorMessage, apiFetch, authHeaders, uploadSrc } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
+import { GoOnlineDialog, OnlineOnlyBadge } from "../components/OnlineOnly";
+import { useIsOffline } from "../lib/mode";
+import { desktop } from "../lib/desktop";
+import { BackupsSection } from "./settings/BackupsSection";
+import { PrinterSection } from "./settings/PrinterSection";
+import { ReceiptTemplateSection } from "./settings/ReceiptTemplateSection";
+import { canMoveOnline, MoveOnlineDialog } from "../components/MoveOnline";
+import { RecoveryCodeSettings } from "../components/RecoveryCode";
+import { CountersSection } from "./settings/CountersSection";
+import { CashierPermissions } from "./settings/CashierPermissions";
+import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
 
 type SettingsForm = {
   name: string;
   code: string;
   logoUrl: string | null;
-  invoicePrefix: string;
   receiptPrefix: string;
-  returnPrefix: string;
   invoiceHeader: string;
   invoiceFooter: string;
   receiptHeader: string;
   receiptFooter: string;
   invoiceCss: string;
   receiptCss: string;
+  gstin: string;
+  stateCode: string;
 };
 
 type BusinessSettingsForm = {
@@ -23,12 +44,17 @@ type BusinessSettingsForm = {
   logoUrl: string | null;
   gstNumber: string;
   taxCalculationMode: "AFTER_DISCOUNT" | "BEFORE_DISCOUNT";
+  cashierMaxDiscountPercent: string;
+  customerScope: "SHARED" | "BRANCH";
+  timezone: string;
+  hsnMinDigits: 4 | 6;
 };
 
 type CashierForm = {
   username: string;
   password: string;
   branchIds: string[];
+  permissions: CashierPermission[];
 };
 
 type CreateBranchForm = {
@@ -36,24 +62,39 @@ type CreateBranchForm = {
   code: string;
 };
 
-type SettingsTab = "business" | "branches" | "cashiers";
+type SettingsTab = "business" | "branches" | "receipts" | "cashiers" | "printer" | "backups";
 
-const emptyCashierForm = (branchId: string): CashierForm => ({ username: "", password: "", branchIds: [branchId] });
+const emptyCashierForm = (branchId: string): CashierForm => ({ username: "", password: "", branchIds: [branchId], permissions: [] });
+
+/** Every IANA zone this browser knows, keeping the saved one even if it isn't listed. */
+function timeZoneOptions(current: string) {
+  const supported =
+    typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : ["Asia/Kolkata", "UTC"];
+  return supported.includes(current) ? supported : [current, ...supported];
+}
 
 export function BranchSettingsPage() {
   const session = requireAdmin();
   const initialBranchId = session.branchId ?? session.branches[0]?.id ?? "";
   const queryClient = useQueryClient();
-  const normalizedApiBaseUrl = API_BASE_URL.replace(/\/$/, "");
   const [activeTab, setActiveTab] = useState<SettingsTab>("business");
   const [selectedBranchId, setSelectedBranchId] = useState(initialBranchId);
   const [message, setMessage] = useState("");
   const [businessMessage, setBusinessMessage] = useState("");
   const [branchMessage, setBranchMessage] = useState("");
+  const offline = useIsOffline();
+  // Backups are kept by the desktop app, on the computer that holds an offline business.
+  const localBackups = desktop?.config.mode === "offline" ? desktop.backups : undefined;
+  // The receipt printer and cash drawer belong to this computer (desktop app, either mode).
+  const receiptPrinter = desktop?.printing;
+  const [goOnlinePrompt, setGoOnlinePrompt] = useState(false);
+  const [movingOnline, setMovingOnline] = useState(false);
   const [userMessage, setUserMessage] = useState("");
   const [cashierForm, setCashierForm] = useState<CashierForm>(emptyCashierForm(initialBranchId));
   const [createBranchForm, setCreateBranchForm] = useState<CreateBranchForm>({ name: "", code: "" });
   const [passwordByUserId, setPasswordByUserId] = useState<Record<string, string>>({});
+  // Unticked: the cashier keeps the password the admin sets. Ticked (the default): they choose their own.
+  const [keepPasswordByUserId, setKeepPasswordByUserId] = useState<Record<string, boolean>>({});
 
   const branchSettings = useQuery({
     queryKey: ["branch-settings", selectedBranchId],
@@ -108,21 +149,25 @@ export function BranchSettingsPage() {
     name: "",
     code: "",
     logoUrl: null,
-    invoicePrefix: "INV",
     receiptPrefix: "RCPT",
-    returnPrefix: "RTN",
     invoiceHeader: "",
     invoiceFooter: "",
     receiptHeader: "",
     receiptFooter: "",
     invoiceCss: "",
-    receiptCss: ""
+    receiptCss: "",
+    gstin: "",
+    stateCode: ""
   });
   const [businessForm, setBusinessForm] = useState<BusinessSettingsForm>({
     name: "",
     logoUrl: null,
     gstNumber: "",
-    taxCalculationMode: "AFTER_DISCOUNT"
+    taxCalculationMode: "AFTER_DISCOUNT",
+    cashierMaxDiscountPercent: "10",
+    customerScope: "SHARED",
+    timezone: "Asia/Kolkata",
+    hsnMinDigits: 4
   });
 
   useEffect(() => {
@@ -147,7 +192,11 @@ export function BranchSettingsPage() {
       name: businessSettings.data.name,
       logoUrl: businessSettings.data.logoUrl,
       gstNumber: businessSettings.data.gstNumber ?? "",
-      taxCalculationMode: businessSettings.data.taxCalculationMode
+      taxCalculationMode: businessSettings.data.taxCalculationMode,
+      cashierMaxDiscountPercent: String(businessSettings.data.cashierMaxDiscountPercent),
+      customerScope: businessSettings.data.customerScope,
+      timezone: businessSettings.data.timezone,
+      hsnMinDigits: businessSettings.data.hsnMinDigits === 6 ? 6 : 4
     });
   }, [businessSettings.data]);
 
@@ -157,33 +206,27 @@ export function BranchSettingsPage() {
       name: branchSettings.data.name,
       code: branchSettings.data.code,
       logoUrl: branchSettings.data.logoUrl,
-      invoicePrefix: branchSettings.data.invoicePrefix,
       receiptPrefix: branchSettings.data.receiptPrefix,
-      returnPrefix: branchSettings.data.returnPrefix,
       invoiceHeader: branchSettings.data.invoiceHeader ?? "",
       invoiceFooter: branchSettings.data.invoiceFooter ?? "",
       receiptHeader: branchSettings.data.receiptHeader ?? "",
       receiptFooter: branchSettings.data.receiptFooter ?? "",
       invoiceCss: branchSettings.data.invoiceCss ?? "",
-      receiptCss: branchSettings.data.receiptCss ?? ""
+      receiptCss: branchSettings.data.receiptCss ?? "",
+      gstin: branchSettings.data.gstin ?? "",
+      stateCode: branchSettings.data.stateCode ?? ""
     });
   }, [branchSettings.data]);
 
-  const logoSrc = useMemo(() => {
-    if (!form.logoUrl) return null;
-    if (form.logoUrl.startsWith("http://") || form.logoUrl.startsWith("https://")) {
-      return form.logoUrl;
-    }
-    return `${normalizedApiBaseUrl}${form.logoUrl.startsWith("/") ? "" : "/"}${form.logoUrl}`;
-  }, [form.logoUrl, normalizedApiBaseUrl]);
+  const currentFiscalYear = useMemo(() => {
+    const timeZone = businessSettings.data?.timezone ?? "Asia/Kolkata";
+    const [year, month] = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date()).split("-").map(Number);
+    return financialYearStart(year, month);
+  }, [businessSettings.data?.timezone]);
 
-  const businessLogoSrc = useMemo(() => {
-    if (!businessForm.logoUrl) return null;
-    if (businessForm.logoUrl.startsWith("http://") || businessForm.logoUrl.startsWith("https://")) {
-      return businessForm.logoUrl;
-    }
-    return `${normalizedApiBaseUrl}${businessForm.logoUrl.startsWith("/") ? "" : "/"}${businessForm.logoUrl}`;
-  }, [businessForm.logoUrl, normalizedApiBaseUrl]);
+  const logoSrc = uploadSrc(form.logoUrl);
+
+  const businessLogoSrc = uploadSrc(businessForm.logoUrl);
 
   const saveBusinessSettings = useMutation({
     mutationFn: async () => {
@@ -192,16 +235,29 @@ export function BranchSettingsPage() {
       if (!trimmedName) {
         throw new Error("Business name is required.");
       }
+      const cashierMaxDiscountPercent = Number(businessForm.cashierMaxDiscountPercent);
+      if (
+        businessForm.cashierMaxDiscountPercent.trim() === "" ||
+        !Number.isFinite(cashierMaxDiscountPercent) ||
+        cashierMaxDiscountPercent < 0 ||
+        cashierMaxDiscountPercent > 100
+      ) {
+        throw new Error("Cashier discount limit must be between 0 and 100.");
+      }
       const res = await api.business.update({
         body: {
           name: trimmedName,
           logoUrl: businessForm.logoUrl,
           gstNumber: emptyToNull(businessForm.gstNumber),
-          taxCalculationMode: businessForm.taxCalculationMode
+          taxCalculationMode: businessForm.taxCalculationMode,
+          cashierMaxDiscountPercent,
+          customerScope: businessForm.customerScope,
+          timezone: businessForm.timezone,
+          hsnMinDigits: businessForm.hsnMinDigits
         },
         extraHeaders: authHeaders()
       });
-      if (res.status !== 200) throw new Error("Failed to save business settings");
+      if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to save business settings"));
       return res.body;
     },
     onSuccess: (updated) => {
@@ -216,11 +272,7 @@ export function BranchSettingsPage() {
   const uploadBusinessLogo = async (file: File) => {
     const body = new FormData();
     body.append("file", file);
-    const res = await fetch(`${normalizedApiBaseUrl}/business/logo`, {
-      method: "POST",
-      headers: authHeaders(),
-      body
-    });
+    const res = await apiFetch("/business/logo", { method: "POST", body });
     if (!res.ok) throw new Error("Failed to upload business logo");
     return (await res.json()) as {
       id: string;
@@ -256,14 +308,15 @@ export function BranchSettingsPage() {
       if (!trimmedName) {
         throw new Error("Branch name is required.");
       }
-      if (!trimmedCode) {
-        throw new Error("Branch code is required.");
+      const codeProblem = branchCodeProblem(trimmedCode);
+      if (codeProblem) {
+        throw new Error(codeProblem);
       }
       const res = await api.branches.create({
         body: { name: trimmedName, code: trimmedCode },
         extraHeaders: authHeaders()
       });
-      if (res.status !== 201) throw new Error("Failed to create branch");
+      if (res.status !== 201) throw new Error(apiErrorMessage(res.body, "Failed to create branch"));
       return res.body;
     },
     onSuccess: (created) => {
@@ -283,9 +336,10 @@ export function BranchSettingsPage() {
   const saveSettings = useMutation({
     mutationFn: async () => {
       const emptyToNull = (value: string) => (value.trim() ? value : null);
-      const trimmedCode = form.code.trim();
-      if (!trimmedCode) {
-        throw new Error("Branch code is required.");
+      const trimmedCode = form.code.trim().toUpperCase();
+      const codeProblem = branchCodeProblem(trimmedCode);
+      if (codeProblem) {
+        throw new Error(codeProblem);
       }
       if (!selectedBranchId) {
         throw new Error("Select a branch first.");
@@ -296,19 +350,19 @@ export function BranchSettingsPage() {
           name: form.name.trim(),
           code: trimmedCode,
           logoUrl: form.logoUrl,
-          invoicePrefix: form.invoicePrefix.trim(),
           receiptPrefix: form.receiptPrefix.trim(),
-          returnPrefix: form.returnPrefix.trim(),
           invoiceHeader: emptyToNull(form.invoiceHeader),
           invoiceFooter: emptyToNull(form.invoiceFooter),
           receiptHeader: emptyToNull(form.receiptHeader),
           receiptFooter: emptyToNull(form.receiptFooter),
           invoiceCss: emptyToNull(form.invoiceCss),
-          receiptCss: emptyToNull(form.receiptCss)
+          receiptCss: emptyToNull(form.receiptCss),
+          gstin: emptyToNull(form.gstin.trim().toUpperCase()),
+          stateCode: emptyToNull(form.stateCode)
         },
         extraHeaders: authHeaders()
       });
-      if (res.status !== 200) throw new Error("Failed to save branch settings");
+      if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to save branch settings"));
       return res.body;
     },
     onSuccess: (updated) => {
@@ -327,19 +381,13 @@ export function BranchSettingsPage() {
     }
     const body = new FormData();
     body.append("file", file);
-    const res = await fetch(`${normalizedApiBaseUrl}/branches/${selectedBranchId}/logo`, {
-      method: "POST",
-      headers: authHeaders(),
-      body
-    });
+    const res = await apiFetch(`/branches/${selectedBranchId}/logo`, { method: "POST", body });
     if (!res.ok) throw new Error("Failed to upload logo");
     return (await res.json()) as {
       name: string;
       code: string;
       logoUrl: string | null;
-      invoicePrefix: string;
       receiptPrefix: string;
-      returnPrefix: string;
       invoiceHeader: string | null;
       invoiceFooter: string | null;
       receiptHeader: string | null;
@@ -357,9 +405,7 @@ export function BranchSettingsPage() {
         name: updated.name ?? prev.name,
         code: updated.code ?? prev.code,
         logoUrl: updated.logoUrl ?? null,
-        invoicePrefix: updated.invoicePrefix ?? prev.invoicePrefix,
         receiptPrefix: updated.receiptPrefix ?? prev.receiptPrefix,
-        returnPrefix: updated.returnPrefix ?? prev.returnPrefix,
         invoiceHeader: updated.invoiceHeader ?? "",
         invoiceFooter: updated.invoiceFooter ?? "",
         receiptHeader: updated.receiptHeader ?? "",
@@ -386,7 +432,8 @@ export function BranchSettingsPage() {
           branchId: selectedBranchId,
           username: cashierForm.username.trim(),
           password: cashierForm.password,
-          branchIds: cashierForm.branchIds
+          branchIds: cashierForm.branchIds,
+          permissions: cashierForm.permissions
         },
         extraHeaders: authHeaders()
       });
@@ -404,18 +451,39 @@ export function BranchSettingsPage() {
   });
 
   const updateUser = useMutation({
-    mutationFn: async (payload: { id: string; username?: string; password?: string; isActive?: boolean }) => {
+    mutationFn: async (payload: {
+      id: string;
+      username?: string;
+      password?: string;
+      mustChangePassword?: boolean;
+      isActive?: boolean;
+      permissions?: CashierPermission[];
+    }) => {
       const res = await api.users.update({
         params: { id: payload.id },
-        body: { username: payload.username, password: payload.password, isActive: payload.isActive },
+        body: {
+          username: payload.username,
+          password: payload.password,
+          mustChangePassword: payload.mustChangePassword,
+          isActive: payload.isActive,
+          permissions: payload.permissions
+        },
         extraHeaders: authHeaders()
       });
-      if (res.status !== 200) throw new Error("Failed to update user");
+      if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to update user"));
       return res.body;
     },
-    onSuccess: () => {
+    onSuccess: (updated, payload) => {
       queryClient.invalidateQueries({ queryKey: ["branch-users", selectedBranchId] });
-      setUserMessage("User updated.");
+      setUserMessage(
+        payload.permissions !== undefined
+          ? `What ${updated.username} may do is saved; it applies from their next action.`
+          : payload.password === undefined
+          ? "User updated."
+          : updated.mustChangePassword
+            ? `New password set. ${updated.username} is signed out everywhere and chooses their own password at next sign-in.`
+            : `New password set. ${updated.username} is signed out everywhere.`
+      );
     },
     onError: (error) => {
       setUserMessage((error as Error).message);
@@ -467,152 +535,253 @@ export function BranchSettingsPage() {
   const selectedBranch = availableBranches.find((branch) => branch.id === selectedBranchId) ?? availableBranches[0];
 
   return (
-    <section className="grid gap-4 p-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="grid gap-2 sm:grid-cols-3">
+    <section>
+      <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-6">
+        <nav className="-mb-px flex gap-6 overflow-x-auto" aria-label="Settings sections">
           {[
-            { id: "business" as const, label: "Business Settings" },
-            { id: "branches" as const, label: "Branch Settings" },
-            { id: "cashiers" as const, label: "Cashiers & Access" }
+            { id: "business" as const, label: "Business" },
+            { id: "branches" as const, label: "Branches" },
+            { id: "receipts" as const, label: "Receipts" },
+            { id: "cashiers" as const, label: "Cashiers & Access" },
+            ...(receiptPrinter ? [{ id: "printer" as const, label: "Printer" }] : []),
+            ...(localBackups ? [{ id: "backups" as const, label: "Backups" }] : [])
           ].map((tab) => (
             <button
               key={tab.id}
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                activeTab === tab.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"
+              className={`border-b-2 px-1 py-3 text-sm font-semibold whitespace-nowrap transition-colors ${
+                activeTab === tab.id
+                  ? "border-brand-600 text-brand-700"
+                  : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"
               }`}
+              aria-current={activeTab === tab.id ? "page" : undefined}
               onClick={() => setActiveTab(tab.id)}
             >
               {tab.label}
             </button>
           ))}
-        </div>
+        </nav>
       </div>
+      <div className="mx-auto grid max-w-7xl gap-4 p-6">
 
       {activeTab === "business" ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-2xl font-semibold text-slate-900">Business Settings</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Configure global details shared by all branches, including logo and GST number.
-          </p>
+        <div className="grid gap-4">
+          <RecoveryCodeSettings />
+          {canMoveOnline() ? (
+            <div className="card flex flex-wrap items-center justify-between gap-3 p-5">
+              <div className="max-w-xl">
+                <h2 className="text-lg font-semibold tracking-tight text-slate-900">On this computer only</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Move the business online to add counters and branches and sign in from other computers. Everything moves with it.
+                </p>
+              </div>
+              <button className="btn-primary" onClick={() => setMovingOnline(true)}>
+                Move business online
+              </button>
+              {movingOnline ? <MoveOnlineDialog onClose={() => setMovingOnline(false)} /> : null}
+            </div>
+          ) : null}
+          <div className="card p-5">
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900">Business Settings</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Configure global details shared by all branches, including logo and GST number.
+            </p>
 
-          <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm text-slate-600">Business name</label>
-                <input
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.name}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))}
-                />
+            <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm text-slate-600">Business name</label>
+                  <input
+                    className="field mt-1"
+                    value={businessForm.name}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, name: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">GST number</label>
+                  <input
+                    className="field mt-1"
+                    value={businessForm.gstNumber}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, gstNumber: e.target.value.toUpperCase() }))}
+                    placeholder="e.g. 29ABCDE1234F1ZW"
+                  />
+                  {businessForm.gstNumber.trim() && gstinProblem(businessForm.gstNumber.trim()) ? (
+                    <p className="mt-1 text-xs text-rose-700">{gstinProblem(businessForm.gstNumber.trim())}</p>
+                  ) : null}
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Tax calculation mode</label>
+                  <select
+                    className="field mt-1"
+                    value={businessForm.taxCalculationMode}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({
+                        ...prev,
+                        taxCalculationMode: e.target.value as "AFTER_DISCOUNT" | "BEFORE_DISCOUNT",
+                      }))
+                    }
+                  >
+                    <option value="AFTER_DISCOUNT">After discount</option>
+                    <option value="BEFORE_DISCOUNT">Before discount</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Controls whether tax is recomputed after discounts or held on the original pre-discount base.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Cashier discount limit (%)</label>
+                  <input
+                    className="field mt-1"
+                    inputMode="decimal"
+                    value={businessForm.cashierMaxDiscountPercent}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({ ...prev, cashierMaxDiscountPercent: e.target.value }))
+                    }
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    The most a cashier can take off a sale's list price, counting price changes and discounts together.
+                    Admins have no limit.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Customers</label>
+                  <select
+                    className="field mt-1"
+                    value={businessForm.customerScope}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({ ...prev, customerScope: e.target.value as "SHARED" | "BRANCH" }))
+                    }
+                  >
+                    <option value="SHARED">Shared across all branches</option>
+                    <option value="BRANCH">Separate for each branch</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Shared: a customer and their wallet balance can be used at any branch, and a phone number belongs to one
+                    customer business-wide. Separate: each branch only sees the customers it created.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Time zone</label>
+                  <select
+                    className="field mt-1"
+                    value={businessForm.timezone}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, timezone: e.target.value }))}
+                  >
+                    {timeZoneOptions(businessForm.timezone).map((zone) => (
+                      <option key={zone} value={zone}>
+                        {zone}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Reports work out Today, This Week and This Month on this clock.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">HSN code length</label>
+                  <select
+                    className="field mt-1"
+                    value={businessForm.hsnMinDigits}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({ ...prev, hsnMinDigits: Number(e.target.value) === 6 ? 6 : 4 }))
+                    }
+                  >
+                    <option value={4}>At least 4 digits (turnover up to ₹5 crore)</option>
+                    <option value={6}>At least 6 digits (turnover above ₹5 crore)</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    The shortest HSN or SAC code accepted on items, set by last year's turnover.
+                  </p>
+                </div>
               </div>
+
               <div>
-                <label className="text-sm text-slate-600">GST number</label>
-                <input
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.gstNumber}
-                  onChange={(e) => setBusinessForm((prev) => ({ ...prev, gstNumber: e.target.value }))}
-                  placeholder="e.g. 29ABCDE1234F2Z5"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-slate-600">Tax calculation mode</label>
-                <select
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                  value={businessForm.taxCalculationMode}
-                  onChange={(e) =>
-                    setBusinessForm((prev) => ({
-                      ...prev,
-                      taxCalculationMode: e.target.value as "AFTER_DISCOUNT" | "BEFORE_DISCOUNT",
-                    }))
-                  }
-                >
-                  <option value="AFTER_DISCOUNT">After discount</option>
-                  <option value="BEFORE_DISCOUNT">Before discount</option>
-                </select>
+                <label className="text-sm text-slate-600">Global logo</label>
+                <div className="mt-2 flex items-center gap-4">
+                  <div className="h-16 w-16 overflow-hidden rounded border border-slate-200 bg-slate-50">
+                    {businessLogoSrc ? <img src={businessLogoSrc} alt="Business logo" className="h-full w-full object-contain" /> : null}
+                  </div>
+                  <div className="grid gap-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) uploadBusinessLogoMutation.mutate(file);
+                      }}
+                    />
+                    <button
+                      className="btn-secondary px-2 py-1 text-xs"
+                      onClick={() => setBusinessForm((prev) => ({ ...prev, logoUrl: null }))}
+                    >
+                      Remove logo
+                    </button>
+                  </div>
+                </div>
                 <p className="mt-1 text-xs text-slate-500">
-                  Controls whether tax is recomputed after discounts or held on the original pre-discount base.
+                  Branch logo can override this. If branch logo is empty, this one is used.
                 </p>
               </div>
             </div>
 
-            <div>
-              <label className="text-sm text-slate-600">Global logo</label>
-              <div className="mt-2 flex items-center gap-4">
-                <div className="h-16 w-16 overflow-hidden rounded border border-slate-200 bg-slate-50">
-                  {businessLogoSrc ? <img src={businessLogoSrc} alt="Business logo" className="h-full w-full object-contain" /> : null}
-                </div>
-                <div className="grid gap-2">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) uploadBusinessLogoMutation.mutate(file);
-                    }}
-                  />
-                  <button
-                    className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700"
-                    onClick={() => setBusinessForm((prev) => ({ ...prev, logoUrl: null }))}
-                  >
-                    Remove logo
-                  </button>
-                </div>
-              </div>
-              <p className="mt-1 text-xs text-slate-500">
-                Branch logo can override this. If branch logo is empty, this one is used.
-              </p>
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                className="btn-primary"
+                onClick={() => saveBusinessSettings.mutate()}
+                disabled={saveBusinessSettings.isPending || businessSettings.isLoading}
+              >
+                Save Business Settings
+              </button>
+              {businessMessage ? <p className="text-sm text-emerald-700">{businessMessage}</p> : null}
             </div>
           </div>
 
-          <div className="mt-4 flex items-center gap-3">
-            <button
-              className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-emerald-300"
-              onClick={() => saveBusinessSettings.mutate()}
-              disabled={saveBusinessSettings.isPending || businessSettings.isLoading}
-            >
-              Save Business Settings
-            </button>
-            {businessMessage ? <p className="text-sm text-emerald-700">{businessMessage}</p> : null}
-          </div>
+          <TaxpayerTypeSection timeZone={businessSettings.data?.timezone ?? "Asia/Kolkata"} />
         </div>
       ) : null}
 
       {activeTab === "branches" ? (
         <div className="grid gap-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-2xl font-semibold text-slate-900">Create New Branch</h2>
+          <div className="card p-5">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold tracking-tight text-slate-900">Create New Branch</h2>
+              {offline ? <OnlineOnlyBadge /> : null}
+            </div>
             <p className="mt-1 text-sm text-slate-600">
               Create a new branch and manage its prefixes, templates, and logo from this page.
             </p>
             <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
               <input
-                className="rounded border border-slate-300 px-3 py-2"
+                className="field"
                 placeholder="Branch name"
                 value={createBranchForm.name}
                 onChange={(e) => setCreateBranchForm((prev) => ({ ...prev, name: e.target.value }))}
               />
               <input
-                className="rounded border border-slate-300 px-3 py-2"
-                placeholder="Branch code (e.g. BLR01)"
+                className="field uppercase"
+                placeholder="Branch code, 3 letters or digits (e.g. BLR)"
+                maxLength={BRANCH_CODE_LENGTH}
                 value={createBranchForm.code}
                 onChange={(e) => setCreateBranchForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
               />
               <button
-                className="rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-400"
-                onClick={() => createBranch.mutate()}
-                disabled={createBranch.isPending || !createBranchForm.name.trim() || !createBranchForm.code.trim()}
+                className="btn-primary"
+                onClick={() => (offline ? setGoOnlinePrompt(true) : createBranch.mutate())}
+                disabled={!offline && (createBranch.isPending || !createBranchForm.name.trim() || !createBranchForm.code.trim())}
               >
                 Create Branch
               </button>
             </div>
             {branchMessage ? <p className="mt-3 text-sm text-emerald-700">{branchMessage}</p> : null}
           </div>
+          {goOnlinePrompt ? (
+            <GoOnlineDialog title="More branches" feature="more than one branch" onClose={() => setGoOnlinePrompt(false)} />
+          ) : null}
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="card p-5">
             <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-2xl font-semibold text-slate-900">Branch Settings</h2>
+              <h2 className="text-lg font-semibold tracking-tight text-slate-900">Branch Settings</h2>
               <select
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className="field w-auto"
                 value={selectedBranch.id}
                 onChange={(e) => {
                   setSelectedBranchId(e.target.value);
@@ -636,7 +805,7 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">Branch name</label>
                   <input
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    className="field mt-1"
                     value={form.name}
                     onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                   />
@@ -644,11 +813,53 @@ export function BranchSettingsPage() {
                 <div>
                   <label className="text-sm text-slate-600">Branch code</label>
                   <input
-                    className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                    className="field mt-1 uppercase"
+                    maxLength={BRANCH_CODE_LENGTH}
                     value={form.code}
-                    onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value }))}
+                    onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
                   />
-                  <p className="mt-1 text-xs text-slate-500">Used in invoice/receipt numbers. Changing affects future numbers only.</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {BRANCH_CODE_LENGTH} letters or digits. Starts every invoice and credit note number (see Counters below);
+                    changing it starts new series for future documents only.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-sm text-slate-600">GSTIN</label>
+                    <input
+                      className="field mt-1 uppercase"
+                      value={form.gstin}
+                      placeholder="Leave empty to use the business GSTIN"
+                      onChange={(e) => {
+                        const gstin = e.target.value.toUpperCase();
+                        const state = gstin.trim().slice(0, 2);
+                        setForm((prev) => ({ ...prev, gstin, stateCode: isGstStateCode(state) ? state : prev.stateCode }));
+                      }}
+                    />
+                    {form.gstin.trim() && gstinProblem(form.gstin.trim().toUpperCase()) ? (
+                      <p className="mt-1 text-xs text-rose-700">{gstinProblem(form.gstin.trim().toUpperCase())}</p>
+                    ) : null}
+                  </div>
+                  <div>
+                    <label className="text-sm text-slate-600">State</label>
+                    <select
+                      className="field mt-1"
+                      value={form.stateCode}
+                      onChange={(e) => setForm((prev) => ({ ...prev, stateCode: e.target.value }))}
+                    >
+                      <option value="">Not set</option>
+                      {GST_STATES.map((state) => (
+                        <option key={state.code} value={state.code}>
+                          {gstStateLabel(state.code)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-xs text-slate-500 sm:col-span-2">
+                    Each state the business sells from has its own GSTIN. A branch without one uses the business GSTIN when that
+                    is for the branch's state. The state is the place of supply of counter sales.
+                  </p>
                 </div>
 
                 <div>
@@ -667,7 +878,7 @@ export function BranchSettingsPage() {
                         }}
                       />
                       <button
-                        className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                        className="btn-secondary px-2 py-1 text-xs"
                         onClick={() => setForm((prev) => ({ ...prev, logoUrl: null }))}
                       >
                         Remove logo
@@ -678,42 +889,29 @@ export function BranchSettingsPage() {
 
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
-                    <label className="text-sm text-slate-600">Invoice prefix</label>
-                    <input
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                      value={form.invoicePrefix}
-                      onChange={(e) => setForm((prev) => ({ ...prev, invoicePrefix: e.target.value }))}
-                    />
-                  </div>
-                  <div>
                     <label className="text-sm text-slate-600">Receipt prefix</label>
                     <input
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                      className="field mt-1"
                       value={form.receiptPrefix}
                       onChange={(e) => setForm((prev) => ({ ...prev, receiptPrefix: e.target.value }))}
                     />
                   </div>
-                  <div>
-                    <label className="text-sm text-slate-600">Return prefix</label>
-                    <input
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                      value={form.returnPrefix}
-                      onChange={(e) => setForm((prev) => ({ ...prev, returnPrefix: e.target.value }))}
-                    />
-                  </div>
+                  <p className="text-xs text-slate-500 sm:col-span-2 sm:self-end">
+                    Invoice and credit note numbers come from the branch code and each counter's number; see Counters below.
+                  </p>
                 </div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-semibold text-slate-800">Printable templates</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Use header and footer text for receipts and invoices. Optional CSS applies to printable layouts.
+                  Header and footer text for receipts and invoices. Paper, layout and what prints are set under Receipts; optional CSS restyles them.
                 </p>
                 <div className="mt-4 grid gap-3">
                   <div>
                     <label className="text-xs text-slate-600">Invoice header</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      className="field mt-1"
                       rows={2}
                       value={form.invoiceHeader}
                       onChange={(e) => setForm((prev) => ({ ...prev, invoiceHeader: e.target.value }))}
@@ -722,7 +920,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-xs text-slate-600">Invoice footer</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      className="field mt-1"
                       rows={2}
                       value={form.invoiceFooter}
                       onChange={(e) => setForm((prev) => ({ ...prev, invoiceFooter: e.target.value }))}
@@ -731,7 +929,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-xs text-slate-600">Invoice CSS</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-xs font-mono"
+                      className="field mt-1 text-xs font-mono"
                       rows={4}
                       value={form.invoiceCss}
                       onChange={(e) => setForm((prev) => ({ ...prev, invoiceCss: e.target.value }))}
@@ -740,7 +938,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-xs text-slate-600">Receipt header</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      className="field mt-1"
                       rows={2}
                       value={form.receiptHeader}
                       onChange={(e) => setForm((prev) => ({ ...prev, receiptHeader: e.target.value }))}
@@ -749,7 +947,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-xs text-slate-600">Receipt footer</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      className="field mt-1"
                       rows={2}
                       value={form.receiptFooter}
                       onChange={(e) => setForm((prev) => ({ ...prev, receiptFooter: e.target.value }))}
@@ -758,7 +956,7 @@ export function BranchSettingsPage() {
                   <div>
                     <label className="text-xs text-slate-600">Receipt CSS</label>
                     <textarea
-                      className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-xs font-mono"
+                      className="field mt-1 text-xs font-mono"
                       rows={4}
                       value={form.receiptCss}
                       onChange={(e) => setForm((prev) => ({ ...prev, receiptCss: e.target.value }))}
@@ -770,7 +968,7 @@ export function BranchSettingsPage() {
 
             <div className="mt-4 flex items-center gap-3">
               <button
-                className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-emerald-300"
+                className="btn-primary"
                 onClick={() => saveSettings.mutate()}
                 disabled={saveSettings.isPending || branchSettings.isLoading}
               >
@@ -779,15 +977,38 @@ export function BranchSettingsPage() {
               {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
             </div>
           </div>
+
+          <CountersSection
+            branchId={selectedBranch.id}
+            branchName={selectedBranch.name}
+            branchCode={selectedBranch.code}
+            fiscalYear={currentFiscalYear}
+          />
         </div>
       ) : null}
 
+      {activeTab === "receipts" ? (
+        <ReceiptTemplateSection
+          branches={availableBranches}
+          branchId={selectedBranch.id}
+          onBranchChange={(id) => {
+            setSelectedBranchId(id);
+            setMessage("");
+          }}
+        />
+      ) : null}
+
+      {activeTab === "printer" && receiptPrinter ? (
+        <PrinterSection printing={receiptPrinter} branchId={initialBranchId} />
+      ) : null}
+      {activeTab === "backups" && localBackups ? <BackupsSection backups={localBackups} /> : null}
+
       {activeTab === "cashiers" ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="card p-5">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-2xl font-semibold text-slate-900">Cashier Accounts</h2>
+            <h2 className="text-lg font-semibold tracking-tight text-slate-900">Cashier Accounts</h2>
             <select
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
+              className="field"
               value={selectedBranch.id}
               onChange={(e) => {
                 setSelectedBranchId(e.target.value);
@@ -805,13 +1026,13 @@ export function BranchSettingsPage() {
 
           <div className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
             <input
-              className="rounded border border-slate-300 px-3 py-2"
+              className="field"
               placeholder="Username"
               value={cashierForm.username}
               onChange={(e) => setCashierForm((prev) => ({ ...prev, username: e.target.value }))}
             />
             <input
-              className="rounded border border-slate-300 px-3 py-2"
+              className="field"
               placeholder="Password"
               type="password"
               value={cashierForm.password}
@@ -842,8 +1063,14 @@ export function BranchSettingsPage() {
                 })}
               </div>
             </div>
+            <div className="md:col-span-3">
+              <CashierPermissions
+                value={cashierForm.permissions}
+                onChange={(permissions) => setCashierForm((prev) => ({ ...prev, permissions }))}
+              />
+            </div>
             <button
-              className="rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+              className="btn-primary"
               onClick={() => createCashier.mutate()}
               disabled={createCashier.isPending || !cashierForm.username.trim() || !cashierForm.password || cashierForm.branchIds.length === 0}
             >
@@ -856,11 +1083,20 @@ export function BranchSettingsPage() {
               <div key={user.id} className="rounded border border-slate-200 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="font-semibold text-slate-900">{user.username}</p>
+                    <p className="font-semibold text-slate-900">
+                      {user.username}
+                      {user.mustChangePassword ? (
+                        <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">
+                          Chooses a new password at next sign-in
+                        </span>
+                      ) : null}
+                    </p>
                     <p className="text-xs text-slate-500">
                       Status: {user.isActive ? "Active" : "Inactive"} • Created {new Date(user.createdAt).toLocaleDateString()}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">Branch access: {user.branchIds.join(", ")}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Branch access: {user.branchIds.map((id) => availableBranches.find((branch) => branch.id === id)?.code ?? id).join(", ")}
+                    </p>
                   </div>
                   <button
                     className={`rounded px-3 py-1 text-xs font-semibold ${user.isActive ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}
@@ -871,26 +1107,41 @@ export function BranchSettingsPage() {
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <input
-                    className="rounded border border-slate-300 px-3 py-1 text-sm"
+                    className="field"
                     placeholder="New password"
                     type="password"
                     value={passwordByUserId[user.id] ?? ""}
                     onChange={(e) => setPasswordByUserId((prev) => ({ ...prev, [user.id]: e.target.value }))}
                   />
                   <button
-                    className="rounded bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
+                    className="btn-secondary px-3 py-1 text-xs"
                     onClick={() => {
                       const nextPassword = passwordByUserId[user.id];
                       if (!nextPassword?.trim()) {
                         setUserMessage("Enter a password to reset.");
                         return;
                       }
-                      updateUser.mutate({ id: user.id, password: nextPassword });
+                      updateUser.mutate({ id: user.id, password: nextPassword, mustChangePassword: !keepPasswordByUserId[user.id] });
                       setPasswordByUserId((prev) => ({ ...prev, [user.id]: "" }));
                     }}
                   >
                     Reset Password
                   </button>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={!keepPasswordByUserId[user.id]}
+                      onChange={(e) => setKeepPasswordByUserId((prev) => ({ ...prev, [user.id]: !e.target.checked }))}
+                    />
+                    Ask them to choose their own at next sign-in
+                  </label>
+                </div>
+                <div className="mt-3">
+                  <CashierPermissions
+                    value={user.permissions ?? []}
+                    disabled={updateUser.isPending}
+                    onChange={(permissions) => updateUser.mutate({ id: user.id, permissions })}
+                  />
                 </div>
                 <div className="mt-3 rounded border border-slate-200 p-2">
                   <p className="text-xs font-semibold text-slate-600">Branch Access</p>
@@ -926,6 +1177,7 @@ export function BranchSettingsPage() {
           {userMessage ? <p className="mt-3 text-sm text-emerald-700">{userMessage}</p> : null}
         </div>
       ) : null}
+      </div>
     </section>
   );
 }

@@ -1,0 +1,103 @@
+// The control schema of the hosted (online) server: which businesses exist, where their
+// data lives (one PostgreSQL schema each) and who owns them. Business data itself is in
+// ../schema.prisma, applied to every business's schema.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/.prisma/control-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  // DATABASE_URL with ?schema=control; set by the API and the migration runner.
+  url      = env("CONTROL_DATABASE_URL")
+}
+
+/// PROVISIONING: being created. ACTIVE: in use. SUSPENDED: sign-in refused. FAILED: creation failed.
+enum BusinessStatus {
+  PROVISIONING
+  ACTIVE
+  SUSPENDED
+  FAILED
+}
+
+enum MembershipRole {
+  OWNER
+}
+
+model Business {
+  id            String         @id @default(uuid())
+  /// Short code staff type when signing in, e.g. K7Q2MX.
+  code          String         @unique
+  name          String
+  /// The PostgreSQL schema holding this business's data, e.g. b_3f2a….
+  schemaName    String         @unique
+  /// Which database server holds the schema; "default" is DATABASE_URL. Lets businesses move
+  /// to another server later without changing anything else.
+  dbServer      String         @default("default")
+  status        BusinessStatus @default(PROVISIONING)
+  /// The last migration applied to the business's schema.
+  schemaVersion String?
+  /// Set when the business came from an offline install (moved online). A retried upload with
+  /// the same id returns this business instead of creating a second one.
+  importId      String?        @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  memberships   Membership[]
+}
+
+/// A business owner's sign-in (email and password), separate from the staff users inside a
+/// business. Used to create businesses and, later, to move an offline business online.
+model Account {
+  id                String          @id @default(uuid())
+  email             String          @unique
+  passwordHash      String
+  emailVerifiedAt   DateTime?
+  /// Owner tokens signed before this stop working (a reset signs the owner out everywhere).
+  passwordChangedAt DateTime?
+  createdAt         DateTime        @default(now())
+  memberships       Membership[]
+  passwordResets    PasswordReset[]
+}
+
+/// A code emailed to an owner who forgot their password. Only its hash is kept; it works once,
+/// for 15 minutes, and allows a few wrong tries. A new request replaces older codes.
+model PasswordReset {
+  id        String    @id @default(uuid())
+  accountId String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
+model Membership {
+  accountId  String
+  businessId String
+  role       MembershipRole @default(OWNER)
+  createdAt  DateTime       @default(now())
+  account    Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  business   Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@id([accountId, businessId])
+  @@index([businessId])
+}
+
+/// A code emailed to prove an owner owns their email address, asked for the first time the
+/// address creates a business or moves one online (the account may not exist yet, so it is
+/// keyed by email). Only its hash is kept; it works once, for 15 minutes, with a few tries.
+model EmailVerification {
+  id        String    @id @default(uuid())
+  email     String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email])
+}

@@ -9,9 +9,19 @@ import { ReturnsPage } from './screens/ReturnsPage';
 import { ItemsPage } from './screens/ItemsPage';
 import { CustomersPage } from './screens/CustomersPage';
 import { StockPage } from './screens/StockPage';
+import { PurchasesPage } from './screens/PurchasesPage';
+import { TransfersPage } from './screens/TransfersPage';
 import { ReportsPage } from './screens/ReportsPage';
+import { GstReturnsPage } from './screens/GstReturnsPage';
 import { BranchSettingsPage } from './screens/BranchSettingsPage';
-import { requireAdmin, requireOperationalSession, requireSession } from './screens/route-helpers';
+import { requireAdmin, requireManagementSession, requireOperationalSession, requirePermission, requireSession } from './screens/route-helpers';
+import { WelcomePage } from './screens/onboarding/WelcomePage';
+import { SetupPage } from './screens/onboarding/SetupPage';
+import { RecoverPage } from './screens/onboarding/RecoverPage';
+import { ChangePasswordPage } from './screens/ChangePasswordPage';
+import { OwnerPasswordPage } from './screens/onboarding/OwnerPasswordPage';
+import { api } from './lib/api';
+import { desktop } from './lib/desktop';
 
 const rootRoute = createRootRoute({ component: AppLayout });
 
@@ -22,19 +32,109 @@ type SalesSearch = {
   status?: string;
 };
 
+/** True when the API is a fresh offline install that needs its business and admin created. */
+async function setupRequired() {
+  try {
+    const res = await api.meta.get();
+    return res.status === 200 && res.body.setupRequired;
+  } catch {
+    // API not reachable: show sign-in, which reports the problem when used.
+    return false;
+  }
+}
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: () => {
+  beforeLoad: async () => {
+    if (desktop && !desktop.config.mode) {
+      throw redirect({ to: '/welcome' });
+    }
     const session = getSession();
     if (session) {
+      if (session.mustChangePassword) {
+        throw redirect({ to: '/change-password' });
+      }
       if (session.branchId && session.registerId) {
         throw redirect({ to: '/pos' });
       }
       throw redirect({ to: '/open-register' });
     }
+    if (await setupRequired()) {
+      throw redirect({ to: '/setup' });
+    }
   },
   component: LoginPage
+});
+
+/** Desktop app, first launch only: choose a single-counter (offline) or online business. */
+const welcomeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/welcome',
+  beforeLoad: () => {
+    if (!desktop || desktop.config.mode) {
+      throw redirect({ to: '/' });
+    }
+  },
+  component: WelcomePage
+});
+
+/**
+ * "Forgot your password?": offline, an admin's with the recovery code; online, any staff
+ * password, reset by the business's owner.
+ */
+const recoverRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/recover',
+  beforeLoad: () => {
+    if (getSession() || (desktop && !desktop.config.mode)) {
+      throw redirect({ to: '/' });
+    }
+  },
+  component: RecoverPage
+});
+
+/** A forgotten owner-account password, reset with a code sent by email. */
+const ownerPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/owner-password',
+  validateSearch: (search: Record<string, unknown>): { email?: string } =>
+    typeof search.email === 'string' && search.email ? { email: search.email } : {},
+  component: OwnerPasswordPage
+});
+
+/** Desktop app, first launch: create a business on the online server. */
+const createBusinessRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/create-business',
+  beforeLoad: () => {
+    if (!desktop || desktop.config.mode) {
+      throw redirect({ to: '/' });
+    }
+  },
+  component: () => <SetupPage online />
+});
+
+/** Offline install with no users yet: create the business and its admin. */
+const setupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/setup',
+  beforeLoad: async () => {
+    if (getSession() || !(await setupRequired())) {
+      throw redirect({ to: '/' });
+    }
+  },
+  component: SetupPage
+});
+
+/** The signed-in user's own new password; required first when one was set for them. */
+const changePasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/change-password',
+  beforeLoad: () => {
+    if (!getSession()) throw redirect({ to: '/' });
+  },
+  component: ChangePasswordPage
 });
 
 const openRegisterRoute = createRoute({
@@ -54,7 +154,7 @@ const posRoute = createRoute({
 const salesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/sales',
-  beforeLoad: () => requireOperationalSession(),
+  beforeLoad: () => requireManagementSession(),
   validateSearch: (search: Record<string, unknown>): SalesSearch => {
     const parsed: SalesSearch = {};
     if (search.paymentFilter === 'PENDING' || search.paymentFilter === 'SETTLED') {
@@ -85,15 +185,33 @@ const itemsRoute = createRoute({
 const customersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/customers',
-  beforeLoad: () => requireOperationalSession(),
+  beforeLoad: () => requireManagementSession(),
   component: CustomersPage
 });
 
 const stockRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/stock',
-  beforeLoad: () => requireOperationalSession(),
+  beforeLoad: () => requireManagementSession(),
   component: StockPage
+});
+
+const purchasesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/purchases',
+  beforeLoad: () => {
+    requirePermission('RECORD_PURCHASES');
+    return requireManagementSession();
+  },
+  component: PurchasesPage
+});
+
+const transfersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/transfers',
+  // Cashiers receive what arrives at their branch; sending needs SEND_TRANSFERS.
+  beforeLoad: () => requireManagementSession(),
+  component: TransfersPage
 });
 
 const reportsRoute = createRoute({
@@ -101,6 +219,13 @@ const reportsRoute = createRoute({
   path: '/reports',
   beforeLoad: () => requireAdmin(),
   component: ReportsPage
+});
+
+const gstRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/gst',
+  beforeLoad: () => requireAdmin(),
+  component: GstReturnsPage
 });
 
 const settingsRoute = createRoute({
@@ -112,6 +237,12 @@ const settingsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  welcomeRoute,
+  createBusinessRoute,
+  recoverRoute,
+  ownerPasswordRoute,
+  changePasswordRoute,
+  setupRoute,
   openRegisterRoute,
   posRoute,
   salesRoute,
@@ -119,7 +250,10 @@ const routeTree = rootRoute.addChildren([
   itemsRoute,
   customersRoute,
   stockRoute,
+  purchasesRoute,
+  transfersRoute,
   reportsRoute,
+  gstRoute,
   settingsRoute
 ]);
 

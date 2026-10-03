@@ -2,13 +2,26 @@
   "name": "@pos/api",
   "version": "0.0.1",
   "private": true,
+  "files": [
+    "dist",
+    "prisma/schema.prisma",
+    "prisma/migrations",
+    "prisma/control"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:generate": "prisma generate && prisma generate --schema prisma/control/schema.prisma",
+    "prisma:migrate": "prisma migrate dev",
+    "seed:demo": "node prisma/seed-demo.mjs",
+    "test": "vitest run",
+    "migrate:all": "node dist/tenancy/cli.js migrate",
+    "business:create": "node dist/tenancy/cli.js create"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
@@ -17,17 +30,28 @@
     "@pos/contracts": "workspace:*",
     "@pos/types": "workspace:*",
     "@prisma/client": "^5.22.0",
+    "archiver": "^7",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "express": "4.22.1",
+    "nodemailer": "^7.0.13",
+    "prisma": "^5.22.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "yauzl": "^3"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.8",
     "@nestjs/schematics": "^10.2.3",
     "@nestjs/testing": "^10.4.15",
+    "@swc/core": "^1.16.13",
+    "@types/archiver": "^7.0.0",
+    "@types/express": "^4",
     "@types/node": "^22.10.1",
-    "prisma": "^5.22.0",
-    "ts-node": "^10.9.2"
+    "@types/nodemailer": "^8.0.2",
+    "@types/yauzl": "^3.4.0",
+    "ts-node": "^10.9.2",
+    "unplugin-swc": "^2.0.0",
+    "vitest": "^2"
   }
 }
