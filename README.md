@@ -77,6 +77,9 @@ pnpm test
   the cashier discount limit, settling and wallets, returns, stock under concurrency, checkout
   idempotency, reports, register balancing, customer sharing and time zones.
 
+CI (`.github/workflows/ci.yml`) runs on every push and pull request: typecheck, the contracts
+tests, the API tests against PostgreSQL 16, and a web app build.
+
 ## Local demo data
 Run the API with `POS_MODE=offline` against the `pos_pr_auth_test` database
 (`DATABASE_URL=…/pos_pr_auth_test?schema=public`, then `npx prisma migrate deploy` in
