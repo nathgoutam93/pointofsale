@@ -3,6 +3,8 @@ import { FormEvent, useState } from "react";
 import { documentNumber, documentSeries } from "@pos/contracts";
 import { IconRegister } from "../../components/icons";
 import { api, apiErrorMessage, authHeaders } from "../../lib/api";
+import { useIsOffline } from "../../lib/mode";
+import { GoOnlineDialog, OnlineOnlyBadge } from "../../components/OnlineOnly";
 
 /**
  * A branch's counters (tills). Each counter runs its own register and cash drawer, so
@@ -23,6 +25,8 @@ export function CountersSection({
 }) {
   const queryClient = useQueryClient();
   const [newName, setNewName] = useState("");
+  const offline = useIsOffline();
+  const [goOnlinePrompt, setGoOnlinePrompt] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [error, setError] = useState("");
@@ -115,10 +119,19 @@ export function CountersSection({
             maxLength={40}
             onChange={(e) => setNewName(e.target.value)}
           />
-          <button className="btn-primary" type="submit" disabled={create.isPending || !newName.trim()}>
+          <button
+            className="btn-primary"
+            type={offline ? "button" : "submit"}
+            onClick={offline ? () => setGoOnlinePrompt(true) : undefined}
+            disabled={!offline && (create.isPending || !newName.trim())}
+          >
             Add Counter
+            {offline ? <OnlineOnlyBadge className="bg-white/90" /> : null}
           </button>
         </form>
+        {goOnlinePrompt ? (
+          <GoOnlineDialog title="More counters" feature="more than one counter" onClose={() => setGoOnlinePrompt(false)} />
+        ) : null}
       </div>
 
       {error ? (

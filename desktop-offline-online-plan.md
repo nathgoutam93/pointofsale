@@ -169,7 +169,7 @@ Branch: `feat/desktop-web-modes`. Depends on 1.1 and 1.2. Most items can be test
   - Save `{ mode: 'online', apiBaseUrl, businessId, businessCode }` in the config.
 - **Done when:** a second machine can join a business made on the first.
 
-### [ ] 2.6 Hide what offline mode can't do
+### [x] 2.6 Hide what offline mode can't do
 - **Depends on:** 1.2.
 - **Where:** `AppLayout.tsx` nav (`/transfers` is at line ~50), branch and counter settings, branch price screens.
 - **What:** When `mode === 'offline'`:
@@ -432,3 +432,8 @@ Branch: whichever phase needs it first (likely Phase 1).
     - pnpm didn't run Electron's download step here. If `apps/desktop/node_modules/electron/dist` is missing, run `node node_modules/electron/install.js` inside the electron package.
     - Postgres refuses to run as root. In a root-only container, run the app as another user, with `--no-sandbox`.
   - **Next:** 3.6 backups; 2.6 hide Transfers / add branch / add counter offline (still visible in the menu; the API refuses them); 2.8 update banner and 6.3 forced updates; app icons and signing; then Phases 4 and 5.
+- 2026-10-03: **2.6 done, but not by hiding** (the user's call): offline businesses still see Transfers, Create Branch and Add Counter, each with an **"Online only"** badge.
+  - Clicking Create Branch or Add Counter opens a "move online" prompt (`GoOnlineDialog`), and the Transfers page shows the same explanation in place of its content (`GoOnlinePanel`). Both are in `apps/web/src/components/OnlineOnly.tsx`.
+  - The mode comes from `useIsOffline()` in `apps/web/src/lib/mode.ts`: the desktop bridge when present, else `GET /meta`.
+  - The prompt says moving online in one step is coming in an app update. **When 2.7 lands, add its "Move business online" button to that prompt** so it leads straight into the move.
+  - Checked in the desktop app under Xvfb (menu badge, Transfers page, both prompts).

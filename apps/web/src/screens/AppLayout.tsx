@@ -18,7 +18,9 @@ import {
   IconTruck,
   IconUsers,
 } from "../components/icons";
+import { OnlineOnlyBadge } from "../components/OnlineOnly";
 import { confirmLeave } from "../lib/leaveGuard";
+import { useIsOffline } from "../lib/mode";
 import { clearSession, getSession } from "../lib/session";
 import { CloseRegisterDialog } from "./CloseRegisterDialog";
 
@@ -29,6 +31,8 @@ type NavItem = {
   /** The route needs an open register (see requireOperationalSession). */
   needsRegister?: boolean;
   adminOnly?: boolean;
+  /** Needs an online business; an offline one sees it marked "Online only". */
+  onlineOnly?: boolean;
 };
 
 const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
@@ -47,7 +51,7 @@ const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
       { to: "/items", label: "Items", icon: IconTag },
       { to: "/stock", label: "Inventory", icon: IconBoxes, needsRegister: true },
       { to: "/purchases", label: "Purchases", icon: IconTruck, needsRegister: true, adminOnly: true },
-      { to: "/transfers", label: "Transfers", icon: IconTransfer, needsRegister: true, adminOnly: true },
+      { to: "/transfers", label: "Transfers", icon: IconTransfer, needsRegister: true, adminOnly: true, onlineOnly: true },
     ],
   },
   {
@@ -120,6 +124,7 @@ export function AppLayout() {
   };
 
   const hasRegister = Boolean(session?.registerId);
+  const offline = useIsOffline();
   // Labels are hidden only in the desktop rail; the mobile drawer always shows them.
   const labelClass = collapsed ? "lg:hidden" : "";
 
@@ -170,6 +175,7 @@ export function AppLayout() {
                         >
                           <Icon className="shrink-0" />
                           <span className={`flex-1 truncate ${labelClass}`}>{item.label}</span>
+                          {item.onlineOnly && offline ? <OnlineOnlyBadge className={labelClass} /> : null}
                           <IconLock width={14} height={14} className={labelClass} />
                         </span>
                       );
@@ -184,6 +190,7 @@ export function AppLayout() {
                         {active ? <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-brand-400" /> : null}
                         <Icon className={`shrink-0 ${active ? "text-brand-300" : ""}`} />
                         <span className={`truncate ${labelClass}`}>{item.label}</span>
+                        {item.onlineOnly && offline ? <OnlineOnlyBadge className={`ml-auto ${labelClass}`} /> : null}
                       </Link>
                     );
                   })}

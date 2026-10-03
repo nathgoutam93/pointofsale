@@ -11,6 +11,8 @@ import {
 } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
+import { GoOnlineDialog, OnlineOnlyBadge } from "../components/OnlineOnly";
+import { useIsOffline } from "../lib/mode";
 import { CountersSection } from "./settings/CountersSection";
 import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
 
@@ -72,6 +74,8 @@ export function BranchSettingsPage() {
   const [message, setMessage] = useState("");
   const [businessMessage, setBusinessMessage] = useState("");
   const [branchMessage, setBranchMessage] = useState("");
+  const offline = useIsOffline();
+  const [goOnlinePrompt, setGoOnlinePrompt] = useState(false);
   const [userMessage, setUserMessage] = useState("");
   const [cashierForm, setCashierForm] = useState<CashierForm>(emptyCashierForm(initialBranchId));
   const [createBranchForm, setCreateBranchForm] = useState<CreateBranchForm>({ name: "", code: "" });
@@ -703,7 +707,10 @@ export function BranchSettingsPage() {
       {activeTab === "branches" ? (
         <div className="grid gap-4">
           <div className="card p-5">
-            <h2 className="text-lg font-semibold tracking-tight text-slate-900">Create New Branch</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold tracking-tight text-slate-900">Create New Branch</h2>
+              {offline ? <OnlineOnlyBadge /> : null}
+            </div>
             <p className="mt-1 text-sm text-slate-600">
               Create a new branch and manage its prefixes, templates, and logo from this page.
             </p>
@@ -723,14 +730,17 @@ export function BranchSettingsPage() {
               />
               <button
                 className="btn-primary"
-                onClick={() => createBranch.mutate()}
-                disabled={createBranch.isPending || !createBranchForm.name.trim() || !createBranchForm.code.trim()}
+                onClick={() => (offline ? setGoOnlinePrompt(true) : createBranch.mutate())}
+                disabled={!offline && (createBranch.isPending || !createBranchForm.name.trim() || !createBranchForm.code.trim())}
               >
                 Create Branch
               </button>
             </div>
             {branchMessage ? <p className="mt-3 text-sm text-emerald-700">{branchMessage}</p> : null}
           </div>
+          {goOnlinePrompt ? (
+            <GoOnlineDialog title="More branches" feature="more than one branch" onClose={() => setGoOnlinePrompt(false)} />
+          ) : null}
 
           <div className="card p-5">
             <div className="flex flex-wrap items-center gap-3">

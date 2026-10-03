@@ -4,6 +4,8 @@ import { IconTrash } from "../components/icons";
 import { api, apiErrorMessage, authHeaders } from "../lib/api";
 import { requireOperationalSession } from "./route-helpers";
 import { ItemPicker } from "./stock/ItemPicker";
+import { GoOnlinePanel } from "../components/OnlineOnly";
+import { useIsOffline } from "../lib/mode";
 
 type DraftLine = { itemId: string; code: string; name: string; uom: string; qty: string };
 
@@ -23,6 +25,13 @@ const STATUS_TONES = {
  * branch takes it in when the goods arrive, or the sender cancels it while in transit.
  */
 export function TransfersPage() {
+  if (useIsOffline()) {
+    return <GoOnlinePanel title="Stock transfers" feature="stock transfers between branches" />;
+  }
+  return <Transfers />;
+}
+
+function Transfers() {
   const session = requireOperationalSession();
   const queryClient = useQueryClient();
   const otherBranches = session.branches.filter((branch) => branch.id !== session.branchId);
