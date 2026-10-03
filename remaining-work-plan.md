@@ -1,7 +1,9 @@
 # Remaining work
 
 Written 2026-10-03, after the desktop app, online server, password resets, cookie sessions,
-email features and the fallback counter (see `desktop-offline-online-plan.md`). These are left
+email features and the fallback counter (see `desktop-offline-online-plan.md`). The earlier
+`fix-plan.md` (security, money, GST; all done) and `b2b-implementation-plan.md` (its useful parts
+are items 10 and 11 here) were removed; both are in git history. These are left
 for later. Each item says why it matters, what to do and when it's done. Tick items off here
 and add a line to the progress log at the end.
 
@@ -144,12 +146,49 @@ These need an answer from the product owner before the work that depends on them
   - So far only a printer that saves PDFs has been used.
 - **Done when:** each works on at least two printer brands.
 
-## [ ] 10. Smaller follow-ups
+## [ ] 10. B2B GST customers (registered buyers)
+
+- **Why:** a customer has only a name and phone, so every sale is filed as a sale to an
+  unregistered buyer (B2C). A shop selling to a registered business can't put the buyer's GSTIN
+  on the bill, the buyer can't claim input tax credit, and GSTR-1 is wrong for those sales: it has
+  no B2B or B2B credit-note section (`apps/api/src/gst/gstr1.ts`).
+- **What:**
+  - Customer: GSTIN (validated like the branch's, `gstinProblem` in contracts), state, billing
+    address and email. Shown in Customers only when a GSTIN is given; the POS flow stays the same
+    for walk-in and retail customers.
+  - Sale: record the buyer's GSTIN, legal name and address on the invoice at checkout (as the
+    seller's GSTIN is recorded), and take the place of supply from the buyer's state, so a buyer
+    in another state is charged IGST. Optional PO / reference number.
+  - Receipt and emailed receipt: the buyer's name, GSTIN and address on the tax invoice.
+  - GSTR-1: the B2B section (invoices by buyer GSTIN) and CDNR (credit notes for returns on those
+    invoices); keep B2CL/B2CS for the rest. GSTR-3B 3.1 already totals by place of supply.
+  - The customer email doubles as the address offered by "Email the receipt".
+  - Fallback counter: offline sales to registered buyers sync with the buyer details.
+- **Done when:** a sale to a customer with a GSTIN prints their details, is listed under B2B in
+  GSTR-1 (and its return under CDNR), and imports into the GST offline tool.
+
+## [ ] 11. Receivables: credit limits, due dates, statements
+
+- **Why:** credit sales, part payments, the amount due per bill and per customer, and returns
+  against the due already work; what's missing is control and follow-up.
+- **What:**
+  - A credit limit per customer, with a warning, or a block for cashiers, at checkout when a credit
+    sale would go over it.
+  - Payment terms (days) per customer, giving each credit bill a due date; overdue bills marked on
+    Sales and Customers.
+  - A customer statement: bills, payments and returns over a period, with the balance; and an
+    ageing view of what each customer owes (0–30, 31–60, 61–90, 90+ days). Printable and, online,
+    emailed.
+  - Not planned: a separate "on account" payment mode (a credit sale already is one), quotations,
+    customer price lists.
+- **Done when:** a customer over their limit is warned or stopped, overdue bills show, and a
+  statement matches the bills and payments.
+
+## [ ] 12. Smaller follow-ups
 
 - **Receipt builder:** the Sales screen still builds its receipt from its own line mapping;
   switch it to `invoiceReceiptItems` (`packages/contracts/src/receiptDocuments.ts`), which
   emailed receipts already use, so the two can't drift.
-- **Customer email:** a saved email address on customers, offered when emailing a receipt.
 - **Transfers by cashiers:** a cashier allowed to send transfers picks the destination from the
   branches they have access to; list every branch of the business there instead.
 - **POS check:** look at the POS screen's "Email the receipt" after a sale in the desktop app
@@ -169,9 +208,10 @@ These need an answer from the product owner before the work that depends on them
 ## Progress log
 
 - 2026-10-03: List written.
-- 2026-10-03: The fallback counter is done; its follow-ups are under item 10.
+- 2026-10-03: The fallback counter is done; its follow-ups are under item 12 (then numbered 10).
 - 2026-10-03: Item 3 started: the server is up behind HTTPS; deploy and backup scripts added.
 - 2026-10-03: The server sends email (Brevo SMTP); deploy.sh used for the first real deploy. Desktop v0.1.0 built for Linux and Windows by the release workflow (draft).
 - 2026-10-03: From testing: admins manage any branch without a register (branch selector), cashier permissions, returns on unpaid bills lower the amount due first, cashiers receive transfers at their branch.
 - 2026-10-03: v0.1.1 released; the forced update from 0.1.0 (MIN_CLIENT_VERSION) works end to end.
 - 2026-10-03: CI added (`.github/workflows/ci.yml`) and `fix/auth-hardening` merged into `main` (#1).
+- 2026-10-03: Removed `fix-plan.md` (all done) and `b2b-implementation-plan.md`; added items 10 (B2B GST customers) and 11 (receivables).
