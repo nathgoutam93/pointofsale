@@ -1,9 +1,28 @@
 import { initContract } from '@ts-rest/core';
 import { z } from 'zod';
 import { RECEIPT_CSS_MAX_LENGTH, sanitizeReceiptCss } from './receiptCss.js';
+import { receiptTemplateSchema } from './receiptTemplate.js';
 
 export { RECEIPT_CSS_MAX_LENGTH, RECEIPT_CSS_SCOPE, sanitizeReceiptCss } from './receiptCss.js';
 export type { ReceiptCssResult } from './receiptCss.js';
+export {
+  paperFromLegacyCss,
+  presetTemplate,
+  RECEIPT_PAPER_IDS,
+  RECEIPT_PAPERS,
+  RECEIPT_SECTION_LABELS,
+  RECEIPT_SECTIONS,
+  RECEIPT_STYLE_LABELS,
+  RECEIPT_STYLE_PRESETS,
+  RECEIPT_STYLES,
+  receiptPaperSchema,
+  receiptTemplateSchema,
+  resolveReceiptTemplate
+} from './receiptTemplate.js';
+export type { ReceiptPaper, ReceiptSection, ReceiptSections, ReceiptStyle, ReceiptTemplate } from './receiptTemplate.js';
+export { fitCenter, fitLeft, fitRight, receiptColumns, renderReceipt, tableColumns, wrapText } from './receiptLayout.js';
+export type { ReceiptDocument, ReceiptDocumentItem, ReceiptField, ReceiptLine, RenderedReceipt } from './receiptLayout.js';
+export { canEncodeCode128, code128Modules, code128Values } from './code128.js';
 export { APP_VERSION, CLIENT_VERSION_HEADER, isOlderVersion, UPDATE_REQUIRED_STATUS } from './version.js';
 export {
   MIGRATION_BUNDLE_FORMAT,
@@ -250,6 +269,11 @@ export const branchSettingsSchema = branchSchema.extend({
   receiptFooter: z.string().nullable(),
   invoiceCss: z.string().nullable(),
   receiptCss: z.string().nullable(),
+  /**
+   * How this branch's receipts are laid out. Stored as JSON and possibly written by a newer
+   * version, so it is read leniently: use resolveReceiptTemplate() rather than this value.
+   */
+  receiptTemplate: z.unknown().nullable(),
   /** The branch's own GSTIN; when empty, the business GSTIN is used if it is for the same state. */
   gstin: z.string().nullable(),
   /** Where the branch is: the place of supply of an over-the-counter sale. */
@@ -1036,6 +1060,8 @@ export const appContract = c.router({
         receiptFooter: z.string().nullable().optional(),
         invoiceCss: receiptCssSchema.nullable().optional(),
         receiptCss: receiptCssSchema.nullable().optional(),
+        /** null goes back to the classic layout on the paper the old CSS asked for. */
+        receiptTemplate: receiptTemplateSchema.nullable().optional(),
         gstin: gstinSchema.nullable().optional(),
         stateCode: gstStateCodeSchema.nullable().optional()
       }),

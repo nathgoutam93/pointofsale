@@ -40,3 +40,40 @@ describe('document prefixes', () => {
   });
 
 });
+
+describe('receipt templates', () => {
+  const template = {
+    style: 'DETAILED',
+    paper: '58MM_SMALL',
+    sections: {
+      logo: false, header: true, largeStoreName: true, cashier: true, customer: true, hsn: true, itemTax: true,
+      itemDiscount: true, lineTotal: true, taxSummary: true, itemCount: true, savings: true, payments: true,
+      largeTotal: true, footer: true, barcode: true
+    }
+  };
+
+  it('starts with none, so receipts use the classic layout', async () => {
+    const res = await t.call('GET', `/branches/${branchId}`, admin);
+    expect(res.status).toBe(200);
+    expect(res.body.receiptTemplate).toBeNull();
+  });
+
+  it('saves a template, and keeps it when other settings change', async () => {
+    expect((await patch({ receiptTemplate: template })).body.receiptTemplate).toEqual(template);
+    expect((await patch({ receiptFooter: 'Thank you' })).body.receiptTemplate).toEqual(template);
+    expect((await t.call('GET', `/branches/${branchId}`, admin)).body.receiptTemplate).toEqual(template);
+  });
+
+  it.each([
+    ['an unknown layout', { ...template, style: 'FANCY' }],
+    ['an unknown paper', { ...template, paper: 'A4' }],
+    ['a missing section', { ...template, sections: { ...template.sections, barcode: undefined } }],
+    ['a section that is not on or off', { ...template, sections: { ...template.sections, logo: 'yes' } }]
+  ])('rejects %s', async (_name, body) => {
+    expect((await patch({ receiptTemplate: body })).status).toBe(400);
+  });
+
+  it('goes back to the classic layout when cleared', async () => {
+    expect((await patch({ receiptTemplate: null })).body.receiptTemplate).toBeNull();
+  });
+});

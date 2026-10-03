@@ -1,112 +1,65 @@
-import { gstDocumentTitle, gstFooterLines, gstMetadata, gstTaxTotals, hsnDetailRow } from "../../lib/gstReceipt";
-import { buildReceiptLines, escapeHtml, formatReceiptDate, formatReceiptTime } from "../../lib/receiptFormat";
-import { money } from "../route-helpers";
+import { renderReceipt, saleReceiptDocument, type ReceiptStyle } from "../../lib/receipt";
+import { escapeHtml } from "../../lib/receiptFormat";
 import { computeLineAmounts, formatQty, getBaseExclusive, getPricingQty } from "./cartMath";
 import type { PostPaymentSummary } from "./types";
 import type { StoreSettings } from "./useStoreSettings";
 
-/** The text lines of the printed receipt for a completed sale. */
-export function buildInvoiceReceiptLines(postPayment: PostPaymentSummary, store: StoreSettings, cashierName: string) {
-  const createdAt = postPayment.createdAt;
-  const metadata = [
-    { label: "Invoice", value: postPayment.invoiceNo },
-    ...(postPayment.receiptNo
-      ? [{ label: "Receipt", value: postPayment.receiptNo }]
-      : []),
-    { label: "Date", value: formatReceiptDate(createdAt) },
-    { label: "Time", value: formatReceiptTime(createdAt) },
-    { label: "Cashier", value: cashierName ?? "" },
-    { label: "Customer", value: postPayment.customerName },
-    // From the invoice, not the current settings: the GSTIN it was made under.
-    ...gstMetadata(postPayment.gst),
-  ];
-
+/** The printed receipt for a completed sale, laid out with the branch's receipt template. */
+export function buildInvoiceReceipt(postPayment: PostPaymentSummary, store: StoreSettings, cashierName: string) {
   const items = postPayment.lines.map((line) => {
-    const netAmount = line.netAmount ?? computeLineAmounts(line, store.taxCalculationMode).net;
-    const displayTotal = netAmount + Number(line.orderDiscountAmount ?? 0);
-    const itemDiscount = Number(line.itemDiscountAmount ?? 0);
-    const taxAmount = Number(line.taxAmount ?? 0);
+    const amounts = computeLineAmounts(line, store.taxCalculationMode);
+    const netAmount = line.netAmount ?? amounts.net;
+    const taxAmount = Number(line.taxAmount ?? amounts.tax);
     const baseExclusive = getBaseExclusive(line);
     const pricingQty = getPricingQty(line);
-    const baseUnitRate = pricingQty > 0 ? baseExclusive / pricingQty : 0;
     const qtyLabel = line.saleUom
       ? `${line.saleUomQty ?? pricingQty} ${line.saleUom}`
       : `${formatQty(line.qty, line.leastCount)}${line.baseUom ? ` ${line.baseUom}` : ""}`;
     return {
       name: line.name,
-      detailRows: [
-        ...hsnDetailRow(line.hsnCode),
-        {
-          label: `${qtyLabel} x ${money(baseUnitRate)}`,
-          value: money(baseExclusive),
-        },
-        ...(line.taxRate > 0 || taxAmount > 0
-          ? [{ label: `tax ${line.taxRate}%`, value: money(taxAmount) }]
-          : []),
-        ...(itemDiscount > 0
-          ? [{ label: "discount", value: `-${money(itemDiscount)}` }]
-          : []),
-      ],
-      totalLabel: "line total",
-      qty: line.qty,
-      price: line.rate,
-      total: displayTotal,
+      hsn: line.hsnCode ?? null,
+      qty: pricingQty,
+      qtyLabel,
+      rate: pricingQty > 0 ? baseExclusive / pricingQty : 0,
+      amount: baseExclusive,
+      taxRate: line.taxRate,
+      taxAmount,
+      discount: Number(line.itemDiscountAmount ?? 0),
+      // Before the order discount, which is shown once under the items.
+      total: netAmount + Number(line.orderDiscountAmount ?? 0),
+      taxable: netAmount - taxAmount,
     };
   });
 
-  const totals = [
-    { label: "Items Total", value: money(postPayment.grandTotal + postPayment.orderDiscountAmount) },
-    ...(postPayment.orderDiscountAmount > 0
-      ? [
-          {
-            label: "Order Discount",
-            value: `- ${money(postPayment.orderDiscountAmount)}`,
-          },
-        ]
-      : []),
-    ...gstTaxTotals(postPayment.gst),
-    { label: "TOTAL", value: money(postPayment.grandTotal), isGrandTotal: true },
-  ];
-
-  const payments = postPayment.paymentLines.map((line) => ({
-    label: `Paid by ${line.mode}`,
-    value: money(line.amount),
-  }));
-  const remainingDue = Math.max(
-    0,
-    postPayment.grandTotal - postPayment.paidTotal,
-  );
-  const paymentSummary = [
-    ...payments,
-    { label: "Remaining Due", value: money(remainingDue) },
-  ];
-
-  const footerLines = [
-    ...(store.invoiceFooterLines.length > 0 ? store.invoiceFooterLines : store.receiptFooterLines),
-    ...gstFooterLines(postPayment.gst),
-  ];
-
-  return buildReceiptLines({
-    width: store.receiptCharWidth,
-    storeName: store.storeDisplayName,
-    headerLines: store.invoiceHeaderLines,
-    title: gstDocumentTitle(postPayment.gst),
-    metadata,
+  const doc = saleReceiptDocument({
+    branding: {
+      storeName: store.storeDisplayName,
+      headerLines: store.invoiceHeaderLines,
+      footerLines: store.invoiceFooterLines.length > 0 ? store.invoiceFooterLines : store.receiptFooterLines,
+    },
+    invoiceNo: postPayment.invoiceNo,
+    receiptNo: postPayment.receiptNo,
+    createdAt: postPayment.createdAt,
+    cashier: cashierName,
+    customer: postPayment.customerName,
+    gst: postPayment.gst,
     items,
-    totals,
-    payments: paymentSummary,
-    footerLines,
+    orderDiscount: postPayment.orderDiscountAmount,
+    grandTotal: postPayment.grandTotal,
+    payments: postPayment.paymentLines,
+    paidTotal: postPayment.paidTotal,
   });
+  return renderReceipt(doc, store.receiptTemplate);
 }
 
 /**
  * A standalone HTML copy of the receipt shown on screen (for download or sharing), styled
  * with the receipt template and the branch's sanitized CSS.
  */
-export function buildPrintableInvoiceDocument(postPayment: PostPaymentSummary, store: StoreSettings) {
+export function buildPrintableInvoiceDocument(postPayment: PostPaymentSummary, style: ReceiptStyle) {
   const invoiceElement = document.getElementById("printable-invoice");
   if (!invoiceElement) return null;
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${escapeHtml(postPayment.invoiceNo)}</title><style>body{font-family:\"Courier New\",Courier,monospace;margin:0;padding:24px;background:#fff;color:#111827;}@media print{body{margin:0;}}${store.receiptTemplateCss}${store.customReceiptCss}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${escapeHtml(postPayment.invoiceNo)}</title><style>body{font-family:\"Courier New\",Courier,monospace;margin:0;padding:24px;background:#fff;color:#111827;}@media print{body{margin:0;}}${style.css}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
 }
 
 /** Starts a browser download of an HTML document. */

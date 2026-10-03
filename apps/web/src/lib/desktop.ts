@@ -84,7 +84,7 @@ export type PrintingSettings = {
 export type PrinterInfo = { name: string; displayName: string };
 
 /** The receipt to print: #printable-invoice's outer HTML and the CSS that styles it. */
-export type ReceiptJob = { markup: string; css: string; columns: number };
+export type ReceiptJob = { markup: string; css: string; columns: number; paperMm: 58 | 80 };
 
 export type DesktopPrinting = {
   settings(): Promise<PrintingSettings>;

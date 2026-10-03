@@ -1,36 +1,22 @@
-/** The receipt as printed: the logo, then one line of text per receipt line. */
+import { ReceiptView } from "../../components/ReceiptView";
+import type { RenderedReceipt } from "../../lib/receipt";
+
+/** The receipt as printed, on the page after a sale. */
 export function PrintableInvoice({
   logoSrc,
-  lines,
+  receipt,
 }: {
   logoSrc: string | null | undefined;
-  lines: Array<{ text: string; strong?: boolean }>;
+  receipt: RenderedReceipt | null;
 }) {
   return (
     <div className="min-h-0 flex-1 overflow-auto p-6 print:overflow-visible print:p-0">
       <div className="mx-auto w-fit">
-        <div
-          id="printable-invoice"
+        <ReceiptView
+          receipt={receipt}
+          logoSrc={logoSrc}
           className="w-full rounded border border-slate-200 bg-white p-6 shadow-sm"
-        >
-          {logoSrc ? (
-            <img
-              src={logoSrc}
-              alt="Branch logo"
-              className="receipt-logo"
-            />
-          ) : null}
-          <div className="receipt-text text-center">
-            {lines.map((line, idx) => (
-              <div
-                key={`${line.text}-${idx}`}
-                className={`receipt-line ${line.strong ? "receipt-strong" : ""}`}
-              >
-                {line.text}
-              </div>
-            ))}
-          </div>
-        </div>
+        />
       </div>
     </div>
   );

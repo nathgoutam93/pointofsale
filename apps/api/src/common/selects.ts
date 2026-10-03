@@ -30,6 +30,7 @@ export const branchSettingsSelect = {
   receiptFooter: true,
   invoiceCss: true,
   receiptCss: true,
+  receiptTemplate: true,
   gstin: true,
   stateCode: true
 } as const;

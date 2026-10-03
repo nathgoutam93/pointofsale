@@ -4,13 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { useReceiptPrinting } from "../lib/printing";
-import {
-  buildReceiptLines,
-  formatReceiptDate,
-  formatReceiptTime,
-  resolveReceiptWidth,
-} from "../lib/receiptFormat";
-import { gstDocumentTitle, gstFooterLines, gstMetadata, gstTaxTotals, hsnDetailRow, invoiceGstOf, type InvoiceGst } from "../lib/gstReceipt";
+import { branchReceiptTemplate, receiptStyleFor, renderReceipt, saleReceiptDocument } from "../lib/receipt";
+import { invoiceGstOf, type InvoiceGst } from "../lib/gstReceipt";
+import { formatReceiptDate } from "../lib/receiptFormat";
+import { ReceiptView } from "../components/ReceiptView";
+import { ReceiptPrintStyles } from "./pos/ReceiptPrintStyles";
 import { IconCheck, IconPrinter, IconSend } from "../components/icons";
 import { StatusBadge } from "../components/StatusBadge";
 import { inr, money, requireOperationalSession } from "./route-helpers";
@@ -65,11 +63,6 @@ export function SalesPage() {
       return session.username?.trim() || name;
     }
     return name;
-  };
-  const formatPercent = (value: number) => {
-    if (!Number.isFinite(value)) return "0";
-    const rounded = Number(value.toFixed(2));
-    return rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2);
   };
   const formatQtyLabel = (qty: number) =>
     Number.isInteger(qty) ? qty.toFixed(0) : qty.toFixed(3);
@@ -201,40 +194,12 @@ export function SalesPage() {
     );
   }, [businessSettings.data?.name, branchSettings.data?.name]);
 
-  const receiptCharWidth = resolveReceiptWidth(
-    branchSettings.data?.receiptCss,
-    48,
-  );
   // Branch CSS is admin-written; render only the sanitized, receipt-scoped rules.
   const customReceiptCss = useMemo(
     () => sanitizeReceiptCss(branchSettings.data?.receiptCss).css,
     [branchSettings.data?.receiptCss],
   );
-  const receiptTemplateCss = `
-    #printable-invoice {
-      font-family: "Courier New", Courier, monospace;
-      --receipt-ch: ${receiptCharWidth};
-      width: calc(var(--receipt-ch) * 1ch);
-      max-width: 100%;
-      margin: 0 auto;
-      color: #111827;
-    }
-    #printable-invoice .receipt-line {
-      white-space: pre;
-      font-size: 12px;
-      line-height: 1.25;
-    }
-    #printable-invoice .receipt-strong {
-      font-weight: 700;
-    }
-    #printable-invoice .receipt-logo {
-      display: block;
-      margin: 0 auto 6px;
-      max-height: 64px;
-      max-width: 100%;
-      object-fit: contain;
-    }
-  `;
+  const receiptTemplate = useMemo(() => branchReceiptTemplate(branchSettings.data), [branchSettings.data]);
 
   const sales = useQuery({
     queryKey: ["sales-module", session.branchId],
@@ -883,101 +848,51 @@ export function SalesPage() {
       ? formatSaleCreator(currentSaleCreatorId, currentSaleCreatorName)
       : "";
 
-    // The GST facts recorded on the invoice, never the current settings.
-    const gst = settledSummary?.gst ?? invoiceGstOf(currentInvoice);
-    const metadata = [
-      { label: "Invoice", value: currentInvoice.invoiceNo },
-      { label: "Receipt", value: previewReceipt?.receiptNo ?? "" },
-      { label: "Date", value: formatReceiptDate(createdAt) },
-      { label: "Time", value: formatReceiptTime(createdAt) },
-      { label: "Cashier", value: cashier },
-      { label: "Customer", value: currentInvoice.customerName ?? "" },
-      ...gstMetadata(gst),
-    ];
-
     const items = saleLines.map((line) => {
-      const name = line.itemName ?? `Item ${line.itemId.slice(0, 6)}`;
       const taxMode = line.taxMode ?? "EXCLUSIVE";
       const pricingQty = getPricingQty(line);
       const gross = pricingQty * line.rate;
-      const discountAmount = Math.max(
-        0,
-        line.itemDiscountAmount ?? line.discountAmount ?? 0,
-      );
       const taxAmount = Math.max(0, line.taxAmount ?? 0);
       const baseExclusive =
         taxMode === "INCLUSIVE" && Number(line.taxRate ?? 0) > 0
           ? (gross * 100) / (100 + Number(line.taxRate ?? 0))
           : gross;
-      const baseUnitRate = pricingQty > 0 ? baseExclusive / pricingQty : 0;
-      const qtyLabel = getSaleQtyLabel(line);
-      const displayTotal =
-        Number(line.netAmount ?? 0) + Number(line.orderDiscountAmount ?? 0);
       return {
-        name,
-        detailRows: [
-          ...hsnDetailRow(line.hsnCode),
-          {
-            label: `${qtyLabel} x ${money(baseUnitRate)}`,
-            value: money(baseExclusive),
-          },
-          ...(line.taxRate > 0 || taxAmount > 0
-            ? [{ label: `tax ${formatPercent(line.taxRate ?? 0)}%`, value: money(taxAmount) }]
-            : []),
-          ...(discountAmount > 0
-            ? [{ label: "discount", value: `-${money(discountAmount)}` }]
-            : []),
-        ],
-        totalLabel: "line total",
-        qty: line.qty,
-        price: line.rate,
-        total: displayTotal,
+        name: line.itemName ?? `Item ${line.itemId.slice(0, 6)}`,
+        hsn: line.hsnCode ?? null,
+        qty: pricingQty,
+        qtyLabel: getSaleQtyLabel(line),
+        rate: pricingQty > 0 ? baseExclusive / pricingQty : 0,
+        amount: baseExclusive,
+        taxRate: Number(line.taxRate ?? 0),
+        taxAmount,
+        discount: Math.max(0, line.itemDiscountAmount ?? line.discountAmount ?? 0),
+        // Before the order discount, which is shown once under the items.
+        total: Number(line.netAmount ?? 0) + Number(line.orderDiscountAmount ?? 0),
+        taxable: Number(line.taxableAmount ?? 0),
       };
     });
 
-    const totals = [
-      {
-        label: "Items Total",
-        value: money(invoiceGrandTotal + Number(currentInvoice.orderDiscountAmount ?? 0)),
+    const doc = saleReceiptDocument({
+      branding: {
+        storeName: storeDisplayName,
+        headerLines: receiptHeaderLines,
+        footerLines: receiptFooterLines.length > 0 ? receiptFooterLines : invoiceFooterLines,
       },
-      ...(Number(currentInvoice.orderDiscountAmount ?? 0) > 0
-        ? [
-            {
-              label: "Order Discount",
-              value: `- ${money(Number(currentInvoice.orderDiscountAmount ?? 0))}`,
-            },
-          ]
-        : []),
-      ...gstTaxTotals(gst),
-      { label: "TOTAL", value: money(invoiceGrandTotal), isGrandTotal: true },
-    ];
-
-    const payments = paymentBreakdown.map((line) => ({
-      label: `Paid by ${line.mode}`,
-      value: money(line.amount),
-    }));
-    const remainingDue = Math.max(0, invoiceGrandTotal - invoicePaidTotal);
-    const paymentSummary = [
-      ...payments,
-      { label: "Remaining Due", value: money(remainingDue) },
-    ];
-
-    const footerLines = [
-      ...(receiptFooterLines.length > 0 ? receiptFooterLines : invoiceFooterLines),
-      ...gstFooterLines(gst),
-    ];
-
-    return buildReceiptLines({
-      width: receiptCharWidth,
-      storeName: storeDisplayName,
-      headerLines: receiptHeaderLines,
-      title: gstDocumentTitle(gst),
-      metadata,
+      invoiceNo: currentInvoice.invoiceNo,
+      receiptNo: previewReceipt?.receiptNo ?? null,
+      createdAt,
+      cashier,
+      customer: currentInvoice.customerName ?? "",
+      // The GST facts recorded on the invoice, never the current settings.
+      gst: settledSummary?.gst ?? invoiceGstOf(currentInvoice),
       items,
-      totals,
-      payments: paymentSummary,
-      footerLines,
+      orderDiscount: Number(currentInvoice.orderDiscountAmount ?? 0),
+      grandTotal: invoiceGrandTotal,
+      payments: paymentBreakdown,
+      paidTotal: invoicePaidTotal,
     });
+    return renderReceipt(doc, receiptTemplate);
   }, [
     currentInvoice,
     previewReceipt?.receiptNo,
@@ -993,42 +908,15 @@ export function SalesPage() {
     receiptHeaderLines,
     receiptFooterLines,
     invoiceFooterLines,
-    receiptCharWidth,
+    receiptTemplate,
     paymentBreakdown,
-    formatPercent,
     formatQtyLabel,
   ]);
+  const receiptStyle = receiptStyleFor(printableReceipt ?? { columns: 48 }, receiptTemplate, customReceiptCss);
 
   return (
     <section className="grid grid-cols-1 xl:h-[calc(100vh-48px)] xl:grid-cols-[360px_1fr]">
-      <style>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
-          }
-
-          #printable-invoice,
-          #printable-invoice * {
-            visibility: visible !important;
-          }
-
-          #printable-invoice {
-            position: absolute;
-            inset: 0;
-            margin: 0;
-            width: 100%;
-            max-width: none;
-            border: none;
-            border-radius: 0;
-            box-shadow: none;
-            padding: 16px;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-        }
-        ${receiptTemplateCss}
-        ${customReceiptCss}
-      `}</style>
+      <ReceiptPrintStyles css={receiptStyle.css} />
 
       <aside className="flex h-full max-h-[75vh] flex-col overflow-hidden border-r border-slate-200 bg-white xl:max-h-none">
         {settledSummary ? (
@@ -1271,7 +1159,7 @@ export function SalesPage() {
               className="btn-secondary"
               disabled={receiptPrinting.busy}
               onClick={() =>
-                void receiptPrinting.print({ css: `${receiptTemplateCss}${customReceiptCss}`, columns: receiptCharWidth })
+                void receiptPrinting.print(receiptStyle)
               }
             >
               <IconPrinter width={16} height={16} />
@@ -1414,28 +1302,7 @@ export function SalesPage() {
             ) : null}
           </div>
 
-          <div
-            id="printable-invoice"
-            className="card w-full p-5"
-          >
-            {receiptLogoSrc ? (
-              <img
-                src={receiptLogoSrc}
-                alt="Branch logo"
-                className="receipt-logo"
-              />
-            ) : null}
-            <div className="receipt-text text-center">
-              {(printableReceipt?.lines ?? []).map((line, idx) => (
-                <div
-                  key={`${line.text}-${idx}`}
-                  className={`receipt-line ${line.strong ? "receipt-strong" : ""}`}
-                >
-                  {line.text}
-                </div>
-              ))}
-            </div>
-          </div>
+          <ReceiptView receipt={printableReceipt} logoSrc={receiptLogoSrc} className="card w-full p-5" />
         </div>
         </div>
       </div>

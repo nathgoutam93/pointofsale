@@ -27,7 +27,8 @@ import { PostPaymentPanel } from "./pos/PostPaymentPanel";
 import { PrintableInvoice } from "./pos/PrintableInvoice";
 import { ProductGrid } from "./pos/ProductGrid";
 import { ReceiptPrintStyles } from "./pos/ReceiptPrintStyles";
-import { buildInvoiceReceiptLines, buildPrintableInvoiceDocument, downloadHtml } from "./pos/receipt";
+import { buildInvoiceReceipt, buildPrintableInvoiceDocument, downloadHtml } from "./pos/receipt";
+import { receiptStyleFor } from "../lib/receipt";
 import { useLeaveGuard } from "./pos/useLeaveGuard";
 import { useLineEditor } from "./pos/useLineEditor";
 import { useLocalDrafts } from "./pos/useLocalDrafts";
@@ -65,16 +66,16 @@ export function PosPage() {
   const [isOrderOpen, setIsOrderOpen] = useState(false);
 
   const store = useStoreSettings(session.branchId);
-  const { taxCalculationMode, chargeTax, invoiceLogoSrc, customReceiptCss, receiptTemplateCss } = store;
+  const { taxCalculationMode, chargeTax, invoiceLogoSrc, customReceiptCss, receiptTemplate } = store;
   const lineEditor = useLineEditor({ cart, setCart, chargeTax });
 
   const printableInvoice = useMemo(
-    () => (postPayment ? buildInvoiceReceiptLines(postPayment, store, session.username ?? "") : null),
+    () => (postPayment ? buildInvoiceReceipt(postPayment, store, session.username ?? "") : null),
     [postPayment, store.businessSettings.data, store.branchSettings.data, session.username],
   );
 
   const receiptPrinting = useReceiptPrinting();
-  const receiptStyle = { css: `${receiptTemplateCss}${customReceiptCss}`, columns: store.receiptCharWidth };
+  const receiptStyle = receiptStyleFor(printableInvoice ?? { columns: 48 }, receiptTemplate, customReceiptCss);
   // Once per sale, as soon as it's paid: the drawer opens for cash, and the receipt prints
   // if this computer is set to. The receipt is on the page by now (effects run after render).
   const handledSaleRef = useRef<string | null>(null);
@@ -91,7 +92,7 @@ export function PosPage() {
   }, [postPayment]);
 
   const exportPrintableInvoice = () => {
-    const htmlDocument = postPayment ? buildPrintableInvoiceDocument(postPayment, store) : null;
+    const htmlDocument = postPayment ? buildPrintableInvoiceDocument(postPayment, receiptStyle) : null;
     if (!htmlDocument) {
       setMessage("Printable invoice is not ready to download yet.");
       return;
@@ -693,7 +694,7 @@ export function PosPage() {
 
   return (
     <section className="grid grid-cols-1 lg:h-[calc(100vh-48px)] lg:grid-cols-[360px_1fr] xl:grid-cols-[420px_1fr]">
-      <ReceiptPrintStyles templateCss={receiptTemplateCss} customCss={customReceiptCss} />
+      <ReceiptPrintStyles css={receiptStyle.css} />
 
       <aside className="flex h-full flex-col overflow-hidden border-r border-slate-200 bg-white">
         {postPayment ? (
@@ -775,7 +776,7 @@ export function PosPage() {
 
       <div className="flex h-full min-h-0 flex-col overflow-hidden bg-slate-100 print:bg-white print:p-0">
         {postPayment ? (
-          <PrintableInvoice logoSrc={invoiceLogoSrc} lines={printableInvoice?.lines ?? []} />
+          <PrintableInvoice logoSrc={invoiceLogoSrc} receipt={printableInvoice} />
         ) : (
           <ProductGrid
             categories={categories}

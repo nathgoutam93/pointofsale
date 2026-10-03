@@ -47,8 +47,10 @@ export type ReceiptJob = {
   markup: string;
   /** The receipt template and the branch's sanitized CSS. */
   css: string;
-  /** Characters per line: 32 for 58 mm paper, 48 for 80 mm. */
+  /** Characters per line, from the branch's receipt layout (32 to 64). */
   columns: number;
+  /** The roll's width: 58 mm (2 inch) or 80 mm (3 inch). */
+  paperMm: 58 | 80;
 };
 
 const MAX_JOB_CHARS = 1_000_000;
@@ -60,7 +62,11 @@ export function cleanReceiptJob(raw: unknown): ReceiptJob {
   }
   const css = typeof value.css === 'string' ? value.css : '';
   if (value.markup.length + css.length > MAX_JOB_CHARS) throw new Error('This receipt is too large to print');
-  return { markup: value.markup, css, columns: Number(value.columns) <= 32 ? 32 : 48 };
+  const asked = Math.round(Number(value.columns));
+  const columns = Number.isFinite(asked) && asked > 0 ? Math.min(Math.max(asked, 24), 96) : 48;
+  // From before layouts, the page sent only the columns: 32 meant 58 mm paper.
+  const paperMm = value.paperMm === 58 || value.paperMm === 80 ? value.paperMm : columns <= 32 ? 58 : 80;
+  return { markup: value.markup, css, columns, paperMm };
 }
 
 const PX_PER_MM = 96 / 25.4;
@@ -68,8 +74,8 @@ const PX_PER_MM = 96 / 25.4;
 const CHAR_EM = 0.6;
 
 /** Roll width and the width the print head reaches, in mm. */
-function paperFor(columns: number) {
-  return columns <= 32 ? { paperMm: 58, printableMm: 48 } : { paperMm: 80, printableMm: 72 };
+function paperFor(paperMm: 58 | 80) {
+  return paperMm === 58 ? { paperMm, printableMm: 48 } : { paperMm, printableMm: 72 };
 }
 
 /**
@@ -78,7 +84,7 @@ function paperFor(columns: number) {
  * except the logo from the API.
  */
 export function receiptDocument(job: ReceiptJob, apiOrigin: string | null) {
-  const { printableMm } = paperFor(job.columns);
+  const { printableMm } = paperFor(job.paperMm);
   const fontPx = Math.floor(((printableMm * PX_PER_MM) / (job.columns * CHAR_EM)) * 100) / 100;
   const csp = `default-src 'none'; style-src 'unsafe-inline'; img-src data:${apiOrigin ? ` ${apiOrigin}` : ''}`;
   // The CSS sits inside <style>: it can't be allowed to close it.
@@ -91,6 +97,8 @@ ${css}
 html, body { margin: 0; padding: 0; background: #fff; }
 body #printable-invoice { width: ${printableMm}mm !important; max-width: none !important; margin: 0 auto !important; padding: 0 0 6mm !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 body #printable-invoice div.receipt-line { font-size: ${fontPx}px !important; }
+body #printable-invoice div.receipt-line.receipt-large { font-size: ${fontPx * 2}px !important; line-height: 1.15 !important; }
+body #printable-invoice svg.receipt-barcode { display: block !important; width: 100% !important; height: 12mm !important; margin: 2mm 0 1mm !important; }
 body #printable-invoice img.receipt-logo { max-width: 100% !important; }
 </style></head><body>${job.markup}</body></html>`;
 }
@@ -244,7 +252,7 @@ export class ReceiptPrinter {
   }
 
   private async printNow(printerName: string, job: ReceiptJob) {
-    const { paperMm } = paperFor(job.columns);
+    const { paperMm } = paperFor(job.paperMm);
     const win = new BrowserWindow({
       show: false,
       width: Math.ceil(paperMm * PX_PER_MM),

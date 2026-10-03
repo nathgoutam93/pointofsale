@@ -16,6 +16,7 @@ import { useIsOffline } from "../lib/mode";
 import { desktop } from "../lib/desktop";
 import { BackupsSection } from "./settings/BackupsSection";
 import { PrinterSection } from "./settings/PrinterSection";
+import { ReceiptTemplateSection } from "./settings/ReceiptTemplateSection";
 import { canMoveOnline, MoveOnlineDialog } from "../components/MoveOnline";
 import { RecoveryCodeSettings } from "../components/RecoveryCode";
 import { CountersSection } from "./settings/CountersSection";
@@ -58,7 +59,7 @@ type CreateBranchForm = {
   code: string;
 };
 
-type SettingsTab = "business" | "branches" | "cashiers" | "printer" | "backups";
+type SettingsTab = "business" | "branches" | "receipts" | "cashiers" | "printer" | "backups";
 
 const emptyCashierForm = (branchId: string): CashierForm => ({ username: "", password: "", branchIds: [branchId] });
 
@@ -534,6 +535,7 @@ export function BranchSettingsPage() {
           {[
             { id: "business" as const, label: "Business" },
             { id: "branches" as const, label: "Branches" },
+            { id: "receipts" as const, label: "Receipts" },
             { id: "cashiers" as const, label: "Cashiers & Access" },
             ...(receiptPrinter ? [{ id: "printer" as const, label: "Printer" }] : []),
             ...(localBackups ? [{ id: "backups" as const, label: "Backups" }] : [])
@@ -897,7 +899,7 @@ export function BranchSettingsPage() {
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-semibold text-slate-800">Printable templates</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Use header and footer text for receipts and invoices. Optional CSS applies to printable layouts.
+                  Header and footer text for receipts and invoices. Paper, layout and what prints are set under Receipts; optional CSS restyles them.
                 </p>
                 <div className="mt-4 grid gap-3">
                   <div>
@@ -977,6 +979,17 @@ export function BranchSettingsPage() {
             fiscalYear={currentFiscalYear}
           />
         </div>
+      ) : null}
+
+      {activeTab === "receipts" ? (
+        <ReceiptTemplateSection
+          branches={availableBranches}
+          branchId={selectedBranch.id}
+          onBranchChange={(id) => {
+            setSelectedBranchId(id);
+            setMessage("");
+          }}
+        />
       ) : null}
 
       {activeTab === "printer" && receiptPrinter ? (

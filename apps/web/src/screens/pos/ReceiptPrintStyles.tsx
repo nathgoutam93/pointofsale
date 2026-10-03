@@ -1,5 +1,5 @@
-/** Prints only the receipt, styled with the store's receipt template and custom CSS. */
-export function ReceiptPrintStyles({ templateCss, customCss }: { templateCss: string; customCss: string }) {
+/** Prints only the receipt, styled with its layout's CSS and the branch's own. */
+export function ReceiptPrintStyles({ css }: { css: string }) {
   return (
     <style>{`
       @media print {
@@ -26,8 +26,7 @@ export function ReceiptPrintStyles({ templateCss, customCss }: { templateCss: st
           print-color-adjust: exact;
         }
       }
-      ${templateCss}
-      ${customCss}
+      ${css}
     `}</style>
   );
 }

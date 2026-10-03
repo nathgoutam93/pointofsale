@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { chargesGst, sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, authHeaders } from "../../lib/api";
-import { resolveReceiptWidth } from "../../lib/receiptFormat";
+import { branchReceiptTemplate } from "../../lib/receipt";
 
 /** Branch and business settings, and the receipt branding the POS derives from them. */
 export function useStoreSettings(branchId: string) {
@@ -71,40 +71,13 @@ export function useStoreSettings(branchId: string) {
     );
   }, [businessSettings.data?.name, branchSettings.data?.name]);
 
-  const receiptCharWidth = resolveReceiptWidth(
-    branchSettings.data?.invoiceCss,
-    48,
-  );
   // Branch CSS is admin-written; render only the sanitized, receipt-scoped rules.
   const customReceiptCss = useMemo(
     () => sanitizeReceiptCss(branchSettings.data?.invoiceCss).css,
     [branchSettings.data?.invoiceCss],
   );
-  const receiptTemplateCss = `
-    #printable-invoice {
-      font-family: "Courier New", Courier, monospace;
-      --receipt-ch: ${receiptCharWidth};
-      width: calc(var(--receipt-ch) * 1ch);
-      max-width: 100%;
-      margin: 0 auto;
-      color: #111827;
-    }
-    #printable-invoice .receipt-line {
-      white-space: pre;
-      font-size: 12px;
-      line-height: 1.25;
-    }
-    #printable-invoice .receipt-strong {
-      font-weight: 700;
-    }
-    #printable-invoice .receipt-logo {
-      display: block;
-      margin: 0 auto 6px;
-      max-height: 64px;
-      max-width: 100%;
-      object-fit: contain;
-    }
-  `;
+  /** How this branch lays its receipts out (paper, layout, what they show). */
+  const receiptTemplate = useMemo(() => branchReceiptTemplate(branchSettings.data), [branchSettings.data]);
 
   const taxCalculationMode =
     businessSettings.data?.taxCalculationMode ?? "AFTER_DISCOUNT";
@@ -122,9 +95,8 @@ export function useStoreSettings(branchId: string) {
     receiptFooterLines,
     invoiceLogoSrc,
     storeDisplayName,
-    receiptCharWidth,
     customReceiptCss,
-    receiptTemplateCss,
+    receiptTemplate,
   };
 }
 

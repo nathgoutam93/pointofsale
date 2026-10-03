@@ -3,12 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { returnLineAmounts, sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { useReceiptPrinting } from "../lib/printing";
-import {
-  buildReceiptLines,
-  formatReceiptDate,
-  formatReceiptTime,
-  resolveReceiptWidth,
-} from "../lib/receiptFormat";
+import { branchReceiptTemplate, rateFromAmounts, receiptStyleFor, renderReceipt, returnReceiptDocument } from "../lib/receipt";
+import { ReceiptView } from "../components/ReceiptView";
+import { ReceiptPrintStyles } from "./pos/ReceiptPrintStyles";
 import { IconPrinter } from "../components/icons";
 import { inr, money, requireOperationalSession } from "./route-helpers";
 
@@ -234,37 +231,12 @@ export function ReturnsPage() {
     );
   }, [businessSettings.data?.name, branchSettings.data?.name]);
 
-  const receiptCharWidth = resolveReceiptWidth(branchSettings.data?.receiptCss, 48);
   // Branch CSS is admin-written; render only the sanitized, receipt-scoped rules.
   const customReceiptCss = useMemo(
     () => sanitizeReceiptCss(branchSettings.data?.receiptCss).css,
     [branchSettings.data?.receiptCss],
   );
-  const receiptTemplateCss = `
-    #printable-invoice {
-      font-family: "Courier New", Courier, monospace;
-      --receipt-ch: ${receiptCharWidth};
-      width: calc(var(--receipt-ch) * 1ch);
-      max-width: 100%;
-      margin: 0 auto;
-      color: #111827;
-    }
-    #printable-invoice .receipt-line {
-      white-space: pre;
-      font-size: 12px;
-      line-height: 1.25;
-    }
-    #printable-invoice .receipt-strong {
-      font-weight: 700;
-    }
-    #printable-invoice .receipt-logo {
-      display: block;
-      margin: 0 auto 6px;
-      max-height: 64px;
-      max-width: 100%;
-      object-fit: contain;
-    }
-  `;
+  const receiptTemplate = useMemo(() => branchReceiptTemplate(branchSettings.data), [branchSettings.data]);
 
   useEffect(() => {
     if (refundMode === "WALLET" && !walletAllowed) setRefundMode("CASH");
@@ -328,59 +300,47 @@ export function ReturnsPage() {
   const printableReturn = useMemo(() => {
     if (!returnDetail.data) return null;
 
-    const createdAt = returnDetail.data.createdAt ?? new Date().toISOString();
-    const totalAmount = Number(returnDetail.data.totalAmount);
-    const items = returnDetail.data.lines.map((line) => {
+    const detail = returnDetail.data;
+    const items = detail.lines.map((line) => {
       const qty = Number(line.qty);
       const amount = Number(line.amount);
-      const unitAmount = qty > 0 ? round2(amount / qty) : 0;
-
+      const taxable = Number(line.taxableAmount);
+      const taxAmount = Number(line.taxAmount);
       return {
         name: line.itemName,
-        detailRows: [
-          {
-            label: `${formatReceiptQty(qty)} x ${money(unitAmount)}`,
-            value: money(amount),
-          },
-        ],
+        hsn: null,
         qty,
-        price: unitAmount,
+        qtyLabel: formatReceiptQty(qty),
+        rate: qty > 0 ? round2(taxable / qty) : 0,
+        amount: taxable,
+        taxRate: rateFromAmounts(taxable, taxAmount),
+        taxAmount,
+        discount: 0,
         total: amount,
+        taxable,
       };
     });
 
-    return buildReceiptLines({
-      width: receiptCharWidth,
-      storeName: storeDisplayName,
-      headerLines: receiptHeaderLines,
-      metadata: [
-        { label: "Return", value: returnDetail.data.returnNo },
-        { label: "Invoice", value: returnDetail.data.saleInvoiceNo },
-        { label: "Date", value: formatReceiptDate(createdAt) },
-        { label: "Time", value: formatReceiptTime(createdAt) },
-        { label: "Customer", value: returnDetail.data.customerName },
-        { label: "Refund", value: returnDetail.data.refundMode },
-      ],
+    const doc = returnReceiptDocument({
+      branding: { storeName: storeDisplayName, headerLines: receiptHeaderLines, footerLines: receiptFooterLines },
+      returnNo: detail.returnNo,
+      invoiceNo: detail.saleInvoiceNo,
+      createdAt: detail.createdAt ?? new Date().toISOString(),
+      customer: detail.customerName,
+      refundMode: detail.refundMode,
       items,
-      totals: [{ label: "REFUND TOTAL", value: money(totalAmount), isGrandTotal: true }],
-      payments: [
-        {
-          label:
-            returnDetail.data.refundMode === "WALLET"
-              ? "Credited to Wallet"
-              : "Refunded by Cash",
-          value: money(totalAmount),
-        },
-      ],
-      footerLines: receiptFooterLines,
+      totalAmount: Number(detail.totalAmount),
+      tax: { cgst: Number(detail.cgstTotal), sgst: Number(detail.sgstTotal), igst: Number(detail.igstTotal) },
     });
+    return renderReceipt(doc, receiptTemplate);
   }, [
-    receiptCharWidth,
+    receiptTemplate,
     receiptFooterLines,
     receiptHeaderLines,
     returnDetail.data,
     storeDisplayName,
   ]);
+  const receiptStyle = receiptStyleFor(printableReturn ?? { columns: 48 }, receiptTemplate, customReceiptCss);
 
   const createReturn = useMutation({
     mutationFn: async () => {
@@ -435,34 +395,7 @@ export function ReturnsPage() {
 
   return (
     <section className="grid grid-cols-1 xl:h-[calc(100vh-48px)] xl:grid-cols-[340px_1fr]">
-      <style>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
-          }
-
-          #printable-invoice,
-          #printable-invoice * {
-            visibility: visible !important;
-          }
-
-          #printable-invoice {
-            position: absolute;
-            inset: 0;
-            margin: 0;
-            width: 100%;
-            max-width: none;
-            border: none;
-            border-radius: 0;
-            box-shadow: none;
-            padding: 16px;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-        }
-        ${receiptTemplateCss}
-        ${customReceiptCss}
-      `}</style>
+      <ReceiptPrintStyles css={receiptStyle.css} />
       <aside className="flex h-full max-h-[75vh] flex-col overflow-hidden border-r border-slate-200 bg-white xl:max-h-none">
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 p-4">
           <h2 className="page-title">Returns</h2>
@@ -684,7 +617,7 @@ export function ReturnsPage() {
                   className="btn-secondary print:hidden"
                   disabled={receiptPrinting.busy}
                   onClick={() =>
-                    void receiptPrinting.print({ css: `${receiptTemplateCss}${customReceiptCss}`, columns: receiptCharWidth })
+                    void receiptPrinting.print(receiptStyle)
                   }
                 >
                   <IconPrinter width={16} height={16} />
@@ -749,25 +682,11 @@ export function ReturnsPage() {
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 print:hidden">
                     Printable Return Receipt
                   </p>
-                  <div id="printable-invoice" className="mx-auto w-fit border border-slate-200 bg-white p-4 shadow-xs">
-                    {receiptLogoSrc ? (
-                      <img
-                        src={receiptLogoSrc}
-                        alt=""
-                        className="receipt-logo"
-                      />
-                    ) : null}
-                    <div className="receipt-text text-center">
-                      {(printableReturn?.lines ?? []).map((line, idx) => (
-                        <div
-                          key={`${idx}-${line.text}`}
-                          className={`receipt-line ${line.strong ? "receipt-strong" : ""}`}
-                        >
-                          {line.text}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  <ReceiptView
+                    receipt={printableReturn}
+                    logoSrc={receiptLogoSrc}
+                    className="mx-auto w-fit border border-slate-200 bg-white p-4 shadow-xs"
+                  />
                 </div>
               </>
             ) : null}

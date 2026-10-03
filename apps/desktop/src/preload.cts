@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('posDesktop', {
     settings: () => invoke('pos:printing:settings'),
     printers: () => invoke('pos:printing:printers'),
     save: (token: string, settings: unknown) => invoke('pos:printing:save', token, settings),
-    printReceipt: (job: { markup: string; css: string; columns: number }) => invoke('pos:printing:print-receipt', job),
+    printReceipt: (job: { markup: string; css: string; columns: number; paperMm: 58 | 80 }) => invoke('pos:printing:print-receipt', job),
     openDrawer: () => invoke('pos:printing:open-drawer'),
     testDrawer: (token: string) => invoke('pos:printing:test-drawer', token)
   },

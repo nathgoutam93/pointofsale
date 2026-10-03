@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CompositionCategory, CustomerScope, Prisma, TaxpayerType } from '@prisma/client';
-import { COMPOSITION_CATEGORY_LABELS, gstStateLabel } from '@pos/contracts';
+import { COMPOSITION_CATEGORY_LABELS, gstStateLabel, type ReceiptTemplate } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import { toNumber } from '../common/numbers';
 import { businessSettingsSelect, branchSettingsSelect } from '../common/selects';
@@ -127,6 +127,7 @@ export class SettingsService {
       receiptFooter?: string | null;
       invoiceCss?: string | null;
       receiptCss?: string | null;
+      receiptTemplate?: ReceiptTemplate | null;
       gstin?: string | null;
       stateCode?: string | null;
     }
@@ -149,6 +150,8 @@ export class SettingsService {
         receiptFooter: input.receiptFooter,
         invoiceCss: input.invoiceCss,
         receiptCss: input.receiptCss,
+        // A JSON column is cleared with DbNull (SQL NULL); Prisma refuses a plain null.
+        receiptTemplate: input.receiptTemplate === null ? Prisma.DbNull : input.receiptTemplate,
         gstin: gst.gstin,
         stateCode: gst.stateCode
       },

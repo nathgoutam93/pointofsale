@@ -122,6 +122,8 @@ model Branch {
   receiptFooter String?
   invoiceCss    String?
   receiptCss    String?
+  /// Receipt layout, paper and sections (see receiptTemplateSchema in @pos/contracts). null: classic.
+  receiptTemplate Json?
   /// The branch's own GSTIN. When empty, the business GSTIN is used if it is for this branch's state.
   gstin         String?
   /// Two-digit GST state code of where the branch is; an over-the-counter sale's place of supply.

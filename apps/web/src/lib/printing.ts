@@ -1,14 +1,13 @@
 import { useCallback, useState } from "react";
 import { desktop, type PrintingSettings } from "./desktop";
-import { escapeHtml, type ReceiptLine } from "./receiptFormat";
+import type { ReceiptStyle } from "./receipt";
 
 const printing = desktop?.printing ?? null;
 
 /** True in the desktop app, where a receipt printer and cash drawer can be set up. */
 export const canUseReceiptPrinter = !!printing;
 
-/** How the receipt is styled: the receipt template plus the branch's sanitized CSS, and its width. */
-export type ReceiptStyle = { css: string; columns: number };
+export type { ReceiptStyle };
 
 /** This computer's receipt printer settings; null in a browser, or if the app can't say. */
 export async function receiptPrinterSettings(): Promise<PrintingSettings | null> {
@@ -18,15 +17,6 @@ export async function receiptPrinterSettings(): Promise<PrintingSettings | null>
   } catch {
     return null;
   }
-}
-
-/** The receipt as #printable-invoice markup, for printing one that isn't on the page. */
-export function receiptMarkup(lines: ReceiptLine[], logoSrc?: string | null) {
-  const logo = logoSrc ? `<img src="${escapeHtml(logoSrc)}" alt="" class="receipt-logo">` : "";
-  const body = lines
-    .map((line) => `<div class="receipt-line${line.strong ? " receipt-strong" : ""}">${escapeHtml(line.text)}</div>`)
-    .join("");
-  return `<div id="printable-invoice">${logo}<div class="receipt-text">${body}</div></div>`;
 }
 
 /**
@@ -41,7 +31,7 @@ export async function printReceipt(style: ReceiptStyle, markup?: string) {
     window.print();
     return;
   }
-  await printing.printReceipt({ markup: html, css: style.css, columns: style.columns });
+  await printing.printReceipt({ markup: html, css: style.css, columns: style.columns, paperMm: style.paperMm });
 }
 
 /** Opens the cash drawer if this computer has one switched on; answers whether it did. */

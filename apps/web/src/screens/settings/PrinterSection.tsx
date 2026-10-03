@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { DesktopPrinting, PrintingSettings } from "../../lib/desktop";
-import { printReceipt, receiptMarkup } from "../../lib/printing";
-import { buildReceiptLines, formatReceiptDate, formatReceiptTime } from "../../lib/receiptFormat";
+import { RECEIPT_PAPERS } from "@pos/contracts";
+import { printReceipt } from "../../lib/printing";
+import { receiptMarkup, receiptStyleFor, renderReceipt, sampleReceiptDocument } from "../../lib/receipt";
 import { getSession } from "../../lib/session";
 import { useStoreSettings } from "../pos/useStoreSettings";
 
@@ -28,23 +29,20 @@ export function PrinterSection({ printing, branchId }: { printing: DesktopPrinti
   });
   const testPrint = useMutation({
     mutationFn: () => {
-      const now = new Date().toISOString();
-      const { lines } = buildReceiptLines({
-        width: store.receiptCharWidth,
-        storeName: store.storeDisplayName,
-        headerLines: store.invoiceHeaderLines,
-        title: "TEST PRINT",
-        metadata: [
-          { label: "Date", value: formatReceiptDate(now) },
-          { label: "Time", value: formatReceiptTime(now) },
-        ],
-        items: [{ name: "Test item", qty: 1, price: 10, total: 10 }],
-        totals: [{ label: "TOTAL", value: "10.00", isGrandTotal: true }],
-        footerLines: ["If this line fits on one line, the paper width is right."],
-      });
+      const receipt = renderReceipt(
+        sampleReceiptDocument(
+          {
+            storeName: store.storeDisplayName,
+            headerLines: store.invoiceHeaderLines,
+            footerLines: ["If the dashes above fit on one line each, the paper is set right."],
+          },
+          { title: "TEST PRINT" },
+        ),
+        store.receiptTemplate,
+      );
       return printReceipt(
-        { css: `${store.receiptTemplateCss}${store.customReceiptCss}`, columns: store.receiptCharWidth },
-        receiptMarkup(lines, store.invoiceLogoSrc),
+        receiptStyleFor(receipt, store.receiptTemplate, store.customReceiptCss),
+        receiptMarkup(receipt, store.invoiceLogoSrc),
       );
     },
     onSuccess: () => setMessage("Test receipt sent to the printer."),
@@ -68,7 +66,7 @@ export function PrinterSection({ printing, branchId }: { printing: DesktopPrinti
   if (current?.printerName && !printerOptions.some((printer) => printer.name === current.printerName)) {
     printerOptions.unshift({ name: current.printerName, displayName: `${current.printerName} (not found)` });
   }
-  const paper = store.receiptCharWidth <= 32 ? "58 mm" : "80 mm";
+  const paper = RECEIPT_PAPERS[store.receiptTemplate.paper];
 
   return (
     <div className="grid gap-4">
@@ -77,8 +75,8 @@ export function PrinterSection({ printing, branchId }: { printing: DesktopPrinti
           <h2 className="text-lg font-semibold tracking-tight text-slate-900">Receipt printer</h2>
           <p className="mt-1 text-sm text-slate-600">
             Receipts go straight to this printer in one click, with no print dialog. This is set on each computer
-            separately. Receipts are laid out for {paper} paper ({store.receiptCharWidth} characters a line, set by the
-            branch's receipt width).
+            separately. Receipts are laid out for {paper.label} paper ({paper.columns} characters a line), as chosen
+            under Settings → Receipts.
           </p>
         </div>
 

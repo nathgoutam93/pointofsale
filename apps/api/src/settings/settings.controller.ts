@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { join } from 'path';
-import { appContract } from '@pos/contracts';
+import { appContract, type ReceiptTemplate } from '@pos/contracts';
 import { getSession, requireAdminSession, requireAdmin, RequestHeaders } from '../common/request-session';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { uploadsDir } from '../common/uploads';
@@ -112,6 +112,7 @@ export class SettingsController {
       receiptFooter?: string | null;
       invoiceCss?: string | null;
       receiptCss?: string | null;
+      receiptTemplate?: ReceiptTemplate | null;
       gstin?: string | null;
       stateCode?: string | null;
     },
