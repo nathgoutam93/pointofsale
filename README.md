@@ -132,6 +132,158 @@ as in a browser. Code: `apps/desktop/src/printing.ts`, `apps/web/src/lib/printin
 data and logs are in the OS's app-data folder under "Point of Sale". See
 `desktop-offline-online-plan.md` for the design and what's left.
 
+## Hosting the online server
+How the hosted server (online mode) was set up on a VPS. It's one machine: PostgreSQL, the API
+(a systemd service on `127.0.0.1:3001`) and nginx in front of it for HTTPS. The steps assume
+Ubuntu 24.04 and a login user `ubuntu` (Oracle Cloud's default); replace `pos.example.com` with
+the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud.
+
+1. **DNS:** an A record for the domain pointing at the VPS's public IP address. Set it first, as
+   the HTTPS certificate (step 8) needs it.
+
+2. **Software:**
+   ```bash
+   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+   sudo apt update
+   sudo apt install -y nodejs postgresql postgresql-contrib nginx certbot python3-certbot-nginx git
+   sudo npm install -g pnpm@9.12.1        # the version in package.json's packageManager
+   node -v                                # 22.12 or later
+   ```
+
+3. **Firewall:** ports 80 and 443 must be reachable from the internet; otherwise certbot fails
+   with a "connection" error.
+   - In the provider's console: on Oracle Cloud, Instance → Subnet → Security List → Add Ingress
+     Rules, TCP 80 and TCP 443 from `0.0.0.0/0`. Other providers call it a firewall or a
+     security group.
+   - Oracle's Ubuntu images also have iptables rules that reject everything but SSH (a `REJECT`
+     line in `sudo iptables -L INPUT -n --line-numbers`). Allow 80 and 443 before that line and
+     keep the rules across reboots:
+     ```bash
+     sudo iptables -I INPUT 5 -p tcp -m multiport --dports 80,443 -m state --state NEW -j ACCEPT
+     sudo apt install -y iptables-persistent   # answer Yes to saving the rules
+     sudo netfilter-persistent save
+     ```
+     (5 is the `REJECT` line's number; check yours.) ufw is left off.
+
+4. **Database:** a user and a database for the API. Run from `/tmp`, as the `postgres` user
+   can't enter your home folder. Use letters and digits in the password: it goes into a URL.
+   ```bash
+   cd /tmp
+   sudo -u postgres psql -c "CREATE USER pos WITH PASSWORD '<db-password>';"
+   sudo -u postgres psql -c "CREATE DATABASE pos OWNER pos;"
+   ```
+
+5. **Code and build:**
+   ```bash
+   sudo mkdir -p /opt/pos /var/lib/pos/uploads /var/backups/pos
+   sudo chown ubuntu:ubuntu /opt/pos /var/lib/pos/uploads /var/backups/pos
+   git clone -b fix/auth-hardening https://github.com/nathgoutam93/pointofsale.git /opt/pos
+   cd /opt/pos && pnpm install --frozen-lockfile
+   pnpm --filter @pos/types --filter @pos/contracts build
+   pnpm --filter @pos/api prisma:generate
+   pnpm --filter @pos/api build
+   ```
+   A private repository needs a GitHub token (or a deploy key) to clone.
+
+6. **Settings**, in `/opt/pos/apps/api/.env` (git-ignored; the API and its CLI read it from
+   their working folder). `apps/api/.env.example` explains every setting.
+   ```bash
+   cd /opt/pos/apps/api
+   SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")
+   cat > .env <<EOF
+   POS_MODE=online
+   HOST=127.0.0.1
+   PORT=3001
+   DATABASE_URL=postgresql://pos:<db-password>@localhost:5432/pos?schema=public
+   AUTH_SECRET=$SECRET
+   UPLOADS_DIR=/var/lib/pos/uploads
+   SESSION_COOKIE_SECURE=true
+   OWNER_EMAIL_VERIFICATION=off
+   EOF
+   chmod 600 .env
+   node dist/tenancy/cli.js migrate        # creates the control schema
+   ```
+   - Never change `AUTH_SECRET` afterwards: it would sign everyone out.
+   - `OWNER_EMAIL_VERIFICATION=off` is only until email works. Then set `SMTP_URL` and
+     `MAIL_FROM` (e.g. `MAIL_FROM="POS <no-reply@example.com>"`), remove that line and restart.
+     Add the mail provider's SPF and DKIM records to the domain, or mail lands in spam.
+   - Quick check: `node dist/main.js`, then `curl http://127.0.0.1:3001/meta` from a second
+     terminal answers JSON. Stop it with Ctrl+C.
+
+7. **Service:** `deploy/pos-api.service` runs `node dist/main.js` as `ubuntu`, starts it at boot
+   and restarts it if it stops. Check `which node` matches its `ExecStart`.
+   ```bash
+   sudo cp /opt/pos/deploy/pos-api.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now pos-api
+   systemctl status pos-api --no-pager     # active (running)
+   journalctl -u pos-api -f                # its log
+   ```
+
+8. **nginx and HTTPS:** `deploy/nginx-pos.conf` passes requests to the API with
+   `X-Forwarded-Proto` (the sign-in cookie is `Secure` behind HTTPS), allows uploads up to 2 GB
+   (business imports) and waits up to 10 minutes for them. certbot then adds the certificate to
+   it and renews it by itself.
+   ```bash
+   sudo sed 's/pos\.example\.com/<your domain>/' /opt/pos/deploy/nginx-pos.conf | sudo tee /etc/nginx/sites-available/pos > /dev/null
+   sudo ln -sf /etc/nginx/sites-available/pos /etc/nginx/sites-enabled/pos
+   sudo rm -f /etc/nginx/sites-enabled/default
+   sudo nginx -t && sudo systemctl reload nginx
+   sudo certbot --nginx -d <your domain>
+   sudo certbot renew --dry-run            # renewal works
+   ```
+   `https://<your domain>/meta` now answers JSON.
+
+9. **Desktop apps:** on first launch choose the online option and enter `https://<your domain>`,
+   or build the app with `"posServerUrl"` set to it in `apps/desktop/package.json`.
+
+10. **Backups:** see below; set them up before a real shop uses the server.
+
+11. **Monitoring:** an uptime check (UptimeRobot or similar) on `https://<your domain>/meta`.
+
+### Deploying an update
+On the server, as `ubuntu`:
+```bash
+/opt/pos/deploy/deploy.sh                 # the checked-out branch, or: deploy.sh <branch>
+```
+It pulls the branch, installs and builds, runs the migrations (control schema and every
+business), restarts the service and waits for `/meta` to answer. Migrations always run before
+the new API starts. Deploy the server before publishing a desktop release, and set
+`MIN_CLIENT_VERSION` in `.env` when older apps can't work with the new server.
+
+### Backups
+`deploy/backup.sh` dumps the whole database (the control schema and every business's schema)
+with `pg_dump` and archives `UPLOADS_DIR` (logos and item images) into `/var/backups/pos`, and
+deletes backups older than 14 days. Run it once by hand, then nightly from cron (server time is
+UTC; 21:30 UTC is 3:00 in India):
+```bash
+/opt/pos/deploy/backup.sh && ls -lh /var/backups/pos
+(crontab -l 2>/dev/null; echo "30 21 * * * /opt/pos/deploy/backup.sh >> /var/backups/pos/backup.log 2>&1") | crontab -
+```
+Settings, in `.env` or the environment: `POS_BACKUP_DIR` (default `/var/backups/pos`),
+`POS_BACKUP_KEEP_DAYS` (default 14), and `POS_BACKUP_RCLONE_REMOTE`: an rclone remote such as
+`oci:pos-backups` to copy each backup off the server (install and `rclone config` it first).
+Backups that stay on the VPS are lost with it, so set up the off-server copy.
+
+Restore (practise this on a scratch database first):
+```bash
+cd /tmp
+sudo -u postgres createdb -O pos pos_restore_test
+pg_restore --no-owner -d "postgresql://pos:<db-password>@localhost:5432/pos_restore_test" /var/backups/pos/db-<stamp>.dump
+```
+For the real database, stop the API, re-create the database, restore it and the uploads, then
+migrate and start:
+```bash
+sudo systemctl stop pos-api
+cd /tmp
+sudo -u postgres psql -c "DROP DATABASE pos;" -c "CREATE DATABASE pos OWNER pos;"
+pg_restore --no-owner -d "postgresql://pos:<db-password>@localhost:5432/pos" /var/backups/pos/db-<stamp>.dump
+sudo rm -rf /var/lib/pos/uploads && sudo tar -xzf /var/backups/pos/uploads-<stamp>.tar.gz -C /var/lib/pos
+sudo chown -R ubuntu:ubuntu /var/lib/pos/uploads
+cd /opt/pos/apps/api && node dist/tenancy/cli.js migrate
+sudo systemctl start pos-api
+```
+
 ## Auth Model
 A sign-in is a token signed with `AUTH_SECRET` that expires after `AUTH_TOKEN_TTL_HOURS`
 (default 12). Every request is re-checked against the database (user active, same role, branch
