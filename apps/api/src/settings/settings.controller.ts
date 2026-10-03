@@ -6,10 +6,16 @@ import { getSession, requireAdminSession, requireAdmin, RequestHeaders } from '.
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { uploadsDir } from '../common/uploads';
 import { SettingsService } from './settings.service';
+import { AccessService } from '../common/access.service';
+import { BranchesService } from '../branches/branches.service';
 
 @Controller()
 export class SettingsController {
-  constructor(private readonly settings: SettingsService) {}
+  constructor(
+    private readonly settings: SettingsService,
+    private readonly access: AccessService,
+    private readonly branches: BranchesService
+  ) {}
 
   @Get('/business/settings')
   getBusinessSettings(@Headers() headers: RequestHeaders) {
@@ -89,16 +95,15 @@ export class SettingsController {
   }
 
   @Get('/branches/:id')
-  getBranch(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
-    const session = getSession(headers);
-    if (session.branchId && session.branchId !== id) {
-      throw new BadRequestException('Branch mismatch');
-    }
-    return this.settings.getBranchSettings(id);
+  async getBranch(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
+    const branch = await this.settings.getBranchSettings(id);
+    // Read by anyone who works at the branch (receipts print its header and logo).
+    await this.branches.ensureUserHasBranchAccess(getSession(headers).userId, id);
+    return branch;
   }
 
   @Patch('/branches/:id')
-  updateBranch(
+  async updateBranch(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.branches.update.body))
     body: {
@@ -118,10 +123,7 @@ export class SettingsController {
     },
     @Headers() headers: RequestHeaders
   ) {
-    const session = requireAdminSession(headers);
-    if (session.branchId && session.branchId !== id) {
-      throw new BadRequestException('Branch mismatch');
-    }
+    await this.access.requireBranch(requireAdminSession(headers), id);
     return this.settings.updateBranchSettings(id, body);
   }
 
@@ -139,15 +141,12 @@ export class SettingsController {
       limits: { fileSize: 5 * 1024 * 1024 }
     })
   )
-  uploadBranchLogo(
+  async uploadBranchLogo(
     @Param('id', ParseUUIDPipe) id: string,
     @UploadedFile() file: { filename: string } | undefined,
     @Headers() headers: RequestHeaders
   ) {
-    const session = requireAdminSession(headers);
-    if (session.branchId && session.branchId !== id) {
-      throw new BadRequestException('Branch mismatch');
-    }
+    await this.access.requireBranch(requireAdminSession(headers), id);
     if (!file) {
       throw new BadRequestException('Image file is required');
     }

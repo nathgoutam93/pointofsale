@@ -224,7 +224,8 @@ export class FallbackService {
             );
           }
           const all = (pick: (entry: FallbackOutbox['invoices'][number]) => Array<Record<string, unknown>>) => outbox.invoices.flatMap(pick);
-          const invoices = await insert(tx, rows('SaleInvoice', outbox.invoices.map((entry) => entry.invoice)));
+          // An older copy's bills have no creditedTotal (nothing is returned offline anyway).
+          const invoices = await insert(tx, rows('SaleInvoice', outbox.invoices.map((entry) => ({ creditedTotal: 0, ...entry.invoice }))));
           await insert(tx, rows('SaleInvoiceLine', all((entry) => entry.lines)));
           await insert(tx, rows('Discount', all((entry) => entry.discounts)));
           await insert(tx, rows('DiscountAllocation', all((entry) => entry.allocations)));

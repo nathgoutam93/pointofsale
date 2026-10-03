@@ -1,19 +1,26 @@
 import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 import { appContract } from '@pos/contracts';
-import { getSession, requireAdminSession, RequestHeaders } from '../common/request-session';
+import { AccessService } from '../common/access.service';
+import { getSession, RequestHeaders } from '../common/request-session';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { PurchasesService, type CreatePurchaseInput } from './purchases.service';
 
 @Controller()
 export class PurchasesController {
-  constructor(private readonly purchases: PurchasesService) {}
+  constructor(
+    private readonly purchases: PurchasesService,
+    private readonly access: AccessService
+  ) {}
 
   @Post('/purchases')
-  createPurchase(
+  async createPurchase(
     @Body(new ZodValidationPipe(appContract.purchases.create.body)) body: CreatePurchaseInput,
     @Headers() headers: RequestHeaders
   ) {
-    return this.purchases.createPurchase(requireAdminSession(headers), body);
+    const session = getSession(headers);
+    await this.access.requireBranch(session, body.branchId);
+    await this.access.requirePermission(session, 'RECORD_PURCHASES');
+    return this.purchases.createPurchase(session, body);
   }
 
   @Get('/purchases')

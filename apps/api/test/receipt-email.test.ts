@@ -44,7 +44,8 @@ describe('emailed receipts', () => {
   it("only for the branch's own sales, and to a real address", async () => {
     const admin = await t.login();
     const other = await t.branchWithRegister(admin);
-    expect((await t.call('POST', `/sales/${invoiceId}/email-receipt`, other.token, { email: 'customer@example.com' })).status).toBe(404);
+    const cashier = await t.cashierWithRegister(admin, other.branch.id);
+    expect((await t.call('POST', `/sales/${invoiceId}/email-receipt`, cashier.token, { email: 'customer@example.com' })).status).toBe(404);
     expect((await t.call('POST', `/sales/${invoiceId}/email-receipt`, ctx.token, { email: 'not-an-email' })).status).toBe(400);
     expect(mailOutbox).toHaveLength(0);
   });

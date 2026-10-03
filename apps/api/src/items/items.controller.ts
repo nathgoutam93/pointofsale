@@ -3,6 +3,7 @@ import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, Par
 import { FileInterceptor } from '@nestjs/platform-express';
 import { join } from 'path';
 import { appContract } from '@pos/contracts';
+import { AccessService } from '../common/access.service';
 import { getSession, requireAdminSession, RequestHeaders } from '../common/request-session';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { uploadsDir } from '../common/uploads';
@@ -10,7 +11,15 @@ import { ItemsService } from './items.service';
 
 @Controller()
 export class ItemsController {
-  constructor(private readonly items: ItemsService) {}
+  constructor(
+    private readonly items: ItemsService,
+    private readonly access: AccessService
+  ) {}
+
+  /** The catalogue is the business's: admins, and cashiers allowed to manage items. */
+  private managing(headers: RequestHeaders) {
+    return this.access.requirePermission(getSession(headers), 'MANAGE_ITEMS');
+  }
 
   @Get('/items')
   listItems(
@@ -49,8 +58,8 @@ export class ItemsController {
       limits: { fileSize: 5 * 1024 * 1024 }
     })
   )
-  uploadItemImage(@UploadedFile() file: { filename: string } | undefined, @Headers() headers: RequestHeaders) {
-    requireAdminSession(headers);
+  async uploadItemImage(@UploadedFile() file: { filename: string } | undefined, @Headers() headers: RequestHeaders) {
+    await this.managing(headers);
     if (!file) {
       throw new BadRequestException('Image file is required');
     }
@@ -59,7 +68,7 @@ export class ItemsController {
   }
 
   @Post('/items')
-  createItem(
+  async createItem(
     @Body(new ZodValidationPipe(appContract.items.create.body))
     body: {
       code: string;
@@ -80,12 +89,12 @@ export class ItemsController {
     },
     @Headers() headers: RequestHeaders
   ) {
-    requireAdminSession(headers);
+    await this.managing(headers);
     return this.items.createItem(body);
   }
 
   @Patch('/items/:id')
-  updateItem(
+  async updateItem(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.items.update.body))
     body: {
@@ -107,13 +116,13 @@ export class ItemsController {
     },
     @Headers() headers: RequestHeaders
   ) {
-    requireAdminSession(headers);
+    await this.managing(headers);
     return this.items.updateItem(id, body);
   }
 
   @Delete('/items/:id')
-  deleteItem(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
-    requireAdminSession(headers);
+  async deleteItem(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
+    await this.managing(headers);
     return this.items.deleteItem(id);
   }
 }

@@ -1,0 +1,46 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
+import { CASHIER_PERMISSION_LABELS, type CashierPermission } from '@pos/contracts';
+import { BranchesService } from '../branches/branches.service';
+import { PrismaService } from '../prisma.service';
+import type { SessionUser } from './types';
+
+/**
+ * Who may do what, where:
+ * - Selling (checkout, returns, taking payments) happens at the branch of the open register.
+ * - Managing a branch (its stock, customers, sales history, settings): admins may manage any
+ *   branch they have access to, with or without a register open; cashiers only the branch of
+ *   their open register.
+ * - Beyond selling, cashiers may only do what an admin allowed them (CashierPermission).
+ */
+@Injectable()
+export class AccessService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly branches: BranchesService
+  ) {}
+
+  /** The branch a request manages, once the user may manage it. */
+  async requireBranch(session: SessionUser, branchId: string) {
+    if (session.role === UserRole.ADMIN) {
+      await this.branches.ensureUserHasBranchAccess(session.userId, branchId);
+      return branchId;
+    }
+    if (!session.branchId) {
+      throw new BadRequestException('Select a branch and open a register first');
+    }
+    if (session.branchId !== branchId) {
+      throw new BadRequestException('Branch mismatch');
+    }
+    return branchId;
+  }
+
+  /** Admins always; cashiers when an admin gave them `permission`. */
+  async requirePermission(session: SessionUser, permission: CashierPermission) {
+    if (session.role === UserRole.ADMIN) return;
+    const user = await this.prisma.user.findUnique({ where: { id: session.userId }, select: { permissions: true } });
+    if (!user?.permissions.includes(permission)) {
+      throw new BadRequestException(`You aren't allowed to ${CASHIER_PERMISSION_LABELS[permission].label.toLowerCase()}. Ask an admin.`);
+    }
+  }
+}

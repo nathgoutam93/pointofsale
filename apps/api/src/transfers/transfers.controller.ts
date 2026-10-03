@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { appContract } from '@pos/contracts';
-import { getSession, requireAdminSession, RequestHeaders } from '../common/request-session';
+import { getSession, RequestHeaders } from '../common/request-session';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { TransfersService, type CreateTransferInput } from './transfers.service';
 
@@ -13,7 +13,7 @@ export class TransfersController {
     @Body(new ZodValidationPipe(appContract.transfers.create.body)) body: CreateTransferInput,
     @Headers() headers: RequestHeaders
   ) {
-    return this.transfers.createTransfer(requireAdminSession(headers), body);
+    return this.transfers.createTransfer(getSession(headers), body);
   }
 
   @Get('/stock-transfers')
@@ -27,12 +27,12 @@ export class TransfersController {
   @Post('/stock-transfers/:id/receive')
   @HttpCode(200)
   receiveTransfer(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
-    return this.transfers.receiveTransfer(requireAdminSession(headers), id);
+    return this.transfers.receiveTransfer(getSession(headers), id);
   }
 
   @Post('/stock-transfers/:id/cancel')
   @HttpCode(200)
   cancelTransfer(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
-    return this.transfers.cancelTransfer(requireAdminSession(headers), id);
+    return this.transfers.cancelTransfer(getSession(headers), id);
   }
 }

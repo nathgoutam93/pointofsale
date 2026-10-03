@@ -14,6 +14,7 @@ import { SetupController } from './setup/setup.controller';
 import { SetupService } from './setup/setup.service';
 import { BranchesController } from './branches/branches.controller';
 import { BranchesService } from './branches/branches.service';
+import { AccessService } from './common/access.service';
 import { CountersController } from './counters/counters.controller';
 import { CountersService } from './counters/counters.service';
 import { CustomersController } from './customers/customers.controller';
@@ -97,6 +98,7 @@ import { UsersService } from './users/users.service';
     TransfersService,
     CustomersService,
     BranchesService,
+    AccessService,
     UsersService,
     AuthService,
     RecoveryService,

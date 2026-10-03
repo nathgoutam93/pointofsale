@@ -40,10 +40,12 @@ export class ReportsService {
         FROM "SaleInvoiceLine" l JOIN "SaleInvoice" i ON i."id" = l."invoiceId"
         WHERE i."branchId" = ${branchId} AND i."status" = 'SETTLED' ${inRange(Prisma.sql`i."createdAt"`)}`,
       this.prisma.$queryRaw<Array<{ due: Prisma.Decimal | null }>>`
-        SELECT SUM(i."grandTotal" - i."paidTotal") AS due
+        SELECT SUM(i."grandTotal" - i."paidTotal" - i."creditedTotal") AS due
         FROM "SaleInvoice" i
         WHERE i."branchId" = ${branchId} AND i."status" IN ('DRAFT', 'PARTIALLY_SETTLED') ${inRange(Prisma.sql`i."createdAt"`)}`,
-      // A return's net (pre-tax) part uses its sale line's own taxable/net ratio.
+      // A return's net (pre-tax) part uses its sale line's own taxable/net ratio. Only returns
+      // on paid bills: an unpaid bill isn't in the sales above yet (its returns come off what is
+      // owed), and both count once it is paid.
       this.prisma.$queryRaw<Array<{ gross: Prisma.Decimal | null; net: Prisma.Decimal | null; cost: Prisma.Decimal | null }>>`
         SELECT SUM(rl."amount") AS gross,
                SUM(CASE WHEN sl."netAmount" > 0 THEN rl."amount" * sl."taxableAmount" / sl."netAmount" ELSE 0 END) AS net,
@@ -52,7 +54,7 @@ export class ReportsService {
         JOIN "ReturnInvoice" r ON r."id" = rl."returnInvoiceId"
         JOIN "SaleInvoiceLine" sl ON sl."id" = rl."saleLineId"
         JOIN "SaleInvoice" i ON i."id" = sl."invoiceId"
-        WHERE i."branchId" = ${branchId} ${inRange(Prisma.sql`r."createdAt"`)}`
+        WHERE i."branchId" = ${branchId} AND i."status" = 'SETTLED' ${inRange(Prisma.sql`r."createdAt"`)}`
     ]);
 
     const grossSales = round2(toNumber(sales[0]?.gross ?? 0));

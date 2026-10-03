@@ -2,7 +2,6 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, StockTxnType } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
-import { requireAdmin } from '../common/request-session';
 import { toNumber, round2, round3 } from '../common/numbers';
 import { assertQtyRespectsLeastCount } from '../common/quantities';
 import { BranchesService } from '../branches/branches.service';
@@ -43,11 +42,9 @@ export class PurchasesService {
     private readonly stock: StockService
   ) {}
 
-  /** Records goods received at a branch: adds the stock and updates each item's cost. */
+  /** Records goods received at a branch: adds the stock and updates each item's cost. The caller checks who may. */
   async createPurchase(session: SessionUser, input: CreatePurchaseInput) {
-    requireAdmin(session);
     await this.settings.ensureBranchExists(input.branchId);
-    await this.branches.ensureUserHasBranchAccess(session.userId, input.branchId);
 
     return this.prisma.$transaction(async (tx) => {
       const itemIds = input.lines.map((line) => line.itemId);

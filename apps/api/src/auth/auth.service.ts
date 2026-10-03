@@ -52,7 +52,8 @@ export class AuthService {
       counterId: openRegister?.counter.id ?? null,
       counterName: openRegister?.counter.name ?? null,
       branches: user.branchAccesses.map((access) => access.branch),
-      mustChangePassword: user.mustChangePassword
+      mustChangePassword: user.mustChangePassword,
+      permissions: user.role === 'CASHIER' ? user.permissions : []
     };
   }
 
@@ -89,7 +90,8 @@ export class AuthService {
     return {
       ...session,
       username: user.username,
-      branches: user.branchAccesses.map((access) => access.branch)
+      branches: user.branchAccesses.map((access) => access.branch),
+      permissions: user.role === 'CASHIER' ? user.permissions : []
     };
   }
 

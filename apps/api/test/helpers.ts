@@ -110,6 +110,20 @@ export async function startApp() {
     return { branch, token: opened.token, registerId: opened.register.id, walkIn };
   }
 
+  /** A cashier signed in with a register open at `branchId`, with the permissions given. */
+  async function cashierWithRegister(adminToken: string, branchId: string, permissions: string[] = []) {
+    const username = `cashier-${randomUUID().slice(0, 8)}`;
+    const user = await ok<{ id: string }>('POST', '/users', adminToken, { branchId, username, password: 'cashier-pass-1', permissions });
+    // A counter of their own: the branch's first one may already be open.
+    const counter = await ok<{ id: string }>('POST', `/branches/${branchId}/counters`, adminToken, { name: `Till ${username}` });
+    const opened = await ok<{ token: string; register: { id: string } }>('POST', '/registers/open', await login(username, 'cashier-pass-1'), {
+      branchId,
+      counterId: counter.id,
+      openingBalance: 0
+    });
+    return { userId: user.id, username, token: opened.token, registerId: opened.register.id };
+  }
+
   async function item(
     token: string,
     branchId: string,
@@ -145,7 +159,7 @@ export async function startApp() {
     }
   }
 
-  return { app, baseUrl, db, business, businessCode, inBusiness, call, ok, login, freeBranchCode, newBranch, branchWithRegister, item, onHand, close };
+  return { app, baseUrl, db, business, businessCode, inBusiness, call, ok, login, freeBranchCode, newBranch, branchWithRegister, cashierWithRegister, item, onHand, close };
 }
 
 export type TestApp = Awaited<ReturnType<typeof startApp>>;

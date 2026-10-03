@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DiscountScope, DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, TaxpayerType, UserRole, WalletTxnType } from '@prisma/client';
-import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, resolveDiscountAmounts } from '@pos/contracts';
+import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, invoiceDue, resolveDiscountAmounts } from '@pos/contracts';
 import type { DiscountInput } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import { isFallback } from '../common/mode';
@@ -512,11 +512,12 @@ export class SalesService {
   }
 
   /**
-   * Admin action for an unpaid DRAFT invoice (for example one left behind when payment
-   * failed in the old two-step checkout): marks it CANCELLED and puts its stock back.
+   * For an unpaid DRAFT invoice at `branchId` (for example one left behind when payment failed
+   * in the old two-step checkout): marks it CANCELLED and puts its stock back. The caller checks
+   * who may (admins, and cashiers allowed to cancel unpaid bills).
    */
-  async cancelSale(session: SessionUser, invoiceId: string) {
-    const sessionBranchId = requireSessionBranchId(session);
+  async cancelSale(branchId: string, invoiceId: string) {
+    const sessionBranchId = branchId;
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
       const invoice = await tx.saleInvoice.findFirst({
@@ -578,7 +579,11 @@ export class SalesService {
     }
 
     const payTotal = round2(payments.reduce((acc, p) => acc + p.amount, 0));
-    const pending = round2(toNumber(invoice.grandTotal) - toNumber(invoice.paidTotal));
+    const pending = invoiceDue({
+      grandTotal: toNumber(invoice.grandTotal),
+      paidTotal: toNumber(invoice.paidTotal),
+      creditedTotal: toNumber(invoice.creditedTotal)
+    });
     const excess = round2(Math.max(0, payTotal - pending));
 
     if (payTotal > pending && invoice.customer.isWalkIn) {
@@ -631,7 +636,7 @@ export class SalesService {
 
     const appliedToInvoice = round2(Math.min(payTotal, pending));
     const updatedPaid = round2(toNumber(invoice.paidTotal) + appliedToInvoice);
-    const status = updatedPaid >= toNumber(invoice.grandTotal) ? InvoiceStatus.SETTLED : InvoiceStatus.PARTIALLY_SETTLED;
+    const status = round2(updatedPaid + toNumber(invoice.creditedTotal)) >= toNumber(invoice.grandTotal) ? InvoiceStatus.SETTLED : InvoiceStatus.PARTIALLY_SETTLED;
 
     const updated = await tx.saleInvoice.update({
       where: { id: invoice.id },
@@ -671,6 +676,17 @@ export class SalesService {
 
     const invoiceWithCreatorName = await updated;
     return { invoice: invoiceWithCreatorName, receipt };
+  }
+
+  /** The branch of an invoice (by id or number), or of a receipt; null when there is none. */
+  async branchOf(key: { invoice?: string; receipt?: string }) {
+    if (key.receipt) {
+      const receipt = await this.prisma.receipt.findUnique({ where: { id: key.receipt }, select: { invoice: { select: { branchId: true } } } });
+      return receipt?.invoice.branchId ?? null;
+    }
+    const value = key.invoice?.trim() ?? '';
+    const invoice = await this.prisma.saleInvoice.findFirst({ where: { OR: [{ id: value }, { invoiceNo: value }] }, select: { branchId: true } });
+    return invoice?.branchId ?? null;
   }
 
   async listSales(branchId: string) {

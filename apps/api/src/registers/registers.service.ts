@@ -47,11 +47,11 @@ export class RegistersService {
       }),
       client.returnInvoice.aggregate({
         where: { registerSessionId: registerId, refundMode: PaymentMode.CASH },
-        _sum: { totalAmount: true }
+        _sum: { refundAmount: true }
       })
     ]);
     const cashSales = round2(toNumber(cashIn._sum.amount));
-    const cashRefunds = round2(toNumber(cashOut._sum.totalAmount));
+    const cashRefunds = round2(toNumber(cashOut._sum.refundAmount));
     return { cashSales, cashRefunds, expectedCash: round2(openingBalance + cashSales - cashRefunds) };
   }
 

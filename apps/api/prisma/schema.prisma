@@ -12,6 +12,16 @@ enum UserRole {
   CASHIER
 }
 
+/// What an admin lets a cashier do beyond selling. Admins can do all of it.
+enum CashierPermission {
+  MANAGE_STOCK
+  MANAGE_ITEMS
+  RECORD_PURCHASES
+  SEND_TRANSFERS
+  TOP_UP_WALLETS
+  CANCEL_SALES
+}
+
 enum PaymentMode {
   CASH
   CARD
@@ -230,20 +240,22 @@ model LocalInstance {
 }
 
 model User {
-  id                 String             @id @default(uuid())
-  username           String             @unique
+  id                 String              @id @default(uuid())
+  username           String              @unique
   password           String
   role               UserRole
   branchId           String
-  branch             Branch             @relation(fields: [branchId], references: [id])
+  branch             Branch              @relation(fields: [branchId], references: [id])
   branchAccesses     UserBranchAccess[]
   registers          RegisterSession[]
-  isActive           Boolean            @default(true)
+  isActive           Boolean             @default(true)
   /// Set when an admin gives the user a new password: they choose their own at next sign-in.
-  mustChangePassword Boolean            @default(false)
+  mustChangePassword Boolean             @default(false)
   /// Sessions signed in before this are ended (a reset signs the user out everywhere).
   passwordChangedAt  DateTime?
-  createdAt          DateTime           @default(now())
+  /// Cashiers only (see CashierPermission).
+  permissions        CashierPermission[] @default([])
+  createdAt          DateTime            @default(now())
 }
 
 model UserBranchAccess {
@@ -468,6 +480,9 @@ model SaleInvoice {
   igstTotal              Decimal              @default(0) @db.Decimal(14, 2)
   grandTotal             Decimal              @db.Decimal(14, 2)
   paidTotal              Decimal              @db.Decimal(14, 2)
+  /// Taken off what was still owed by returns on this bill before it was paid in full: the
+  /// amount due is grandTotal - paidTotal - creditedTotal.
+  creditedTotal          Decimal              @default(0) @db.Decimal(14, 2)
   createdBy              String
   createdByName          String
   /// The business's GST registration type when the sale was made; never changes afterwards.
@@ -589,6 +604,10 @@ model ReturnInvoice {
   cgstTotal         Decimal             @default(0) @db.Decimal(14, 2)
   sgstTotal         Decimal             @default(0) @db.Decimal(14, 2)
   igstTotal         Decimal             @default(0) @db.Decimal(14, 2)
+  /// totalAmount = dueAdjusted + refundAmount: a return first lowers what the customer still
+  /// owes on the bill, and only the rest is handed back (refundMode).
+  dueAdjusted       Decimal             @default(0) @db.Decimal(14, 2)
+  refundAmount      Decimal             @default(0) @db.Decimal(14, 2)
   refundMode        PaymentMode
   /// The register the refund was given from; null for returns made before this was recorded.
   registerSessionId String?

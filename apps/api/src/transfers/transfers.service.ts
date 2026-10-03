@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, StockTransferStatus, StockTxnType } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
-import { requireAdmin } from '../common/request-session';
+import { AccessService } from '../common/access.service';
 import { branchSummarySelect } from '../common/selects';
 import { toNumber, round3 } from '../common/numbers';
 import { assertQtyRespectsLeastCount } from '../common/quantities';
@@ -32,22 +32,23 @@ export class TransfersService {
     private readonly settings: SettingsService,
     private readonly branches: BranchesService,
     private readonly sequences: SequenceService,
-    private readonly stock: StockService
+    private readonly stock: StockService,
+    private readonly access: AccessService
   ) {}
 
   /** Sends stock to another branch: it leaves the source now and is in transit until received. */
   async createTransfer(session: SessionUser, input: CreateTransferInput) {
-    requireAdmin(session);
     if (isOffline()) {
       throw offlineLimitError('transfer stock between branches');
     }
     if (input.fromBranchId === input.toBranchId) {
       throw new BadRequestException('Choose a different branch to send to');
     }
-    for (const branchId of [input.fromBranchId, input.toBranchId]) {
-      await this.settings.ensureBranchExists(branchId);
-      await this.branches.ensureUserHasBranchAccess(session.userId, branchId);
-    }
+    // Sent by someone who manages the sending branch; any branch of the business can receive.
+    await this.settings.ensureBranchExists(input.fromBranchId);
+    await this.access.requireBranch(session, input.fromBranchId);
+    await this.access.requirePermission(session, 'SEND_TRANSFERS');
+    await this.settings.ensureBranchExists(input.toBranchId);
 
     return this.prisma.$transaction(async (tx) => {
       const items = await tx.item.findMany({
@@ -117,15 +118,20 @@ export class TransfersService {
   }
 
   private async closeTransfer(session: SessionUser, transferId: string, status: 'RECEIVED' | 'CANCELLED') {
-    requireAdmin(session);
     const transfer = await this.prisma.stockTransfer.findUnique({
       where: { id: transferId },
       select: { fromBranchId: true, toBranchId: true }
     });
     if (!transfer) throw new NotFoundException('Transfer not found');
     const received = status === StockTransferStatus.RECEIVED;
-    // Only the receiving branch takes stock in; only the sending branch calls it back.
-    await this.branches.ensureUserHasBranchAccess(session.userId, received ? transfer.toBranchId : transfer.fromBranchId);
+    if (received) {
+      // Whoever is at the receiving branch takes the goods in: anyone with access to it.
+      await this.branches.ensureUserHasBranchAccess(session.userId, transfer.toBranchId);
+    } else {
+      // Called back by someone who may send from the sending branch.
+      await this.access.requireBranch(session, transfer.fromBranchId);
+      await this.access.requirePermission(session, 'SEND_TRANSFERS');
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({ where: { id: session.userId }, select: { username: true } });

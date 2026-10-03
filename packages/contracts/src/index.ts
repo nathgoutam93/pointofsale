@@ -31,12 +31,14 @@ export {
   gstFooterLines,
   gstMetadata,
   gstTaxAmounts,
+  invoiceDue,
   invoiceGstOf,
   invoiceReceiptItems,
   rateFromAmounts,
   returnReceiptDocument,
   saleReceiptDocument,
-  settingLines
+  settingLines,
+  splitReturn
 } from './receiptDocuments.js';
 export type { InvoiceGst, ReceiptBranding } from './receiptDocuments.js';
 export { APP_VERSION, CLIENT_VERSION_HEADER, isOlderVersion, UPDATE_REQUIRED_STATUS } from './version.js';
@@ -106,6 +108,27 @@ import {
 const c = initContract();
 
 const roleSchema = z.enum(['ADMIN', 'CASHIER']);
+
+/**
+ * What an admin may let a cashier do, beyond selling (Settings → Cashiers & Access). Admins can
+ * always do all of it.
+ */
+export const CASHIER_PERMISSIONS = ['MANAGE_STOCK', 'MANAGE_ITEMS', 'RECORD_PURCHASES', 'SEND_TRANSFERS', 'TOP_UP_WALLETS', 'CANCEL_SALES'] as const;
+export const cashierPermissionSchema = z.enum(CASHIER_PERMISSIONS);
+export type CashierPermission = z.infer<typeof cashierPermissionSchema>;
+export const CASHIER_PERMISSION_LABELS: Record<CashierPermission, { label: string; detail: string }> = {
+  MANAGE_STOCK: { label: 'Adjust stock', detail: 'Opening stock and stock adjustments' },
+  MANAGE_ITEMS: { label: 'Manage items', detail: 'Add, edit and delete items in the catalogue, with their prices and images' },
+  RECORD_PURCHASES: { label: 'Record purchases', detail: 'Goods received from suppliers' },
+  SEND_TRANSFERS: { label: 'Send transfers', detail: 'Send stock to another branch, or call a transfer back' },
+  TOP_UP_WALLETS: { label: 'Top up wallets', detail: "Add credit to a customer's wallet" },
+  CANCEL_SALES: { label: 'Cancel unpaid bills', detail: 'Cancel a bill nothing has been paid on' }
+};
+
+/** Whether a signed-in user may do `permission`: admins always, cashiers when given it. */
+export function hasPermission(user: { role: 'ADMIN' | 'CASHIER'; permissions?: readonly string[] | null }, permission: CashierPermission) {
+  return user.role === 'ADMIN' || !!user.permissions?.includes(permission);
+}
 const paymentModeSchema = z.enum(['CASH', 'CARD', 'WALLET']);
 const returnRefundModeSchema = z.enum(['CASH', 'WALLET']);
 const invoiceStatusSchema = z.enum(['DRAFT', 'SETTLED', 'PARTIALLY_SETTLED', 'CANCELLED']);
@@ -357,6 +380,8 @@ export const userSchema = z.object({
   isActive: z.boolean(),
   /** An admin set their password; they haven't chosen their own yet. */
   mustChangePassword: z.boolean().default(false),
+  /** Cashiers only: what they may do beyond selling. */
+  permissions: z.array(cashierPermissionSchema).default([]),
   createdAt: z.string().datetime()
 });
 
@@ -602,6 +627,8 @@ const saleInvoiceSchema = z.object({
   igstTotal: moneySchema.default(0),
   grandTotal: moneySchema,
   paidTotal: moneySchema,
+  /** Taken off what was owed by returns made before the bill was paid in full (see invoiceDue). */
+  creditedTotal: moneySchema.default(0),
   status: invoiceStatusSchema,
   createdBy: z.string().uuid(),
   createdByName: z.string(),
@@ -659,6 +686,12 @@ const returnSchema = z.object({
   cgstTotal: moneySchema.default(0),
   sgstTotal: moneySchema.default(0),
   igstTotal: moneySchema.default(0),
+  /**
+   * totalAmount = dueAdjusted + refundAmount: a return first lowers what the customer still owed
+   * on the bill, and only the rest is handed back (refundMode).
+   */
+  dueAdjusted: moneySchema.default(0),
+  refundAmount: moneySchema.default(0),
   refundMode: returnRefundModeSchema,
   createdAt: z.string().datetime()
 });
@@ -753,7 +786,9 @@ const loginResponseSchema = z.object({
   counterName: z.string().nullable(),
   branches: z.array(branchSchema),
   /** An admin set this password: the user chooses their own before doing anything else. */
-  mustChangePassword: z.boolean().default(false)
+  mustChangePassword: z.boolean().default(false),
+  /** Cashiers: what they may do beyond selling (see hasPermission). */
+  permissions: z.array(cashierPermissionSchema).default([])
 });
 
 /**
@@ -1071,7 +1106,8 @@ export const appContract = c.router({
           role: roleSchema,
           branchId: z.string().uuid().optional(),
           registerId: z.string().uuid().optional(),
-          branches: z.array(branchSchema)
+          branches: z.array(branchSchema),
+          permissions: z.array(cashierPermissionSchema).default([])
         })
       }
     }
@@ -1184,6 +1220,8 @@ export const appContract = c.router({
     update: {
       method: 'PATCH',
       path: '/customers/:id',
+      /** The branch it's done at; defaults to the open register's. Admins may name any branch they manage. */
+      query: z.object({ branchId: z.string().uuid().optional() }),
       body: z.object({ name: requiredText.optional(), phone: z.string().nullable().optional() }),
       responses: { 200: customerSchema }
     },
@@ -1195,11 +1233,15 @@ export const appContract = c.router({
     getWallet: {
       method: 'GET',
       path: '/customers/:id/wallet',
+      /** The branch it's done at; defaults to the open register's. Admins may name any branch they manage. */
+      query: z.object({ branchId: z.string().uuid().optional() }),
       responses: { 200: walletSchema }
     },
     topupWallet: {
       method: 'POST',
       path: '/customers/:id/wallet/topup',
+      /** The branch it's done at; defaults to the open register's. Admins may name any branch they manage. */
+      query: z.object({ branchId: z.string().uuid().optional() }),
       body: z.object({ amount: moneySchema.positive(), reference: z.string().optional() }),
       responses: { 200: walletTxnSchema }
     }
@@ -1221,7 +1263,8 @@ export const appContract = c.router({
         branchIds: z
           .array(z.string().uuid())
           .superRefine(uniqueBy((id) => id, 'Branch is listed more than once'))
-          .optional()
+          .optional(),
+        permissions: z.array(cashierPermissionSchema).superRefine(uniqueBy((permission) => permission, 'Permission is listed more than once')).optional()
       }),
       responses: { 201: userSchema }
     },
@@ -1236,7 +1279,9 @@ export const appContract = c.router({
          * an admin sets someone else's password. Either way their sessions end.
          */
         mustChangePassword: z.boolean().optional(),
-        isActive: z.boolean().optional()
+        isActive: z.boolean().optional(),
+        /** Replaces the cashier's permissions. */
+        permissions: z.array(cashierPermissionSchema).superRefine(uniqueBy((permission) => permission, 'Permission is listed more than once')).optional()
       }),
       responses: { 200: userSchema }
     },
@@ -1628,6 +1673,8 @@ export const appContract = c.router({
     list: {
       method: 'GET',
       path: '/returns',
+      /** Default: the open register's branch. Admins may name any branch they manage. */
+      query: z.object({ branchId: z.string().uuid().optional() }),
       responses: { 200: z.array(returnListItemSchema) }
     },
     getById: {

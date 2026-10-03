@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, WalletTxnType } from '@prisma/client';
-import { returnLineAmounts, type GstAmounts } from '@pos/contracts';
+import { invoiceDue, returnLineAmounts, splitReturn, type GstAmounts } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
 import { toNumber, round2, round3 } from '../common/numbers';
@@ -67,25 +67,15 @@ export class ReturnsService {
         where: { id: saleInvoiceId },
         include: {
           lines: { include: { returnLines: true } },
-          returns: { select: { totalAmount: true } },
+          returns: { select: { totalAmount: true, refundAmount: true } },
           customer: { select: { isWalkIn: true } }
         }
       });
 
       if (!invoice) throw new NotFoundException('Invoice not found');
       if (invoice.branchId !== sessionBranchId) throw new BadRequestException('Branch mismatch');
-      // Only paid invoices can be returned; refunding an unpaid or part-paid sale would
-      // hand back money that was never taken.
-      if (invoice.status !== InvoiceStatus.SETTLED) {
-        throw new BadRequestException(
-          invoice.status === InvoiceStatus.CANCELLED
-            ? `Invoice ${invoice.invoiceNo} is cancelled`
-            : `Invoice ${invoice.invoiceNo} isn't fully paid yet. Collect the payment before returning items.`
-        );
-      }
-
-      if (input.refundMode === PaymentMode.WALLET) {
-        this.customers.assertHasWallet(invoice.customer);
+      if (invoice.status === InvoiceStatus.CANCELLED) {
+        throw new BadRequestException(`Invoice ${invoice.invoiceNo} is cancelled`);
       }
 
       // Add up repeated lines so the same sale line can't be counted twice.
@@ -154,11 +144,29 @@ export class ReturnsService {
         round2(returnLineCreates.reduce((acc, line) => acc + pick(line), 0));
       const totalAmount = total((line) => line.amount);
 
+      // A bill not yet paid in full is brought down first (a credit sale returned in full owes
+      // nothing and gets nothing back); only what is left over is handed back.
+      const grandTotal = toNumber(invoice.grandTotal);
+      const paidTotal = toNumber(invoice.paidTotal);
+      const creditedTotal = toNumber(invoice.creditedTotal);
+      const { dueAdjusted, refundAmount } = splitReturn(totalAmount, invoiceDue({ grandTotal, paidTotal, creditedTotal }));
       // Never refund more than the customer paid for this invoice in total.
-      const refundedBefore = round2(invoice.returns.reduce((acc, r) => acc + toNumber(r.totalAmount), 0));
-      const paidForGoods = Math.min(toNumber(invoice.paidTotal), toNumber(invoice.grandTotal));
-      if (totalAmount > round2(paidForGoods - refundedBefore) + 1e-9) {
+      const refundedBefore = round2(invoice.returns.reduce((acc, r) => acc + toNumber(r.refundAmount), 0));
+      if (refundAmount > round2(Math.min(paidTotal, grandTotal) - refundedBefore) + 1e-9) {
         throw new BadRequestException('Refund would be more than was paid for this invoice');
+      }
+      if (refundAmount > 0 && input.refundMode === PaymentMode.WALLET) {
+        this.customers.assertHasWallet(invoice.customer);
+      }
+      if (dueAdjusted > 0) {
+        const credited = round2(creditedTotal + dueAdjusted);
+        await tx.saleInvoice.update({
+          where: { id: invoice.id },
+          data: {
+            creditedTotal: credited,
+            status: round2(paidTotal + credited) >= grandTotal ? InvoiceStatus.SETTLED : InvoiceStatus.PARTIALLY_SETTLED
+          }
+        });
       }
 
       // Numbered in the series of the counter giving the refund.
@@ -180,6 +188,8 @@ export class ReturnsService {
           cgstTotal: total((line) => line.cgstAmount),
           sgstTotal: total((line) => line.sgstAmount),
           igstTotal: total((line) => line.igstAmount),
+          dueAdjusted,
+          refundAmount,
           refundMode: input.refundMode,
           registerSessionId: session.registerId,
           lines: { create: returnLineCreates }
@@ -199,16 +209,16 @@ export class ReturnsService {
         }))
       );
 
-      if (input.refundMode === PaymentMode.WALLET) {
+      if (refundAmount > 0 && input.refundMode === PaymentMode.WALLET) {
         const wallet = await tx.walletAccount.findUnique({ where: { customerId: invoice.customerId } });
         if (!wallet) throw new NotFoundException('Wallet not found');
 
-        await tx.walletAccount.update({ where: { id: wallet.id }, data: { balance: { increment: totalAmount } } });
+        await tx.walletAccount.update({ where: { id: wallet.id }, data: { balance: { increment: refundAmount } } });
         await tx.walletTxn.create({
           data: {
             walletAccountId: wallet.id,
             type: WalletTxnType.REFUND_RETURN,
-            amount: totalAmount,
+            amount: refundAmount,
             referenceType: 'RETURN',
             referenceId: returnInvoice.id
           }
@@ -241,6 +251,8 @@ export class ReturnsService {
       saleInvoiceId: row.saleInvoiceId,
       returnNo: row.returnNo,
       totalAmount: row.totalAmount,
+      dueAdjusted: row.dueAdjusted,
+      refundAmount: row.refundAmount,
       refundMode: row.refundMode,
       createdAt: row.createdAt,
       saleInvoiceNo: row.saleInvoice.invoiceNo,
@@ -249,7 +261,13 @@ export class ReturnsService {
     }));
   }
 
-  async getReturnById(session: SessionUser, id: string) {
+  /** The branch a return was made at (its bill's); null when there is none. */
+  async branchOf(id: string) {
+    const row = await this.prisma.returnInvoice.findUnique({ where: { id }, select: { saleInvoice: { select: { branchId: true } } } });
+    return row?.saleInvoice.branchId ?? null;
+  }
+
+  async getReturnById(branchId: string, id: string) {
     const returnInvoice = await this.prisma.returnInvoice.findUnique({
       where: { id },
       include: {
@@ -271,8 +289,7 @@ export class ReturnsService {
     });
 
     if (!returnInvoice) throw new NotFoundException('Return invoice not found');
-    const sessionBranchId = requireSessionBranchId(session);
-    if (returnInvoice.saleInvoice.branchId !== sessionBranchId) throw new BadRequestException('Branch mismatch');
+    if (returnInvoice.saleInvoice.branchId !== branchId) throw new NotFoundException('Return invoice not found');
 
     return {
       id: returnInvoice.id,
@@ -284,6 +301,8 @@ export class ReturnsService {
       cgstTotal: returnInvoice.cgstTotal,
       sgstTotal: returnInvoice.sgstTotal,
       igstTotal: returnInvoice.igstTotal,
+      dueAdjusted: returnInvoice.dueAdjusted,
+      refundAmount: returnInvoice.refundAmount,
       refundMode: returnInvoice.refundMode,
       createdAt: returnInvoice.createdAt,
       saleInvoiceNo: returnInvoice.saleInvoice.invoiceNo,

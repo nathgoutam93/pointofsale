@@ -1,10 +1,37 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { CashierPermission, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { hashPassword, newPasswordFields, validateNewPassword } from '../auth/password';
 import type { SessionUser } from '../common/types';
 import { SettingsService } from '../settings/settings.service';
 import { BranchesService } from '../branches/branches.service';
+
+const userSelect = {
+  id: true,
+  username: true,
+  role: true,
+  branchId: true,
+  isActive: true,
+  mustChangePassword: true,
+  permissions: true,
+  createdAt: true,
+  branchAccesses: { select: { branchId: true } }
+} satisfies Prisma.UserSelect;
+
+function toUser(user: Prisma.UserGetPayload<{ select: typeof userSelect }>) {
+  return {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    branchId: user.branchId,
+    branchIds: user.branchAccesses.map((access) => access.branchId),
+    isActive: user.isActive,
+    mustChangePassword: user.mustChangePassword,
+    // Admins can do everything; permissions only mean something for cashiers.
+    permissions: user.role === UserRole.CASHIER ? user.permissions : [],
+    createdAt: user.createdAt
+  };
+}
 
 @Injectable()
 export class UsersService {
@@ -19,32 +46,14 @@ export class UsersService {
     const users = await this.prisma.user.findMany({
       where: { branchAccesses: { some: { branchId } } },
       orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        username: true,
-        role: true,
-        branchId: true,
-        isActive: true,
-        mustChangePassword: true,
-        createdAt: true,
-        branchAccesses: { select: { branchId: true } }
-      }
+      select: userSelect
     });
-    return users.map((user) => ({
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      branchId: user.branchId,
-      branchIds: user.branchAccesses.map((access) => access.branchId),
-      isActive: user.isActive,
-      mustChangePassword: user.mustChangePassword,
-      createdAt: user.createdAt
-    }));
+    return users.map(toUser);
   }
 
   async createUser(
     branchId: string,
-    input: { username: string; password: string; role?: UserRole; branchIds?: string[] }
+    input: { username: string; password: string; role?: UserRole; branchIds?: string[]; permissions?: CashierPermission[] }
   ) {
     await this.settings.ensureBranchExists(branchId);
     if (input.role && input.role !== UserRole.CASHIER) {
@@ -62,40 +71,21 @@ export class UsersService {
         username: input.username,
         password: await hashPassword(input.password),
         role: UserRole.CASHIER,
+        permissions: input.permissions ?? [],
         branchAccesses: {
           createMany: {
             data: uniqueBranchIds.map((id) => ({ branchId: id }))
           }
         }
       },
-      select: {
-        id: true,
-        username: true,
-        role: true,
-        branchId: true,
-        isActive: true,
-        mustChangePassword: true,
-        createdAt: true,
-        branchAccesses: { select: { branchId: true } }
-      }
+      select: userSelect
     });
-    return {
-      id: created.id,
-      username: created.username,
-      role: created.role,
-      branchId: created.branchId,
-      branchIds: created.branchAccesses.map((access) => access.branchId),
-      isActive: created.isActive,
-      mustChangePassword: created.mustChangePassword,
-      createdAt: created.createdAt
-    };
+    return toUser(created);
   }
 
   async grantUserBranchAccess(session: SessionUser, userId: string, branchId: string) {
     await this.settings.ensureBranchExists(branchId);
-    if (session.branchId) {
-      await this.branches.ensureUserHasBranchAccess(session.userId, session.branchId);
-    }
+    await this.branches.ensureUserHasBranchAccess(session.userId, branchId);
 
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
     if (!user) {
@@ -113,9 +103,7 @@ export class UsersService {
   }
 
   async revokeUserBranchAccess(session: SessionUser, userId: string, branchId: string) {
-    if (session.branchId) {
-      await this.branches.ensureUserHasBranchAccess(session.userId, session.branchId);
-    }
+    await this.branches.ensureUserHasBranchAccess(session.userId, branchId);
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -139,7 +127,7 @@ export class UsersService {
   async updateUser(
     session: SessionUser,
     userId: string,
-    input: { username?: string; password?: string; mustChangePassword?: boolean; isActive?: boolean; role?: UserRole }
+    input: { username?: string; password?: string; mustChangePassword?: boolean; isActive?: boolean; role?: UserRole; permissions?: CashierPermission[] }
   ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -148,8 +136,10 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    if (session.branchId && !user.branchAccesses.some((access) => access.branchId === session.branchId)) {
-      throw new BadRequestException('Branch mismatch');
+    // An admin manages the people of the branches they have access to.
+    await this.branches.ensureUserHasBranchAccess(session.userId, user.branchId);
+    if (input.permissions !== undefined && user.role !== UserRole.CASHIER) {
+      throw new BadRequestException('Admins can already do everything; permissions are for cashiers');
     }
     if (input.role && input.role !== UserRole.CASHIER) {
       throw new BadRequestException('Only cashier role updates are allowed');
@@ -172,28 +162,11 @@ export class UsersService {
         ...(input.password !== undefined
           ? newPasswordFields(await hashPassword(input.password), input.mustChangePassword ?? user.id !== session.userId)
           : {}),
-        isActive: input.isActive
+        isActive: input.isActive,
+        permissions: input.permissions
       },
-      select: {
-        id: true,
-        username: true,
-        role: true,
-        branchId: true,
-        isActive: true,
-        mustChangePassword: true,
-        createdAt: true,
-        branchAccesses: { select: { branchId: true } }
-      }
+      select: userSelect
     });
-    return {
-      id: updated.id,
-      username: updated.username,
-      role: updated.role,
-      branchId: updated.branchId,
-      branchIds: updated.branchAccesses.map((access) => access.branchId),
-      isActive: updated.isActive,
-      mustChangePassword: updated.mustChangePassword,
-      createdAt: updated.createdAt
-    };
+    return toUser(updated);
   }
 }

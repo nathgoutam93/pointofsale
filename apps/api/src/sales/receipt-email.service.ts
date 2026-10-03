@@ -91,6 +91,7 @@ export class ReceiptEmailService {
       grandTotal: Number(invoice.grandTotal),
       payments: invoice.payments.map((payment) => ({ mode: payment.mode, amount: Number(payment.amount) })),
       paidTotal: Number(invoice.paidTotal),
+      creditedTotal: Number(invoice.creditedTotal),
       timeZone: business?.timezone ?? undefined
     });
     const receipt = renderReceipt(doc, resolveReceiptTemplate(branch.receiptTemplate, branch.receiptCss || branch.invoiceCss));

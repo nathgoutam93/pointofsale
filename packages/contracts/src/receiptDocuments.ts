@@ -111,9 +111,12 @@ export function saleReceiptDocument(sale: {
   grandTotal: number;
   payments: Array<{ mode: string; amount: number }>;
   paidTotal: number;
+  /** Taken off the amount due by returns made before the bill was paid. */
+  creditedTotal?: number;
   /** For the date and time; default: this device's. */
   timeZone?: string;
 }): ReceiptDocument {
+  const credited = sale.creditedTotal ?? 0;
   const fields: ReceiptField[] = [
     { label: 'Invoice', value: sale.invoiceNo },
     { label: 'Receipt', value: sale.receiptNo ?? '' },
@@ -137,8 +140,11 @@ export function saleReceiptDocument(sale: {
     taxTotals: gstTaxAmounts(sale.gst),
     grandTotalLabel: 'TOTAL',
     grandTotal: sale.grandTotal,
-    payments: sale.payments.map((payment) => ({ label: `Paid by ${payment.mode}`, amount: payment.amount })),
-    due: Math.max(0, sale.grandTotal - sale.paidTotal),
+    payments: [
+      ...sale.payments.map((payment) => ({ label: `Paid by ${payment.mode}`, amount: payment.amount })),
+      ...(credited > 0 ? [{ label: 'Less returns', amount: credited }] : []),
+    ],
+    due: invoiceDue({ grandTotal: sale.grandTotal, paidTotal: sale.paidTotal, creditedTotal: credited }),
     legalFooter: gstFooterLines(sale.gst),
   };
 }
@@ -153,6 +159,21 @@ export function rateFromAmounts(taxable: number, tax: number) {
   return Math.abs(nearest - rate) < 0.5 ? nearest : Math.round(rate * 100) / 100;
 }
 
+/** What is still owed on a bill: its total less payments and returns taken off it. */
+export function invoiceDue(invoice: { grandTotal: number | string; paidTotal: number | string; creditedTotal?: number | string | null }) {
+  const due = Number(invoice.grandTotal) - Number(invoice.paidTotal) - Number(invoice.creditedTotal ?? 0);
+  return Math.max(0, Math.round(due * 100) / 100);
+}
+
+/**
+ * How much of a return comes off what is still owed on the bill, and how much is handed back:
+ * a bill not yet paid in full is first brought down, and only the rest is refunded.
+ */
+export function splitReturn(amount: number, due: number) {
+  const dueAdjusted = Math.round(Math.min(amount, Math.max(0, due)) * 100) / 100;
+  return { dueAdjusted, refundAmount: Math.round((amount - dueAdjusted) * 100) / 100 };
+}
+
 /** A return: what was refunded and how. */
 export function returnReceiptDocument(refund: {
   branding: ReceiptBranding;
@@ -163,8 +184,12 @@ export function returnReceiptDocument(refund: {
   refundMode: 'CASH' | 'WALLET';
   items: ReceiptDocumentItem[];
   totalAmount: number;
+  /** Of totalAmount, what came off the amount still owed (the rest was refunded). */
+  dueAdjusted?: number;
   tax: { cgst: number; sgst: number; igst: number };
 }): ReceiptDocument {
+  const dueAdjusted = refund.dueAdjusted ?? 0;
+  const refunded = Math.round((refund.totalAmount - dueAdjusted) * 100) / 100;
   const taxTotals = [
     ...(refund.tax.igst > 0 ? [{ label: 'incl. IGST', amount: refund.tax.igst }] : []),
     ...(refund.tax.cgst > 0 || refund.tax.sgst > 0
@@ -175,7 +200,7 @@ export function returnReceiptDocument(refund: {
       : []),
   ];
   return {
-    title: 'REFUND',
+    title: refunded > 0 ? 'REFUND' : 'RETURN',
     storeName: refund.branding.storeName,
     headerLines: refund.branding.headerLines,
     footerLines: refund.branding.footerLines,
@@ -192,10 +217,11 @@ export function returnReceiptDocument(refund: {
     itemsTotal: null,
     orderDiscount: 0,
     taxTotals,
-    grandTotalLabel: 'REFUND',
+    grandTotalLabel: dueAdjusted > 0 ? 'RETURNED' : 'REFUND',
     grandTotal: refund.totalAmount,
     payments: [
-      { label: refund.refundMode === 'WALLET' ? 'Credited to Wallet' : 'Refunded by Cash', amount: refund.totalAmount },
+      ...(dueAdjusted > 0 ? [{ label: 'Taken off amount due', amount: dueAdjusted }] : []),
+      ...(refunded > 0 ? [{ label: refund.refundMode === 'WALLET' ? 'Credited to Wallet' : 'Refunded by Cash', amount: refunded }] : []),
     ],
     due: null,
     legalFooter: [],
