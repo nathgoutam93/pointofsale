@@ -71,12 +71,12 @@ The same `apps/api` code runs in both places. `POS_MODE=offline` or `POS_MODE=on
 
 Branch: `feat/desktop-api-modes`. Everything here can be tested in a browser with `pnpm dev`, without Electron.
 
-### [ ] 1.1 Mode and runtime config
+### [x] 1.1 Mode and runtime config
 - **Where:** `apps/api/src/main.ts`, new `apps/api/src/common/mode.ts`, `apps/api/.env.example`.
 - **What:** Read `POS_MODE` (`offline` | `online`, default `online` so existing setups don't change), `HOST` (offline: `127.0.0.1` only), `PORT` (`0` = random, print the chosen port as one JSON line on stdout so Electron can read it), `UPLOADS_DIR` (already exists). Export `isOffline()`.
 - **Done when:** `POS_MODE=offline PORT=0 node dist/main.js` listens on 127.0.0.1 only and prints `{"event":"listening","port":NNNNN}`.
 
-### [ ] 1.2 Version endpoint
+### [x] 1.2 Version endpoint
 - **Where:** new `apps/api/src/meta/meta.controller.ts`, contract in `packages/contracts/src/index.ts`.
 - **What:** `GET /meta` (public) returns `{ appVersion, schemaVersion, mode, minClientVersion, setupRequired }`.
   - `appVersion` comes from a shared version constant (see 6.1).
@@ -85,7 +85,7 @@ Branch: `feat/desktop-api-modes`. Everything here can be tested in a browser wit
   - `setupRequired` is true when there are no users (offline only).
 - **Done when:** the web app and Electron can call it before sign-in.
 
-### [ ] 1.3 First-run setup replaces the random-password seed (offline)
+### [x] 1.3 First-run setup replaces the random-password seed (offline)
 - **Where:** `apps/api/src/auth/auth.service.ts` (`onModuleInitSeed`, `seedFirstAdmin`), new `POST /setup` route.
 - **What:**
   - In offline mode, don't create the admin at startup. `POST /setup` is public **only while no users exist**. It creates in one transaction, under an advisory lock so two calls can't both win:
@@ -95,7 +95,7 @@ Branch: `feat/desktop-api-modes`. Everything here can be tested in a browser wit
   - Online mode keeps today's seed behaviour until Phase 4 replaces it with provisioning.
 - **Done when:** a fresh offline database shows the setup screen and no password is printed to logs. A second `POST /setup` returns 409.
 
-### [ ] 1.4 Enforce the offline limits
+### [x] 1.4 Enforce the offline limits
 - **Where:**
   - `apps/api/src/branches/branches.service.ts` `createBranch`
   - `apps/api/src/counters/counters.service.ts` `createCounter`
@@ -104,12 +104,12 @@ Branch: `feat/desktop-api-modes`. Everything here can be tested in a browser wit
 - **What:** In offline mode, refuse a second branch or a second counter with a clear message: "Single-counter businesses can't add branches or counters. Move your business online to add more." Stock transfers need two branches, so refuse them too.
 - **Done when:** API tests cover each refusal (run the API with `POS_MODE=offline` in a new test file).
 
-### [ ] 1.5 Make advisory lock keys tenant-safe
+### [x] 1.5 Make advisory lock keys tenant-safe
 - **Where:** `apps/api/src/settings/settings.service.ts` lines ~73, ~254, ~298: `pg_advisory_xact_lock(hashtext('taxpayer-type-change'))`.
 - **What:** Advisory locks apply to the whole database, not per schema. A constant key would make every business on the server queue behind every other business's settings change. Build the key from the current schema, e.g. `hashtextextended(current_schema() || ':taxpayer-type-change', 0)`. Check every other `pg_advisory_xact_lock` call: the keys built from branch or item UUIDs are already safe.
 - **Done when:** grep shows no constant lock keys, and the tests pass.
 
-### [ ] 1.6 Data export for the move online (offline only)
+### [x] 1.6 Data export for the move online (offline only)
 - **Where:** new `apps/api/src/migration/export.service.ts`, `GET /migration/export` (admin only, offline only).
 - **What:** Stream a zip bundle:
   - `manifest.json`: format version, `appVersion`, `schemaVersion`, `exportedAt`, row count and SHA-256 per table
@@ -124,7 +124,7 @@ Branch: `feat/desktop-api-modes`. Everything here can be tested in a browser wit
   - no checkout in progress
 - **Done when:** export → import (5.3) on a test database round-trips every row exactly.
 
-### [ ] 1.7 Read-only "archived" state (offline)
+### [x] 1.7 Read-only "archived" state (offline)
 - **Where:** `apps/api/src/auth/auth.guard.ts` or a new global guard. The flag lives in a new single-row table `LocalInstance` (`status: ACTIVE | ARCHIVED`, `movedToBusinessId`, `movedAt`).
 - **What:** When `ARCHIVED`, every non-GET request returns 423 "This business has moved online." Reports, sales history and GST exports stay readable.
 - **Done when:** a test sets the flag and checks that writes are refused and reads still work.
@@ -366,7 +366,7 @@ Branch: `feat/go-online`. Depends on 1.6, 1.7, 4.1–4.5.
 
 Branch: whichever phase needs it first (likely Phase 1).
 
-### [ ] 6.1 One version source
+### [x] 6.1 One version source
 - **What:** The root `package.json` `version` is the single source. A build step writes it into `packages/contracts/src/version.ts`, which the API (`GET /meta`), the web app (About screen) and the desktop app (`electron-builder` uses it) all read.
 
 ### [ ] 6.2 Release order
@@ -396,3 +396,19 @@ Branch: whichever phase needs it first (likely Phase 1).
 ## Progress log
 
 - 2026-10-03: Plan written. No code changes yet.
+- 2026-10-03: **Phase 1 done, plus 6.1** (on `fix/auth-hardening`). 151 API tests and 47 contracts tests pass.
+  - **1.1:** `POS_MODE` (default `online`), `HOST`, `PORT=0`. On start the API prints `{"event":"listening","mode":...,"port":N}`. Offline installs bind `127.0.0.1` only, and fail to start if `HOST` is set to anything else.
+    - Added beyond the plan, in `src/app-config.ts`: offline installs reject requests whose Host header isn't `127.0.0.1`/`localhost`/`::1` (stops DNS rebinding). CORS is limited by `CORS_ORIGINS`; offline with no list allows only the dev server (`http://localhost:3000`, `http://127.0.0.1:3000`). **Phase 3 must pass `CORS_ORIGINS=<app:// origin>` to the local API.**
+    - `.env` now loads before any module (`src/load-env.ts`). Before this, `UPLOADS_DIR` set only in `.env` was ignored by the upload routes.
+    - `configureApp()` (CORS, Host check, `/uploads/`) is shared by `main.ts` and the test helper.
+  - **1.2:** `GET /meta` (public). `schemaVersion` is the newest applied row in `_prisma_migrations`. `MIN_CLIENT_VERSION` is validated at startup. Also returns `instanceStatus` (offline only), which Phase 2 will need.
+  - **1.3:** `POST /setup` lives in `src/setup/`. It's offline only: online answers 404, and a guard checks that before validation runs. It runs under a business lock, refuses with 409 once any user or branch exists, and returns the same session as sign-in. The optional `branchCode` defaults to `MAI`. Choosing composition records a taxpayer type change in force immediately. In offline mode the startup seed creates nothing.
+  - **1.4:** `assertOfflineRoomFor()` (`src/common/offline-limits.ts`) runs under a lock inside the create transaction for branches and counters; transfers are refused outright. All answer 403 with a "Move your business online" hint. Branch prices are still allowed: with one branch they're harmless.
+  - **1.5:** `lockBusiness(tx, name)` (`src/common/locks.ts`) keys the lock on `current_schema()`. The other advisory locks already use branch or item UUIDs, so they were left alone.
+  - **1.6:** `GET /migration/export` (admins, offline only). Refused (409) while a register is open or once `ARCHIVED`. All rows are read in one REPEATABLE READ transaction and written to temp files first, so errors still come back as normal HTTP errors; then the zip is streamed with `manifest.json` last. Single-key tables are paged by key, composite-key tables by offset.
+    - The table list is `MIGRATION_TABLES` in `packages/contracts/src/migration.ts`. A test fails if a Prisma model is neither listed nor in `MIGRATION_EXCLUDED_MODELS`, or if a table comes before one it references.
+    - Uses `archiver@7`: version 8 is ESM-only, and the API is compiled as CommonJS.
+  - **1.7:** new `LocalInstance` model and migration `20261006100000_local_instance`, with status `ACTIVE | MIGRATING | ARCHIVED` (no row = ACTIVE). `InstanceStatusGuard` runs after `AuthGuard` and answers 423 to writes in offline mode only. `@AllowWhenLocked()` exempts a route; sign-in uses it. Nothing sets the status yet: that comes in 5.4.
+  - **6.1:** the version is `0.1.0` in the root `package.json` and `APP_VERSION` in `packages/contracts/src/version.ts`, and a contracts test keeps them equal. It's not generated by a build step, so there's no generated file to keep in sync.
+  - **Tests:** `test/offline.test.ts` runs on its own database, `pos_offline_test`, reset from the migrations each run (same rule as `pos_test`: the name must contain "test"). `test/online-mode.test.ts` covers the online side and the export table list.
+  - **Next:** Phase 2 (web) or Phase 3 (desktop shell); they don't depend on each other.

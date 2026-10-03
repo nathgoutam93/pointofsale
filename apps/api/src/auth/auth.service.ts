@@ -9,6 +9,7 @@ import { toNumber } from '../common/numbers';
 import { branchSummarySelect } from '../common/selects';
 import { DEFAULT_COUNTER_NAME } from '../common/counters';
 import { CustomersService } from '../customers/customers.service';
+import { isOffline } from '../common/mode';
 
 @Injectable()
 export class AuthService {
@@ -138,6 +139,15 @@ export class AuthService {
   }
 
   async onModuleInitSeed() {
+    if (isOffline()) {
+      // An offline install's business, branch and admin come from first-run setup (POST /setup).
+      if ((await this.prisma.user.count()) > 0) {
+        await this.hashPlaintextPasswords();
+        await this.warnAboutWalkInWalletBalances();
+      }
+      return;
+    }
+
     const branch =
       (await this.prisma.branch.findUnique({ where: { code: 'MAI' } })) ??
       (await this.prisma.$transaction(async (tx) => {

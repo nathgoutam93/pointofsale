@@ -3,6 +3,13 @@ import { APP_GUARD } from '@nestjs/core';
 import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
+import { InstanceStatusGuard } from './common/instance-status.guard';
+import { MetaController } from './meta/meta.controller';
+import { MetaService } from './meta/meta.service';
+import { MigrationController } from './migration/migration.controller';
+import { ExportService } from './migration/export.service';
+import { SetupController } from './setup/setup.controller';
+import { SetupService } from './setup/setup.service';
 import { BranchesController } from './branches/branches.controller';
 import { BranchesService } from './branches/branches.service';
 import { CountersController } from './counters/counters.controller';
@@ -36,6 +43,8 @@ import { UsersService } from './users/users.service';
 
 @Module({
   controllers: [
+    MetaController,
+    SetupController,
     AuthController,
     BranchesController,
     SettingsController,
@@ -50,7 +59,8 @@ import { UsersService } from './users/users.service';
     SalesController,
     ReturnsController,
     ReportsController,
-    GstController
+    GstController,
+    MigrationController
   ],
   providers: [
     PrismaService,
@@ -70,7 +80,12 @@ import { UsersService } from './users/users.service';
     ReturnsService,
     ReportsService,
     GstService,
-    { provide: APP_GUARD, useClass: AuthGuard }
+    MetaService,
+    SetupService,
+    ExportService,
+    // Guards run in this order: who is calling, then whether this install accepts changes.
+    { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_GUARD, useClass: InstanceStatusGuard }
   ]
 })
 export class AppModule implements OnModuleInit {

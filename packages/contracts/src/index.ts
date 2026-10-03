@@ -4,6 +4,14 @@ import { RECEIPT_CSS_MAX_LENGTH, sanitizeReceiptCss } from './receiptCss.js';
 
 export { RECEIPT_CSS_MAX_LENGTH, RECEIPT_CSS_SCOPE, sanitizeReceiptCss } from './receiptCss.js';
 export type { ReceiptCssResult } from './receiptCss.js';
+export { APP_VERSION } from './version.js';
+export {
+  MIGRATION_BUNDLE_FORMAT,
+  MIGRATION_EXCLUDED_MODELS,
+  MIGRATION_TABLES,
+  migrationManifestSchema
+} from './migration.js';
+export type { MigrationManifest, MigrationTable } from './migration.js';
 export {
   allocateDiscountAcrossBases,
   computeSaleTotals,
@@ -677,6 +685,40 @@ const compositionReturnSchema = z.object({
 });
 const gstTaxRowSchema = z.object({ txval: z.number(), iamt: z.number(), camt: z.number(), samt: z.number(), csamt: z.number() });
 
+/** A signed-in session, as returned by sign-in and by first-run setup. */
+const loginResponseSchema = z.object({
+  token: z.string(),
+  userId: z.string().uuid(),
+  username: z.string(),
+  role: roleSchema,
+  branchId: z.string().uuid().nullable(),
+  registerId: z.string().uuid().nullable(),
+  /** The counter of the open register, if any. */
+  counterId: z.string().uuid().nullable(),
+  counterName: z.string().nullable(),
+  branches: z.array(branchSchema)
+});
+
+/** offline: one branch and one counter, all on this machine. online: the hosted, multi-business server. */
+export const posModeSchema = z.enum(['offline', 'online']);
+export type PosMode = z.infer<typeof posModeSchema>;
+
+/** ACTIVE: in use. MIGRATING: being moved online, writes paused. ARCHIVED: moved online, read-only. */
+export const localInstanceStatusSchema = z.enum(['ACTIVE', 'MIGRATING', 'ARCHIVED']);
+
+export const metaSchema = z.object({
+  appVersion: z.string(),
+  /** The last database migration applied, e.g. 20261005110000_counter_document_numbers. */
+  schemaVersion: z.string().nullable(),
+  mode: posModeSchema,
+  /** Online only: clients older than this must update before using the API. */
+  minClientVersion: z.string().nullable(),
+  /** Offline only: true until first-run setup has created the business and its admin. */
+  setupRequired: z.boolean(),
+  /** Offline only: whether this machine's business is in use, moving online, or has moved. */
+  instanceStatus: localInstanceStatusSchema.nullable()
+});
+
 export const appContract = c.router({
   gst: {
     /** CMP-08: a composition taxpayer's quarter (turnover and tax at the composition rate). */
@@ -752,25 +794,49 @@ export const appContract = c.router({
       }
     }
   },
+  meta: {
+    get: {
+      method: 'GET',
+      path: '/meta',
+      responses: { 200: metaSchema }
+    }
+  },
+  setup: {
+    /** Offline only, and only while the database has no users: creates the business and its first admin. */
+    run: {
+      method: 'POST',
+      path: '/setup',
+      body: z
+        .object({
+          businessName: requiredText.pipe(z.string().max(120)),
+          gstNumber: gstinSchema.nullable().optional(),
+          /** Where the shop is; taken from the GSTIN when one is given. */
+          stateCode: gstStateCodeSchema.nullable().optional(),
+          timezone: timeZoneSchema.default('Asia/Kolkata'),
+          taxpayerType: taxpayerTypeSchema.default('REGULAR'),
+          compositionCategory: compositionCategorySchema.nullable().optional(),
+          /** Starts every invoice number; MAI if not given. */
+          branchCode: branchCodeSchema.default('MAI'),
+          adminUsername: requiredText.pipe(z.string().max(64)),
+          adminPassword: passwordSchema
+        })
+        .refine((body) => (body.taxpayerType === 'COMPOSITION') === !!body.compositionCategory, {
+          message: 'A composition taxpayer needs a category, and a regular one must not have one',
+          path: ['compositionCategory']
+        })
+        .refine((body) => !body.gstNumber || !body.stateCode || body.gstNumber.slice(0, 2) === body.stateCode, {
+          message: "The state doesn't match the GSTIN",
+          path: ['stateCode']
+        }),
+      responses: { 201: loginResponseSchema }
+    }
+  },
   auth: {
     login: {
       method: 'POST',
       path: '/auth/login',
       body: z.object({ username: z.string(), password: z.string() }),
-      responses: {
-        200: z.object({
-          token: z.string(),
-          userId: z.string().uuid(),
-          username: z.string(),
-          role: roleSchema,
-          branchId: z.string().uuid().nullable(),
-          registerId: z.string().uuid().nullable(),
-          /** The counter of the open register, if any. */
-          counterId: z.string().uuid().nullable(),
-          counterName: z.string().nullable(),
-          branches: z.array(branchSchema)
-        })
-      }
+      responses: { 200: loginResponseSchema }
     },
     me: {
       method: 'GET',

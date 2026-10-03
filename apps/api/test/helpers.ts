@@ -1,8 +1,9 @@
 import { randomBytes, randomUUID } from 'crypto';
 import { NestFactory } from '@nestjs/core';
-import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/app-config';
 
 export const ADMIN = { username: 'admin', password: 'admin-test-password' };
 
@@ -10,8 +11,9 @@ export type ApiResponse<T = any> = { status: number; body: T };
 
 /** The real app (guard, validation, service) on a random port, plus a direct DB client. */
 export async function startApp() {
-  const app: INestApplication = await NestFactory.create(AppModule, { logger: false });
-  await app.listen(0);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: false });
+  configureApp(app);
+  await app.listen(0, '127.0.0.1');
   const address = app.getHttpServer().address();
   const baseUrl = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
   const db = new PrismaClient();

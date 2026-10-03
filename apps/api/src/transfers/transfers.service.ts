@@ -10,6 +10,7 @@ import { BranchesService } from '../branches/branches.service';
 import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 import { StockService } from '../stock/stock.service';
+import { isOffline, offlineLimitError } from '../common/mode';
 
 export type CreateTransferInput = {
   fromBranchId: string;
@@ -37,6 +38,9 @@ export class TransfersService {
   /** Sends stock to another branch: it leaves the source now and is in transit until received. */
   async createTransfer(session: SessionUser, input: CreateTransferInput) {
     requireAdmin(session);
+    if (isOffline()) {
+      throw offlineLimitError('transfer stock between branches');
+    }
     if (input.fromBranchId === input.toBranchId) {
       throw new BadRequestException('Choose a different branch to send to');
     }

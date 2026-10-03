@@ -5,6 +5,7 @@ import type { SessionUser } from '../common/types';
 import { branchSummarySelect } from '../common/selects';
 import { DEFAULT_COUNTER_NAME } from '../common/counters';
 import { CustomersService } from '../customers/customers.service';
+import { assertOfflineRoomFor } from '../common/offline-limits';
 
 @Injectable()
 export class BranchesService {
@@ -37,6 +38,7 @@ export class BranchesService {
 
     try {
       const branch = await this.prisma.$transaction(async (tx) => {
+        await assertOfflineRoomFor(tx, 'branch');
         const created = await tx.branch.create({
           data: { name, code },
           select: branchSummarySelect

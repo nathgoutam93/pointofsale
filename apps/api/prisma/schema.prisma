@@ -203,6 +203,24 @@ model TaxpayerTypeChange {
   @@index([effectiveFrom])
 }
 
+/// ACTIVE: in use. MIGRATING: being moved online, writes paused. ARCHIVED: moved online, read-only.
+enum LocalInstanceStatus {
+  ACTIVE
+  MIGRATING
+  ARCHIVED
+}
+
+/// Offline (desktop) installs only: the state of this machine's business. One row, id "local";
+/// no row means ACTIVE. Never exported when the business moves online.
+model LocalInstance {
+  id                String              @id @default("local")
+  status            LocalInstanceStatus @default(ACTIVE)
+  /// The online business this one moved to.
+  movedToBusinessId String?
+  movedAt           DateTime?
+  updatedAt         DateTime            @updatedAt
+}
+
 model User {
   id             String             @id @default(uuid())
   username       String             @unique

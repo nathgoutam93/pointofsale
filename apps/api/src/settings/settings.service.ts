@@ -6,6 +6,7 @@ import { toNumber } from '../common/numbers';
 import { businessSettingsSelect, branchSettingsSelect } from '../common/selects';
 import type { SessionUser } from '../common/types';
 import { localDate, startOfLocalDay } from '../reports/zoned-dates';
+import { lockBusiness } from '../common/locks';
 
 export type TaxpayerTypeInForce = {
   taxpayerType: TaxpayerType;
@@ -70,7 +71,7 @@ export class SettingsService {
   }) {
     await this.ensureBusinessSettings();
     const updated = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('taxpayer-type-change'))`;
+      await lockBusiness(tx, 'taxpayer-type-change');
       const settings = await tx.businessSettings.update({
         where: { id: 'default' },
         data: {
@@ -251,7 +252,7 @@ export class SettingsService {
     }
     return this.prisma.$transaction(async (tx) => {
       // One change at a time, so two admins can't both schedule one.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('taxpayer-type-change'))`;
+      await lockBusiness(tx, 'taxpayer-type-change');
       const { timezone } = await this.ensureBusinessSettings(tx);
       const now = new Date();
       const today = formatDate(localDate(now, timezone));
@@ -295,7 +296,7 @@ export class SettingsService {
   /** Cancels a change that hasn't taken effect yet. One already in force can only be followed by another change. */
   async cancelTaxpayerTypeChange(id: string) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('taxpayer-type-change'))`;
+      await lockBusiness(tx, 'taxpayer-type-change');
       const change = await tx.taxpayerTypeChange.findUnique({ where: { id } });
       if (!change) {
         throw new NotFoundException('Taxpayer type change not found');

@@ -7,6 +7,7 @@ import { requireAdmin } from '../common/request-session';
 import { BranchesService } from '../branches/branches.service';
 import { SettingsService } from '../settings/settings.service';
 import { lockBranchRegisters } from '../common/counters';
+import { assertOfflineRoomFor } from '../common/offline-limits';
 
 export const counterSelect = { id: true, branchId: true, number: true, name: true, isActive: true } as const;
 
@@ -37,6 +38,7 @@ export class CountersService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await lockBranchRegisters(tx, branchId);
+        await assertOfflineRoomFor(tx, 'counter');
         await this.assertNameFree(tx, branchId, name);
         // Numbers are never reused, so a deactivated counter's series stays its own.
         const last = await tx.counter.aggregate({ where: { branchId }, _max: { number: true } });
