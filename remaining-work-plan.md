@@ -108,7 +108,7 @@ These need an answer from the product owner before the work that depends on them
   or limits at the load balancer.
 - **Done when:** the limits hold across two API processes.
 
-## [ ] 6. CI and merging the branch
+## [x] 6. CI and merging the branch
 
 - **Why:** `fix/auth-hardening` carries all the desktop, online, security and email work and
   hasn't been merged.
@@ -174,3 +174,4 @@ These need an answer from the product owner before the work that depends on them
 - 2026-10-03: The server sends email (Brevo SMTP); deploy.sh used for the first real deploy. Desktop v0.1.0 built for Linux and Windows by the release workflow (draft).
 - 2026-10-03: From testing: admins manage any branch without a register (branch selector), cashier permissions, returns on unpaid bills lower the amount due first, cashiers receive transfers at their branch.
 - 2026-10-03: v0.1.1 released; the forced update from 0.1.0 (MIN_CLIENT_VERSION) works end to end.
+- 2026-10-03: CI added (`.github/workflows/ci.yml`) and `fix/auth-hardening` merged into `main` (#1).
