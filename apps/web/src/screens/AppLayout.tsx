@@ -80,6 +80,9 @@ function initials(name: string) {
   return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "?";
 }
 
+/** Screens shown before anyone is signed in, without the app's navigation. */
+const FULL_SCREEN_PATHS = new Set(["/", "/welcome", "/setup"]);
+
 export function AppLayout() {
   const location = useRouterState({ select: (s) => s.location.pathname });
   const session = getSession();
@@ -101,7 +104,7 @@ export function AppLayout() {
     setMobileOpen(false);
   }, [location]);
 
-  if (!session && location === "/") {
+  if (!session && FULL_SCREEN_PATHS.has(location)) {
     return <Outlet />;
   }
 

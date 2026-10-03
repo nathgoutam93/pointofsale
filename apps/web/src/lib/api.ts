@@ -1,8 +1,14 @@
 import { initClient, tsRestFetchApi } from '@ts-rest/core';
 import { appContract } from '@pos/contracts';
 import { clearSession, getSession } from './session';
+import { desktop } from './desktop';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
+/**
+ * In the desktop app the API address comes from the app (the local API's port changes each
+ * launch; online mode points at the hosted server). Switching mode reloads the window, so
+ * reading it once is enough. In a browser it comes from the build.
+ */
+export const API_BASE_URL = desktop?.config.apiBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
 
 export const api = initClient(appContract, {
   baseUrl: API_BASE_URL,

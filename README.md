@@ -11,6 +11,7 @@ Monorepo POS system with multi-branch inventory + sales workflow.
 ## Apps and Packages
 - `apps/api`: POS backend API
 - `apps/web`: POS frontend
+- `apps/desktop`: desktop app (Electron) that runs the web app, offline or online
 - `packages/contracts`: Shared ts-rest API contracts
 - `packages/types`: Shared domain enums/types
 
@@ -73,6 +74,28 @@ credit notes, and a cancelled invoice. The GSTINs are synthetic demo identifiers
 the export is for software testing only. The seed refuses other database names and
 can be rerun without duplicating sales. Sign in with the `admin` account configured
 in `apps/api/.env` to browse it.
+
+## Desktop app
+`apps/desktop` packages the POS as a desktop app (Electron). On first launch the owner picks a
+business type:
+- **One shop, one billing counter:** works without internet. The app runs its own PostgreSQL and
+  the API on this computer, and a setup screen creates the business and its admin.
+- **More than one counter or branch:** connects to a hosted server (online mode).
+
+Run it from source (Linux needs a desktop session; Postgres won't run as root):
+```bash
+pnpm build
+pnpm --filter @pos/desktop start
+```
+Build an installer for the current OS (output in `apps/desktop/release/`):
+```bash
+pnpm --filter @pos/desktop dist
+```
+Releases: push a `v<version>` tag after setting the same version in `package.json`,
+`apps/desktop/package.json` and `packages/contracts/src/version.ts`. The workflow publishes the
+installers to GitHub Releases, and installed apps check there for updates every day. The app's
+data and logs are in the OS's app-data folder under "Point of Sale". See
+`desktop-offline-online-plan.md` for the design and what's left.
 
 ## Auth Model
 Protected endpoints use:

@@ -135,7 +135,7 @@ Branch: `feat/desktop-api-modes`. Everything here can be tested in a browser wit
 
 Branch: `feat/desktop-web-modes`. Depends on 1.1 and 1.2. Most items can be tested in the browser by setting the config by hand.
 
-### [ ] 2.1 Runtime API base URL
+### [x] 2.1 Runtime API base URL
 - **Where:** `apps/web/src/lib/api.ts`. `API_BASE_URL` is also used directly in `BranchSettingsPage.tsx`, `ItemsPage.tsx`, `SalesPage.tsx`, `ReturnsPage.tsx` and `screens/pos/useStoreSettings.ts`.
 - **What:**
   - Replace the build-time constant with `getApiBaseUrl()`. It reads `window.posDesktop?.config.apiBaseUrl`, then falls back to `import.meta.env.VITE_API_BASE_URL`, then to `http://localhost:3001`.
@@ -148,7 +148,7 @@ Branch: `feat/desktop-web-modes`. Depends on 1.1 and 1.2. Most items can be test
 - **What:** One `uploadFile(path, file)` in `lib/api.ts` that uses `getApiBaseUrl()`, adds auth headers and handles 401 like the ts-rest client. This also closes a follow-up listed in `fix-plan.md` item 1.
 - **Done when:** all three uploads use it.
 
-### [ ] 2.3 Welcome and business-type screen
+### [x] 2.3 Welcome and business-type screen
 - **Where:** new `apps/web/src/screens/onboarding/`. Route guard in `router.tsx`: if `posDesktop.config.mode` is unset, go to `/welcome`.
 - **What:** Two choices:
   - **"One shop, one billing counter"**: works without internet. Goes to 2.4.
@@ -156,7 +156,7 @@ Branch: `feat/desktop-web-modes`. Depends on 1.1 and 1.2. Most items can be test
   - Also include a small "Already moved online? Sign in" link.
 - **Done when:** the choice is saved through `posDesktop.setMode(...)` and the app restarts into that mode.
 
-### [ ] 2.4 Offline setup form
+### [x] 2.4 Offline setup form
 - **Depends on:** 1.3, 3.4.
 - **What:** Business name, GSTIN (optional), taxpayer type, state, timezone, admin username and password (entered twice). Calls `POST /setup` on the local API, then signs in.
 - **Done when:** a fresh install reaches the POS screen with no terminal output needed.
@@ -203,21 +203,21 @@ Branch: `feat/desktop-web-modes`. Depends on 1.1 and 1.2. Most items can be test
 
 Branch: `feat/desktop-shell`. Can run in parallel with Phase 4.
 
-### [ ] 3.1 Scaffold `apps/desktop`
+### [x] 3.1 Scaffold `apps/desktop`
 - **What:**
   - Electron main, preload and `electron-builder` config. The build depends on `@pos/web` and `@pos/api` building first (add it to `turbo.json`).
   - Register a privileged `app://` scheme that serves `apps/web/dist` with SPA fallback. TanStack Router uses browser history, so `file://` won't work.
   - Set a strict CSP: `connect-src` allows only the local API and the hosted API domain.
 - **Done when:** `pnpm --filter @pos/desktop dev` opens the web app in a window.
 
-### [ ] 3.2 Embedded PostgreSQL
+### [x] 3.2 Embedded PostgreSQL
 - **What:**
   - Use `embedded-postgres`. Data lives in `userData/pgdata`, Postgres listens on 127.0.0.1 on a free port, and the database password is random, generated on first run and stored in `userData/config.json`.
   - Run `initdb` on first run, start on launch and do a clean stop on quit.
   - On a crash, restart once, then show an error with "open logs".
 - **Done when:** the database survives an app restart and a forced kill.
 
-### [ ] 3.3 Local API process
+### [x] 3.3 Local API process
 - **What:**
   - Bundle `apps/api/dist`, its production `node_modules`, and the Prisma query and schema engines for each target platform (set `binaryTargets` in `schema.prisma`).
   - On launch:
@@ -230,14 +230,14 @@ Branch: `feat/desktop-shell`. Can run in parallel with Phase 4.
   - Logs: `userData/logs/api.log`, rotated.
 - **Done when:** the offline app starts end to end on a machine without Node or Postgres installed.
 
-### [ ] 3.4 Config store and preload bridge
+### [x] 3.4 Config store and preload bridge
 - **What:**
   - `userData/config.json` holds `{ mode, apiBaseUrl, businessId, businessCode, onboardedAt }`.
   - The preload exposes only `window.posDesktop`: `config`, `setMode`, `restart`, `getVersion`, `exportForMigration`, `onUpdateStatus`, `installUpdate`.
   - Turn on `contextIsolation` and turn off `nodeIntegration`.
 - **Done when:** the web app reads the mode and base URL from `posDesktop.config` (2.1).
 
-### [ ] 3.5 Daily update check
+### [~] 3.5 Daily update check
 - **What:**
   - `electron-updater` with GitHub Releases. Check at launch and every 24 h while the app is running, and download in the background.
   - Before installing, the app checks the server's `GET /meta` `minClientVersion` (online mode, or offline when the internet is available). Below the minimum: block and install now. Otherwise: install on the next restart, never mid-sale.
@@ -250,7 +250,7 @@ Branch: `feat/desktop-shell`. Can run in parallel with Phase 4.
   - Settings: "Back up now", "Open backups folder" and "Restore from backup" (with confirmation).
 - **Done when:** a restore brings back a deleted sale.
 
-### [ ] 3.7 Release pipeline
+### [~] 3.7 Release pipeline
 - **What:**
   - A GitHub Actions matrix (Windows, macOS, Linux) builds installers on a version tag and publishes them to GitHub Releases.
   - Code signing: a Windows certificate, and an Apple Developer ID plus notarization. Without signing, auto-update fails on macOS and SmartScreen warns on Windows.
@@ -412,3 +412,23 @@ Branch: whichever phase needs it first (likely Phase 1).
   - **6.1:** the version is `0.1.0` in the root `package.json` and `APP_VERSION` in `packages/contracts/src/version.ts`, and a contracts test keeps them equal. It's not generated by a build step, so there's no generated file to keep in sync.
   - **Tests:** `test/offline.test.ts` runs on its own database, `pos_offline_test`, reset from the migrations each run (same rule as `pos_test`: the name must contain "test"). `test/online-mode.test.ts` covers the online side and the export table list.
   - **Next:** Phase 2 (web) or Phase 3 (desktop shell); they don't depend on each other.
+- 2026-10-03: **Desktop app (Phase 3), plus the web items it needs (2.1, 2.3, 2.4).** On `fix/auth-hardening`. Phase 2 was reordered at the user's request: the desktop app comes first, so only the web changes it can't run without were done.
+  - **Tested on Linux, from source and as the packaged app**, with Playwright driving Electron under Xvfb as a non-root user. First launch → welcome → offline → setup → open-register screen; quit (Postgres stops cleanly, no `postmaster.pid` left); relaunch → straight back in. About 2.5 s from choosing offline to the setup form; about 1.3 s to relaunch. The test script isn't in the repo yet (it was a one-off in the session scratchpad); adding it as `apps/desktop/e2e` is a good follow-up. **Windows and macOS builds are untested.**
+  - **Web (2.1):** `apps/web/src/lib/desktop.ts` types the preload bridge (`window.posDesktop`). `API_BASE_URL` in `lib/api.ts` comes from the bridge when present, else from the build as before. It's still a constant, because switching mode reloads the window, so the other files didn't change. 2.2 (shared upload helper) wasn't needed for this and is still open.
+  - **Web (2.3, 2.4):** `/welcome` (desktop only, until a mode is chosen) and `/setup` (whenever `GET /meta` says `setupRequired`, so it also works in a browser against `POS_MODE=offline`). Both are in `screens/onboarding/`. The "More than one counter or branch" option asks for the **server address** and checks its `/meta` (mode online, `minClientVersion`); creating or joining a business there waits on Phase 4 (2.5).
+  - **3.1:** `apps/desktop`, an ESM main process (`src/main.ts`) and a sandboxed CommonJS preload (`src/preload.cts`). The web build is served at `app://pos/` with SPA fallback and a CSP whose `connect-src`/`img-src` allow only the current API (`src/protocol.ts`). Navigation away, pop-ups and webviews are blocked; the window runs a single instance.
+  - **3.2:** Postgres 16 binaries come from the `@embedded-postgres/<platform>` packages (optional dependencies; pnpm installs the one for this machine). The `embedded-postgres` wrapper itself is **not** used: it runs binaries from inside `app.asar` and force-kills Postgres on Windows. `src/postgres.ts` runs `initdb` into a temporary folder then renames it, so a failed first run leaves nothing behind. `pg_ctl` starts and stops the server on a free port on 127.0.0.1, with scram-sha-256 and a random password. It stops a server left over from a crash before starting. The app uses the default `postgres` database.
+  - **3.3:** `prisma migrate deploy` runs on every launch, as a child process of the app's own binary with `ELECTRON_RUN_AS_NODE=1`. A utility process can't be used: the Prisma CLI never exits in one, because the link to the parent keeps it alive. **If the RunAsNode Electron fuse is ever turned off, migrations break.** The API runs as an Electron utility process with `POS_MODE=offline`, `PORT=0`, `CORS_ORIGINS=app://pos`, uploads in userData, and a cwd of userData so no stray `.env` is read. Only a few environment variables are passed through. `prisma` moved to the API's `dependencies` for this.
+  - **3.4:** `userData/config.json` (mode 0600) holds `mode`, `apiBaseUrl`, `dbPassword` and `authSecret`. The secrets are saved *before* `initdb`. The bridge exposes only `config` (mode and API URL), `version`, `chooseMode` and `openLogsFolder`; the page never sees the secrets. Logs are in `userData/logs/{main,postgres,migrations,api,updater}.log`. A startup failure shows a dialog with Restart / Open logs folder / Quit.
+  - **3.5 (partly):** `electron-updater` checks at launch and every 24 h when packaged, downloads in the background and installs on quit. It reads GitHub Releases (`publish` in `electron-builder.yml`). **Not done yet:** forcing an update when the server's `minClientVersion` is newer (6.3), and the update banner (2.8).
+  - **3.7 (partly):** `apps/desktop/scripts/stage.mjs` builds everything and fills `apps/desktop/stage/`:
+    - `api`: `pnpm deploy --prod` with a hoisted `node_modules` and a generated Prisma client; the API's `package.json` `files` keeps out `.env` and sources
+    - `web`
+    - `postgres`: binaries with symlinks resolved
+
+    `scripts/after-pack.cjs` copies those into the app's resources, because electron-builder's `extraResources` always drops `node_modules`. `electron-builder.yml` builds AppImage, NSIS and dmg+zip. `.github/workflows/desktop-release.yml` builds on Linux, Windows and macOS on a `v*` tag and publishes to GitHub Releases. **Not done yet:** signing certificates (repo secrets `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_*`), app icons, and a first real release.
+  - **Versions:** `apps/desktop/package.json` version must equal `APP_VERSION`; the contracts test now checks it too.
+  - **Gotchas:**
+    - pnpm didn't run Electron's download step here. If `apps/desktop/node_modules/electron/dist` is missing, run `node node_modules/electron/install.js` inside the electron package.
+    - Postgres refuses to run as root. In a root-only container, run the app as another user, with `--no-sandbox`.
+  - **Next:** 3.6 backups; 2.6 hide Transfers / add branch / add counter offline (still visible in the menu; the API refuses them); 2.8 update banner and 6.3 forced updates; app icons and signing; then Phases 4 and 5.

@@ -15,6 +15,10 @@ import { ReportsPage } from './screens/ReportsPage';
 import { GstReturnsPage } from './screens/GstReturnsPage';
 import { BranchSettingsPage } from './screens/BranchSettingsPage';
 import { requireAdmin, requireOperationalSession, requireSession } from './screens/route-helpers';
+import { WelcomePage } from './screens/onboarding/WelcomePage';
+import { SetupPage } from './screens/onboarding/SetupPage';
+import { api } from './lib/api';
+import { desktop } from './lib/desktop';
 
 const rootRoute = createRootRoute({ component: AppLayout });
 
@@ -25,10 +29,24 @@ type SalesSearch = {
   status?: string;
 };
 
+/** True when the API is a fresh offline install that needs its business and admin created. */
+async function setupRequired() {
+  try {
+    const res = await api.meta.get();
+    return res.status === 200 && res.body.setupRequired;
+  } catch {
+    // API not reachable: show sign-in, which reports the problem when used.
+    return false;
+  }
+}
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: () => {
+  beforeLoad: async () => {
+    if (desktop && !desktop.config.mode) {
+      throw redirect({ to: '/welcome' });
+    }
     const session = getSession();
     if (session) {
       if (session.branchId && session.registerId) {
@@ -36,8 +54,35 @@ const loginRoute = createRoute({
       }
       throw redirect({ to: '/open-register' });
     }
+    if (await setupRequired()) {
+      throw redirect({ to: '/setup' });
+    }
   },
   component: LoginPage
+});
+
+/** Desktop app, first launch only: choose a single-counter (offline) or online business. */
+const welcomeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/welcome',
+  beforeLoad: () => {
+    if (!desktop || desktop.config.mode) {
+      throw redirect({ to: '/' });
+    }
+  },
+  component: WelcomePage
+});
+
+/** Offline install with no users yet: create the business and its admin. */
+const setupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/setup',
+  beforeLoad: async () => {
+    if (getSession() || !(await setupRequired())) {
+      throw redirect({ to: '/' });
+    }
+  },
+  component: SetupPage
 });
 
 const openRegisterRoute = createRoute({
@@ -142,6 +187,8 @@ const settingsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  welcomeRoute,
+  setupRoute,
   openRegisterRoute,
   posRoute,
   salesRoute,

@@ -2,6 +2,11 @@
   "name": "@pos/api",
   "version": "0.0.1",
   "private": true,
+  "files": [
+    "dist",
+    "prisma/schema.prisma",
+    "prisma/migrations"
+  ],
   "engines": {
     "node": ">=22.12"
   },
@@ -25,6 +30,7 @@
     "archiver": "^7",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "prisma": "^5.22.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
@@ -36,7 +42,6 @@
     "@types/archiver": "^7.0.0",
     "@types/node": "^22.10.1",
     "@types/yauzl": "^3.4.0",
-    "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
     "unplugin-swc": "^2.0.0",
     "vitest": "^2",
