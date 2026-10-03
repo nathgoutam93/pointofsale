@@ -35,7 +35,14 @@ jobs:
         run: pnpm --filter @pos/desktop build && pnpm --filter @pos/desktop stage
       - name: Build installers and publish them to the release
         working-directory: apps/desktop
-        run: pnpm exec electron-builder --publish always
+        shell: bash
+        # A secret that isn't set arrives as an empty variable, which electron-builder reads as a
+        # certificate path ("not a file"); unset empty ones so unsigned builds work.
+        run: |
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then unset "$name"; fi
+          done
+          pnpm exec electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Code signing (see desktop-offline-online-plan.md, 3.7). Unsigned builds work but
