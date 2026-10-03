@@ -31,8 +31,13 @@ These need an answer from the product owner before the work that depends on them
   and counters each allows, trial length (needed for item 14).
 - **Payment provider:** for managed hosting subscriptions. Razorpay Subscriptions is the likely
   choice (INR, UPI AutoPay, cards) (needed for item 14).
-- **Self-hosting price:** free, a license key the server checks, or a one-time fee with paid
-  support (needed for item 15, later).
+- **Self-hosting price:** free, or a fee (one-time or yearly) with paid support (needed for item
+  15, later). Decided: self-hosters get built images only, with a licence key (item 15).
+- **Self-hosting licence:** the proprietary licence (EULA) text for the images: no reselling or
+  hosting for others, no reverse engineering, no getting around the licence key. Have a lawyer
+  check it (needed for item 15).
+- **Self-hosting licence expiry:** whether licence keys expire and what happens then (keeps
+  working without updates, or refuses new businesses) (needed for item 15).
 
 ---
 
@@ -46,6 +51,10 @@ The product comes in three forms:
    sign up, get a trial and pay a subscription. **This comes first** (items 13 and 14).
 3. **Self-hosted:** a business runs the online server on its own infrastructure, with more
    setup on their side. **Later**, once managed hosting is taking payments (item 15).
+   **Decided 2026-10-03:** the source stays closed. Self-hosters get built images only, under a
+   proprietary licence, with a signed licence key that limits how many businesses a server may
+   hold, so a self-hosted server can't be resold as hosting (item 15). Closing the source means
+   making this repository private and moving the desktop app's update feed first (item 16).
 
 How the app tells managed from self-hosted:
 - **The server says what it is,** not the hostname. A `POS_HOSTING` setting (`managed` or
@@ -61,9 +70,10 @@ How the app tells managed from self-hosted:
   apps have updated, since installed apps keep the full address in their config
   (`apiBaseUrl`); or have an update rewrite the old address to the new one.
 
-Order of work: 13, then 14. Before charging anyone, also finish the rest of item 3 (off-server
+Order of work: fixes to the product come before selling it. Then 13, then 14. Before charging anyone, also finish the rest of item 3 (off-server
 backups, a practised restore, uptime monitoring) and item 7 (data export), which paying
-customers expect. Item 15 comes after that.
+customers expect. Item 16 (closing the source) must be done before the first real release. Item 15 comes after
+managed hosting is selling.
 
 ---
 
@@ -336,8 +346,25 @@ customers expect. Item 15 comes after that.
 
 - **Why:** some businesses want the online server on their own infrastructure. The server code
   is the same; what's missing is the setup and the parts of the app that assume our server.
-- **Depends on:** 13, and the "Self-hosting price" decision. Start after item 14 is live.
+- **Depends on:** 13, 16, and the "Self-hosting price", "Self-hosting licence" and "Self-hosting
+  licence expiry" decisions. Start after item 14 is live.
 - **What:**
+  - **Built images only:** self-hosters never get the source. A Docker image of the API (with
+    the web app and migrations) per release, from the release workflow. Either a private
+    registry with a pull login per customer, or public images that are no use beyond one
+    business without a licence key.
+  - **Bundle and minify the API** in the image (one minified file, e.g. with esbuild; the web
+    app is minified already), so the shipped JavaScript is hard to read or patch. Obfuscation
+    adds a little more; optional.
+  - **Licence key** (`POS_LICENSE`): who it's licensed to, how many businesses the server may
+    hold (usually 1), and an expiry if the decision asks for one. Signed with our private key,
+    which never goes in the repository or an image; the server checks it with a public key built
+    into the code, with no phone-home, so servers without internet keep working. Without a
+    valid key, one business only: creating another is refused. `/meta` reports the licensee and
+    the app shows "Self-hosted, licensed to …", so a reseller can't quietly brand it as their
+    own. A small private tool (kept out of the images) makes and signs keys.
+  - **Licence file:** the proprietary licence (EULA) inside the image and shown in the guide;
+    the repository gets an "all rights reserved" LICENSE file.
   - **Connecting the app:** a "Use my own server" link on the welcome screen that shows the server
     address box (hidden today whenever `posServerUrl` is set, `WelcomePage.tsx`), and the same
     choice in "Move to online".
@@ -349,10 +376,37 @@ customers expect. Item 15 comes after that.
     nightly backups, and a self-hosting guide in README.md.
   - **Updates:** upgrade notes per release, the rule that the server updates before the apps,
     and a warning on the server's side when apps newer than it connect.
-  - **No billing:** item 14's checks and screens stay off; a license check only if the
-    self-hosting price decision asks for one.
-- **Done when:** someone follows the guide on a fresh VPS, connects a desktop app through "Use my
-  own server", sells, backs up and restores, with no billing screens shown.
+  - **No billing:** item 14's checks and screens stay off (the billing tables exist but stay
+    empty; one schema for every server, decided 2026-10-03).
+  - **Honest limits:** shipped JavaScript can still be read and patched by someone determined.
+    What stops reselling is the licence (a legal case) together with the key and closed source
+    (reselling becomes hard and plainly deliberate).
+- **Done when:** someone follows the guide on a fresh VPS with a built image and a licence key,
+  connects a desktop app through "Use my own server", sells, backs up and restores, with no
+  billing screens shown; a second business is refused without a key that allows it; and a
+  tampered or expired key is refused.
+
+## [ ] 16. Closing the source and moving the update feed (before the first real release)
+
+- **Why:** the source is to stay closed (decided 2026-10-03), but this repository is public, and
+  the desktop app's updates come from its GitHub Releases (`publish` in
+  `apps/desktop/electron-builder.yml`). A private repository's releases can't be read by
+  installed apps, so they would never update again.
+- **What, in this order:**
+  1. **A public place for installers only.** Either a releases-only public repository (e.g.
+     `nathgoutam93/pointofsale-releases`; the release workflow publishes there with a token
+     secret that can write to it), or our own server or object storage (electron-builder's
+     "generic" provider, e.g. `https://pos.hackd.in/updates/`).
+  2. **Point the app at it:** `publish` in `electron-builder.yml` and
+     `.github/workflows/desktop-release.yml`. Check with a release that an installed app
+     finds and installs the next one from there.
+  3. **Make this repository private** (GitHub → Settings → General → Danger Zone → Change
+     visibility). No real users have the app yet (2026-10-03), so only test installs of 0.1.0
+     and 0.1.1 lose their updates; reinstall those. Code already cloned while it was public
+     can't be recalled.
+  4. **Licence file:** an "all rights reserved" LICENSE in the repository.
+- **Done when:** the repository is private, and an installed app updates itself from the new
+  place.
 
 ---
 
@@ -369,3 +423,4 @@ customers expect. Item 15 comes after that.
 - 2026-10-03: Hosting modes decided (offline, managed, self-hosted; the server says which via `POS_HOSTING`). Added items 13 (hosting kind), 14 (managed subscriptions and payments) and 15 (self-hosted, later). Managed hosting comes first.
 - 2026-10-03: Item 13 done: servers report `hosting` (managed or self) in `/meta`, the desktop app keeps it, Settings shows it. Left: set `POS_HOSTING=managed` on `pos.hackd.in` at the next deploy.
 - 2026-10-03: Item 14 built with a dummy payment gateway (plans, trial, limits, read-only, webhooks, invoices, reminders, Settings → Billing). Left: pricing, a real gateway, renewals, seller details.
+- 2026-10-03: Decided: closed source, self-hosters get built images with a licence key. Item 15 rewritten for that; item 16 added (move the update feed, then make the repository private, before the first real release). Product fixes come before selling.
