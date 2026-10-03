@@ -416,11 +416,11 @@ reached. Its sales are kept on that computer and sent to the server when it's ba
   - The counter's invoice sequence and receipt series move up to the numbers used.
   - The app goes back to the server; the copy refreshes once nothing is left to send.
 
-### [ ] 7.1 Server: binding, snapshot, sync
-### [ ] 7.2 Local API fallback mode (allowed routes, payments, receipt series, outbox)
-### [ ] 7.3 Desktop: local copy, refresh, switching, sync
-### [ ] 7.4 Screens: setup in Settings → Counters, the banner, offline sign-in
-### [ ] 7.5 Tests and an end-to-end run (server stopped mid-day, sales offline, server back, synced)
+### [x] 7.1 Server: binding, snapshot, sync
+### [x] 7.2 Local API fallback mode (allowed routes, payments, receipt series, outbox)
+### [x] 7.3 Desktop: local copy, refresh, switching, sync
+### [x] 7.4 Screens: setup in Settings → Counters, the banner, offline sign-in
+### [x] 7.5 Tests and an end-to-end run (server stopped mid-day, sales offline, server back, synced)
 
 ---
 
@@ -730,3 +730,53 @@ reached. Its sales are kept on that computer and sent to the server when it's ba
     - an offline business shows "Online only" on the email field
     - move online → code asked (still offline) → code → moved; the "has moved online" email was sent
   - **Not done:** invites (joining stays by business code); a customer email field on customers (the address is typed when sending).
+- 2026-10-03: **Phase 7, the fallback counter, done.** 211 API and 126 contracts tests pass.
+  - **Server** (`apps/api/src/fallback/`):
+    - Migration `20261013100000_fallback_counter`: `Counter.fallbackDeviceId` (unique), `fallbackKeyHash`, `fallbackReceiptSeq`.
+    - `POST /counters/:id/fallback` (admin, online; `{deviceId}`) clears any other fallback counter of the branch and answers the key `fb1.<business>.<counter>.<secret>`, whose secret is kept only as a scrypt hash. It refuses while the counter's register is open elsewhere. `DELETE` undoes it.
+    - Opening a register checks the desktop app's `x-pos-device` header against `fallbackDeviceId`. That header is a guard against mistakes, not a secret.
+    - `GET /fallback/snapshot` (key) uses `createBackup` with `only` (tables, each with an optional row condition) and `uploadFiles` (logos). Tables:
+      - settings
+      - branches, this branch's counters
+      - the counter's INVOICE sequence
+      - staff with access to the branch (and their access rows)
+      - customers (the branch's, or all when shared)
+      - items, sale units, the branch's prices and stock
+      - the counter's open register
+      - No sales and no wallets.
+    - `POST /fallback/sync` (key; 25 MB body limit on that route only, wrapped so Nest keeps its own `jsonParser`):
+      - checks every row belongs to the counter (its series, branch and registers)
+      - inserts with `json_populate_recordset … ON CONFLICT (id) DO NOTHING`, so it is idempotent
+      - stock ledger rows insert and update `ItemStock` in one statement, only for newly added movements
+      - raises `DocumentSequence` and `fallbackReceiptSeq` with `GREATEST`
+      - a register opened offline closes an older one still open online on that counter
+      - the same schema version is required on both sides
+      - a conflict (a number already used, a deleted item) answers 409 and the sales stay on the computer
+  - **Local fallback mode** (`POS_FALLBACK=1`, `POS_FALLBACK_COUNTER_ID`, `POS_FALLBACK_SECRET`):
+    - GET is allowed, plus sign-in and sign-out, register open and close, checkout and the number catch-up. Everything else answers 403 `FALLBACK_UNAVAILABLE`.
+    - Checkout takes the exact amount in cash or card: no wallet or credit, and no change to a wallet.
+    - Receipts are `RCPT-<branch>-F<counter>-NNNNNN` from `Counter.fallbackReceiptSeq`.
+    - `GET /fallback/outbox` and `POST /fallback/numbers` need the secret.
+  - **Desktop** (`apps/desktop/src/fallback.ts`, `main.ts`):
+    - `config.deviceId` and `config.fallback`.
+    - The copy runs in its own PostgreSQL (`userData/fallback/pgdata`, `fallback-postgres.log`) under a second `LocalApi`.
+    - It refreshes every 10 minutes, and when a register opens or closes through the app, never while offline sales are waiting. Refresh means: download, then the backup tool's `restore`.
+    - The proxy notes every invoice number issued through it, since this computer alone issues the fallback counter's series. On switching to offline, `/fallback/numbers` moves the copy past them.
+      - **Found by the end-to-end run:** without this, an online sale made after the last refresh and the first offline sale got the same number. The sync refused the duplicate, which is the safety net.
+    - The proxy reports unreachable (network error, 502, 504) and sends `x-pos-device`. While the offline sales are sent, page requests get 503.
+    - Bridge `fallback.status/setup/remove/start/finish/onStatus`, and the event `pos:fallback-status`. The server is checked every 30 seconds while selling offline.
+  - **Web:**
+    - `components/FallbackBanner.tsx` (on every screen, including sign-in): can't reach the server, working offline, the server is back, sending.
+    - Settings → Counters: "Use as fallback here" and "Stop fallback", with a line about the copy.
+    - Open Register shows a fallback counter bound to another computer as "Its own computer".
+  - **Tests:**
+    - `test/fallback.test.ts` builds the API into `node_modules/.cache` and runs the local copy as a child process in fallback mode. It covers binding and the device check, the copy's tables, an offline sale continuing the series (after a catch-up) with its own receipt series, the limits offline, sync twice (idempotent) with stock, numbering after the sync, rows of another counter refused, and the key dropped.
+    - **End-to-end in the desktop app:** create a business → item → this computer as fallback (copy made) → register opened (copy refreshed) → online sales 00001 and 00002 → server stopped → "Can't reach the server" → "Keep selling on this computer" → sign in → offline sale 00003 with RCPT-MAI-F1-000001; a new customer is refused → server restarted → "Send offline sales and go back online" → the server has 00001 to 00003, the next sale is 00004, stock 46 of 50.
+  - **Not done** (also in `remaining-work-plan.md`):
+    - item images offline (only the logos are in the copy)
+    - history and reports offline show only offline sales
+    - returns, credit, new customers and settings changes offline
+    - prices or passwords changed online after the last refresh
+    - the cash figures of a register closed by the sync are left empty
+    - a sync conflict needs support
+    - packaged builds on Windows and macOS

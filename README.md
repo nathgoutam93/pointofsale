@@ -151,6 +151,13 @@ web app's origin in `CORS_ORIGINS`: only listed origins may send the cookie. Beh
 cookie is `Secure` (set `SESSION_COOKIE_SECURE=true` if the proxy doesn't send
 `X-Forwarded-Proto`).
 
+Fallback counter: on an online business, one counter per branch can keep selling on its own
+computer when the server can't be reached (Settings → Counters → "Use as fallback here", in the
+desktop app). That computer keeps an offline copy, refreshed every 10 minutes. When the server
+is down a banner offers "Keep selling on this computer" (cash and card only). When it's back,
+"Send offline sales and go back online" adds the sales to the server, invoice numbers and stock
+included. See Phase 7 in `desktop-offline-online-plan.md`.
+
 Passwords:
 - **Anyone** can change their own password (click your name at the top). Their other sessions end.
 - **An admin** can give a cashier a new password (Settings → Cashiers & Access). By default the

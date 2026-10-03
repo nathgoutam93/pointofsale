@@ -138,11 +138,19 @@ These need an answer from the product owner before the work that depends on them
 - **Customer email:** a saved email address on customers, offered when emailing a receipt.
 - **POS check:** look at the POS screen's "Email the receipt" after a sale in the desktop app
   (the same component is checked on the Sales screen).
-- **Fallback counter follow-ups:** the items listed under "Not done" in Phase 7 of
-  `desktop-offline-online-plan.md`.
+- **Fallback counter follow-ups** (Phase 7 of `desktop-offline-online-plan.md`):
+  - Item images in the offline copy (only logos are copied).
+  - Settling credit sales, returns and adding customers offline. Each needs server balances or
+    numbering, and its own outbox rows and checks on the server.
+  - A conflict screen when a sync is refused (an item or customer deleted online, a number used
+    twice), instead of "contact support".
+  - Expected and counted cash for a register the sync closes because one was opened offline.
+  - Check that the server can be reached in the background, so the banner appears before a
+    request fails.
 
 ---
 
 ## Progress log
 
 - 2026-10-03: List written.
+- 2026-10-03: The fallback counter is done; its follow-ups are under item 10.
