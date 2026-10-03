@@ -1,8 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { FormEvent, type ReactNode, useState } from "react";
-import { api, apiErrorMessage, authHeaders } from "../lib/api";
-import { clearSession, getSession, updateSession } from "../lib/session";
+import { api, apiErrorMessage, authHeaders, signOut } from "../lib/api";
+import { getSession, updateSession } from "../lib/session";
 import { ErrorNote, OnboardingShell } from "./onboarding/OnboardingShell";
 
 /**
@@ -21,11 +21,10 @@ export function ChangePasswordPage() {
       if (newPassword !== confirm) throw new Error("The two new passwords don't match.");
       const res = await api.auth.changePassword({ body: { currentPassword, newPassword }, extraHeaders: authHeaders() });
       if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Your password couldn't be changed."));
-      return res.body.token;
     },
-    onSuccess: (token) => {
-      // Other sessions ended; this one carries on with the new token.
-      updateSession({ token, mustChangePassword: false });
+    onSuccess: () => {
+      // Other sessions ended; this one carries on (the API set a new cookie).
+      updateSession({ mustChangePassword: false });
       setCurrentPassword("");
       setNewPassword("");
       setConfirm("");
@@ -68,10 +67,7 @@ export function ChangePasswordPage() {
           <button
             type="button"
             className="btn-ghost"
-            onClick={() => {
-              clearSession();
-              window.location.href = "/";
-            }}
+            onClick={() => void signOut()}
           >
             Sign out
           </button>

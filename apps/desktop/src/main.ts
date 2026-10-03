@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, session, shell, type IpcMainInvokeEvent } from 'electron';
 import { LocalApi, runMigrations } from './api-server.js';
 import { Backups, backupsFolder } from './backups.js';
 import { moveOnline, type MoveInput } from './move-online.js';
@@ -9,7 +9,7 @@ import { logger } from './log.js';
 import { paths } from './paths.js';
 import { describe, LocalPostgres } from './postgres.js';
 import { cleanPrintingSettings, cleanReceiptJob, listPrinters, ReceiptPrinter } from './printing.js';
-import { APP_ORIGIN, registerAppScheme, serveWebApp } from './protocol.js';
+import { APP_ORIGIN, PAGE_API_BASE, registerAppScheme, serveWebApp } from './protocol.js';
 import { olderThan, Updater } from './updater.js';
 
 // After installing an update on quit, the Linux (AppImage) updater runs the new version once
@@ -70,6 +70,17 @@ function currentApiBaseUrl() {
   return null;
 }
 
+/**
+ * A request to the API with this app's sign-in cookie (the page's, kept in the app's cookie
+ * store). The cookie-session header is what lets the API read it.
+ */
+function sessionFetch(url: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set('x-pos-session', 'cookie');
+  headers.set('x-pos-client-version', app.getVersion());
+  return net.fetch(url, { ...init, headers });
+}
+
 function currentApiOrigin() {
   const base = currentApiBaseUrl();
   return base ? new URL(base).origin : null;
@@ -121,9 +132,12 @@ async function switchIfMoved() {
 
 /** From now on this computer uses the online business; the local data stays as a read-only copy. */
 async function switchToOnline(server: string) {
+  const localBase = api?.baseUrl ?? null;
   config = { ...config, mode: 'online', apiBaseUrl: server, pendingImportId: null };
   saveConfig(config);
   await stopOffline();
+  // The sign-in to the local API is of no more use; the online server sets its own.
+  if (localBase) await session.defaultSession.cookies.remove(localBase, 'pos_session').catch(() => undefined);
 }
 
 /** Migrations, then the API. Also used to bring the API back after a restore. */
@@ -273,7 +287,8 @@ async function checkOnlineServer(raw: unknown) {
 
 ipcMain.on('pos:get-config', (event) => {
   event.returnValue = {
-    config: { mode: config.mode, apiBaseUrl: currentApiBaseUrl(), defaultServerUrl },
+    // The page reaches the API through this app (see PAGE_API_BASE), never directly.
+    config: { mode: config.mode, apiBaseUrl: config.mode ? PAGE_API_BASE : null, defaultServerUrl },
     version: app.getVersion()
   };
 });
@@ -303,25 +318,21 @@ ipcMain.handle('pos:choose-mode', async (event, choice: { mode?: unknown; apiBas
 });
 
 /**
- * Backups and moving online are for admins: the page passes its sign-in token and the local
- * API says whose it is. The bridge can't trust the page's own idea of the role.
+ * Backups and moving online are for admins: the API says who is signed in here (by the
+ * sign-in cookie). The bridge can't trust the page's own idea of the role.
  */
-async function assertAdmin(token: unknown) {
+async function assertAdmin() {
   if (config.mode !== 'offline' || !api) throw new Error('Only for a business kept on this computer');
-  await assertAdminOfCurrentApi(token);
+  await assertAdminOfCurrentApi();
 }
 
 /** As above, against whichever API this window works with (the local one, or the server online). */
-async function assertAdminOfCurrentApi(token: unknown) {
+async function assertAdminOfCurrentApi() {
   const base = currentApiBaseUrl();
   if (!base) throw new Error('Set up this computer first');
-  if (typeof token !== 'string' || !token) throw new Error('Sign in as an admin first');
   let res: Response;
   try {
-    res = await fetch(`${base}/auth/me`, {
-      headers: { authorization: `Bearer ${token}`, 'x-pos-client-version': app.getVersion() },
-      signal: AbortSignal.timeout(10_000)
-    });
+    res = await sessionFetch(`${base}/auth/me`, { signal: AbortSignal.timeout(10_000) });
   } catch {
     throw new Error("Couldn't reach the server to check you're an admin. Check the internet connection.");
   }
@@ -330,9 +341,9 @@ async function assertAdminOfCurrentApi(token: unknown) {
   if (me?.role !== 'ADMIN') throw new Error('Only an admin can do this');
 }
 
-ipcMain.handle('pos:backups:list', async (event, token: unknown) => {
+ipcMain.handle('pos:backups:list', async (event) => {
   assertFromApp(event);
-  await assertAdmin(token);
+  await assertAdmin();
   return {
     days: config.backupDays,
     folder: backupsFolder(),
@@ -342,24 +353,24 @@ ipcMain.handle('pos:backups:list', async (event, token: unknown) => {
   };
 });
 
-ipcMain.handle('pos:backups:set-days', async (event, token: unknown, days: unknown) => {
+ipcMain.handle('pos:backups:set-days', async (event, days: unknown) => {
   assertFromApp(event);
-  await assertAdmin(token);
+  await assertAdmin();
   config = { ...config, backupDays: clampBackupDays(days) };
   saveConfig(config);
   await backups.prune();
   return config.backupDays;
 });
 
-ipcMain.handle('pos:backups:create', async (event, token: unknown) => {
+ipcMain.handle('pos:backups:create', async (event) => {
   assertFromApp(event);
-  await assertAdmin(token);
+  await assertAdmin();
   await backups.create('manual');
 });
 
-ipcMain.handle('pos:backups:restore', async (event, token: unknown, file: unknown) => {
+ipcMain.handle('pos:backups:restore', async (event, file: unknown) => {
   assertFromApp(event);
-  await assertAdmin(token);
+  await assertAdmin();
   if (typeof file !== 'string') throw new Error('Choose a backup');
   log(`Restoring ${file}`);
   await backups.restore(file, { stopApi, startApi });
@@ -374,9 +385,9 @@ ipcMain.handle('pos:backups:restore', async (event, token: unknown, file: unknow
 });
 
 /** A second folder for copies of every backup: a USB drive or a folder a cloud service syncs. */
-ipcMain.handle('pos:backups:choose-copy-folder', async (event, token: unknown) => {
+ipcMain.handle('pos:backups:choose-copy-folder', async (event) => {
   assertFromApp(event);
-  await assertAdmin(token);
+  await assertAdmin();
   const picked = await dialog.showOpenDialog({
     title: 'Choose where to keep copies of the backups',
     buttonLabel: 'Copy backups here',
@@ -392,16 +403,16 @@ ipcMain.handle('pos:backups:choose-copy-folder', async (event, token: unknown) =
   return { copyFolder: config.backupCopyFolder, copyStatus: config.backupCopyStatus };
 });
 
-ipcMain.handle('pos:backups:stop-copying', async (event, token: unknown) => {
+ipcMain.handle('pos:backups:stop-copying', async (event) => {
   assertFromApp(event);
-  await assertAdmin(token);
+  await assertAdmin();
   config = { ...config, backupCopyFolder: null, backupCopyStatus: null };
   saveConfig(config);
 });
 
-ipcMain.handle('pos:backups:open-folder', async (event, token: unknown) => {
+ipcMain.handle('pos:backups:open-folder', async (event) => {
   assertFromApp(event);
-  await assertAdmin(token);
+  await assertAdmin();
   await shell.openPath(backupsFolder());
 });
 
@@ -440,9 +451,9 @@ ipcMain.handle('pos:printing:printers', async (event) => {
   return listPrinters(window.webContents);
 });
 
-ipcMain.handle('pos:printing:save', async (event, token: unknown, raw: unknown) => {
+ipcMain.handle('pos:printing:save', async (event, raw: unknown) => {
   assertFromApp(event);
-  await assertAdminOfCurrentApi(token);
+  await assertAdminOfCurrentApi();
   const printing = cleanPrintingSettings(raw);
   if (printing.printerName && window) {
     const printers = await listPrinters(window.webContents);
@@ -461,7 +472,11 @@ ipcMain.handle('pos:printing:print-receipt', async (event, job: unknown) => {
   assertFromApp(event);
   const { printerName } = config.printing;
   if (!printerName) throw new Error('No receipt printer is set up on this computer');
-  await receiptPrinter.print(printerName, cleanReceiptJob(job));
+  const cleaned = cleanReceiptJob(job);
+  // The page's images (the logo) point at app://pos/api; the print window loads them directly.
+  const base = currentApiBaseUrl();
+  if (base) cleaned.markup = cleaned.markup.replaceAll(`${PAGE_API_BASE}/`, `${base}/`);
+  await receiptPrinter.print(printerName, cleaned);
 });
 
 /** After cash is taken or refunded. Does nothing unless the drawer is switched on in Settings. */
@@ -474,9 +489,9 @@ ipcMain.handle('pos:printing:open-drawer', async (event) => {
 });
 
 /** Settings → Printer: opens the drawer to check it's wired up, whether or not it's switched on. */
-ipcMain.handle('pos:printing:test-drawer', async (event, token: unknown) => {
+ipcMain.handle('pos:printing:test-drawer', async (event) => {
   assertFromApp(event);
-  await assertAdminOfCurrentApi(token);
+  await assertAdminOfCurrentApi();
   const { printerName, drawerPin } = config.printing;
   if (!printerName) throw new Error('Choose the receipt printer first');
   await receiptPrinter.openDrawer(printerName, drawerPin);
@@ -497,9 +512,10 @@ ipcMain.handle('pos:create-business', async (event, address: unknown, details: R
   assertFromApp(event);
   if (config.mode) throw new Error('This computer is already set up.');
   const server = await checkOnlineServer(typeof address === 'string' && address.trim() ? address : defaultServerUrl);
-  const res = await fetch(`${server}/businesses`, {
+  // With the app's cookie store: the new admin's sign-in becomes the cookie for that server.
+  const res = await sessionFetch(`${server}/businesses`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-pos-client-version': app.getVersion() },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(details ?? {}),
     signal: AbortSignal.timeout(120_000)
   });
@@ -575,9 +591,9 @@ ipcMain.handle('pos:restore-from-backup', async (event) => {
 });
 
 /** Offline, admins: the whole move online. Progress goes to the page as 'pos:move-online-progress'. */
-ipcMain.handle('pos:move-online', async (event, token: unknown, input: Partial<MoveInput>) => {
+ipcMain.handle('pos:move-online', async (event, input: Partial<MoveInput>) => {
   assertFromApp(event);
-  await assertAdmin(token);
+  await assertAdmin();
   const result = await moveOnline(
     {
       server: typeof input?.server === 'string' && input.server.trim() ? input.server : defaultServerUrl ?? '',
@@ -590,7 +606,7 @@ ipcMain.handle('pos:move-online', async (event, token: unknown, input: Partial<M
         if (!api) throw new Error('The local service is not running');
         return api.baseUrl;
       },
-      token: token as string,
+      localFetch: sessionFetch,
       checkServer: (address) => checkOnlineServer(address),
       backup: () => backups.create('before-move'),
       importId: () => config.pendingImportId,
@@ -629,7 +645,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     log(`Starting version ${app.getVersion()} in ${config.mode ?? 'first-run'} mode`);
-    serveWebApp(currentApiOrigin);
+    serveWebApp(currentApiBaseUrl);
     window = createWindow();
     await window.loadURL(LOADING_PAGE);
     try {

@@ -1,4 +1,7 @@
 import { execSync } from 'child_process';
+import { rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { PrismaClient } from '@prisma/client';
 
 /**
@@ -6,6 +9,8 @@ import { PrismaClient } from '@prisma/client';
  * schema. Test files create their business on first use (see helpers.ts).
  */
 export default async function setup() {
+  // The uploads folder vitest.config.mts gives the tests.
+  rmSync(join(tmpdir(), 'pos-test-uploads'), { recursive: true, force: true });
   const url = new URL(process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/pos_test?schema=public');
   const database = url.pathname.slice(1);
   if (!/pos_test|_test\b|test_/.test(database)) {

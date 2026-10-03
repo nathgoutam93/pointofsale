@@ -33,16 +33,20 @@ export function listenAddress() {
   return { port, host };
 }
 
-/** CORS_ORIGINS (comma-separated) limits which web origins may call the API. */
+/**
+ * CORS_ORIGINS (comma-separated) limits which web origins may call the API. Only those listed
+ * may send the session cookie (credentials): with no list online, any origin may call the API
+ * with a bearer token, but no other site's page can use a signed-in browser's cookie.
+ */
 function corsOptions(): CorsOptions {
   const configured = (process.env.CORS_ORIGINS ?? '')
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
-  if (configured.length) return { origin: configured };
-  // Online without a list: any origin, as before. Offline: only the dev server, so a web
-  // page open in the user's browser can't drive the local API.
-  return posMode() === 'offline' ? { origin: OFFLINE_DEV_ORIGINS } : {};
+  if (configured.length) return { origin: configured, credentials: true };
+  // Offline: only the dev server, so a web page open in the user's browser can't drive the
+  // local API.
+  return posMode() === 'offline' ? { origin: OFFLINE_DEV_ORIGINS, credentials: true } : {};
 }
 
 /** The request's Host header without its port. */

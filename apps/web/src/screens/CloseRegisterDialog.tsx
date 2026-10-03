@@ -40,7 +40,7 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
       return res.body;
     },
     onSuccess: (data) => {
-      updateSession({ token: data.token, branchId: null, registerId: null, counterId: null, counterName: null });
+      updateSession({ branchId: null, registerId: null, counterId: null, counterName: null });
       setClosed(data.register);
     },
   });

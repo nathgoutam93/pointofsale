@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
+import { api, apiErrorMessage, apiFetch, authHeaders, uploadSrc } from "../lib/api";
 import { GST_SUPPLY_TYPE_LABELS } from "@pos/contracts";
 import { inr, requireSession } from "./route-helpers";
 import { BranchPricesSection } from "./items/BranchPricesSection";
@@ -70,7 +70,6 @@ function normalizeSaleUomRows(rows: SaleUomFormState[], baseUom: string) {
 export function ItemsPage() {
   const session = requireSession();
   const queryClient = useQueryClient();
-  const normalizedApiBaseUrl = API_BASE_URL.replace(/\/$/, "");
   const [form, setForm] = useState(initialForm);
   const [saleUomRows, setSaleUomRows] = useState<SaleUomFormState[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -158,18 +157,12 @@ export function ItemsPage() {
   const uploadImage = async (file: File) => {
     const body = new FormData();
     body.append("file", file);
-    const uploadRes = await fetch(
-      `${normalizedApiBaseUrl}/items/upload-image`,
-      {
-        method: "POST",
-        headers: authHeaders(),
-        body,
-      },
-    );
+    const uploadRes = await apiFetch("/items/upload-image", { method: "POST", body });
     if (!uploadRes.ok) throw new Error("Failed to upload image");
     const uploadBody = (await uploadRes.json()) as { path?: string };
     if (!uploadBody.path) throw new Error("Invalid image upload response");
-    return `${normalizedApiBaseUrl}${uploadBody.path.startsWith("/") ? "" : "/"}${uploadBody.path}`;
+    // Kept as /uploads/…, shown through uploadSrc: the API's address differs by computer.
+    return uploadBody.path.startsWith("/") ? uploadBody.path : `/${uploadBody.path}`;
   };
 
   const createItem = useMutation({
@@ -771,7 +764,7 @@ export function ItemsPage() {
                       />
                     ) : selectedItem.imageUrl ? (
                       <img
-                        src={selectedItem.imageUrl}
+                        src={uploadSrc(selectedItem.imageUrl) ?? undefined}
                         alt={selectedItem.name}
                         className="h-36 w-full object-scale-down"
                       />
@@ -1068,7 +1061,7 @@ export function ItemsPage() {
               <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                 {selectedItem.imageUrl ? (
                   <img
-                    src={selectedItem.imageUrl}
+                    src={uploadSrc(selectedItem.imageUrl) ?? undefined}
                     alt={selectedItem.name}
                     className="h-52 w-full object-scale-down"
                   />

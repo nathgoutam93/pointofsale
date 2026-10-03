@@ -115,7 +115,6 @@ export function OpenRegisterPage() {
     },
     onSuccess: (data) => {
       updateSession({
-        token: data.token,
         branchId: data.register.branchId,
         registerId: data.register.id,
         counterId: data.register.counterId,

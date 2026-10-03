@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { chargesGst, sanitizeReceiptCss } from "@pos/contracts";
-import { API_BASE_URL, api, authHeaders } from "../../lib/api";
+import { api, authHeaders, uploadSrc } from "../../lib/api";
 import { branchReceiptTemplate } from "../../lib/receipt";
 import { usePrintTemplate } from "../../lib/printing";
 
@@ -54,15 +54,7 @@ export function useStoreSettings(branchId: string) {
       .filter(Boolean);
   }, [branchSettings.data?.receiptFooter]);
 
-  const invoiceLogoSrc = useMemo(() => {
-    const logoUrl =
-      branchSettings.data?.logoUrl ?? businessSettings.data?.logoUrl;
-    if (!logoUrl) return null;
-    if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
-      return logoUrl;
-    }
-    return `${API_BASE_URL.replace(/\/$/, "")}${logoUrl.startsWith("/") ? "" : "/"}${logoUrl}`;
-  }, [branchSettings.data?.logoUrl, businessSettings.data?.logoUrl]);
+  const invoiceLogoSrc = uploadSrc(branchSettings.data?.logoUrl ?? businessSettings.data?.logoUrl);
 
   const storeDisplayName = useMemo(() => {
     return (

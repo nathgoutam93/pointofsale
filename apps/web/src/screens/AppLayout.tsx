@@ -23,7 +23,8 @@ import { MoveOnlineNotice } from "../components/MoveOnline";
 import { RecoveryCodeNotice } from "../components/RecoveryCode";
 import { confirmLeave } from "../lib/leaveGuard";
 import { useIsOffline } from "../lib/mode";
-import { clearSession, getSession } from "../lib/session";
+import { getSession } from "../lib/session";
+import { signOut } from "../lib/api";
 import { CloseRegisterDialog } from "./CloseRegisterDialog";
 
 type NavItem = {
@@ -241,8 +242,7 @@ export function AppLayout() {
               setMobileOpen(false);
               // Only sign out once the open screen agrees; cancelling keeps the session.
               if (!(await confirmLeave())) return;
-              clearSession();
-              window.location.href = "/";
+              await signOut();
             }}
           >
             <IconLogout className="shrink-0" />

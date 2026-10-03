@@ -9,7 +9,7 @@ import {
   gstStateLabel,
   isGstStateCode,
 } from "@pos/contracts";
-import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
+import { api, apiErrorMessage, apiFetch, authHeaders, uploadSrc } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
 import { GoOnlineDialog, OnlineOnlyBadge } from "../components/OnlineOnly";
 import { useIsOffline } from "../lib/mode";
@@ -74,7 +74,6 @@ export function BranchSettingsPage() {
   const session = requireAdmin();
   const initialBranchId = session.branchId ?? session.branches[0]?.id ?? "";
   const queryClient = useQueryClient();
-  const normalizedApiBaseUrl = API_BASE_URL.replace(/\/$/, "");
   const [activeTab, setActiveTab] = useState<SettingsTab>("business");
   const [selectedBranchId, setSelectedBranchId] = useState(initialBranchId);
   const [message, setMessage] = useState("");
@@ -222,21 +221,9 @@ export function BranchSettingsPage() {
     return financialYearStart(year, month);
   }, [businessSettings.data?.timezone]);
 
-  const logoSrc = useMemo(() => {
-    if (!form.logoUrl) return null;
-    if (form.logoUrl.startsWith("http://") || form.logoUrl.startsWith("https://")) {
-      return form.logoUrl;
-    }
-    return `${normalizedApiBaseUrl}${form.logoUrl.startsWith("/") ? "" : "/"}${form.logoUrl}`;
-  }, [form.logoUrl, normalizedApiBaseUrl]);
+  const logoSrc = uploadSrc(form.logoUrl);
 
-  const businessLogoSrc = useMemo(() => {
-    if (!businessForm.logoUrl) return null;
-    if (businessForm.logoUrl.startsWith("http://") || businessForm.logoUrl.startsWith("https://")) {
-      return businessForm.logoUrl;
-    }
-    return `${normalizedApiBaseUrl}${businessForm.logoUrl.startsWith("/") ? "" : "/"}${businessForm.logoUrl}`;
-  }, [businessForm.logoUrl, normalizedApiBaseUrl]);
+  const businessLogoSrc = uploadSrc(businessForm.logoUrl);
 
   const saveBusinessSettings = useMutation({
     mutationFn: async () => {
@@ -282,11 +269,7 @@ export function BranchSettingsPage() {
   const uploadBusinessLogo = async (file: File) => {
     const body = new FormData();
     body.append("file", file);
-    const res = await fetch(`${normalizedApiBaseUrl}/business/logo`, {
-      method: "POST",
-      headers: authHeaders(),
-      body
-    });
+    const res = await apiFetch("/business/logo", { method: "POST", body });
     if (!res.ok) throw new Error("Failed to upload business logo");
     return (await res.json()) as {
       id: string;
@@ -395,11 +378,7 @@ export function BranchSettingsPage() {
     }
     const body = new FormData();
     body.append("file", file);
-    const res = await fetch(`${normalizedApiBaseUrl}/branches/${selectedBranchId}/logo`, {
-      method: "POST",
-      headers: authHeaders(),
-      body
-    });
+    const res = await apiFetch(`/branches/${selectedBranchId}/logo`, { method: "POST", body });
     if (!res.ok) throw new Error("Failed to upload logo");
     return (await res.json()) as {
       name: string;

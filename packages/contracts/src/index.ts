@@ -375,7 +375,8 @@ export const itemSchema = z.object({
   /** GST unit quantity code of the base unit; null when the unit couldn't be matched. */
   uqc: z.string().nullable(),
   supplyType: gstSupplyTypeSchema,
-  imageUrl: z.string().url().nullable(),
+  /** /uploads/… (or, saved by older versions, a full address). */
+  imageUrl: z.string().nullable(),
   isActive: z.boolean(),
   createdAt: z.string().datetime()
 });
@@ -727,6 +728,15 @@ const loginResponseSchema = z.object({
   mustChangePassword: z.boolean().default(false)
 });
 
+/**
+ * Web clients keep the sign-in in an httpOnly cookie (named SESSION_COOKIE), which page scripts
+ * can't read. They send this header with the value "cookie" on every request: only then does the
+ * API read the cookie (a form or link from another site can't add a header), and in answers it
+ * sets the cookie instead of returning the token.
+ */
+export const SESSION_HEADER = 'x-pos-session';
+export const SESSION_COOKIE = 'pos_session';
+
 /** The `code` of the 403 a user gets until they choose a new password (see auth.changePassword). */
 export const PASSWORD_CHANGE_REQUIRED = 'PASSWORD_CHANGE_REQUIRED';
 
@@ -1007,6 +1017,13 @@ export const appContract = c.router({
       path: '/auth/recovery-code',
       body: z.object({}).optional(),
       responses: { 201: z.object({ recoveryCode: z.string() }) }
+    },
+    /** Ends this browser's sign-in: clears the session cookie. */
+    logout: {
+      method: 'POST',
+      path: '/auth/logout',
+      body: z.object({}).optional(),
+      responses: { 204: z.undefined() }
     },
     me: {
       method: 'GET',

@@ -4,7 +4,6 @@ import type { DesktopPrinting, PrintingSettings } from "../../lib/desktop";
 import { RECEIPT_PAPER_IDS, RECEIPT_PAPERS, type ReceiptPaper } from "@pos/contracts";
 import { printReceipt } from "../../lib/printing";
 import { receiptMarkup, receiptStyleFor, renderReceipt, sampleReceiptDocument } from "../../lib/receipt";
-import { getSession } from "../../lib/session";
 import { useStoreSettings } from "../pos/useStoreSettings";
 
 /**
@@ -13,7 +12,6 @@ import { useStoreSettings } from "../pos/useStoreSettings";
  */
 export function PrinterSection({ printing, branchId }: { printing: DesktopPrinting; branchId: string }) {
   const queryClient = useQueryClient();
-  const token = getSession()?.token ?? "";
   const store = useStoreSettings(branchId);
   const [message, setMessage] = useState("");
 
@@ -21,7 +19,7 @@ export function PrinterSection({ printing, branchId }: { printing: DesktopPrinti
   const printers = useQuery({ queryKey: ["desktop-printers"], queryFn: () => printing.printers() });
 
   const save = useMutation({
-    mutationFn: (next: PrintingSettings) => printing.save(token, next),
+    mutationFn: (next: PrintingSettings) => printing.save(next),
     onSuccess: (saved) => {
       setMessage("Saved for this computer.");
       queryClient.setQueryData(["desktop-printing"], saved);
@@ -48,7 +46,7 @@ export function PrinterSection({ printing, branchId }: { printing: DesktopPrinti
     onSuccess: () => setMessage("Test receipt sent to the printer."),
   });
   const testDrawer = useMutation({
-    mutationFn: () => printing.testDrawer(token),
+    mutationFn: () => printing.testDrawer(),
     onSuccess: () => setMessage("Drawer opened."),
   });
 

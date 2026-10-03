@@ -1,4 +1,5 @@
 import { IconScan, IconSearch } from "../../components/icons";
+import { uploadSrc } from "../../lib/api";
 import { inr } from "../route-helpers";
 import { formatStockOnHand } from "./cartMath";
 
@@ -103,7 +104,7 @@ export function ProductGrid<T extends GridItem>({
                 <div className="h-24 w-full shrink-0 overflow-hidden border-b border-slate-100 bg-slate-50">
                   {item.imageUrl ? (
                     <img
-                      src={item.imageUrl}
+                      src={uploadSrc(item.imageUrl) ?? undefined}
                       alt={item.name}
                       className="h-full w-full object-scale-down"
                     />

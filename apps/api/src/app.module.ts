@@ -1,5 +1,6 @@
 import { Module, OnModuleInit } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { SessionCookieInterceptor } from './auth/session-cookie';
 import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
@@ -102,7 +103,8 @@ import { UsersService } from './users/users.service';
     ExportService,
     // Guards run in this order: who is calling, then whether this install accepts changes.
     { provide: APP_GUARD, useClass: AuthGuard },
-    { provide: APP_GUARD, useClass: InstanceStatusGuard }
+    { provide: APP_GUARD, useClass: InstanceStatusGuard },
+    { provide: APP_INTERCEPTOR, useClass: SessionCookieInterceptor }
   ]
 })
 export class AppModule implements OnModuleInit {

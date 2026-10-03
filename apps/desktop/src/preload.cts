@@ -33,8 +33,7 @@ contextBridge.exposeInMainWorld('posDesktop', {
   ownerPasswordReset: (address: string, step: 'request' | 'confirm', details: Record<string, unknown>) =>
     invoke('pos:owner-password-reset', address, step, details),
   // Offline, admins only: moves the business to an online server (see apps/desktop/src/move-online.ts).
-  moveOnline: (token: string, input: { server?: string; ownerEmail: string; ownerPassword: string }) =>
-    invoke('pos:move-online', token, input),
+  moveOnline: (input: { server?: string; ownerEmail: string; ownerPassword: string }) => invoke('pos:move-online', input),
   onMoveOnlineProgress: (listener: (step: string) => void) => {
     const forward = (_event: IpcRendererEvent, step: string) => listener(step);
     ipcRenderer.on('pos:move-online-progress', forward);
@@ -52,23 +51,23 @@ contextBridge.exposeInMainWorld('posDesktop', {
       return () => ipcRenderer.removeListener('pos:update-status', forward);
     }
   },
-  // The receipt printer and cash drawer on this computer. Changing them needs an admin's token.
+  // The receipt printer and cash drawer on this computer. Changing them needs an admin signed in.
   printing: {
     settings: () => invoke('pos:printing:settings'),
     printers: () => invoke('pos:printing:printers'),
-    save: (token: string, settings: unknown) => invoke('pos:printing:save', token, settings),
+    save: (settings: unknown) => invoke('pos:printing:save', settings),
     printReceipt: (job: { markup: string; css: string; columns: number; paperMm: 58 | 80 }) => invoke('pos:printing:print-receipt', job),
     openDrawer: () => invoke('pos:printing:open-drawer'),
-    testDrawer: (token: string) => invoke('pos:printing:test-drawer', token)
+    testDrawer: () => invoke('pos:printing:test-drawer')
   },
-  // Offline only, admins only (checked by the app against the local API with this token).
+  // Offline only, admins only (the app asks the local API who is signed in).
   backups: {
-    list: (token: string) => invoke('pos:backups:list', token),
-    setDays: (token: string, days: number) => invoke('pos:backups:set-days', token, days),
-    create: (token: string) => invoke('pos:backups:create', token),
-    restore: (token: string, file: string) => invoke('pos:backups:restore', token, file),
-    openFolder: (token: string) => invoke('pos:backups:open-folder', token),
-    chooseCopyFolder: (token: string) => invoke('pos:backups:choose-copy-folder', token),
-    stopCopying: (token: string) => invoke('pos:backups:stop-copying', token)
+    list: () => invoke('pos:backups:list'),
+    setDays: (days: number) => invoke('pos:backups:set-days', days),
+    create: () => invoke('pos:backups:create'),
+    restore: (file: string) => invoke('pos:backups:restore', file),
+    openFolder: () => invoke('pos:backups:open-folder'),
+    chooseCopyFolder: () => invoke('pos:backups:choose-copy-folder'),
+    stopCopying: () => invoke('pos:backups:stop-copying')
   }
 });

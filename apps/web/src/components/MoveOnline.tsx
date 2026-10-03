@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useState } from "react";
-import { api, apiErrorMessage, API_BASE_URL, authHeaders } from "../lib/api";
+import { api, apiErrorMessage, apiFetch } from "../lib/api";
 import { desktop, type MoveResult, type MoveStep } from "../lib/desktop";
 import { getSession } from "../lib/session";
 import { rememberBusinessCode } from "../lib/business-code";
@@ -42,7 +42,7 @@ export function MoveOnlineDialog({ onClose }: { onClose: () => void }) {
     setError("");
     setStep(null);
     try {
-      const moved = await desktop.moveOnline(getSession()?.token ?? "", { server, ownerEmail, ownerPassword });
+      const moved = await desktop.moveOnline({ server, ownerEmail, ownerPassword });
       // Filled in on the online sign-in screen.
       rememberBusinessCode(moved.businessCode);
       setResult(moved);
@@ -170,7 +170,7 @@ export function MoveOnlineNotice() {
     }
     setCancelling(true);
     setError("");
-    const res = await fetch(`${API_BASE_URL}/migration/abort`, { method: "POST", headers: authHeaders() });
+    const res = await apiFetch("/migration/abort", { method: "POST" });
     setCancelling(false);
     if (!res.ok) {
       setError(apiErrorMessage(await res.json().catch(() => null), "Couldn't cancel"));

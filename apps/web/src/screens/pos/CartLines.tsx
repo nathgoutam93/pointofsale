@@ -1,4 +1,5 @@
 import { IconMinus, IconPlus, IconTrash } from "../../components/icons";
+import { uploadSrc } from "../../lib/api";
 import { inr, money } from "../route-helpers";
 import { computeLineAmounts, formatQty, formatStockOnHand, getCartLineKey } from "./cartMath";
 import type { TaxCalculationMode } from "./cartMath";
@@ -52,7 +53,7 @@ export function CartLines({
               <div className="h-11 w-11 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
                 {line.imageUrl ? (
                   <img
-                    src={line.imageUrl}
+                    src={uploadSrc(line.imageUrl) ?? undefined}
                     alt={line.name}
                     className="h-full w-full object-cover"
                   />

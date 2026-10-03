@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Headers, Ip, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Headers, Ip, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { clearSessionCookie } from './session-cookie';
 import { appContract } from '@pos/contracts';
 import { AllowBeforePasswordChange, Public } from '../auth/auth.guard';
 import { AllowWhenLocked } from '../common/instance-status.guard';
@@ -101,6 +102,18 @@ export class AuthController {
       if (error instanceof BadRequestException) changeFailures.failed(session.userId);
       throw error;
     }
+  }
+
+  /** Clears the session cookie. Works signed in or not, so a stale cookie can always be dropped. */
+  @Public()
+  @AllowWhenLocked()
+  @Post('/auth/logout')
+  @HttpCode(204)
+  logout(
+    @Req() req: { headers: Record<string, string | string[] | undefined>; secure?: boolean },
+    @Res({ passthrough: true }) res: { append(name: string, value: string): void }
+  ) {
+    clearSessionCookie(req, res);
   }
 
   @AllowBeforePasswordChange()

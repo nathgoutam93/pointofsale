@@ -1,5 +1,8 @@
+/**
+ * Who is signed in, for the screens (role, branch, register). The sign-in itself is an httpOnly
+ * cookie the API manages; no token is kept where page scripts could read it.
+ */
 export type Session = {
-  token: string;
   userId: string;
   branchId: string | null;
   registerId: string | null;
@@ -15,21 +18,28 @@ export type Session = {
 
 const SESSION_KEY = 'pos_session';
 
+/** The session as answered by the API, whose blank `token` field is not kept. */
+type AnswerSession = Session & { token?: unknown };
+
 export function getSession(): Session | null {
   const raw = localStorage.getItem(SESSION_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as Session;
+    const stored = JSON.parse(raw) as AnswerSession;
+    // Older versions kept the token here; drop it (the API asks to sign in again).
+    if ('token' in stored) setSession(stored);
+    return stored;
   } catch {
     return null;
   }
 }
 
-export function setSession(session: Session) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+export function setSession(session: AnswerSession) {
+  const { token: _token, ...kept } = session;
+  localStorage.setItem(SESSION_KEY, JSON.stringify(kept));
 }
 
-export function updateSession(partial: Partial<Session>) {
+export function updateSession(partial: Partial<AnswerSession>) {
   const current = getSession();
   if (!current) return;
   setSession({ ...current, ...partial });

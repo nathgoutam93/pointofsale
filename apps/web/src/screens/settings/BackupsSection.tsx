@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { BackupEntry, DesktopBackups } from "../../lib/desktop";
-import { getSession } from "../../lib/session";
 
 const REASON_LABELS: Record<BackupEntry["reason"], string> = {
   daily: "Daily",
@@ -24,38 +23,37 @@ const formatSize = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 /
  */
 export function BackupsSection({ backups }: { backups: DesktopBackups }) {
   const queryClient = useQueryClient();
-  const token = getSession()?.token ?? "";
   const [message, setMessage] = useState("");
   const [restoring, setRestoring] = useState<BackupEntry | null>(null);
 
-  const list = useQuery({ queryKey: ["desktop-backups"], queryFn: () => backups.list(token) });
+  const list = useQuery({ queryKey: ["desktop-backups"], queryFn: () => backups.list() });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["desktop-backups"] });
 
   const setDays = useMutation({
-    mutationFn: (days: number) => backups.setDays(token, days),
+    mutationFn: (days: number) => backups.setDays(days),
     onSuccess: (days) => {
       setMessage(`Backups from the last ${days} days are kept.`);
       void refresh();
     },
   });
   const create = useMutation({
-    mutationFn: () => backups.create(token),
+    mutationFn: () => backups.create(),
     onSuccess: () => {
       setMessage("Backup made.");
       void refresh();
     },
   });
   const chooseCopyFolder = useMutation({
-    mutationFn: () => backups.chooseCopyFolder(token),
+    mutationFn: () => backups.chooseCopyFolder(),
     onSuccess: () => void refresh(),
   });
   const stopCopying = useMutation({
-    mutationFn: () => backups.stopCopying(token),
+    mutationFn: () => backups.stopCopying(),
     onSuccess: () => void refresh(),
   });
 
   // On success the app reloads at the sign-in screen, so there is nothing to do afterwards.
-  const restore = useMutation({ mutationFn: (file: string) => backups.restore(token, file) });
+  const restore = useMutation({ mutationFn: (file: string) => backups.restore(file) });
 
   const error = (list.error ?? setDays.error ?? create.error ?? restore.error ?? chooseCopyFolder.error ?? stopCopying.error) as Error | null;
   const copyFolder = list.data?.copyFolder ?? null;
@@ -74,7 +72,7 @@ export function BackupsSection({ backups }: { backups: DesktopBackups }) {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="btn-secondary" onClick={() => void backups.openFolder(token)}>
+            <button className="btn-secondary" onClick={() => void backups.openFolder()}>
               Open backups folder
             </button>
             <button className="btn-primary" onClick={() => create.mutate()} disabled={create.isPending || restore.isPending}>

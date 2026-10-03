@@ -133,12 +133,23 @@ data and logs are in the OS's app-data folder under "Point of Sale". See
 `desktop-offline-online-plan.md` for the design and what's left.
 
 ## Auth Model
-Protected endpoints use:
-- `Authorization: Bearer <token>`
+A sign-in is a token signed with `AUTH_SECRET` that expires after `AUTH_TOKEN_TTL_HOURS`
+(default 12). Every request is re-checked against the database (user active, same role, branch
+access, register still open, password not changed since). It travels in one of two ways:
+- **The web app (browser and desktop):** an httpOnly cookie the API sets, which page scripts
+  can't read. The app sends `x-pos-session: cookie` with every request, and only then does the
+  API read the cookie (another site's form or link can't add that header), and it puts tokens
+  in the cookie instead of the answer. `POST /auth/logout` clears it. The desktop app reaches
+  the API through `app://pos/api`, which forwards to the local API or the online server and
+  keeps the cookie in the app's own cookie store.
+- **API clients and scripts:** `Authorization: Bearer <token>`, with the token from
+  `/auth/login` (sent without the header above).
 
-The token is returned by `/auth/login` and is stored by the frontend session helper. It is signed
-with `AUTH_SECRET`, expires after `AUTH_TOKEN_TTL_HOURS` (default 12), and every request is
-re-checked against the database (user active, same role, branch access, register still open).
+A browser deployment should serve the web app and API from the same site (for example
+`pos.example.com` and `api.pos.example.com`, or one host with the API under a path) and list the
+web app's origin in `CORS_ORIGINS`: only listed origins may send the cookie. Behind HTTPS the
+cookie is `Secure` (set `SESSION_COOKIE_SECURE=true` if the proxy doesn't send
+`X-Forwarded-Proto`).
 
 Passwords:
 - **Anyone** can change their own password (click your name at the top). Their other sessions end.

@@ -143,10 +143,11 @@ Branch: `feat/desktop-web-modes`. Depends on 1.1 and 1.2. Most items can be test
   - Add `assetUrl(path)` for logo and image URLs, replacing the four copies of the `replace(/\/$/, '')` logic.
 - **Done when:** nothing imports `API_BASE_URL`, and switching the config then reloading points every call, upload and image at the new server.
 
-### [ ] 2.2 Shared upload helper
+### [x] 2.2 Shared upload helper
 - **Where:** the raw `fetch` uploads in `BranchSettingsPage.tsx` (business logo, branch logo) and `ItemsPage.tsx` (item image).
 - **What:** One `uploadFile(path, file)` in `lib/api.ts` that uses `getApiBaseUrl()`, adds auth headers and handles 401 like the ts-rest client. This also closes a follow-up listed in `fix-plan.md` item 1.
 - **Done when:** all three uploads use it.
+- **Done 2026-10-03** as `apiFetch(path, init)` in `lib/api.ts` (with session hardening): the cookie, the session header and the same 401/403/426 handling. Item images are now saved as `/uploads/…` and shown through `uploadSrc()`.
 
 ### [x] 2.3 Welcome and business-type screen
 - **Where:** new `apps/web/src/screens/onboarding/`. Route guard in `router.tsx`: if `posDesktop.config.mode` is unset, go to `/welcome`.
@@ -627,3 +628,40 @@ Branch: whichever phase needs it first (likely Phase 1).
     - own password change from the header keeps you signed in
     - The offline recovery-code flow still passes its earlier end-to-end run.
   - **Not done:** owner email verification at sign-up (still deferred); an owner-side screen listing all staff.
+- 2026-10-03: **Session hardening** (item 8 of the remaining crucial list): sign-ins are httpOnly cookies, not tokens in localStorage. 197 API tests pass.
+  - **API:**
+    - `src/auth/session-cookie.ts`. A request with `x-pos-session: cookie` (`SESSION_HEADER`) has its `pos_session` cookie read as the token; without the header the cookie is ignored. This is the CSRF defence: a cross-site form or link can't add a header, and a cross-origin script needs CORS to allow it.
+    - A global interceptor moves any staff token in such a request's answer (`token`, or `session.token` when creating a business) into the cookie and blanks it in the body: login, setup, registers open/close, change-password. Owner tokens are left alone.
+    - Cookie: `HttpOnly; Path=/; SameSite=Lax; Max-Age=<token TTL>`, `Secure` behind HTTPS. Overrides: `SESSION_COOKIE_SECURE`, `SESSION_COOKIE_SAMESITE`.
+    - `POST /auth/logout` (public) clears it.
+    - Bearer tokens work as before (API clients, tests, owner tokens).
+    - CORS sends `Access-Control-Allow-Credentials` only for origins in `CORS_ORIGINS` (and offline's dev origins). With no list online, no other site can use the cookie.
+  - **Web:**
+    - `Session` has no token; old stored sessions lose theirs, which means one sign-in after updating.
+    - The ts-rest client sends the header with `credentials: 'include'`.
+    - `apiFetch()` does the same for uploads (closes 2.2).
+    - `signOut()` calls `/auth/logout`.
+    - The desktop bridge calls no longer take a token.
+  - **Desktop:**
+    - The page's API base is `app://pos/api` (`PAGE_API_BASE`). `protocol.ts` forwards it with `net.fetch` to the local API or the online server, dropping Origin, Cookie and Referer and stripping Set-Cookie from answers. Electron keeps the cookie in the default session's store, where the page can't reach it.
+    - CSP is now `connect-src 'self'` and `img-src 'self' data: blob:`.
+    - The main process's admin checks (backups, printer, move online) ask `/auth/me` with that cookie (`sessionFetch`); move online uses it for the local API.
+    - Creating a business sends through the same store, so the new admin's cookie is set for the server.
+    - Printing rewrites `app://pos/api/` image links to the real API for the print window.
+    - Switching to online removes the local API's cookie.
+  - **Also fixed:**
+    - Item images were saved with the API's full address. Offline, that included a port that changes every launch, so images broke after a restart, and moving online didn't rewrite them. They are now saved as `/uploads/…`; older full local addresses are mapped when shown (`uploadSrc`). The item `imageUrl` response schema no longer demands an absolute URL.
+    - API tests used the development `uploads/` folder. Every move-online test run copied all uploads into `uploads/imported/<id>/` and the next run exported them again, doubling each time (1.4 GB here) until the test timed out. Tests now get `$TMPDIR/pos-test-uploads`, emptied by the global setup.
+  - **Verified:**
+    - **Desktop offline:**
+      - setup leaves no token stored, an empty `document.cookie` and an httpOnly cookie in the app's store
+      - sales, returns, printer settings and printing
+      - logo upload through the app, printed with the logo
+      - backup; restart and still signed in; sign-out deletes the cookie
+      - move online to a local server → online sign-in sets that server's cookie; the logo moved with the business
+    - **Desktop online:** create business (main process) and all the password flows.
+    - **Browser** (web on localhost:3000, API on localhost:3998 with `CORS_ORIGINS`):
+      - httpOnly SameSite=Lax cookie; nothing in localStorage
+      - signed in after a full page load
+      - a request without the header gets 401
+      - sign-out removes the cookie

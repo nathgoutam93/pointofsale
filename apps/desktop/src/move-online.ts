@@ -17,8 +17,8 @@ type Dependencies = {
   log: Logger;
   /** The local API's address; the move runs while it is up. */
   localApi: () => string;
-  /** The page's sign-in token (an admin's), for the local API. */
-  token: string;
+  /** A request to the local API as the signed-in admin (the app's sign-in cookie). */
+  localFetch: (url: string, init?: RequestInit) => Promise<Response>;
   /** Checks the address is an online Point of Sale server; returns it tidied. */
   checkServer: (address: string) => Promise<string>;
   backup: () => Promise<unknown>;
@@ -55,7 +55,6 @@ async function json<T>(res: Response, fallback: string) {
  */
 export async function moveOnline(input: MoveInput, deps: Dependencies): Promise<MoveResult> {
   const local = deps.localApi();
-  const auth = { authorization: `Bearer ${deps.token}` };
 
   deps.progress('checking');
   const server = await deps.checkServer(input.server);
@@ -85,7 +84,7 @@ export async function moveOnline(input: MoveInput, deps: Dependencies): Promise<
   await deps.backup();
 
   deps.progress('pausing');
-  await json(await fetch(`${local}/migration/begin`, { method: 'POST', headers: auth }), "Couldn't pause this computer");
+  await json(await deps.localFetch(`${local}/migration/begin`, { method: 'POST' }), "Couldn't pause this computer");
 
   const folder = join(paths.userData(), 'move-online');
   const bundle = join(folder, 'business.zip');
@@ -94,7 +93,7 @@ export async function moveOnline(input: MoveInput, deps: Dependencies): Promise<
   try {
     deps.progress('exporting');
     await mkdir(folder, { recursive: true });
-    const exported = await fetch(`${local}/migration/export`, { headers: auth });
+    const exported = await deps.localFetch(`${local}/migration/export`);
     if (!exported.ok || !exported.body) throw new Error(await failure(exported, "Couldn't export the business"));
     await pipeline(Readable.fromWeb(exported.body as import('stream/web').ReadableStream), createWriteStream(bundle));
 
@@ -130,9 +129,9 @@ export async function moveOnline(input: MoveInput, deps: Dependencies): Promise<
 
     deps.progress('finishing');
     await json(
-      await fetch(`${local}/migration/complete`, {
+      await deps.localFetch(`${local}/migration/complete`, {
         method: 'POST',
-        headers: { ...auth, 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ businessId: created.business.id, businessCode: created.business.code, server })
       }),
       "Couldn't finish on this computer"
@@ -144,7 +143,7 @@ export async function moveOnline(input: MoveInput, deps: Dependencies): Promise<
     deps.log(`Moving online failed: ${error instanceof Error ? error.message : String(error)}`);
     if (!uploaded && !uncertain) {
       // The server doesn't have it: carry on offline.
-      await fetch(`${local}/migration/abort`, { method: 'POST', headers: auth }).catch(() => undefined);
+      await deps.localFetch(`${local}/migration/abort`, { method: 'POST' }).catch(() => undefined);
     }
     throw new Error(
       uploaded

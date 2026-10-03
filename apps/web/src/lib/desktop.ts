@@ -28,11 +28,11 @@ export type BackupEntry = {
   bytes: number;
 };
 
-/** Local backups (offline mode, admins only: the app checks the token with the local API). */
+/** Local backups (offline mode, admins only: the app asks the local API who is signed in). */
 export type BackupCopyStatus = { at: string; ok: boolean; file: string | null; error: string | null };
 
 export type DesktopBackups = {
-  list(token: string): Promise<{
+  list(): Promise<{
     days: number;
     folder: string;
     /** A second folder every backup is copied to, if chosen. */
@@ -41,13 +41,13 @@ export type DesktopBackups = {
     backups: BackupEntry[];
   }>;
   /** Asks for a folder (system dialog) and copies the newest backup there at once. */
-  chooseCopyFolder(token: string): Promise<{ copyFolder: string | null; copyStatus: BackupCopyStatus | null }>;
-  stopCopying(token: string): Promise<void>;
-  setDays(token: string, days: number): Promise<number>;
-  create(token: string): Promise<void>;
+  chooseCopyFolder(): Promise<{ copyFolder: string | null; copyStatus: BackupCopyStatus | null }>;
+  stopCopying(): Promise<void>;
+  setDays(days: number): Promise<number>;
+  create(): Promise<void>;
   /** Replaces the business with the backup, then reloads the window at the sign-in screen. */
-  restore(token: string, file: string): Promise<void>;
-  openFolder(token: string): Promise<void>;
+  restore(file: string): Promise<void>;
+  openFolder(): Promise<void>;
 };
 
 export type UpdateStatus = {
@@ -93,14 +93,14 @@ export type ReceiptJob = { markup: string; css: string; columns: number; paperMm
 export type DesktopPrinting = {
   settings(): Promise<PrintingSettings>;
   printers(): Promise<PrinterInfo[]>;
-  /** Admins only (the app checks the token with the API). */
-  save(token: string, settings: PrintingSettings): Promise<PrintingSettings>;
+  /** Admins only (the app asks the API who is signed in). */
+  save(settings: PrintingSettings): Promise<PrintingSettings>;
   /** Prints to the receipt printer without a dialog; fails when none is set up. */
   printReceipt(job: ReceiptJob): Promise<void>;
   /** Opens the cash drawer if it's switched on; answers whether it did. */
   openDrawer(): Promise<boolean>;
   /** Admins only: opens the drawer even when it's switched off, to check the wiring. */
-  testDrawer(token: string): Promise<void>;
+  testDrawer(): Promise<void>;
 };
 
 export type DesktopBridge = {
@@ -126,7 +126,7 @@ export type DesktopBridge = {
   /** Back to the app's first screen. */
   reload(): Promise<void>;
   /** Offline, admins: moves the business online; afterwards this computer works online. */
-  moveOnline(token: string, input: { server?: string; ownerEmail: string; ownerPassword: string }): Promise<MoveResult>;
+  moveOnline(input: { server?: string; ownerEmail: string; ownerPassword: string }): Promise<MoveResult>;
   onMoveOnlineProgress(listener: (step: MoveStep) => void): () => void;
   backups?: DesktopBackups;
   updates?: DesktopUpdates;

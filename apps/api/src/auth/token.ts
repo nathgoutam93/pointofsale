@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { UserRole } from '@prisma/client';
 import type { SessionUser } from '../common/types';
 import { currentBusiness } from '../tenancy/tenant-context';
+import { sessionCookieToken } from './session-cookie';
 
 type TokenPayload = {
   sub: string;
@@ -26,7 +27,7 @@ function getSecret() {
   return secret;
 }
 
-function getTtlSeconds() {
+export function tokenTtlSeconds() {
   const hours = Number(process.env.AUTH_TOKEN_TTL_HOURS ?? DEFAULT_TTL_HOURS);
   return Math.round((Number.isFinite(hours) && hours > 0 ? hours : DEFAULT_TTL_HOURS) * 3600);
 }
@@ -51,7 +52,7 @@ export function signToken(session: SessionUser) {
     registerId: session.registerId,
     iat: now,
     iatMs: Date.now(),
-    exp: now + getTtlSeconds()
+    exp: now + tokenTtlSeconds()
   };
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `${body}.${sign(body)}`;
@@ -114,7 +115,7 @@ type AccountPayload = { kind: 'account'; sub: string; iat: number; iatMs?: numbe
 /** A business owner's token (hosted server): manages their businesses, never sells. */
 export function signAccountToken(accountId: string) {
   const now = Math.floor(Date.now() / 1000);
-  const payload: AccountPayload = { kind: 'account', sub: accountId, iat: now, iatMs: Date.now(), exp: now + getTtlSeconds() };
+  const payload: AccountPayload = { kind: 'account', sub: accountId, iat: now, iatMs: Date.now(), exp: now + tokenTtlSeconds() };
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `${body}.${sign(body)}`;
 }
@@ -135,11 +136,15 @@ export function verifyAccountToken(token: string) {
   }
 }
 
+/**
+ * The request's sign-in token: `Authorization: Bearer …` (API clients, owner tokens), else the
+ * session cookie of a web client that sent the cookie-session header (see SESSION_HEADER).
+ */
 export function readBearerToken(headers: Record<string, string | string[] | undefined>) {
   const authorization = headers.authorization;
   const authValue = Array.isArray(authorization) ? authorization[0] : authorization;
-  if (!authValue || !authValue.startsWith('Bearer ')) {
-    return null;
+  if (authValue && authValue.startsWith('Bearer ')) {
+    return authValue.slice('Bearer '.length).trim();
   }
-  return authValue.slice('Bearer '.length).trim();
+  return sessionCookieToken(headers);
 }
