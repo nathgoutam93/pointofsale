@@ -62,12 +62,11 @@ These need an answer from the product owner before the work that depends on them
   - Tag a first release and check auto-update from GitHub Releases, which so far was tested
     only with a local update server.
 - **Done when:** signed installers for all three OSes install, run and update from a real release.
-- **Status (2026-10-03):** the release workflow builds Linux and Windows (unsigned) into a
-  v0.1.0 draft; macOS failed on the empty signing secrets, fixed since in the workflow. Next:
-  - [ ] Move the `v0.1.0` tag to the latest commit so macOS builds too (this session can't push
-        tags: `git tag -d v0.1.0 && git push origin :v0.1.0`, then tag and push again).
-  - [ ] Test the Windows installer, then publish the draft release (apps only update from
-        published releases).
+- **Status (2026-10-03):** v0.1.0 and v0.1.1 are published on GitHub Releases, built unsigned
+  by the release workflow (v0.1.1 for Linux, Windows and macOS). A forced update was tested: with
+  `MIN_CLIENT_VERSION=0.1.1` on the server, an installed 0.1.0 app was turned away, downloaded
+  0.1.1 from the release and restarted into it. Left for this item: icons, Windows and macOS
+  signing, and a full run of the installed app on Windows and macOS (backups, printing).
 
 ## [ ] 3. Hosting infrastructure (plan 4.8)
 
@@ -174,3 +173,4 @@ These need an answer from the product owner before the work that depends on them
 - 2026-10-03: Item 3 started: the server is up behind HTTPS; deploy and backup scripts added.
 - 2026-10-03: The server sends email (Brevo SMTP); deploy.sh used for the first real deploy. Desktop v0.1.0 built for Linux and Windows by the release workflow (draft).
 - 2026-10-03: From testing: admins manage any branch without a register (branch selector), cashier permissions, returns on unpaid bills lower the amount due first, cashiers receive transfers at their branch.
+- 2026-10-03: v0.1.1 released; the forced update from 0.1.0 (MIN_CLIENT_VERSION) works end to end.
