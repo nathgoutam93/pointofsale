@@ -383,6 +383,47 @@ Branch: whichever phase needs it first (likely Phase 1).
 
 ---
 
+## Phase 7: Fallback counter (keep selling when the server can't be reached)
+
+**Decided 2026-10-03:** one counter per branch can keep selling when the online server can't be
+reached. Its sales are kept on that computer and sent to the server when it's back.
+
+**How it works:**
+- **Setting it up:**
+  - An admin, on the computer at that counter, turns on "Keep selling here when the server can't be reached" (Settings → Counters, desktop app, online).
+  - The server binds the counter to that computer (`Counter.fallbackDeviceId`) and gives the computer a key (`fallbackKeyHash` on the server; the key in the app's config).
+  - One fallback counter per branch.
+  - Other computers can't open a register on that counter, so its invoice series is only ever issued by this computer.
+- **A ready copy:**
+  - The computer keeps a local copy of what selling needs, refreshed every 10 minutes while online: settings, the branch, its counters and staff (with password hashes), customers, items and prices, stock, the counter's invoice sequence, and its open register.
+  - The copy is the server's own export in the local backup format (`GET /fallback/snapshot`, with the key). It is restored with the existing restore tool into a separate embedded PostgreSQL, under a local API in fallback mode (`POS_FALLBACK=1`).
+- **Numbers:**
+  - Invoices carry on in the counter's own series (`MAI/1/26/…`): the copy has the series' last number.
+  - Receipts use a series of the counter's own (`RCPT-MAI-F1-000001`), continued from `Counter.fallbackReceiptSeq` on the server, so they never clash with the branch's other tills.
+- **Switching over (a person decides, never automatic):**
+  - When the app can't reach the server, a banner says so.
+  - On the fallback computer it offers "Keep selling on this computer". The app then sends the page's requests to the local copy, and staff sign in with their usual username and password.
+  - On other computers the banner says selling waits for the server, and which counter can carry on.
+- **What works offline:**
+  - Selling with cash or card, to walk-in or existing customers.
+  - Printing, the cash drawer, opening and closing the register, today's sales list.
+  - Not: credit or wallet sales, settling old invoices, returns, new customers, item, stock, settings or staff changes, reports, transfers or purchases. The local API refuses these with "Not while working offline".
+- **Going back:**
+  - When the server answers again, the banner offers "Send offline sales and go back online".
+  - The app stops the page using the local copy and reads everything made locally (`GET /fallback/outbox` on the local API, with a secret only the app knows).
+  - It then sends it with the key (`POST /fallback/sync`), and the server inserts it as is: registers, invoices with their lines, discounts and payments, receipts, and stock ledger entries with stock updated.
+  - Sync is idempotent: rows are keyed by id, so a retry is safe.
+  - The counter's invoice sequence and receipt series move up to the numbers used.
+  - The app goes back to the server; the copy refreshes once nothing is left to send.
+
+### [ ] 7.1 Server: binding, snapshot, sync
+### [ ] 7.2 Local API fallback mode (allowed routes, payments, receipt series, outbox)
+### [ ] 7.3 Desktop: local copy, refresh, switching, sync
+### [ ] 7.4 Screens: setup in Settings → Counters, the banner, offline sign-in
+### [ ] 7.5 Tests and an end-to-end run (server stopped mid-day, sales offline, server back, synced)
+
+---
+
 ## Open questions (decide before the item that needs it)
 
 - Hosting provider and domain for the hosted API (needed for 4.8 and 3.1's CSP).
