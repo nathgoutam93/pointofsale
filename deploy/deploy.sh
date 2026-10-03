@@ -31,7 +31,9 @@ main() {
   echo "    at $(git log -1 --format='%h %s')"
 
   echo "==> Installing and building"
-  pnpm install --frozen-lockfile
+  # Only what the API needs (and the root's TypeScript): not the desktop app or the web app,
+  # which a small server has no memory or disk to spare for.
+  pnpm install --frozen-lockfile --filter "@pos/api..." --filter point-of-sale
   pnpm --filter @pos/types --filter @pos/contracts build
   pnpm --filter @pos/api prisma:generate
   pnpm --filter @pos/api build

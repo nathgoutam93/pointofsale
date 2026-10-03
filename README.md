@@ -150,6 +150,15 @@ the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud.
    node -v                                # 22.12 or later
    ```
 
+   On a small machine (1 GB of memory, such as Oracle's free one), add swap first: building the
+   API needs about 450 MB, and without swap the server freezes while it builds.
+   ```bash
+   sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
+   sudo mkswap /swapfile && sudo swapon /swapfile
+   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab   # keep it after a reboot
+   free -h                                                       # Swap: 4.0Gi
+   ```
+
 3. **Firewall:** ports 80 and 443 must be reachable from the internet; otherwise certbot fails
    with a "connection" error.
    - In the provider's console: on Oracle Cloud, Instance → Subnet → Security List → Add Ingress
@@ -178,7 +187,7 @@ the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud.
    sudo mkdir -p /opt/pos /var/lib/pos/uploads /var/backups/pos
    sudo chown ubuntu:ubuntu /opt/pos /var/lib/pos/uploads /var/backups/pos
    git clone -b fix/auth-hardening https://github.com/nathgoutam93/pointofsale.git /opt/pos
-   cd /opt/pos && pnpm install --frozen-lockfile
+   cd /opt/pos && pnpm install --frozen-lockfile --filter "@pos/api..." --filter point-of-sale
    pnpm --filter @pos/types --filter @pos/contracts build
    pnpm --filter @pos/api prisma:generate
    pnpm --filter @pos/api build
