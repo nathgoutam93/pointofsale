@@ -4,7 +4,7 @@ import { RECEIPT_CSS_MAX_LENGTH, sanitizeReceiptCss } from './receiptCss.js';
 
 export { RECEIPT_CSS_MAX_LENGTH, RECEIPT_CSS_SCOPE, sanitizeReceiptCss } from './receiptCss.js';
 export type { ReceiptCssResult } from './receiptCss.js';
-export { APP_VERSION } from './version.js';
+export { APP_VERSION, CLIENT_VERSION_HEADER, isOlderVersion, UPDATE_REQUIRED_STATUS } from './version.js';
 export {
   MIGRATION_BUNDLE_FORMAT,
   MIGRATION_EXCLUDED_MODELS,

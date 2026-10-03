@@ -193,7 +193,7 @@ Branch: `feat/desktop-web-modes`. Depends on 1.1 and 1.2. Most items can be test
   Every step can be retried, and a failure leaves the local business fully working (see 5.4).
 - **Done when:** one click (plus sign-in) moves a demo-seeded business online with identical totals in Reports.
 
-### [ ] 2.8 Update notices
+### [x] 2.8 Update notices
 - **Depends on:** 3.5.
 - **What:** A banner for "Update ready — restart to install". A blocking screen for "This version is no longer supported — updating…" when below `minClientVersion`.
 
@@ -237,7 +237,7 @@ Branch: `feat/desktop-shell`. Can run in parallel with Phase 4.
   - Turn on `contextIsolation` and turn off `nodeIntegration`.
 - **Done when:** the web app reads the mode and base URL from `posDesktop.config` (2.1).
 
-### [~] 3.5 Daily update check
+### [x] 3.5 Daily update check
 - **What:**
   - `electron-updater` with GitHub Releases. Check at launch and every 24 h while the app is running, and download in the background.
   - Before installing, the app checks the server's `GET /meta` `minClientVersion` (online mode, or offline when the internet is available). Below the minimum: block and install now. Otherwise: install on the next restart, never mid-sale.
@@ -369,13 +369,13 @@ Branch: whichever phase needs it first (likely Phase 1).
 ### [x] 6.1 One version source
 - **What:** The root `package.json` `version` is the single source. A build step writes it into `packages/contracts/src/version.ts`, which the API (`GET /meta`), the web app (About screen) and the desktop app (`electron-builder` uses it) all read.
 
-### [ ] 6.2 Release order
+### [x] 6.2 Release order
 - **What:** Write it down in `README.md`:
   1. Deploy the server, including business migrations (4.4).
   2. Publish the desktop release with the same version.
   3. When a release has a breaking API or schema change, raise `MIN_CLIENT_VERSION` on the server. The hosted API must accept the previous client version until then.
 
-### [ ] 6.3 Client behaviour on version mismatch
+### [x] 6.3 Client behaviour on version mismatch
 - **What:**
   - **Online:** every response carries an `X-POS-Min-Client` header. If the app is below it, show the blocking update screen (2.8).
   - **Offline:** the daily check (3.5) keeps the app current when the internet is available. Offline-only shops that never connect keep working on their version. The move online (5.2) forces an update first.
@@ -473,3 +473,19 @@ Branch: whichever phase needs it first (likely Phase 1).
   - **Verified in the desktop app**, from source and packaged, under Xvfb: daily backup at start, set 2 days, back up now, add an item, restore, signed out, item gone, before-restore backup listed.
   - **Also fixed:** `test/offline.test.ts` assumed which of two simultaneous setup calls wins; it now accepts either (it had passed by luck).
   - **Not done:** copying backups somewhere other than this computer (USB, cloud folder) is manual, and the screen says so. An option to choose a backup folder would be a good follow-up.
+- 2026-10-03: **Forced updates and the update banner done (2.8, 6.3, finishing 3.5; 6.2 is written into the README).**
+  - **Server:** the desktop app sends `x-pos-client-version` with every request (`CLIENT_VERSION_HEADER` in contracts). In online mode with `MIN_CLIENT_VERSION` set, an older version gets **426** `{ message, minClientVersion }` from a middleware in `app-config.ts`. `/meta` stays open, and requests without the header (browsers, which load the server's own web app) pass. `isOlderVersion` in contracts compares numerically (0.9 < 0.10).
+  - **Desktop:** `src/updater.ts` (`Updater` class) tracks `{ state: idle|checking|none|downloading|ready|error|unsupported, availableVersion, percent, error, required }` and pushes every change to the window (`pos:update-status`). It finds out an update is required in three ways:
+    - at launch in online mode, `GET /meta`
+    - when connecting to a server on first launch (the app connects anyway, then updates)
+    - any 426, reported by the page through `updates.require(min)`
+
+    While an update is required it checks right away and every 15 minutes until a new enough version is downloaded. `installNow()` **stops the API and Postgres first** (an installer can't replace files they hold), then `quitAndInstall`. Normal quit still installs on close. When run from source the state is `unsupported`.
+  - **Web:** `components/UpdateNotices.tsx` is mounted at the root (`main.tsx`), so it shows over every page, sign-in included.
+    - **Required:** a blocking screen showing download progress, then **Restart and update**. If the download fails or the release isn't out yet, it says so and offers **Try again now**. In a browser it shows **Reload**.
+    - **Otherwise, once downloaded:** a bottom-right card "Version X is ready", with **Restart now** or **Later** (hides it until the next version).
+  - **Verified for real** with two AppImages built from this code (0.1.0 and 0.2.0) and a local update server (a generic provider via a test copy of `electron-builder.yml`):
+    - **Online, server requiring 0.2.0:** 0.1.0 showed "Update required", downloaded, Restart and update replaced the AppImage, and it relaunched as 0.2.0.
+    - **Offline, no minimum:** the banner appeared and Later hid it. Closing the app installed 0.2.0 with Postgres stopped cleanly, and the next start ran 0.2.0 with the business intact.
+  - **Bug found and fixed:** after installing on close, the AppImage updater runs the new version with `APPIMAGE_EXIT_AFTER_INSTALL=true` and waits for it. The app must exit at once (`main.ts`, first lines); before the fix it started up fully. In this container (no FUSE, so `APPIMAGE_EXTRACT_AND_RUN=1`) the updater still logs `ENOBUFS`, because extract-and-run prints every file name. The install itself succeeds; on a normal Linux desktop that output doesn't happen.
+  - **Not verified:** Windows (NSIS) and macOS install flows, and a real GitHub Releases feed. Check both with the first tagged release.

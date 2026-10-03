@@ -94,6 +94,10 @@ pnpm --filter @pos/desktop dist
 Releases: push a `v<version>` tag after setting the same version in `package.json`,
 `apps/desktop/package.json` and `packages/contracts/src/version.ts`. The workflow publishes the
 installers to GitHub Releases, and installed apps check there for updates every day.
+Release order: deploy the server first, then publish the desktop release. When a release
+changes the API or database in a way older apps can't handle, set `MIN_CLIENT_VERSION` on the
+server: older desktop apps are then turned away (426), download the update and ask to restart.
+Otherwise updates install when the app closes, and a note offers to restart sooner.
 In offline mode the app backs up the business every day and before each update, keeping
 the last 2–5 days (Settings → Backups, where admins can also restore). The app's
 data and logs are in the OS's app-data folder under "Point of Sale". See

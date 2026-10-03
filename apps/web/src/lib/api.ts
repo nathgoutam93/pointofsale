@@ -1,7 +1,12 @@
 import { initClient, tsRestFetchApi } from '@ts-rest/core';
 import { appContract } from '@pos/contracts';
 import { clearSession, getSession } from './session';
+import { CLIENT_VERSION_HEADER, UPDATE_REQUIRED_STATUS } from '@pos/contracts';
 import { desktop } from './desktop';
+import { reportUpdateRequired } from './updates';
+
+/** The desktop app sends its version so the server can turn away one too old for it. */
+const versionHeaders: Record<string, string> = desktop ? { [CLIENT_VERSION_HEADER]: desktop.version } : {};
 
 /**
  * In the desktop app the API address comes from the app (the local API's port changes each
@@ -12,10 +17,13 @@ export const API_BASE_URL = desktop?.config.apiBaseUrl ?? import.meta.env.VITE_A
 
 export const api = initClient(appContract, {
   baseUrl: API_BASE_URL,
-  baseHeaders: {},
+  baseHeaders: versionHeaders,
   // An expired or revoked token returns 401; send the user back to sign in.
   api: async (args) => {
     const response = await tsRestFetchApi(args);
+    if (response.status === UPDATE_REQUIRED_STATUS) {
+      reportUpdateRequired((response.body as { minClientVersion?: unknown } | null)?.minClientVersion);
+    }
     if (response.status === 401 && getSession()) {
       clearSession();
       window.location.href = '/';
@@ -26,9 +34,10 @@ export const api = initClient(appContract, {
 
 export function authHeaders(): Record<string, string> {
   const session = getSession();
-  if (!session) return {};
+  if (!session) return { ...versionHeaders };
 
   return {
+    ...versionHeaders,
     Authorization: `Bearer ${session.token}`
   };
 }

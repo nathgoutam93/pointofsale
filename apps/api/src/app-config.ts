@@ -3,7 +3,8 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { posMode } from './common/mode';
+import { CLIENT_VERSION_HEADER, isOlderVersion, UPDATE_REQUIRED_STATUS } from '@pos/contracts';
+import { minClientVersion, posMode } from './common/mode';
 import { uploadsDir } from './common/uploads';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
@@ -65,6 +66,29 @@ export function configureApp(app: NestExpressApplication) {
       next();
     });
   }
+
+  // Online: an app older than MIN_CLIENT_VERSION may not match this API, so it is turned
+  // away and updates itself (the desktop app sends its version with every request).
+  // /meta stays open so an old app can still learn what it needs.
+  app.use(
+    (
+      req: { headers: Record<string, string | string[] | undefined>; path: string },
+      res: { status(code: number): { json(body: unknown): void } },
+      next: () => void
+    ) => {
+      const minimum = minClientVersion();
+      const version = req.headers[CLIENT_VERSION_HEADER];
+      if (minimum && typeof version === 'string' && req.path !== '/meta' && isOlderVersion(version, minimum)) {
+        res.status(UPDATE_REQUIRED_STATUS).json({
+          statusCode: UPDATE_REQUIRED_STATUS,
+          message: `This app (version ${version}) is too old for this server. Update to version ${minimum} or later.`,
+          minClientVersion: minimum
+        });
+        return;
+      }
+      next();
+    }
+  );
 
   for (const dir of [uploadsDir, join(uploadsDir, 'items'), join(uploadsDir, 'branches'), join(uploadsDir, 'business')]) {
     if (!existsSync(dir)) {

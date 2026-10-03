@@ -6,7 +6,13 @@ import { logger } from './log.js';
 import { paths } from './paths.js';
 import { describe, LocalPostgres } from './postgres.js';
 import { APP_ORIGIN, registerAppScheme, serveWebApp } from './protocol.js';
-import { startUpdateChecks } from './updater.js';
+import { olderThan, Updater } from './updater.js';
+
+// After installing an update on quit, the Linux (AppImage) updater runs the new version once
+// with this set and waits for it to exit; it must not start the app.
+if (process.env.APPIMAGE_EXIT_AFTER_INSTALL === 'true') {
+  app.exit(0);
+}
 
 registerAppScheme();
 
@@ -17,6 +23,8 @@ let api: LocalApi | null = null;
 let window: BrowserWindow | null = null;
 let backupTimer: NodeJS.Timeout | null = null;
 const HOUR_MS = 60 * 60 * 1000;
+
+const updates = new Updater(logger('updater'), () => stopOffline());
 
 const backups = new Backups(
   logger('backups'),
@@ -162,17 +170,20 @@ function assertFromApp(event: IpcMainInvokeEvent) {
   }
 }
 
-/** 1.2.3 vs 1.10.0, numerically. */
-function olderThan(version: string, minimum: string) {
-  const a = version.split('.').map(Number);
-  const b = minimum.split('.').map(Number);
-  for (let i = 0; i < 3; i += 1) {
-    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0);
+/** Online mode: a server that needs a newer app makes the app update before anything else. */
+async function checkServerMinimum() {
+  if (config.mode !== 'online' || !config.apiBaseUrl) return;
+  try {
+    const res = await fetch(`${config.apiBaseUrl}/meta`, { signal: AbortSignal.timeout(10_000) });
+    const meta = (await res.json()) as { minClientVersion?: string | null };
+    if (meta.minClientVersion) updates.require(meta.minClientVersion);
+  } catch (error) {
+    // No internet right now: requests will tell us (426) once it's back.
+    log(`Couldn't ask the server for its minimum app version: ${describe(error)}`);
   }
-  return false;
 }
 
-/** Checks that an address is an online Point of Sale server this version can use. */
+/** Checks that an address is an online Point of Sale server. */
 async function checkOnlineServer(raw: unknown) {
   const text = typeof raw === 'string' ? raw.trim() : '';
   let url: URL;
@@ -195,8 +206,9 @@ async function checkOnlineServer(raw: unknown) {
   if (meta.mode !== 'online') {
     throw new Error("That address isn't an online Point of Sale server.");
   }
+  // A newer app needed: connect anyway; the app then updates itself before it can be used.
   if (meta.minClientVersion && olderThan(app.getVersion(), meta.minClientVersion)) {
-    throw new Error(`This server needs version ${meta.minClientVersion} or later of the app. Update the app first.`);
+    setImmediate(() => updates.require(meta.minClientVersion as string));
   }
   return base;
 }
@@ -284,6 +296,29 @@ ipcMain.handle('pos:backups:open-folder', async (event, token: unknown) => {
   await shell.openPath(backupsFolder());
 });
 
+ipcMain.handle('pos:updates:status', (event) => {
+  assertFromApp(event);
+  return updates.current;
+});
+
+ipcMain.handle('pos:updates:check', async (event) => {
+  assertFromApp(event);
+  await updates.check();
+  return updates.current;
+});
+
+ipcMain.handle('pos:updates:install', async (event) => {
+  assertFromApp(event);
+  await updates.installNow();
+});
+
+/** The page got 426 from the server: this version is too old for it. */
+ipcMain.handle('pos:updates:require', (event, minimum: unknown) => {
+  assertFromApp(event);
+  if (typeof minimum === 'string') updates.require(minimum);
+  return updates.current;
+});
+
 ipcMain.handle('pos:open-logs', async (event) => {
   assertFromApp(event);
   await shell.openPath(paths.logs());
@@ -311,7 +346,8 @@ if (!app.requestSingleInstanceLock()) {
       await showStartupError(error);
       return;
     }
-    startUpdateChecks(logger('updater'));
+    updates.start();
+    void checkServerMinimum();
   });
 
   app.on('window-all-closed', () => app.quit());

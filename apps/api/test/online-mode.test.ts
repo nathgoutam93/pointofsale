@@ -37,6 +37,34 @@ describe('online mode', () => {
   });
 });
 
+describe('minimum app version', () => {
+  const asApp = (version: string | null, path: string) =>
+    fetch(t.baseUrl + path, {
+      headers: { authorization: `Bearer ${admin}`, ...(version ? { 'x-pos-client-version': version } : {}) }
+    });
+
+  it('turns away apps older than MIN_CLIENT_VERSION with 426, and lets them read /meta', async () => {
+    process.env.MIN_CLIENT_VERSION = '0.10.0';
+    try {
+      const old = await asApp('0.9.5', '/business/settings');
+      expect(old.status).toBe(426);
+      expect(await old.json()).toMatchObject({ minClientVersion: '0.10.0', message: expect.stringMatching(/Update to version 0\.10\.0/) });
+
+      expect((await asApp('0.10.0', '/business/settings')).status).toBe(200);
+      expect((await asApp('1.0.0', '/business/settings')).status).toBe(200);
+      // Browsers load the web app from the server itself and send no version.
+      expect((await asApp(null, '/business/settings')).status).toBe(200);
+
+      const meta = await asApp('0.9.5', '/meta');
+      expect(meta.status).toBe(200);
+      expect((await meta.json()).minClientVersion).toBe('0.10.0');
+    } finally {
+      delete process.env.MIN_CLIENT_VERSION;
+    }
+    expect((await asApp('0.0.1', '/business/settings')).status).toBe(200);
+  });
+});
+
 describe('migration bundle tables', () => {
   const models = Prisma.dmmf.datamodel.models;
 

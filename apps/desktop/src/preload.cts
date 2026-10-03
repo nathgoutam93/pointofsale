@@ -1,6 +1,6 @@
 // The only bridge between the web app and the desktop app. Runs sandboxed, so it can use
 // just `contextBridge` and `ipcRenderer`; it never hands the page Node or Electron objects.
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
 type ModeChoice = { mode: 'offline' } | { mode: 'online'; apiBaseUrl: string };
 
@@ -25,6 +25,18 @@ contextBridge.exposeInMainWorld('posDesktop', {
   version: info.version,
   chooseMode: (choice: ModeChoice) => invoke('pos:choose-mode', choice),
   openLogsFolder: () => invoke('pos:open-logs'),
+  updates: {
+    status: () => invoke('pos:updates:status'),
+    check: () => invoke('pos:updates:check'),
+    installNow: () => invoke('pos:updates:install'),
+    require: (minimum: string) => invoke('pos:updates:require', minimum),
+    /** Calls `listener` on every change; returns a function that stops it. */
+    onStatus: (listener: (status: unknown) => void) => {
+      const forward = (_event: IpcRendererEvent, status: unknown) => listener(status);
+      ipcRenderer.on('pos:update-status', forward);
+      return () => ipcRenderer.removeListener('pos:update-status', forward);
+    }
+  },
   // Offline only, admins only (checked by the app against the local API with this token).
   backups: {
     list: (token: string) => invoke('pos:backups:list', token),

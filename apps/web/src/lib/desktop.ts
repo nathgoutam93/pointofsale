@@ -30,6 +30,28 @@ export type DesktopBackups = {
   openFolder(token: string): Promise<void>;
 };
 
+export type UpdateStatus = {
+  state: 'idle' | 'checking' | 'none' | 'downloading' | 'ready' | 'error' | 'unsupported';
+  currentVersion: string;
+  /** The version being downloaded or ready to install. */
+  availableVersion: string | null;
+  /** Download progress, 0–100. */
+  percent: number | null;
+  error: string | null;
+  /** Set when the server needs at least this version: the app can't be used until it updates. */
+  required: string | null;
+};
+
+export type DesktopUpdates = {
+  status(): Promise<UpdateStatus>;
+  check(): Promise<UpdateStatus>;
+  /** Stops the local services and restarts into the downloaded version. */
+  installNow(): Promise<void>;
+  /** The server answered 426: this version is too old for it. */
+  require(minimum: string): Promise<UpdateStatus>;
+  onStatus(listener: (status: UpdateStatus) => void): () => void;
+};
+
 export type DesktopBridge = {
   config: DesktopConfig;
   version: string;
@@ -37,6 +59,7 @@ export type DesktopBridge = {
   chooseMode(choice: ModeChoice): Promise<void>;
   openLogsFolder(): Promise<void>;
   backups?: DesktopBackups;
+  updates?: DesktopUpdates;
 };
 
 declare global {
