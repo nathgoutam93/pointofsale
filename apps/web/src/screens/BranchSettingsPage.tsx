@@ -8,6 +8,7 @@ import {
   gstinProblem,
   gstStateLabel,
   isGstStateCode,
+  type CashierPermission,
 } from "@pos/contracts";
 import { api, apiErrorMessage, apiFetch, authHeaders, uploadSrc } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
@@ -20,6 +21,7 @@ import { ReceiptTemplateSection } from "./settings/ReceiptTemplateSection";
 import { canMoveOnline, MoveOnlineDialog } from "../components/MoveOnline";
 import { RecoveryCodeSettings } from "../components/RecoveryCode";
 import { CountersSection } from "./settings/CountersSection";
+import { CashierPermissions } from "./settings/CashierPermissions";
 import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
 
 type SettingsForm = {
@@ -52,6 +54,7 @@ type CashierForm = {
   username: string;
   password: string;
   branchIds: string[];
+  permissions: CashierPermission[];
 };
 
 type CreateBranchForm = {
@@ -61,7 +64,7 @@ type CreateBranchForm = {
 
 type SettingsTab = "business" | "branches" | "receipts" | "cashiers" | "printer" | "backups";
 
-const emptyCashierForm = (branchId: string): CashierForm => ({ username: "", password: "", branchIds: [branchId] });
+const emptyCashierForm = (branchId: string): CashierForm => ({ username: "", password: "", branchIds: [branchId], permissions: [] });
 
 /** Every IANA zone this browser knows, keeping the saved one even if it isn't listed. */
 function timeZoneOptions(current: string) {
@@ -429,7 +432,8 @@ export function BranchSettingsPage() {
           branchId: selectedBranchId,
           username: cashierForm.username.trim(),
           password: cashierForm.password,
-          branchIds: cashierForm.branchIds
+          branchIds: cashierForm.branchIds,
+          permissions: cashierForm.permissions
         },
         extraHeaders: authHeaders()
       });
@@ -447,10 +451,23 @@ export function BranchSettingsPage() {
   });
 
   const updateUser = useMutation({
-    mutationFn: async (payload: { id: string; username?: string; password?: string; mustChangePassword?: boolean; isActive?: boolean }) => {
+    mutationFn: async (payload: {
+      id: string;
+      username?: string;
+      password?: string;
+      mustChangePassword?: boolean;
+      isActive?: boolean;
+      permissions?: CashierPermission[];
+    }) => {
       const res = await api.users.update({
         params: { id: payload.id },
-        body: { username: payload.username, password: payload.password, mustChangePassword: payload.mustChangePassword, isActive: payload.isActive },
+        body: {
+          username: payload.username,
+          password: payload.password,
+          mustChangePassword: payload.mustChangePassword,
+          isActive: payload.isActive,
+          permissions: payload.permissions
+        },
         extraHeaders: authHeaders()
       });
       if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to update user"));
@@ -459,7 +476,9 @@ export function BranchSettingsPage() {
     onSuccess: (updated, payload) => {
       queryClient.invalidateQueries({ queryKey: ["branch-users", selectedBranchId] });
       setUserMessage(
-        payload.password === undefined
+        payload.permissions !== undefined
+          ? `What ${updated.username} may do is saved; it applies from their next action.`
+          : payload.password === undefined
           ? "User updated."
           : updated.mustChangePassword
             ? `New password set. ${updated.username} is signed out everywhere and chooses their own password at next sign-in.`
@@ -1044,6 +1063,12 @@ export function BranchSettingsPage() {
                 })}
               </div>
             </div>
+            <div className="md:col-span-3">
+              <CashierPermissions
+                value={cashierForm.permissions}
+                onChange={(permissions) => setCashierForm((prev) => ({ ...prev, permissions }))}
+              />
+            </div>
             <button
               className="btn-primary"
               onClick={() => createCashier.mutate()}
@@ -1069,7 +1094,9 @@ export function BranchSettingsPage() {
                     <p className="text-xs text-slate-500">
                       Status: {user.isActive ? "Active" : "Inactive"} • Created {new Date(user.createdAt).toLocaleDateString()}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">Branch access: {user.branchIds.join(", ")}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Branch access: {user.branchIds.map((id) => availableBranches.find((branch) => branch.id === id)?.code ?? id).join(", ")}
+                    </p>
                   </div>
                   <button
                     className={`rounded px-3 py-1 text-xs font-semibold ${user.isActive ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}
@@ -1108,6 +1135,13 @@ export function BranchSettingsPage() {
                     />
                     Ask them to choose their own at next sign-in
                   </label>
+                </div>
+                <div className="mt-3">
+                  <CashierPermissions
+                    value={user.permissions ?? []}
+                    disabled={updateUser.isPending}
+                    onChange={(permissions) => updateUser.mutate({ id: user.id, permissions })}
+                  />
                 </div>
                 <div className="mt-3 rounded border border-slate-200 p-2">
                   <p className="text-xs font-semibold text-slate-600">Branch Access</p>

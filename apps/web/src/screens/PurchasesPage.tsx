@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useMemo, useState } from "react";
 import { IconTrash } from "../components/icons";
 import { api, apiErrorMessage, authHeaders } from "../lib/api";
-import { inr, requireOperationalSession } from "./route-helpers";
+import { BranchPicker } from "../components/BranchPicker";
+import { useManagedBranch } from "../lib/branch";
+import { inr, requireManagementSession } from "./route-helpers";
 import { ItemPicker } from "./stock/ItemPicker";
 
 type DraftLine = { itemId: string; code: string; name: string; uom: string; qty: string; unitCost: string };
@@ -18,7 +20,9 @@ function formatDate(value: string) {
  * cost to the weighted average of the stock held and the new purchase.
  */
 export function PurchasesPage() {
-  const session = requireOperationalSession();
+  requireManagementSession();
+  const [managedBranch, setManagedBranch] = useManagedBranch();
+  const branchId = managedBranch ?? "";
   const queryClient = useQueryClient();
   const [supplier, setSupplier] = useState(emptySupplier);
   const [lines, setLines] = useState<DraftLine[]>([]);
@@ -36,9 +40,9 @@ export function PurchasesPage() {
   });
 
   const purchases = useQuery({
-    queryKey: ["purchases", session.branchId],
+    queryKey: ["purchases", branchId],
     queryFn: async () => {
-      const res = await api.purchases.list({ query: { branchId: session.branchId }, extraHeaders: authHeaders() });
+      const res = await api.purchases.list({ query: { branchId: branchId }, extraHeaders: authHeaders() });
       if (res.status !== 200) throw new Error("Failed to load purchases");
       return res.body;
     },
@@ -51,7 +55,7 @@ export function PurchasesPage() {
     mutationFn: async () => {
       const res = await api.purchases.create({
         body: {
-          branchId: session.branchId,
+          branchId: branchId,
           supplierName: supplier.supplierName.trim(),
           supplierGstin: supplier.supplierGstin.trim() || undefined,
           supplierInvoiceNo: supplier.supplierInvoiceNo.trim() || undefined,
@@ -69,9 +73,9 @@ export function PurchasesPage() {
       setLines([]);
       setError("");
       setSaved(`${purchase.purchaseNo} saved. Stock and item costs are updated.`);
-      void queryClient.invalidateQueries({ queryKey: ["purchases", session.branchId] });
-      void queryClient.invalidateQueries({ queryKey: ["stock-module", session.branchId] });
-      void queryClient.invalidateQueries({ queryKey: ["stock-ledger", session.branchId] });
+      void queryClient.invalidateQueries({ queryKey: ["purchases", branchId] });
+      void queryClient.invalidateQueries({ queryKey: ["stock-module", branchId] });
+      void queryClient.invalidateQueries({ queryKey: ["stock-ledger", branchId] });
       void queryClient.invalidateQueries({ queryKey: ["items-stock-list"] });
     },
     onError: (e) => {
@@ -95,11 +99,14 @@ export function PurchasesPage() {
   return (
     <section className="space-y-6 p-6">
       <form onSubmit={onSubmit} className="card overflow-visible">
-        <div className="border-b border-slate-200 p-5">
-          <h2 className="page-title">New Purchase</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Goods received from a supplier. Quantities are in each item's base unit and costs are per base unit, before tax.
-          </p>
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 p-5">
+          <div>
+            <h2 className="page-title">New Purchase</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Goods received from a supplier. Quantities are in each item's base unit and costs are per base unit, before tax.
+            </p>
+          </div>
+          <BranchPicker value={branchId} onChange={setManagedBranch} />
         </div>
         <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4">
           <label className="block text-sm text-slate-600">

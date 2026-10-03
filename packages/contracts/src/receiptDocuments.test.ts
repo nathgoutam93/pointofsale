@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatReceiptDate, formatReceiptTime, invoiceReceiptItems } from './receiptDocuments.js';
+import { formatReceiptDate, formatReceiptTime, invoiceDue, invoiceReceiptItems, returnReceiptDocument, splitReturn } from './receiptDocuments.js';
 
 describe('receipt dates', () => {
   it('are written in the business time zone when given one', () => {
@@ -66,5 +66,44 @@ describe('invoiceReceiptItems', () => {
       () => 'PCS'
     );
     expect(line).toMatchObject({ qty: 1, qtyLabel: '1 BOX', rate: 100, total: 100 });
+  });
+});
+
+describe('returns on a bill not paid in full', () => {
+  it('owe the total less payments and returns taken off it', () => {
+    expect(invoiceDue({ grandTotal: '300.00', paidTotal: '150.00', creditedTotal: '100.00' })).toBe(50);
+    expect(invoiceDue({ grandTotal: 300, paidTotal: 300 })).toBe(0);
+    expect(invoiceDue({ grandTotal: 100, paidTotal: 120 })).toBe(0);
+  });
+
+  it('come off what is owed first; only the rest is refunded', () => {
+    expect(splitReturn(100, 300)).toEqual({ dueAdjusted: 100, refundAmount: 0 });
+    expect(splitReturn(200, 150)).toEqual({ dueAdjusted: 150, refundAmount: 50 });
+    expect(splitReturn(66.67, 0)).toEqual({ dueAdjusted: 0, refundAmount: 66.67 });
+  });
+
+  it('print what came off the due and what was handed back', () => {
+    const base = {
+      branding: { storeName: 'Shop', headerLines: [], footerLines: [] },
+      returnNo: 'R1',
+      invoiceNo: 'B1',
+      createdAt: '2026-10-03T10:00:00.000Z',
+      customer: 'Asha',
+      refundMode: 'CASH' as const,
+      items: [],
+      totalAmount: 200,
+      tax: { cgst: 0, sgst: 0, igst: 0 }
+    };
+    const offDue = returnReceiptDocument({ ...base, dueAdjusted: 200 });
+    expect(offDue.title).toBe('RETURN');
+    expect(offDue.payments).toEqual([{ label: 'Taken off amount due', amount: 200 }]);
+    const split = returnReceiptDocument({ ...base, dueAdjusted: 150 });
+    expect(split.title).toBe('REFUND');
+    expect(split.payments).toEqual([
+      { label: 'Taken off amount due', amount: 150 },
+      { label: 'Refunded by Cash', amount: 50 }
+    ]);
+    // A paid bill prints as before.
+    expect(returnReceiptDocument(base)).toMatchObject({ title: 'REFUND', grandTotalLabel: 'REFUND', payments: [{ label: 'Refunded by Cash', amount: 200 }] });
   });
 });

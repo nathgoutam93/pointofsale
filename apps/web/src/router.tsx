@@ -14,7 +14,7 @@ import { TransfersPage } from './screens/TransfersPage';
 import { ReportsPage } from './screens/ReportsPage';
 import { GstReturnsPage } from './screens/GstReturnsPage';
 import { BranchSettingsPage } from './screens/BranchSettingsPage';
-import { requireAdmin, requireOperationalSession, requireSession } from './screens/route-helpers';
+import { requireAdmin, requireManagementSession, requireOperationalSession, requirePermission, requireSession } from './screens/route-helpers';
 import { WelcomePage } from './screens/onboarding/WelcomePage';
 import { SetupPage } from './screens/onboarding/SetupPage';
 import { RecoverPage } from './screens/onboarding/RecoverPage';
@@ -154,7 +154,7 @@ const posRoute = createRoute({
 const salesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/sales',
-  beforeLoad: () => requireOperationalSession(),
+  beforeLoad: () => requireManagementSession(),
   validateSearch: (search: Record<string, unknown>): SalesSearch => {
     const parsed: SalesSearch = {};
     if (search.paymentFilter === 'PENDING' || search.paymentFilter === 'SETTLED') {
@@ -185,14 +185,14 @@ const itemsRoute = createRoute({
 const customersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/customers',
-  beforeLoad: () => requireOperationalSession(),
+  beforeLoad: () => requireManagementSession(),
   component: CustomersPage
 });
 
 const stockRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/stock',
-  beforeLoad: () => requireOperationalSession(),
+  beforeLoad: () => requireManagementSession(),
   component: StockPage
 });
 
@@ -200,8 +200,8 @@ const purchasesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/purchases',
   beforeLoad: () => {
-    requireAdmin();
-    requireOperationalSession();
+    requirePermission('RECORD_PURCHASES');
+    return requireManagementSession();
   },
   component: PurchasesPage
 });
@@ -209,10 +209,8 @@ const purchasesRoute = createRoute({
 const transfersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/transfers',
-  beforeLoad: () => {
-    requireAdmin();
-    requireOperationalSession();
-  },
+  // Cashiers receive what arrives at their branch; sending needs SEND_TRANSFERS.
+  beforeLoad: () => requireManagementSession(),
   component: TransfersPage
 });
 

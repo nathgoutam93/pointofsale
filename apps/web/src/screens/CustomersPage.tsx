@@ -1,11 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { invoiceDue } from "@pos/contracts";
 import { api, authHeaders } from "../lib/api";
-import { inr, requireOperationalSession } from "./route-helpers";
+import { BranchPicker } from "../components/BranchPicker";
+import { useManagedBranch } from "../lib/branch";
+import { can } from "../lib/session";
+import { inr, requireManagementSession } from "./route-helpers";
 
 export function CustomersPage() {
-    const session = requireOperationalSession();
+    const session = requireManagementSession();
+    const [managedBranch, setManagedBranch] = useManagedBranch();
+    const branchId = managedBranch ?? "";
     const queryClient = useQueryClient();
     const [name, setName] = useState("");
     const [phone, setPhone] = useState("");
@@ -20,10 +26,10 @@ export function CustomersPage() {
     const [walletTopupAmount, setWalletTopupAmount] = useState("");
 
     const customers = useQuery({
-        queryKey: ["customers-module", session.branchId],
+        queryKey: ["customers-module", branchId],
         queryFn: async () => {
             const res = await api.customers.list({
-                query: { branchId: session.branchId },
+                query: { branchId: branchId },
                 extraHeaders: authHeaders(),
             });
             if (res.status !== 200) throw new Error("Failed to fetch customers");
@@ -35,7 +41,7 @@ export function CustomersPage() {
         mutationFn: async () => {
             const res = await api.customers.create({
                 body: {
-                    branchId: session.branchId,
+                    branchId: branchId,
                     name: name.trim(),
                     phone: phone.trim() || undefined,
                 },
@@ -50,7 +56,7 @@ export function CustomersPage() {
             setShowCreateForm(false);
             setSelectedCustomerId(created.id);
             queryClient.invalidateQueries({
-                queryKey: ["customers-module", session.branchId],
+                queryKey: ["customers-module", branchId],
             });
         },
     });
@@ -62,6 +68,7 @@ export function CustomersPage() {
             }
             const res = await api.customers.update({
                 params: { id: selectedCustomer.id },
+                query: { branchId },
                 body: {
                     name: editName.trim(),
                     phone: editPhone.trim() || null,
@@ -77,7 +84,7 @@ export function CustomersPage() {
             setEditPhone(updated.phone ?? "");
             setIsEditingCustomer(false);
             queryClient.invalidateQueries({
-                queryKey: ["customers-module", session.branchId],
+                queryKey: ["customers-module", branchId],
             });
         },
     });
@@ -97,6 +104,7 @@ export function CustomersPage() {
 
             const res = await api.customers.topupWallet({
                 params: { id: customerId },
+                query: { branchId },
                 body: { amount },
                 extraHeaders: authHeaders(),
             });
@@ -153,6 +161,7 @@ export function CustomersPage() {
             }
             const res = await api.customers.getWallet({
                 params: { id: selectedCustomer.id },
+                query: { branchId },
                 extraHeaders: authHeaders(),
             });
             if (res.status !== 200) throw new Error("Failed to fetch wallet balance");
@@ -161,10 +170,10 @@ export function CustomersPage() {
     });
 
     const sales = useQuery({
-        queryKey: ["customers-module-sales", session.branchId],
+        queryKey: ["customers-module-sales", branchId],
         queryFn: async () => {
             const res = await api.sales.list({
-                query: { branchId: session.branchId },
+                query: { branchId: branchId },
                 extraHeaders: authHeaders(),
             });
             if (res.status !== 200) throw new Error("Failed to fetch sales");
@@ -189,7 +198,7 @@ export function CustomersPage() {
         const summary = new Map<string, { count: number; total: number }>();
         for (const invoice of sales.data ?? []) {
             if (!invoice.customerId) continue;
-            const pending = Number(invoice.grandTotal) - Number(invoice.paidTotal);
+            const pending = invoiceDue(invoice);
             if (pending <= 0) continue;
 
             const current = summary.get(invoice.customerId) ?? { count: 0, total: 0 };
@@ -230,6 +239,14 @@ export function CustomersPage() {
                             {showCreateForm ? "Cancel" : "New Customer"}
                         </button>
                     </div>
+                    <BranchPicker
+                        className="mt-3"
+                        value={branchId}
+                        onChange={(next) => {
+                            setManagedBranch(next);
+                            setSelectedCustomerId(null);
+                        }}
+                    />
 
                     {showCreateForm ? (
                         <form
@@ -449,7 +466,7 @@ export function CustomersPage() {
                             </dl>
                         </div>
 
-                        {!selectedCustomer.isWalkIn ? (
+                        {!selectedCustomer.isWalkIn && can(session, "TOP_UP_WALLETS") ? (
                             <form
                                 className="card max-w-md p-5"
                                 onSubmit={(e) => {

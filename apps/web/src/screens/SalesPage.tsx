@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { sanitizeReceiptCss } from "@pos/contracts";
+import { invoiceDue, sanitizeReceiptCss } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders, uploadSrc } from "../lib/api";
 import { usePrintTemplate, useReceiptPrinting } from "../lib/printing";
 import { branchReceiptTemplate, receiptStyleFor, renderReceipt, saleReceiptDocument } from "../lib/receipt";
@@ -12,7 +12,10 @@ import { ReceiptPrintStyles } from "./pos/ReceiptPrintStyles";
 import { IconCheck, IconPrinter } from "../components/icons";
 import { StatusBadge } from "../components/StatusBadge";
 import { EmailReceipt } from "../components/EmailReceipt";
-import { inr, money, requireOperationalSession } from "./route-helpers";
+import { BranchPicker } from "../components/BranchPicker";
+import { useManagedBranch } from "../lib/branch";
+import { can } from "../lib/session";
+import { inr, money, requireManagementSession } from "./route-helpers";
 
 type PaymentMode = "CASH" | "CARD" | "WALLET";
 type PaymentFilter = "ALL" | "PENDING" | "SETTLED";
@@ -28,6 +31,7 @@ type SettledSummary = {
   createdAt: string;
   status: string;
   paidTotal: number;
+  creditedTotal: number;
   subTotal: number;
   taxTotal: number;
   grandTotal: number;
@@ -55,7 +59,11 @@ type SettledSummary = {
 };
 
 export function SalesPage() {
-  const session = requireOperationalSession();
+  const session = requireManagementSession();
+  const [managedBranch, setManagedBranch] = useManagedBranch();
+  const branchId = managedBranch ?? "";
+  // Payments are taken at a register: only at the branch where this user's register is open.
+  const canTakePayment = Boolean(session.registerId) && session.branchId === branchId;
   const salesSearch = useSearch({ from: "/sales" });
   const queryClient = useQueryClient();
   const formatSaleCreator = (createdBy: string, createdByName?: string) => {
@@ -124,10 +132,10 @@ export function SalesPage() {
   const linkedCustomerId = salesSearch.customerId ?? "";
 
   const branchSettings = useQuery({
-    queryKey: ["branch-settings", session.branchId],
+    queryKey: ["branch-settings", branchId],
     queryFn: async () => {
       const res = await api.branches.get({
-        params: { id: session.branchId },
+        params: { id: branchId },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load branch settings");
@@ -196,10 +204,10 @@ export function SalesPage() {
   const receiptTemplate = usePrintTemplate(branchTemplate);
 
   const sales = useQuery({
-    queryKey: ["sales-module", session.branchId],
+    queryKey: ["sales-module", branchId],
     queryFn: async () => {
       const res = await api.sales.list({
-        query: { branchId: session.branchId },
+        query: { branchId: branchId },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load sales");
@@ -225,10 +233,10 @@ export function SalesPage() {
   }, [items.data]);
 
   const customers = useQuery({
-    queryKey: ["customers-sales", session.branchId],
+    queryKey: ["customers-sales", branchId],
     queryFn: async () => {
       const res = await api.customers.list({
-        query: { branchId: session.branchId },
+        query: { branchId: branchId },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load customers");
@@ -272,7 +280,7 @@ export function SalesPage() {
     }
     const firstPending =
       sales.data.find(
-        (invoice) => Number(invoice.grandTotal) - Number(invoice.paidTotal) > 0,
+        (invoice) => invoiceDue(invoice) > 0,
       ) ?? sales.data[0];
     setSelectedInvoiceId(firstPending.id);
   }, [sales.data, selectedInvoiceId]);
@@ -332,6 +340,7 @@ export function SalesPage() {
       }
       const res = await api.customers.getWallet({
         params: { id: selectedCustomer.id },
+        query: { branchId },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load customer wallet");
@@ -386,7 +395,7 @@ export function SalesPage() {
   const pendingAmount = useMemo(() => {
     if (!currentInvoice) return 0;
     const pending =
-      Number(currentInvoice.grandTotal) - Number(currentInvoice.paidTotal);
+      invoiceDue(currentInvoice);
     return Math.max(0, pending);
   }, [currentInvoice]);
 
@@ -540,11 +549,13 @@ export function SalesPage() {
     setMessage("");
   };
 
-  // Admins can cancel an unpaid draft (e.g. one left by a failed checkout); its stock goes back.
+  // An unpaid draft (e.g. one left by a failed checkout) can be cancelled, by admins and cashiers
+  // allowed to; its stock goes back.
   const canCancelInvoice =
-    session.role === "ADMIN" &&
+    can(session, "CANCEL_SALES") &&
     currentInvoice?.status === "DRAFT" &&
-    Number(currentInvoice?.paidTotal ?? 0) === 0;
+    Number(currentInvoice?.paidTotal ?? 0) === 0 &&
+    Number(currentInvoice?.creditedTotal ?? 0) === 0;
 
   const cancelInvoice = useMutation({
     mutationFn: async (invoiceId: string) => {
@@ -559,9 +570,9 @@ export function SalesPage() {
     },
     onSuccess: (invoice) => {
       setMessage(`Cancelled ${invoice.invoiceNo}; its stock is back on hand.`);
-      queryClient.invalidateQueries({ queryKey: ["sales-module", session.branchId] });
+      queryClient.invalidateQueries({ queryKey: ["sales-module", branchId] });
       queryClient.invalidateQueries({ queryKey: ["sales-by-id", invoice.id] });
-      queryClient.invalidateQueries({ queryKey: ["stock-module", session.branchId] });
+      queryClient.invalidateQueries({ queryKey: ["stock-module", branchId] });
     },
     onError: (error) => {
       setMessage((error as Error).message);
@@ -598,6 +609,7 @@ export function SalesPage() {
         createdAt: result.receipt.createdAt,
         status: result.invoice.status,
         paidTotal: Number(result.invoice.paidTotal),
+        creditedTotal: Number(result.invoice.creditedTotal ?? 0),
         subTotal: Number(result.invoice.subTotal),
         taxTotal: Number(result.invoice.taxTotal),
         grandTotal: Number(result.invoice.grandTotal),
@@ -644,7 +656,7 @@ export function SalesPage() {
         `${result.invoice.status === "SETTLED" ? "Settled" : "Payment recorded"}: ${result.invoice.invoiceNo}, Receipt: ${result.receipt.receiptNo}`,
       );
       queryClient.invalidateQueries({
-        queryKey: ["sales-module", session.branchId],
+        queryKey: ["sales-module", branchId],
       });
       queryClient.invalidateQueries({
         queryKey: ["sales-by-id", result.invoice.id],
@@ -723,7 +735,7 @@ export function SalesPage() {
     if (paymentFilter !== "ALL") {
       list = list.filter((invoice) => {
         const pending =
-          Number(invoice.grandTotal) - Number(invoice.paidTotal) > 0;
+          invoiceDue(invoice) > 0;
         return paymentFilter === "PENDING" ? pending : !pending;
       });
     }
@@ -765,7 +777,7 @@ export function SalesPage() {
   const filteredPendingInvoices = useMemo(
     () =>
       filteredSales.filter(
-        (invoice) => Number(invoice.grandTotal) - Number(invoice.paidTotal) > 0,
+        (invoice) => invoiceDue(invoice) > 0,
       ),
     [filteredSales],
   );
@@ -884,6 +896,7 @@ export function SalesPage() {
       grandTotal: invoiceGrandTotal,
       payments: paymentBreakdown,
       paidTotal: invoicePaidTotal,
+      creditedTotal: Number(currentInvoice.creditedTotal ?? 0),
     });
     return renderReceipt(doc, receiptTemplate);
   }, [
@@ -930,7 +943,7 @@ export function SalesPage() {
                 <p className="mt-1 text-xs text-slate-500">
                   {settledSummary.status === "SETTLED"
                     ? "Invoice settled"
-                    : `Remaining ${inr(Math.max(0, settledSummary.grandTotal - settledSummary.paidTotal))}`}
+                    : `Remaining ${inr(invoiceDue(settledSummary))}`}
                 </p>
               </div>
 
@@ -961,6 +974,15 @@ export function SalesPage() {
                 </div>
               </div>
               <div className="mt-3 grid gap-2 text-sm">
+                <BranchPicker
+                  className=""
+                  value={branchId}
+                  onChange={(next) => {
+                    setManagedBranch(next);
+                    setSelectedInvoiceId("");
+                    setSettledSummary(null);
+                  }}
+                />
                 <input
                   className="field"
                   placeholder="Search by invoice, customer, status, or staff"
@@ -1022,7 +1044,7 @@ export function SalesPage() {
             <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
               {filteredSales.map((invoice) => {
                 const pending =
-                  Number(invoice.grandTotal) - Number(invoice.paidTotal);
+                  invoiceDue(invoice);
                 const isSelected = selectedInvoiceId === invoice.id;
                 return (
                   <button
@@ -1138,7 +1160,9 @@ export function SalesPage() {
             <button
               className="btn-primary"
               onClick={openSettleModal}
+              title={canTakePayment ? undefined : "Open a register at this branch to take payments"}
               disabled={
+                !canTakePayment ||
                 !currentInvoice ||
                 pendingAmount <= 0 ||
                 currentInvoice.status === "CANCELLED" ||

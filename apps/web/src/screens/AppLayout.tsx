@@ -23,7 +23,9 @@ import { MoveOnlineNotice } from "../components/MoveOnline";
 import { RecoveryCodeNotice } from "../components/RecoveryCode";
 import { confirmLeave } from "../lib/leaveGuard";
 import { useIsOffline } from "../lib/mode";
-import { getSession } from "../lib/session";
+import type { CashierPermission } from "@pos/contracts";
+import { api } from "../lib/api";
+import { can, getSession, updateSession } from "../lib/session";
 import { FallbackBanner } from "../components/FallbackBanner";
 import { signOut } from "../lib/api";
 import { CloseRegisterDialog } from "./CloseRegisterDialog";
@@ -32,9 +34,14 @@ type NavItem = {
   to: string;
   label: string;
   icon: ComponentType<SVGProps<SVGSVGElement>>;
-  /** The route needs an open register (see requireOperationalSession). */
-  needsRegister?: boolean;
+  /**
+   * The route needs an open register: "always" for selling; "cashiers" for screens admins use
+   * for any branch (see requireManagementSession).
+   */
+  needsRegister?: "always" | "cashiers";
   adminOnly?: boolean;
+  /** Shown to admins, and to cashiers allowed this. */
+  permission?: CashierPermission;
   /** Needs an online business; an offline one sees it marked "Online only". */
   onlineOnly?: boolean;
 };
@@ -43,19 +50,19 @@ const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
   {
     title: "Operations",
     items: [
-      { to: "/pos", label: "Point of Sale", icon: IconRegister, needsRegister: true },
-      { to: "/sales", label: "Sales", icon: IconReceipt, needsRegister: true },
-      { to: "/returns", label: "Returns", icon: IconReturn, needsRegister: true },
-      { to: "/customers", label: "Customers", icon: IconUsers, needsRegister: true },
+      { to: "/pos", label: "Point of Sale", icon: IconRegister, needsRegister: "always" },
+      { to: "/sales", label: "Sales", icon: IconReceipt, needsRegister: "cashiers" },
+      { to: "/returns", label: "Returns", icon: IconReturn, needsRegister: "always" },
+      { to: "/customers", label: "Customers", icon: IconUsers, needsRegister: "cashiers" },
     ],
   },
   {
     title: "Catalog",
     items: [
       { to: "/items", label: "Items", icon: IconTag },
-      { to: "/stock", label: "Inventory", icon: IconBoxes, needsRegister: true },
-      { to: "/purchases", label: "Purchases", icon: IconTruck, needsRegister: true, adminOnly: true },
-      { to: "/transfers", label: "Transfers", icon: IconTransfer, needsRegister: true, adminOnly: true, onlineOnly: true },
+      { to: "/stock", label: "Inventory", icon: IconBoxes, needsRegister: "cashiers" },
+      { to: "/purchases", label: "Purchases", icon: IconTruck, needsRegister: "cashiers", permission: "RECORD_PURCHASES" },
+      { to: "/transfers", label: "Transfers", icon: IconTransfer, needsRegister: "cashiers", onlineOnly: true },
     ],
   },
   {
@@ -115,6 +122,26 @@ export function AppLayout() {
     setMobileOpen(false);
   }, [location]);
 
+  // What this user may do and where can change while they are signed in (an admin's edit).
+  const signedIn = Boolean(session) && !session?.mustChangePassword;
+  const [, setRefreshed] = useState(0);
+  useEffect(() => {
+    if (!signedIn) return;
+    let cancelled = false;
+    const refresh = async () => {
+      const me = await api.auth.me().catch(() => null);
+      if (cancelled || me?.status !== 200) return;
+      updateSession({ permissions: me.body.permissions, branches: me.body.branches });
+      setRefreshed((count) => count + 1);
+    };
+    void refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", refresh);
+    };
+  }, [signedIn, location]);
+
   // Without navigation too: the password someone was given, before they may use anything.
   if ((!session && FULL_SCREEN_PATHS.has(location)) || (session?.mustChangePassword && location === "/change-password")) {
     return (
@@ -164,7 +191,9 @@ export function AppLayout() {
 
         <nav className="flex-1 overflow-y-auto px-2 py-3">
           {NAV_SECTIONS.map((section) => {
-            const items = section.items.filter((item) => !item.adminOnly || session?.role === "ADMIN");
+            const items = section.items.filter(
+              (item) => (!item.adminOnly || session?.role === "ADMIN") && (!item.permission || can(session, item.permission)),
+            );
             if (items.length === 0) return null;
             return (
               <div key={section.title} className="mb-4">
@@ -175,7 +204,8 @@ export function AppLayout() {
                 <div className="grid gap-0.5">
                   {items.map((item) => {
                     const Icon = item.icon;
-                    const locked = item.needsRegister && !hasRegister;
+                    const locked =
+                      !hasRegister && (item.needsRegister === "always" || (item.needsRegister === "cashiers" && session?.role !== "ADMIN"));
                     const active = location === item.to;
                     const base = `group relative flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${collapsed ? "lg:justify-center lg:px-0" : ""}`;
                     if (locked) {

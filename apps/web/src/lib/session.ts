@@ -1,3 +1,5 @@
+import { hasPermission, type CashierPermission } from '@pos/contracts';
+
 /**
  * Who is signed in, for the screens (role, branch, register). The sign-in itself is an httpOnly
  * cookie the API manages; no token is kept where page scripts could read it.
@@ -14,9 +16,16 @@ export type Session = {
   role: 'ADMIN' | 'CASHIER';
   /** Their password was set for them: they choose their own before anything else. */
   mustChangePassword?: boolean;
+  /** Cashiers: what an admin let them do beyond selling (see `can`). */
+  permissions?: CashierPermission[];
 };
 
 const SESSION_KEY = 'pos_session';
+
+/** Whether the signed-in user may do `permission`: admins always, cashiers when allowed. */
+export function can(session: Pick<Session, 'role' | 'permissions'> | null | undefined, permission: CashierPermission) {
+  return !!session && hasPermission(session, permission);
+}
 
 /** The session as answered by the API, whose blank `token` field is not kept. */
 type AnswerSession = Session & { token?: unknown };

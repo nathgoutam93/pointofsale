@@ -151,6 +151,8 @@ These need an answer from the product owner before the work that depends on them
   switch it to `invoiceReceiptItems` (`packages/contracts/src/receiptDocuments.ts`), which
   emailed receipts already use, so the two can't drift.
 - **Customer email:** a saved email address on customers, offered when emailing a receipt.
+- **Transfers by cashiers:** a cashier allowed to send transfers picks the destination from the
+  branches they have access to; list every branch of the business there instead.
 - **POS check:** look at the POS screen's "Email the receipt" after a sale in the desktop app
   (the same component is checked on the Sales screen).
 - **Fallback counter follow-ups** (Phase 7 of `desktop-offline-online-plan.md`):
@@ -171,3 +173,4 @@ These need an answer from the product owner before the work that depends on them
 - 2026-10-03: The fallback counter is done; its follow-ups are under item 10.
 - 2026-10-03: Item 3 started: the server is up behind HTTPS; deploy and backup scripts added.
 - 2026-10-03: The server sends email (Brevo SMTP); deploy.sh used for the first real deploy. Desktop v0.1.0 built for Linux and Windows by the release workflow (draft).
+- 2026-10-03: From testing: admins manage any branch without a register (branch selector), cashier permissions, returns on unpaid bills lower the amount due first, cashiers receive transfers at their branch.

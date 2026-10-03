@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { returnLineAmounts, sanitizeReceiptCss } from "@pos/contracts";
+import { invoiceDue, returnLineAmounts, sanitizeReceiptCss, splitReturn } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders, uploadSrc } from "../lib/api";
 import { usePrintTemplate, useReceiptPrinting } from "../lib/printing";
 import { branchReceiptTemplate, rateFromAmounts, receiptStyleFor, renderReceipt, returnReceiptDocument } from "../lib/receipt";
@@ -186,6 +186,7 @@ export function ReturnsPage() {
     if (!query) return [];
     return (sales.data ?? [])
       .filter((invoice) => {
+        if (invoice.status === "CANCELLED") return false;
         const customer = customerById.get(invoice.customerId);
         const haystack = `${invoice.invoiceNo} ${customer?.name ?? ""}`.toLowerCase();
         return haystack.includes(query);
@@ -291,6 +292,9 @@ export function ReturnsPage() {
     () => returnLines.reduce((acc, line) => round2(acc + line.amount), 0),
     [returnLines],
   );
+  // A bill not yet paid in full: the return comes off what is still owed first.
+  const selectedDue = selectedInvoice ? invoiceDue(selectedInvoice) : 0;
+  const returnSplit = splitReturn(totalReturnAmount, selectedDue);
 
   const printableReturn = useMemo(() => {
     if (!returnDetail.data) return null;
@@ -325,6 +329,7 @@ export function ReturnsPage() {
       refundMode: detail.refundMode,
       items,
       totalAmount: Number(detail.totalAmount),
+      dueAdjusted: Number(detail.dueAdjusted ?? 0),
       tax: { cgst: Number(detail.cgstTotal), sgst: Number(detail.sgstTotal), igst: Number(detail.igstTotal) },
     });
     return renderReceipt(doc, receiptTemplate);
@@ -370,7 +375,7 @@ export function ReturnsPage() {
       return res.body;
     },
     onSuccess: (result) => {
-      if (result.refundMode === "CASH") void receiptPrinting.openDrawer();
+      if (result.refundMode === "CASH" && Number(result.refundAmount) > 0) void receiptPrinting.openDrawer();
       setMessage(`Return created: ${result.returnNo}`);
       setCreateMode(false);
       setSelectedReturnId(result.id);
@@ -437,7 +442,7 @@ export function ReturnsPage() {
                 <p className="truncate">
                   {row.saleInvoiceNo} · {row.customerName}
                 </p>
-                <span className="badge bg-slate-100 text-slate-600">{row.refundMode}</span>
+                <span className="badge bg-slate-100 text-slate-600">{Number(row.refundAmount) > 0 ? row.refundMode : "OFF DUE"}</span>
               </div>
             </button>
           ))}
@@ -493,6 +498,7 @@ export function ReturnsPage() {
                         <p className="font-semibold">{invoice.invoiceNo}</p>
                         <p className="text-xs text-slate-500">
                           {customerById.get(invoice.customerId)?.name ?? "Unknown"} · {inr(invoice.grandTotal)}
+                          {invoiceDue(invoice) > 0 ? <span className="text-amber-700"> · Due {inr(invoiceDue(invoice))}</span> : null}
                         </p>
                       </button>
                     ))}
@@ -510,11 +516,15 @@ export function ReturnsPage() {
                 <select
                   className="field"
                   value={refundMode}
+                  disabled={totalReturnAmount > 0 && returnSplit.refundAmount === 0}
                   onChange={(e) => setRefundMode(e.target.value as ReturnRefundMode)}
                 >
                   <option value="CASH">Cash Refund</option>
                   {walletAllowed ? <option value="WALLET">Wallet Credit</option> : null}
                 </select>
+                {totalReturnAmount > 0 && returnSplit.refundAmount === 0 ? (
+                  <p className="mt-1 text-xs text-slate-500">Nothing to refund: it all comes off what the customer owes.</p>
+                ) : null}
                 {!walletAllowed ? (
                   <p className="mt-1 text-xs text-amber-700">
                     Wallet credit is available only for registered customers.
@@ -531,6 +541,12 @@ export function ReturnsPage() {
                 <p>
                   <span className="font-semibold">Customer:</span> {selectedCustomer?.name ?? "Unknown"}
                 </p>
+                {selectedDue > 0 ? (
+                  <p className="mt-1 text-amber-800">
+                    <span className="font-semibold">Still owed:</span> {inr(selectedDue)} of {inr(selectedInvoice.grandTotal)}. A
+                    return comes off this first; only the rest is refunded.
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
@@ -573,12 +589,28 @@ export function ReturnsPage() {
                     ))}
                   </tbody>
                   <tfoot>
+                    {returnSplit.dueAdjusted > 0 ? (
+                      <>
+                        <tr className="border-t border-slate-200">
+                          <td colSpan={5} className="px-2 py-2 text-right text-slate-600">
+                            Returned
+                          </td>
+                          <td className="px-2 py-2 text-right font-medium text-slate-900">{inr(totalReturnAmount)}</td>
+                        </tr>
+                        <tr>
+                          <td colSpan={5} className="px-2 py-2 text-right text-slate-600">
+                            Taken off amount due
+                          </td>
+                          <td className="px-2 py-2 text-right font-medium text-slate-900">{inr(returnSplit.dueAdjusted)}</td>
+                        </tr>
+                      </>
+                    ) : null}
                     <tr className="border-t border-slate-200">
                       <td colSpan={5} className="px-2 py-3 text-right font-semibold text-slate-700">
                         Total Refund
                       </td>
                       <td className="px-2 py-3 text-right text-base font-bold text-slate-900">
-                        {inr(totalReturnAmount)}
+                        {inr(returnSplit.refundAmount)}
                       </td>
                     </tr>
                   </tfoot>
@@ -644,11 +676,18 @@ export function ReturnsPage() {
                   </div>
                   <div>
                     <dt className="eyebrow">Refund mode</dt>
-                    <dd className="mt-1 font-medium text-slate-900">{returnDetail.data.refundMode}</dd>
+                    <dd className="mt-1 font-medium text-slate-900">
+                      {Number(returnDetail.data.refundAmount) > 0 ? returnDetail.data.refundMode : "None"}
+                    </dd>
                   </div>
                   <div>
                     <dt className="eyebrow">Total refund</dt>
-                    <dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inr(returnDetail.data.totalAmount)}</dd>
+                    <dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inr(returnDetail.data.refundAmount)}</dd>
+                    {Number(returnDetail.data.dueAdjusted) > 0 ? (
+                      <dd className="mt-0.5 text-xs text-slate-500">
+                        {inr(returnDetail.data.dueAdjusted)} of {inr(returnDetail.data.totalAmount)} taken off the amount due
+                      </dd>
+                    ) : null}
                   </div>
                 </dl>
 

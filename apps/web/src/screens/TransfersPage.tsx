@@ -1,8 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { IconTrash } from "../components/icons";
 import { api, apiErrorMessage, authHeaders } from "../lib/api";
-import { requireOperationalSession } from "./route-helpers";
+import { BranchPicker } from "../components/BranchPicker";
+import { useManagedBranch } from "../lib/branch";
+import { can } from "../lib/session";
+import { requireManagementSession } from "./route-helpers";
 import { ItemPicker } from "./stock/ItemPicker";
 import { GoOnlinePanel } from "../components/OnlineOnly";
 import { useIsOffline } from "../lib/mode";
@@ -32,10 +35,17 @@ export function TransfersPage() {
 }
 
 function Transfers() {
-  const session = requireOperationalSession();
+  const session = requireManagementSession();
+  const [managedBranch, setManagedBranch] = useManagedBranch();
+  const branchId = managedBranch ?? "";
+  // Anyone at a branch receives what arrives there; sending and calling back need the permission.
+  const canSend = can(session, "SEND_TRANSFERS");
   const queryClient = useQueryClient();
-  const otherBranches = session.branches.filter((branch) => branch.id !== session.branchId);
+  const otherBranches = session.branches.filter((branch) => branch.id !== branchId);
   const [toBranchId, setToBranchId] = useState(otherBranches[0]?.id ?? "");
+  useEffect(() => {
+    if (!otherBranches.some((branch) => branch.id === toBranchId)) setToBranchId(otherBranches[0]?.id ?? "");
+  }, [branchId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [note, setNote] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [error, setError] = useState("");
@@ -51,9 +61,9 @@ function Transfers() {
   });
 
   const onHand = useQuery({
-    queryKey: ["stock-module", session.branchId],
+    queryKey: ["stock-module", branchId],
     queryFn: async () => {
-      const res = await api.stock.onHand({ query: { branchId: session.branchId }, extraHeaders: authHeaders() });
+      const res = await api.stock.onHand({ query: { branchId: branchId }, extraHeaders: authHeaders() });
       if (res.status !== 200) throw new Error("Failed to fetch stock");
       return res.body;
     },
@@ -61,9 +71,9 @@ function Transfers() {
   const onHandByItem = useMemo(() => new Map((onHand.data ?? []).map((row) => [row.itemId, row.onHand])), [onHand.data]);
 
   const transfers = useQuery({
-    queryKey: ["transfers", session.branchId],
+    queryKey: ["transfers", branchId],
     queryFn: async () => {
-      const res = await api.transfers.list({ query: { branchId: session.branchId }, extraHeaders: authHeaders() });
+      const res = await api.transfers.list({ query: { branchId: branchId }, extraHeaders: authHeaders() });
       if (res.status !== 200) throw new Error("Failed to load transfers");
       return res.body;
     },
@@ -79,7 +89,7 @@ function Transfers() {
     mutationFn: async () => {
       const res = await api.transfers.create({
         body: {
-          fromBranchId: session.branchId,
+          fromBranchId: branchId,
           toBranchId,
           note: note.trim() || undefined,
           lines: lines.map((line) => ({ itemId: line.itemId, qty: Number(line.qty) })),
@@ -135,12 +145,12 @@ function Transfers() {
 
   const lineIds = useMemo(() => new Set(lines.map((line) => line.itemId)), [lines]);
   const all = transfers.data ?? [];
-  const incoming = all.filter((t) => t.status === "IN_TRANSIT" && t.toBranchId === session.branchId);
-  const outgoing = all.filter((t) => t.status === "IN_TRANSIT" && t.fromBranchId === session.branchId);
+  const incoming = all.filter((t) => t.status === "IN_TRANSIT" && t.toBranchId === branchId);
+  const outgoing = all.filter((t) => t.status === "IN_TRANSIT" && t.fromBranchId === branchId);
   const history = all.filter((t) => t.status !== "IN_TRANSIT");
 
   const renderTransfer = (transfer: (typeof all)[number], action?: "receive" | "cancel") => {
-    const outbound = transfer.fromBranchId === session.branchId;
+    const outbound = transfer.fromBranchId === branchId;
     return (
       <li key={transfer.id} className="flex flex-wrap items-start justify-between gap-3 px-5 py-3">
         <div className="min-w-0">
@@ -168,7 +178,7 @@ function Transfers() {
               Receive
             </button>
           )}
-          {action === "cancel" && (
+          {action === "cancel" && canSend && (
             <button
               type="button"
               className="btn-secondary py-1.5"
@@ -188,6 +198,15 @@ function Transfers() {
 
   return (
     <section className="space-y-6 p-6">
+      <BranchPicker
+        value={branchId}
+        onChange={(next) => {
+          setManagedBranch(next);
+          setLines([]);
+          setMessage("");
+          setError("");
+        }}
+      />
       {(message || error) && (
         <p
           className={`rounded-md border px-3 py-2 text-sm ${error ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}
@@ -207,6 +226,7 @@ function Transfers() {
         </div>
       )}
 
+      {canSend ? (
       <form onSubmit={onSubmit} className="card overflow-visible">
         <div className="border-b border-slate-200 p-5">
           <h2 className="page-title">Send Stock</h2>
@@ -298,6 +318,7 @@ function Transfers() {
           </div>
         )}
       </form>
+      ) : null}
 
       {outgoing.length > 0 && (
         <div className="card overflow-hidden">

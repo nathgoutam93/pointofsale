@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, apiErrorMessage, apiFetch, authHeaders, uploadSrc } from "../lib/api";
 import { GST_SUPPLY_TYPE_LABELS } from "@pos/contracts";
+import { can } from "../lib/session";
 import { inr, requireSession } from "./route-helpers";
 import { BranchPricesSection } from "./items/BranchPricesSection";
 import { effectiveSupplyType, effectiveUqc, emptyGstItemForm, GstItemFields, type GstItemForm } from "./items/GstItemFields";
@@ -69,6 +70,8 @@ function normalizeSaleUomRows(rows: SaleUomFormState[], baseUom: string) {
 
 export function ItemsPage() {
   const session = requireSession();
+  // Adding, editing and deleting items: admins, and cashiers allowed to.
+  const canManageItems = can(session, "MANAGE_ITEMS");
   const queryClient = useQueryClient();
   const [form, setForm] = useState(initialForm);
   const [saleUomRows, setSaleUomRows] = useState<SaleUomFormState[]>([]);
@@ -416,6 +419,7 @@ export function ItemsPage() {
         <div className="shrink-0 border-b border-slate-200 p-4">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="page-title">Items</h2>
+          {canManageItems ? (
           <button
             className="btn-primary"
             type="button"
@@ -429,6 +433,7 @@ export function ItemsPage() {
           >
             New Item
           </button>
+          ) : null}
         </div>
         <input
           className="field"
@@ -995,6 +1000,7 @@ export function ItemsPage() {
           <>
             <div className="mb-3 flex items-center justify-between gap-2">
               <h3 className="text-lg font-semibold">Item Details</h3>
+              {canManageItems ? (
               <div className="flex items-center gap-2">
                 <button
                   className="btn-secondary"
@@ -1056,6 +1062,7 @@ export function ItemsPage() {
                   {deleteItem.isPending ? "Deleting..." : "Delete"}
                 </button>
               </div>
+              ) : null}
             </div>
             <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
               <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">

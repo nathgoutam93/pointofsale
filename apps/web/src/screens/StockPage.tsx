@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, authHeaders } from "../lib/api";
-import { inr, requireOperationalSession } from "./route-helpers";
+import { BranchPicker } from "../components/BranchPicker";
+import { useManagedBranch } from "../lib/branch";
+import { can } from "../lib/session";
+import { inr, requireManagementSession } from "./route-helpers";
 
 type StockModalType = "opening" | "adjustment" | null;
 
@@ -43,7 +46,11 @@ function leastCountStepText(value: number) {
 }
 
 export function StockPage() {
-  const session = requireOperationalSession();
+  const session = requireManagementSession();
+  const [managedBranch, setManagedBranch] = useManagedBranch();
+  const branchId = managedBranch ?? "";
+  // Opening stock and adjustments: admins, and cashiers allowed to.
+  const canChangeStock = can(session, "MANAGE_STOCK");
   const queryClient = useQueryClient();
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [modalType, setModalType] = useState<StockModalType>(null);
@@ -74,10 +81,10 @@ export function StockPage() {
   });
 
   const onHand = useQuery({
-    queryKey: ["stock-module", session.branchId],
+    queryKey: ["stock-module", branchId],
     queryFn: async () => {
       const res = await api.stock.onHand({
-        query: { branchId: session.branchId },
+        query: { branchId: branchId },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to fetch stock");
@@ -86,12 +93,12 @@ export function StockPage() {
   });
 
   const ledger = useQuery({
-    queryKey: ["stock-ledger", session.branchId, selectedItemId],
+    queryKey: ["stock-ledger", branchId, selectedItemId],
     enabled: Boolean(selectedItemId),
     queryFn: async () => {
       if (!selectedItemId) return [];
       const res = await api.stock.ledger({
-        query: { branchId: session.branchId, itemId: selectedItemId },
+        query: { branchId: branchId, itemId: selectedItemId },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to fetch stock history");
@@ -180,7 +187,7 @@ export function StockPage() {
       if (!selectedItemId) throw new Error("Please select an item");
       const res = await api.stock.opening({
         body: {
-          branchId: session.branchId,
+          branchId: branchId,
           itemId: selectedItemId,
           qty: Number(openingQty),
           costPrice: Number(openingCostPrice),
@@ -193,10 +200,10 @@ export function StockPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["stock-module", session.branchId],
+        queryKey: ["stock-module", branchId],
       });
       queryClient.invalidateQueries({
-        queryKey: ["stock-ledger", session.branchId, selectedItemId],
+        queryKey: ["stock-ledger", branchId, selectedItemId],
       });
       setOpeningQty("0");
       setModalType(null);
@@ -208,7 +215,7 @@ export function StockPage() {
       if (!selectedItemId) throw new Error("Please select an item");
       const res = await api.stock.updateOpening({
         body: {
-          branchId: session.branchId,
+          branchId: branchId,
           itemId: selectedItemId,
           qty: Number(openingQty),
           costPrice: Number(openingCostPrice),
@@ -221,10 +228,10 @@ export function StockPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["stock-module", session.branchId],
+        queryKey: ["stock-module", branchId],
       });
       queryClient.invalidateQueries({
-        queryKey: ["stock-ledger", session.branchId, selectedItemId],
+        queryKey: ["stock-ledger", branchId, selectedItemId],
       });
       setModalType(null);
     },
@@ -235,7 +242,7 @@ export function StockPage() {
       if (!selectedItemId) throw new Error("Please select an item");
       const res = await api.stock.adjustment({
         body: {
-          branchId: session.branchId,
+          branchId: branchId,
           itemId: selectedItemId,
           qty: Number(adjustmentQty),
           direction: adjustmentDirection,
@@ -249,10 +256,10 @@ export function StockPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["stock-module", session.branchId],
+        queryKey: ["stock-module", branchId],
       });
       queryClient.invalidateQueries({
-        queryKey: ["stock-ledger", session.branchId, selectedItemId],
+        queryKey: ["stock-ledger", branchId, selectedItemId],
       });
       setAdjustmentQty("0");
       setModalType(null);
@@ -282,6 +289,14 @@ export function StockPage() {
         <aside className="flex h-full max-h-[75vh] flex-col overflow-hidden border-r border-slate-200 bg-white xl:max-h-none">
           <div className="shrink-0 border-b border-slate-200 p-4">
           <h2 className="page-title mb-3">Inventory</h2>
+          <BranchPicker
+            className="mb-3"
+            value={branchId}
+            onChange={(next) => {
+              setManagedBranch(next);
+              setModalType(null);
+            }}
+          />
           {items.isLoading && (
             <p className="px-2 py-3 text-sm text-slate-500">Loading items...</p>
           )}
@@ -375,6 +390,7 @@ export function StockPage() {
                 </div>
               </dl>
             )}
+            {canChangeStock ? (
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -397,6 +413,7 @@ export function StockPage() {
                 Stock Adjustment
               </button>
             </div>
+            ) : null}
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
@@ -405,7 +422,7 @@ export function StockPage() {
                 <h3 className="text-sm font-semibold text-slate-900">
                   Opening History
                 </h3>
-                {openingEntry && (
+                {openingEntry && canChangeStock && (
                   <button
                     type="button"
                     className="btn-secondary px-2.5 py-1 text-xs"

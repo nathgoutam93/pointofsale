@@ -313,6 +313,22 @@ web app's origin in `CORS_ORIGINS`: only listed origins may send the cookie. Beh
 cookie is `Secure` (set `SESSION_COOKIE_SECURE=true` if the proxy doesn't send
 `X-Forwarded-Proto`).
 
+Who may do what, where (`apps/api/src/common/access.service.ts`):
+- **Selling** (POS checkout, returns, taking payments) happens at the branch of the open register.
+- **Managing a branch** (inventory, customers, sales and returns history, branch settings,
+  cashiers): admins manage any branch they have access to, with or without a register open, and
+  pick it with the Branch selector on those screens. Cashiers see only their register's branch.
+- **Cashier permissions** (Settings → Cashiers & Access, "Also allowed to"): adjust stock, manage
+  items, record purchases, send transfers, top up wallets, cancel unpaid bills. Admins can always
+  do all of these; a change applies from the cashier's next action.
+- **Transfers:** anyone with access to the receiving branch receives a transfer; sending and
+  calling one back need "Send transfers".
+
+Returns on a bill not yet paid in full (a credit or part-paid sale) first lower what the customer
+still owes; only the rest is refunded. A credit sale returned in full owes nothing and gets
+nothing back. The register expects only the cash actually handed back, and the return receipt
+shows both parts.
+
 Fallback counter: on an online business, one counter per branch can keep selling on its own
 computer when the server can't be reached (Settings → Counters → "Use as fallback here", in the
 desktop app). That computer keeps an offline copy, refreshed every 10 minutes. When the server
