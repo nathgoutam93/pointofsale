@@ -172,7 +172,8 @@ the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud.
      sudo apt install -y iptables-persistent   # answer Yes to saving the rules
      sudo netfilter-persistent save
      ```
-     (5 is the `REJECT` line's number; check yours.) ufw is left off.
+     (5 is the `REJECT` line's number; check yours.) Check it was saved, or a reboot brings back
+     "connection refused": `grep 80,443 /etc/iptables/rules.v4`. ufw is left off.
 
 4. **Database:** a user and a database for the API. Run from `/tmp`, as the `postgres` user
    can't enter your home folder. Use letters and digits in the password: it goes into a URL.
