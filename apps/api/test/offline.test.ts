@@ -132,11 +132,13 @@ describe('offline install', () => {
   it('creates the business, its branch, counter and admin once, even when called twice at the same time', async () => {
     const [first, second] = await Promise.all([
       t.call('POST', '/setup', null, SETUP),
-      t.call('POST', '/setup', null, { ...SETUP, adminUsername: 'intruder' })
+      t.call('POST', '/setup', null, { ...SETUP, businessName: 'Other Store' })
     ]);
     expect([first.status, second.status].sort()).toEqual([201, 409]);
+    // Either request may win; only one business is ever created.
     const winner = first.status === 201 ? first : second;
-    expect(winner.body).toMatchObject({ role: 'ADMIN', branches: [{ code: 'CST', name: 'Corner Store' }] });
+    const winnerName = first.status === 201 ? SETUP.businessName : 'Other Store';
+    expect(winner.body).toMatchObject({ role: 'ADMIN', branches: [{ code: 'CST', name: winnerName }] });
     expect(typeof winner.body.token).toBe('string');
 
     expect(await t.db.user.count()).toBe(1);
@@ -145,7 +147,7 @@ describe('offline install', () => {
     expect(await t.db.counter.count()).toBe(1);
     expect(await t.db.customer.count({ where: { isWalkIn: true, branchId: branch.id } })).toBe(1);
     expect(await t.db.businessSettings.findUniqueOrThrow({ where: { id: 'default' } })).toMatchObject({
-      name: 'Corner Store',
+      name: winnerName,
       gstNumber: '29ABCDE1234F1ZW'
     });
 

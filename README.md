@@ -93,7 +93,9 @@ pnpm --filter @pos/desktop dist
 ```
 Releases: push a `v<version>` tag after setting the same version in `package.json`,
 `apps/desktop/package.json` and `packages/contracts/src/version.ts`. The workflow publishes the
-installers to GitHub Releases, and installed apps check there for updates every day. The app's
+installers to GitHub Releases, and installed apps check there for updates every day.
+In offline mode the app backs up the business every day and before each update, keeping
+the last 2–5 days (Settings → Backups, where admins can also restore). The app's
 data and logs are in the OS's app-data folder under "Point of Sale". See
 `desktop-offline-online-plan.md` for the design and what's left.
 

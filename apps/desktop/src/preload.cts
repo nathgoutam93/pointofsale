@@ -24,5 +24,13 @@ contextBridge.exposeInMainWorld('posDesktop', {
   config: info.config,
   version: info.version,
   chooseMode: (choice: ModeChoice) => invoke('pos:choose-mode', choice),
-  openLogsFolder: () => invoke('pos:open-logs')
+  openLogsFolder: () => invoke('pos:open-logs'),
+  // Offline only, admins only (checked by the app against the local API with this token).
+  backups: {
+    list: (token: string) => invoke('pos:backups:list', token),
+    setDays: (token: string, days: number) => invoke('pos:backups:set-days', token, days),
+    create: (token: string) => invoke('pos:backups:create', token),
+    restore: (token: string, file: string) => invoke('pos:backups:restore', token, file),
+    openFolder: (token: string) => invoke('pos:backups:open-folder', token)
+  }
 });

@@ -13,15 +13,26 @@ export type DesktopConfig = {
   /** Offline: the local database's password and the local API's token signing key. */
   dbPassword: string | null;
   authSecret: string | null;
+  /** Offline: how many days of local backups to keep (2 to 5). */
+  backupDays: number;
 };
 
-const EMPTY: DesktopConfig = { mode: null, apiBaseUrl: null, dbPassword: null, authSecret: null };
+export const BACKUP_DAYS = { min: 2, max: 5, default: 3 } as const;
+
+export function clampBackupDays(value: unknown) {
+  const days = Math.round(Number(value));
+  if (!Number.isFinite(days)) return BACKUP_DAYS.default;
+  return Math.min(BACKUP_DAYS.max, Math.max(BACKUP_DAYS.min, days));
+}
+
+const EMPTY: DesktopConfig = { mode: null, apiBaseUrl: null, dbPassword: null, authSecret: null, backupDays: BACKUP_DAYS.default };
 
 export function loadConfig(): DesktopConfig {
   const file = paths.config();
   if (!existsSync(file)) return { ...EMPTY };
   const saved = JSON.parse(readFileSync(file, 'utf8')) as Partial<DesktopConfig>;
-  return { ...EMPTY, ...saved };
+  const config = { ...EMPTY, ...saved };
+  return { ...config, backupDays: clampBackupDays(config.backupDays) };
 }
 
 export function saveConfig(config: DesktopConfig) {

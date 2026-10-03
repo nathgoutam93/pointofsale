@@ -244,7 +244,7 @@ Branch: `feat/desktop-shell`. Can run in parallel with Phase 4.
   - After an update, 3.3 runs migrations on the next start.
 - **Done when:** a test release moves an installed app forward and a pending migration is applied.
 
-### [ ] 3.6 Local backups (offline)
+### [x] 3.6 Local backups (offline)
 - **What:**
   - Run a daily `pg_dump` of the local database plus the uploads folder into `userData/backups`, keeping the last 14. Always take one before migrations and before the move online.
   - Settings: "Back up now", "Open backups folder" and "Restore from backup" (with confirmation).
@@ -437,3 +437,39 @@ Branch: whichever phase needs it first (likely Phase 1).
   - The mode comes from `useIsOffline()` in `apps/web/src/lib/mode.ts`: the desktop bridge when present, else `GET /meta`.
   - The prompt says moving online in one step is coming in an app update. **When 2.7 lands, add its "Move business online" button to that prompt** so it leads straight into the move.
   - Checked in the desktop app under Xvfb (menu badge, Transfers page, both prompts).
+- 2026-10-03: **3.6 Local backups done.** Settings → Backups (desktop app, offline mode, admins only): keep **2–5 days** (default 3), Back up now, Restore, Open backups folder.
+  - **Format.** The bundled Postgres has no `pg_dump`, so `apps/api/src/backup/local-backup.ts` writes the backup:
+    - a zip with `manifest.json` (kind `pos-local-backup`, `schemaVersion`, sha256 per file)
+    - one `tables/<table>.ndjson` per table, every row as Postgres's own `row_to_json` text
+    - `uploads/**`
+
+    Rows are read with a cursor inside one REPEATABLE READ transaction, so selling continues during a backup. The table list comes from `information_schema`, not Prisma, so an older database can be backed up by a newer app (needed for the before-update backup).
+  - **Restore** (`restoreBackup`). The live data is untouched until the final swap:
+    1. Check every checksum.
+    2. Create `<db>_restore` from template0.
+    3. `prisma migrate deploy` with only the migrations up to the backup's `schemaVersion`.
+    4. Empty the tables (some migrations insert rows, such as the default business settings).
+    5. Load each table with `json_populate_recordset` under `session_replication_role = replica`, then compare row counts.
+    6. Swap the databases by renaming, and swap the uploads folder.
+
+    The desktop app's normal start then migrates the restored database forward. A backup whose `schemaVersion` this app doesn't ship (made by a newer version) is refused.
+  - **CLI.** `apps/api/src/backup/cli.ts` (`backup`, `restore`, `list`, `prune`) prints a final `{"ok":...}` line. The desktop runs it with its own binary as Node (`runScript` in `api-server.ts`, shared with migrations).
+  - **Desktop** (`apps/desktop/src/backups.ts`, `main.ts`):
+    - Backups live in `userData/backups`, named `pos-backup-YYYY-MM-DD-HHMMSS-<reason>.zip`, with reason daily, manual, before-update or before-restore.
+    - On start: a backup if today's is missing **or** the next migrations would change the database (before-update). A failed backup is logged, never blocking.
+    - While running: an hourly check for today's backup.
+    - Restore: a before-restore backup, stop the API, restore, start the API (migrations included), clear the session, reload at sign-in.
+    - Operations run one at a time.
+  - **Retention:** keep backups dated within the last N days; the newest is always kept. `backupDays` lives in `config.json`.
+  - **Security:**
+    - Every backup IPC call carries the page's token, and the main process asks the local API `/auth/me` for role ADMIN. Restore only accepts a file name from the list.
+    - DevTools are off in packaged builds, so a cashier can't call the bridge from a console.
+  - **Tests:** `apps/api/test/local-backup.test.ts`, on its own database `pos_backup_test`:
+    - an exact round trip (money to the paisa, passwords, uploads; data added after the backup is gone)
+    - a damaged file is refused with the data untouched and no leftover database
+    - a backup at the previous migration restores, then migrates forward
+    - a backup from a newer app is refused
+    - retention rules
+  - **Verified in the desktop app**, from source and packaged, under Xvfb: daily backup at start, set 2 days, back up now, add an item, restore, signed out, item gone, before-restore backup listed.
+  - **Also fixed:** `test/offline.test.ts` assumed which of two simultaneous setup calls wins; it now accepts either (it had passed by luck).
+  - **Not done:** copying backups somewhere other than this computer (USB, cloud folder) is manual, and the screen says so. An option to choose a backup folder would be a good follow-up.

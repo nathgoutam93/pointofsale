@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
 import { LocalApi, runMigrations } from './api-server.js';
-import { loadConfig, saveConfig, withOfflineSecrets, type DesktopConfig } from './config.js';
+import { Backups, backupsFolder } from './backups.js';
+import { clampBackupDays, loadConfig, saveConfig, withOfflineSecrets, type DesktopConfig } from './config.js';
 import { logger } from './log.js';
 import { paths } from './paths.js';
 import { describe, LocalPostgres } from './postgres.js';
@@ -14,6 +15,17 @@ let config: DesktopConfig = loadConfig();
 let postgres: LocalPostgres | null = null;
 let api: LocalApi | null = null;
 let window: BrowserWindow | null = null;
+let backupTimer: NodeJS.Timeout | null = null;
+const HOUR_MS = 60 * 60 * 1000;
+
+const backups = new Backups(
+  logger('backups'),
+  () => {
+    if (!postgres) throw new Error('The database is not running');
+    return postgres.databaseUrl;
+  },
+  () => config.backupDays
+);
 let stopping = false;
 let stopped = false;
 
@@ -38,7 +50,20 @@ async function startOffline() {
   }
   postgres = new LocalPostgres(await paths.postgresHome(), config.dbPassword as string, logger('postgres'));
   await postgres.start();
-  log('Database started; applying migrations');
+  // Today's backup, or a copy from before an update changes the database. A failed backup
+  // is logged, not fatal: the shop must still be able to sell.
+  await backups.daily({ beforeUpdate: true }).catch((error) => log(`Backup before start failed: ${describe(error)}`));
+  await startApi();
+  backupTimer = setInterval(() => {
+    void backups.daily().catch((error) => log(`Daily backup failed: ${describe(error)}`));
+  }, HOUR_MS);
+  backupTimer.unref();
+}
+
+/** Migrations, then the API. Also used to bring the API back after a restore. */
+async function startApi() {
+  if (!postgres) throw new Error('The database is not running');
+  log('Applying migrations');
   await runMigrations(postgres.databaseUrl, logger('migrations'));
   log('Migrations done; starting the API');
   api = new LocalApi(logger('api'), (detail) => {
@@ -49,7 +74,14 @@ async function startOffline() {
   log(`API listening on ${api.baseUrl}`);
 }
 
+async function stopApi() {
+  await api?.stop();
+  api = null;
+}
+
 async function stopOffline() {
+  if (backupTimer) clearInterval(backupTimer);
+  backupTimer = null;
   await api?.stop();
   api = null;
   await postgres?.stop();
@@ -101,7 +133,9 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
-      spellcheck: false
+      spellcheck: false,
+      // A cashier must not get a console that can call the bridge (restore, settings).
+      devTools: !app.isPackaged
     }
   });
   win.once('ready-to-show', () => win.show());
@@ -193,6 +227,61 @@ ipcMain.handle('pos:choose-mode', async (event, choice: { mode?: unknown; apiBas
   log(`Mode set to ${config.mode}`);
   // After this call returns, so the page's promise settles before it is replaced.
   setImmediate(() => void loadApp());
+});
+
+/**
+ * Backups are for admins: the page passes its sign-in token and the local API says whose
+ * it is. The bridge can't trust the page's own idea of the role.
+ */
+async function assertAdmin(token: unknown) {
+  if (config.mode !== 'offline' || !api) throw new Error('Backups are only for businesses on this computer');
+  if (typeof token !== 'string' || !token) throw new Error('Sign in as an admin first');
+  const res = await fetch(`${api.baseUrl}/auth/me`, { headers: { authorization: `Bearer ${token}` } });
+  const me = res.ok ? ((await res.json()) as { role?: string }) : null;
+  if (me?.role !== 'ADMIN') throw new Error('Only an admin can manage backups');
+}
+
+ipcMain.handle('pos:backups:list', async (event, token: unknown) => {
+  assertFromApp(event);
+  await assertAdmin(token);
+  return { days: config.backupDays, folder: backupsFolder(), backups: await backups.list() };
+});
+
+ipcMain.handle('pos:backups:set-days', async (event, token: unknown, days: unknown) => {
+  assertFromApp(event);
+  await assertAdmin(token);
+  config = { ...config, backupDays: clampBackupDays(days) };
+  saveConfig(config);
+  await backups.prune();
+  return config.backupDays;
+});
+
+ipcMain.handle('pos:backups:create', async (event, token: unknown) => {
+  assertFromApp(event);
+  await assertAdmin(token);
+  await backups.create('manual');
+});
+
+ipcMain.handle('pos:backups:restore', async (event, token: unknown, file: unknown) => {
+  assertFromApp(event);
+  await assertAdmin(token);
+  if (typeof file !== 'string') throw new Error('Choose a backup');
+  log(`Restoring ${file}`);
+  await backups.restore(file, { stopApi, startApi });
+  log(`Restored ${file}`);
+  // The API has a new port and the signed-in session may not exist in the restored data:
+  // start again from the sign-in screen.
+  setImmediate(() => {
+    void window?.webContents
+      .executeJavaScript("localStorage.removeItem('pos_session')")
+      .finally(() => void loadApp());
+  });
+});
+
+ipcMain.handle('pos:backups:open-folder', async (event, token: unknown) => {
+  assertFromApp(event);
+  await assertAdmin(token);
+  await shell.openPath(backupsFolder());
 });
 
 ipcMain.handle('pos:open-logs', async (event) => {

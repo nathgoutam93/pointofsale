@@ -32,7 +32,8 @@
     "class-validator": "^0.15.1",
     "prisma": "^5.22.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "yauzl": "^3"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.8",
@@ -44,7 +45,6 @@
     "@types/yauzl": "^3.4.0",
     "ts-node": "^10.9.2",
     "unplugin-swc": "^2.0.0",
-    "vitest": "^2",
-    "yauzl": "^3"
+    "vitest": "^2"
   }
 }

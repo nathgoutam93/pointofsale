@@ -13,6 +13,8 @@ import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
 import { GoOnlineDialog, OnlineOnlyBadge } from "../components/OnlineOnly";
 import { useIsOffline } from "../lib/mode";
+import { desktop } from "../lib/desktop";
+import { BackupsSection } from "./settings/BackupsSection";
 import { CountersSection } from "./settings/CountersSection";
 import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
 
@@ -53,7 +55,7 @@ type CreateBranchForm = {
   code: string;
 };
 
-type SettingsTab = "business" | "branches" | "cashiers";
+type SettingsTab = "business" | "branches" | "cashiers" | "backups";
 
 const emptyCashierForm = (branchId: string): CashierForm => ({ username: "", password: "", branchIds: [branchId] });
 
@@ -75,6 +77,8 @@ export function BranchSettingsPage() {
   const [businessMessage, setBusinessMessage] = useState("");
   const [branchMessage, setBranchMessage] = useState("");
   const offline = useIsOffline();
+  // Backups are kept by the desktop app, on the computer that holds an offline business.
+  const localBackups = desktop?.config.mode === "offline" ? desktop.backups : undefined;
   const [goOnlinePrompt, setGoOnlinePrompt] = useState(false);
   const [userMessage, setUserMessage] = useState("");
   const [cashierForm, setCashierForm] = useState<CashierForm>(emptyCashierForm(initialBranchId));
@@ -524,7 +528,8 @@ export function BranchSettingsPage() {
           {[
             { id: "business" as const, label: "Business" },
             { id: "branches" as const, label: "Branches" },
-            { id: "cashiers" as const, label: "Cashiers & Access" }
+            { id: "cashiers" as const, label: "Cashiers & Access" },
+            ...(localBackups ? [{ id: "backups" as const, label: "Backups" }] : [])
           ].map((tab) => (
             <button
               key={tab.id}
@@ -951,6 +956,8 @@ export function BranchSettingsPage() {
           />
         </div>
       ) : null}
+
+      {activeTab === "backups" && localBackups ? <BackupsSection backups={localBackups} /> : null}
 
       {activeTab === "cashiers" ? (
         <div className="card p-5">
