@@ -6,7 +6,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { FallbackCounter } from './fallback.js';
 import { join } from 'path';
-import { clampBackupDays, loadConfig, saveConfig, withOfflineSecrets, type DesktopConfig } from './config.js';
+import { clampBackupDays, cleanHosting, loadConfig, saveConfig, withOfflineSecrets, type DesktopConfig } from './config.js';
 import { logger } from './log.js';
 import { paths } from './paths.js';
 import { describe, LocalPostgres } from './postgres.js';
@@ -239,8 +239,9 @@ async function switchIfMoved() {
 /** From now on this computer uses the online business; the local data stays as a read-only copy. */
 async function switchToOnline(server: string) {
   const localBase = api?.baseUrl ?? null;
-  config = { ...config, mode: 'online', apiBaseUrl: server, pendingImportId: null };
+  config = { ...config, mode: 'online', apiBaseUrl: server, hosting: null, pendingImportId: null };
   saveConfig(config);
+  await checkServerDetails();
   await stopOffline();
   // The sign-in to the local API is of no more use; the online server sets its own.
   if (localBase) await session.defaultSession.cookies.remove(localBase, 'pos_session').catch(() => undefined);
@@ -348,16 +349,27 @@ function assertFromApp(event: IpcMainInvokeEvent) {
   }
 }
 
-/** Online mode: a server that needs a newer app makes the app update before anything else. */
-async function checkServerMinimum() {
+/**
+ * Online mode, at launch and on connecting: what the server says about itself. One that needs a
+ * newer app makes the app update before anything else; whether it is our managed service or a
+ * business's own server is kept for when it can't be reached.
+ */
+async function checkServerDetails() {
   if (config.mode !== 'online' || !config.apiBaseUrl) return;
+  const server = config.apiBaseUrl;
   try {
-    const res = await fetch(`${config.apiBaseUrl}/meta`, { signal: AbortSignal.timeout(10_000) });
-    const meta = (await res.json()) as { minClientVersion?: string | null };
+    const res = await fetch(`${server}/meta`, { signal: AbortSignal.timeout(10_000) });
+    const meta = (await res.json()) as { minClientVersion?: string | null; hosting?: unknown };
     if (meta.minClientVersion) updates.require(meta.minClientVersion);
+    // A server older than this setting doesn't say; leave what was known.
+    const hosting = cleanHosting(meta.hosting);
+    if (hosting && config.apiBaseUrl === server && config.hosting !== hosting) {
+      config = { ...config, hosting };
+      saveConfig(config);
+    }
   } catch (error) {
     // No internet right now: requests will tell us (426) once it's back.
-    log(`Couldn't ask the server for its minimum app version: ${describe(error)}`);
+    log(`Couldn't ask the server about itself: ${describe(error)}`);
   }
 }
 
@@ -394,7 +406,13 @@ async function checkOnlineServer(raw: unknown) {
 ipcMain.on('pos:get-config', (event) => {
   event.returnValue = {
     // The page reaches the API through this app (see PAGE_API_BASE), never directly.
-    config: { mode: config.mode, apiBaseUrl: config.mode ? PAGE_API_BASE : null, defaultServerUrl, deviceId: config.deviceId },
+    config: {
+      mode: config.mode,
+      apiBaseUrl: config.mode ? PAGE_API_BASE : null,
+      defaultServerUrl,
+      deviceId: config.deviceId,
+      hosting: config.mode === 'online' ? config.hosting : null
+    },
     version: app.getVersion()
   };
 });
@@ -413,7 +431,8 @@ ipcMain.handle('pos:choose-mode', async (event, choice: { mode?: unknown; apiBas
     }
     config = { ...config, mode: 'offline' };
   } else if (choice?.mode === 'online') {
-    config = { ...config, mode: 'online', apiBaseUrl: await checkOnlineServer(choice.apiBaseUrl) };
+    config = { ...config, mode: 'online', apiBaseUrl: await checkOnlineServer(choice.apiBaseUrl), hosting: null };
+    await checkServerDetails();
   } else {
     throw new Error('Choose a business type');
   }
@@ -867,6 +886,17 @@ ipcMain.handle('pos:open-logs', async (event) => {
   await shell.openPath(paths.logs());
 });
 
+/**
+ * Online, managed hosting: a subscription payment, paid in the system browser. Only this app's
+ * own server's /billing/pay/<id> is opened; the server sends the browser on to its gateway.
+ */
+ipcMain.handle('pos:open-payment', async (event, path: unknown) => {
+  assertFromApp(event);
+  if (config.mode !== 'online' || !config.apiBaseUrl) throw new Error('Only for online businesses');
+  if (typeof path !== 'string' || !/^\/billing\/pay\/[0-9a-f-]{36}$/i.test(path)) throw new Error('Not a payment link');
+  await shell.openExternal(`${config.apiBaseUrl}${path}`);
+});
+
 if (!app.requestSingleInstanceLock()) {
   // Another window already runs this app (and its database); show that one instead.
   app.quit();
@@ -891,7 +921,7 @@ if (!app.requestSingleInstanceLock()) {
       return;
     }
     updates.start();
-    void checkServerMinimum();
+    void checkServerDetails();
   });
 
   app.on('window-all-closed', () => app.quit());

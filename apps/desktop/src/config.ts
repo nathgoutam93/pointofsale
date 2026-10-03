@@ -6,12 +6,19 @@ import type { FallbackSettings } from './fallback.js';
 
 export type Mode = 'offline' | 'online';
 
+/** Hosting in @pos/contracts (this app doesn't load it): our managed service or a business's own server. */
+export type Hosting = 'managed' | 'self';
+
+export const cleanHosting = (value: unknown): Hosting | null => (value === 'managed' || value === 'self' ? value : null);
+
 /** Saved in userData/config.json, readable only by the signed-in user. */
 export type DesktopConfig = {
   /** null until the owner picks a business type on first launch. */
   mode: Mode | null;
   /** Online: the hosted API. Offline: unused (the local API's port changes each launch). */
   apiBaseUrl: string | null;
+  /** Online: what the server last said it is (its /meta), never judged from its address. null until known. */
+  hosting: Hosting | null;
   /** Offline: the local database's password and the local API's token signing key. */
   dbPassword: string | null;
   authSecret: string | null;
@@ -45,6 +52,7 @@ export function clampBackupDays(value: unknown) {
 const EMPTY: DesktopConfig = {
   mode: null,
   apiBaseUrl: null,
+  hosting: null,
   dbPassword: null,
   authSecret: null,
   backupDays: BACKUP_DAYS.default,
@@ -61,7 +69,7 @@ export function loadConfig(): DesktopConfig {
   if (!existsSync(file)) return { ...EMPTY };
   const saved = JSON.parse(readFileSync(file, 'utf8')) as Partial<DesktopConfig>;
   const config = { ...EMPTY, ...saved };
-  return { ...config, backupDays: clampBackupDays(config.backupDays), printing: cleanPrintingSettings(config.printing) };
+  return { ...config, hosting: cleanHosting(config.hosting), backupDays: clampBackupDays(config.backupDays), printing: cleanPrintingSettings(config.printing) };
 }
 
 export function saveConfig(config: DesktopConfig) {

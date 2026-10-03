@@ -20,13 +20,60 @@ How to pick one up:
 
 These need an answer from the product owner before the work that depends on them.
 
-- **Hosting:** provider and domain for the online server (needed for items 3 and 4).
+- ~~**Hosting:** provider and domain for the online server.~~ Decided: `pos.hackd.in` on Oracle
+  Cloud (item 3). The domain may change later; see "Hosting modes".
 - **Code signing:** Windows and macOS certificates (needed for item 2).
 - **Browser use:** should online businesses also use the web app in a plain browser? It works
   today if the web app and API are on the same site with the web app in `CORS_ORIGINS`.
 - **After moving online:** how long to keep the computer's read-only copy, and whether to offer
   deleting it.
-- **Pricing and limits:** for online businesses (branches, counters).
+- **Pricing and limits:** plans for managed hosting: price per month and year, how many branches
+  and counters each allows, trial length (needed for item 14).
+- **Payment provider:** for managed hosting subscriptions. Razorpay Subscriptions is the likely
+  choice (INR, UPI AutoPay, cards) (needed for item 14).
+- **Self-hosting price:** free, or a fee (one-time or yearly) with paid support (needed for item
+  15, later). Decided: self-hosters get built images only, with a licence key (item 15).
+- **Self-hosting licence:** the proprietary licence (EULA) text for the images: no reselling or
+  hosting for others, no reverse engineering, no getting around the licence key. Have a lawyer
+  check it (needed for item 15).
+- **Self-hosting licence expiry:** whether licence keys expire and what happens then (keeps
+  working without updates, or refuses new businesses) (needed for item 15).
+
+---
+
+## Hosting modes (decided 2026-10-03)
+
+The product comes in three forms:
+
+1. **Offline:** one branch, one counter, everything on one computer, with local backups the owner
+   controls (number of days, a second folder). Built; see the desktop app in README.md.
+2. **Managed hosting:** our server, `pos.hackd.in` today (the address may change). Businesses
+   sign up, get a trial and pay a subscription. **This comes first** (items 13 and 14).
+3. **Self-hosted:** a business runs the online server on its own infrastructure, with more
+   setup on their side. **Later**, once managed hosting is taking payments (item 15).
+   **Decided 2026-10-03:** the source stays closed. Self-hosters get built images only, under a
+   proprietary licence, with a signed licence key that limits how many businesses a server may
+   hold, so a self-hosted server can't be resold as hosting (item 15). Closing the source means
+   making this repository private and moving the desktop app's update feed first (item 16).
+
+How the app tells managed from self-hosted:
+- **The server says what it is,** not the hostname. A `POS_HOSTING` setting (`managed` or
+  `self`, default `self`) is set to `managed` only on our server, and `GET /meta` returns it. The
+  app follows that answer for whatever server it is connected to. Any other server, with any
+  hostname, is self-hosted.
+- Why not the hostname: the domain may change (installed apps have the old one built in), the
+  same server can have other names (a staging server, `www.`, an IP), and billing has to be
+  enforced on the server anyway.
+- `posServerUrl` in `apps/desktop/package.json` stays as the default address for "Create an
+  online business", "Join" and "Move online". It no longer decides anything else.
+- When the domain changes: keep the old domain pointing at the server (or redirecting) until
+  apps have updated, since installed apps keep the full address in their config
+  (`apiBaseUrl`); or have an update rewrite the old address to the new one.
+
+Order of work: fixes to the product come before selling it. Then 13, then 14. Before charging anyone, also finish the rest of item 3 (off-server
+backups, a practised restore, uptime monitoring) and item 7 (data export), which paying
+customers expect. Item 16 (closing the source) must be done before the first real release. Item 15 comes after
+managed hosting is selling.
 
 ---
 
@@ -203,6 +250,164 @@ These need an answer from the product owner before the work that depends on them
   - Check that the server can be reached in the background, so the banner appears before a
     request fails.
 
+## [x] 13. Hosting kind: managed or self-hosted (do first)
+
+- **Why:** billing, plan limits and the screens around them apply only to our managed server.
+  The server has to say which one it is (see "Hosting modes").
+- **What:**
+  - API: `POS_HOSTING` (`managed` | `self`, default `self`) read in `apps/api/src/app-config.ts`,
+    online mode only. `GET /meta` (`apps/api/src/meta/meta.service.ts`) returns `hosting`; add
+    it to the meta contract in `packages/contracts`.
+  - Desktop: `checkOnlineServer` (`apps/desktop/src/main.ts`) already reads `/meta`; keep its
+    `hosting` in the config store and refresh it at each later `/meta` check. Pass it to the page
+    with the rest of `desktop.config`.
+  - Web: a small helper (`isManagedHosting()`) the billing screens of item 14 use.
+  - Our server: `POS_HOSTING=managed` in the API's `.env`; add it to README.md ("Hosting the
+    online server") and `apps/api/.env.example`.
+- **Done when:** `/meta` on `pos.hackd.in` says `managed`, a local online API says `self`, and the
+  desktop app shows which one it is connected to (e.g. in Settings → About).
+- **Status (2026-10-03):** built. `posHosting()` in `apps/api/src/common/mode.ts` (checked at
+  startup), `hosting` in `/meta` (optional in the contract, so older servers still parse); the
+  desktop app saves it on connecting, after a move online and at each launch
+  (`checkServerDetails`), and the page gets it with `desktop.config`. Web: `useHosting()` and
+  `useIsManagedHosting()` in `apps/web/src/lib/mode.ts`, preferring the server's own `/meta` and
+  falling back to the app's saved value (a fallback counter's local copy answers as offline).
+  Settings → Business shows a "Server" card. Tests in `online-mode.test.ts` and `offline.test.ts`.
+  Verified in the desktop app (Xvfb, from source, local online API): choosing the server saved
+  `managed`, Settings said "our hosted service"; with `POS_HOSTING` removed and the app
+  relaunched, the saved value and the card turned to self-hosted. Not checked in Electron: a
+  fallback counter while the server is down.
+  - [ ] On `pos.hackd.in`: add `POS_HOSTING=managed` to `/opt/pos/apps/api/.env` with the deploy
+        of this change, then check `curl https://pos.hackd.in/meta` says `"hosting":"managed"`.
+
+## [~] 14. Managed hosting: subscriptions and payments
+
+- **Why:** the managed server is running, but nothing charges for it. `Business.status` has
+  `SUSPENDED`, which today refuses sign-in outright (`apps/api/src/tenancy/tenancy.service.ts`).
+- **Depends on:** 13, and the "Pricing and limits" and "Payment provider" decisions.
+- **What:**
+  - **Plans and subscription state (control schema, `apps/api/prisma/control/schema.prisma`):**
+    plans with price and limits (branches, counters); on `Business`: plan, `trialEndsAt`,
+    `paidUntil`, a billing status (trial, active, past due, read-only, cancelled) and the
+    provider's customer and subscription ids. New businesses and businesses that move online
+    start on the trial.
+  - **Paying:** the owner starts payment from the app; the provider's hosted checkout opens in
+    the system browser, not inside the app window. The server never trusts the app's word that a
+    payment went through: a webhook endpoint checks the provider's signature, handles each event
+    once (keyed by event id) and updates `paidUntil` and the status.
+  - **Limits:** creating a branch or counter checks the plan (managed hosting only; offline keeps
+    its own limit, self-hosted has none). After a downgrade, existing branches and counters keep
+    working but no new ones can be added until the business is within its plan.
+  - **When payment stops:** a grace period with a banner for admins (trial ending, payment
+    failed), then read-only. Read-only means staff can still sign in, see sales and reports,
+    make GST exports and download their data (item 7), but can't sell or change anything (as the
+    offline "archived" state, `apps/api/src/common/instance-status.guard.ts`). Keep `SUSPENDED`
+    for a full block (abuse) and keep it separate from read-only for non-payment.
+  - **Fallback counter:** sales a counter made while the server couldn't be reached still sync
+    when the business is read-only, so no sale is lost.
+  - **Screens:** a Billing page for owners (with item 8's owner screens): plan, trial days left,
+    next payment, pay or change plan, past invoices. Shown only on managed hosting.
+  - **Our GST invoices:** a tax invoice for each payment in our own invoice series, with the
+    subscriber's GSTIN when given (so they can claim input tax credit), emailed and downloadable.
+  - **Emails:** trial ending, payment received, payment failed, read-only from a given date.
+  - **Tests:** webhook signature and replay, plan limits, read-only after the grace period,
+    fallback sync while read-only, and none of it on a `self` server.
+- **Done when:** a new business gets a trial, pays through the provider's test mode, its
+  `paidUntil` moves on from the webhook alone, a missed payment turns it read-only after the grace
+  period, and paying again turns it back.
+- **Status (2026-10-03):** built with a **dummy gateway** behind a gateway interface, so a real
+  one is one new class (README.md, "Subscriptions (managed hosting)"). Code in
+  `apps/api/src/billing/`, plans in `packages/contracts/src/billing.ts`, control migration
+  `20261015100000_billing` (existing businesses get a 14-day trial from the deploy).
+  - Decisions taken for now: plans Starter (1 branch, 2 counters, ₹499/month), Growth (3, 10,
+    ₹999) and Business (10, 50, ₹2,499), a year for 10 months' price, prices before GST; trial 14
+    days on Growth; grace 7 days; prepaid months or years (no automatic renewal yet); the Billing
+    page is a Settings tab for admins (owner screens, item 8, can link to it later); billing is
+    enforced only with `BILLING_GATEWAY` set, so `POS_HOSTING=managed` alone changes nothing.
+  - Tests: `apps/api/test/billing.test.ts` (hosting rules, limits, trial, the dummy payment end
+    to end, bad signatures, retried and short webhooks, failed payments, read-only and paying
+    back, reminders, plan change carry-over, invoice numbers and GST split) and
+    `packages/contracts/src/billing.test.ts`.
+  - Verified in the desktop app (Xvfb, from source, local managed API with the dummy gateway):
+    trial shown under Settings → Billing; Pay opened `/billing/pay/<id>` in the system browser;
+    paying on the dummy page turned the screen to "paid until" on its own; the invoice opened and
+    the owner's "Payment received" email went out; past the grace period the read-only banner
+    and the Billing tab said so.
+  - [ ] Pricing decision: replace the placeholder plans and prices.
+  - [ ] A real gateway (Razorpay likely): its `PaymentGateway` class, keys in the environment,
+        its webhook pointed at `/billing/webhooks/<name>`, then a test-mode payment end to end.
+  - [ ] Automatic renewal (the gateway's subscriptions, e.g. UPI AutoPay): each renewal charge
+        arrives as another `payment.succeeded` for a new checkout.
+  - [ ] Our seller details for invoices (`BILLING_SELLER_*`) and the SAC code.
+  - [ ] Not enforced while a fallback counter sells offline: its local copy has no billing, so a
+        read-only business could still sell there while the server can't be reached.
+
+## [ ] 15. Self-hosted server (later, after managed hosting)
+
+- **Why:** some businesses want the online server on their own infrastructure. The server code
+  is the same; what's missing is the setup and the parts of the app that assume our server.
+- **Depends on:** 13, 16, and the "Self-hosting price", "Self-hosting licence" and "Self-hosting
+  licence expiry" decisions. Start after item 14 is live.
+- **What:**
+  - **Built images only:** self-hosters never get the source. A Docker image of the API (with
+    the web app and migrations) per release, from the release workflow. Either a private
+    registry with a pull login per customer, or public images that are no use beyond one
+    business without a licence key.
+  - **Bundle and minify the API** in the image (one minified file, e.g. with esbuild; the web
+    app is minified already), so the shipped JavaScript is hard to read or patch. Obfuscation
+    adds a little more; optional.
+  - **Licence key** (`POS_LICENSE`): who it's licensed to, how many businesses the server may
+    hold (usually 1), and an expiry if the decision asks for one. Signed with our private key,
+    which never goes in the repository or an image; the server checks it with a public key built
+    into the code, with no phone-home, so servers without internet keep working. Without a
+    valid key, one business only: creating another is refused. `/meta` reports the licensee and
+    the app shows "Self-hosted, licensed to …", so a reseller can't quietly brand it as their
+    own. A small private tool (kept out of the images) makes and signs keys.
+  - **Licence file:** the proprietary licence (EULA) inside the image and shown in the guide;
+    the repository gets an "all rights reserved" LICENSE file.
+  - **Connecting the app:** a "Use my own server" link on the welcome screen that shows the server
+    address box (hidden today whenever `posServerUrl` is set, `WelcomePage.tsx`), and the same
+    choice in "Move to online".
+  - **First business:** a first-run setup on the server that creates the business and its owner
+    (as offline's `POST /setup`), after which sign-up closes; `POS_ALLOW_SIGNUP` reopens it.
+  - **Email optional:** without SMTP, owner verification is off and password resets use a
+    recovery code, as offline does.
+  - **Install:** a `docker-compose.yml` (API, PostgreSQL, an HTTPS proxy such as Caddy) with
+    nightly backups, and a self-hosting guide in README.md.
+  - **Updates:** upgrade notes per release, the rule that the server updates before the apps,
+    and a warning on the server's side when apps newer than it connect.
+  - **No billing:** item 14's checks and screens stay off (the billing tables exist but stay
+    empty; one schema for every server, decided 2026-10-03).
+  - **Honest limits:** shipped JavaScript can still be read and patched by someone determined.
+    What stops reselling is the licence (a legal case) together with the key and closed source
+    (reselling becomes hard and plainly deliberate).
+- **Done when:** someone follows the guide on a fresh VPS with a built image and a licence key,
+  connects a desktop app through "Use my own server", sells, backs up and restores, with no
+  billing screens shown; a second business is refused without a key that allows it; and a
+  tampered or expired key is refused.
+
+## [ ] 16. Closing the source and moving the update feed (before the first real release)
+
+- **Why:** the source is to stay closed (decided 2026-10-03), but this repository is public, and
+  the desktop app's updates come from its GitHub Releases (`publish` in
+  `apps/desktop/electron-builder.yml`). A private repository's releases can't be read by
+  installed apps, so they would never update again.
+- **What, in this order:**
+  1. **A public place for installers only.** Either a releases-only public repository (e.g.
+     `nathgoutam93/pointofsale-releases`; the release workflow publishes there with a token
+     secret that can write to it), or our own server or object storage (electron-builder's
+     "generic" provider, e.g. `https://pos.hackd.in/updates/`).
+  2. **Point the app at it:** `publish` in `electron-builder.yml` and
+     `.github/workflows/desktop-release.yml`. Check with a release that an installed app
+     finds and installs the next one from there.
+  3. **Make this repository private** (GitHub → Settings → General → Danger Zone → Change
+     visibility). No real users have the app yet (2026-10-03), so only test installs of 0.1.0
+     and 0.1.1 lose their updates; reinstall those. Code already cloned while it was public
+     can't be recalled.
+  4. **Licence file:** an "all rights reserved" LICENSE in the repository.
+- **Done when:** the repository is private, and an installed app updates itself from the new
+  place.
+
 ---
 
 ## Progress log
@@ -215,3 +420,7 @@ These need an answer from the product owner before the work that depends on them
 - 2026-10-03: v0.1.1 released; the forced update from 0.1.0 (MIN_CLIENT_VERSION) works end to end.
 - 2026-10-03: CI added (`.github/workflows/ci.yml`) and `fix/auth-hardening` merged into `main` (#1).
 - 2026-10-03: Removed `fix-plan.md` (all done) and `b2b-implementation-plan.md`; added items 10 (B2B GST customers) and 11 (receivables).
+- 2026-10-03: Hosting modes decided (offline, managed, self-hosted; the server says which via `POS_HOSTING`). Added items 13 (hosting kind), 14 (managed subscriptions and payments) and 15 (self-hosted, later). Managed hosting comes first.
+- 2026-10-03: Item 13 done: servers report `hosting` (managed or self) in `/meta`, the desktop app keeps it, Settings shows it. Left: set `POS_HOSTING=managed` on `pos.hackd.in` at the next deploy.
+- 2026-10-03: Item 14 built with a dummy payment gateway (plans, trial, limits, read-only, webhooks, invoices, reminders, Settings → Billing). Left: pricing, a real gateway, renewals, seller details.
+- 2026-10-03: Decided: closed source, self-hosters get built images with a licence key. Item 15 rewritten for that; item 16 added (move the update feed, then make the repository private, before the first real release). Product fixes come before selling.

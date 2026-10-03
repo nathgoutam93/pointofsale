@@ -2,7 +2,17 @@ import { AsyncLocalStorage } from 'async_hooks';
 import type { PrismaClient } from '@prisma/client';
 
 /** A business a request runs for, on the hosted server. */
-export type ActiveBusiness = { id: string; code: string; name: string; schemaName: string; dbServer: string };
+export type ActiveBusiness = {
+  id: string;
+  code: string;
+  name: string;
+  schemaName: string;
+  dbServer: string;
+  /** Signed-in requests: its plan and subscription dates (managed hosting enforces them). */
+  billing?: BusinessBilling;
+};
+
+export type BusinessBilling = { plan: string; trialEndsAt: Date | null; paidUntil: Date | null };
 
 type TenantStore = { business?: ActiveBusiness; client?: PrismaClient };
 

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma as ControlPrisma } from '.prisma/control-client';
 import { randomInt, randomUUID } from 'crypto';
+import { TRIAL_DAYS, TRIAL_PLAN } from '@pos/contracts';
 import { SetupInput, SetupService } from '../setup/setup.service';
 import { schemaUrl } from './database-urls';
 import { businessSchemaFile, latestBusinessMigration, migrateDeploy } from './migrator';
@@ -50,13 +51,15 @@ export class ProvisioningService {
     await migrateDeploy(businessSchemaFile(), { DATABASE_URL: schemaUrl(business.schemaName, business.dbServer) });
   }
 
-  /** Ready for use; `accountId` becomes its owner. */
+  /** Ready for use, on a free trial (managed hosting charges after it); `accountId` becomes its owner. */
   async activate(business: ActiveBusiness, accountId?: string) {
     await this.tenancy.control.business.update({
       where: { id: business.id },
       data: {
         status: 'ACTIVE',
         schemaVersion: latestBusinessMigration(),
+        plan: TRIAL_PLAN,
+        trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
         ...(accountId ? { memberships: { create: { accountId } } } : {})
       }
     });

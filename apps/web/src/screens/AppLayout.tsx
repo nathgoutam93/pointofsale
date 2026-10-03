@@ -27,6 +27,7 @@ import type { CashierPermission } from "@pos/contracts";
 import { api } from "../lib/api";
 import { can, getSession, updateSession } from "../lib/session";
 import { FallbackBanner } from "../components/FallbackBanner";
+import { BillingBanner } from "../components/BillingBanner";
 import { signOut } from "../lib/api";
 import { CloseRegisterDialog } from "./CloseRegisterDialog";
 
@@ -343,6 +344,7 @@ export function AppLayout() {
         </header>
 
         <FallbackBanner />
+        <BillingBanner />
         <MoveOnlineNotice />
         <RecoveryCodeNotice />
         <main className="min-h-0 flex-1 overflow-auto print:overflow-visible">

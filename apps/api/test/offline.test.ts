@@ -101,6 +101,7 @@ describe('offline install', () => {
       appVersion: APP_VERSION,
       schemaVersion: expect.stringMatching(/^\d{14}_/),
       mode: 'offline',
+      hosting: null,
       minClientVersion: null,
       setupRequired: true,
       instanceStatus: 'ACTIVE',

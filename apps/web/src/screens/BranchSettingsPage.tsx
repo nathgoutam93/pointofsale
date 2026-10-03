@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   BRANCH_CODE_LENGTH,
@@ -13,7 +14,7 @@ import {
 import { api, apiErrorMessage, apiFetch, authHeaders, uploadSrc } from "../lib/api";
 import { requireAdmin } from "./route-helpers";
 import { GoOnlineDialog, OnlineOnlyBadge } from "../components/OnlineOnly";
-import { useIsOffline } from "../lib/mode";
+import { useHosting, useIsOffline } from "../lib/mode";
 import { desktop } from "../lib/desktop";
 import { BackupsSection } from "./settings/BackupsSection";
 import { PrinterSection } from "./settings/PrinterSection";
@@ -23,6 +24,7 @@ import { RecoveryCodeSettings } from "../components/RecoveryCode";
 import { CountersSection } from "./settings/CountersSection";
 import { CashierPermissions } from "./settings/CashierPermissions";
 import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
+import { BillingSection } from "./settings/BillingSection";
 
 type SettingsForm = {
   name: string;
@@ -62,7 +64,7 @@ type CreateBranchForm = {
   code: string;
 };
 
-type SettingsTab = "business" | "branches" | "receipts" | "cashiers" | "printer" | "backups";
+type SettingsTab = "business" | "branches" | "receipts" | "cashiers" | "printer" | "backups" | "billing";
 
 const emptyCashierForm = (branchId: string): CashierForm => ({ username: "", password: "", branchIds: [branchId], permissions: [] });
 
@@ -77,12 +79,18 @@ export function BranchSettingsPage() {
   const session = requireAdmin();
   const initialBranchId = session.branchId ?? session.branches[0]?.id ?? "";
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("business");
+  const search = useSearch({ from: "/settings" });
+  const [activeTab, setActiveTab] = useState<SettingsTab>(search.tab === "billing" ? "billing" : "business");
   const [selectedBranchId, setSelectedBranchId] = useState(initialBranchId);
   const [message, setMessage] = useState("");
   const [businessMessage, setBusinessMessage] = useState("");
   const [branchMessage, setBranchMessage] = useState("");
   const offline = useIsOffline();
+  const hosting = useHosting();
+  // The subscription banner's link, also while this page is already open.
+  useEffect(() => {
+    if (search.tab === "billing") setActiveTab("billing");
+  }, [search.tab]);
   // Backups are kept by the desktop app, on the computer that holds an offline business.
   const localBackups = desktop?.config.mode === "offline" ? desktop.backups : undefined;
   // The receipt printer and cash drawer belong to this computer (desktop app, either mode).
@@ -544,7 +552,8 @@ export function BranchSettingsPage() {
             { id: "receipts" as const, label: "Receipts" },
             { id: "cashiers" as const, label: "Cashiers & Access" },
             ...(receiptPrinter ? [{ id: "printer" as const, label: "Printer" }] : []),
-            ...(localBackups ? [{ id: "backups" as const, label: "Backups" }] : [])
+            ...(localBackups ? [{ id: "backups" as const, label: "Backups" }] : []),
+            ...(hosting === "managed" ? [{ id: "billing" as const, label: "Billing" }] : [])
           ].map((tab) => (
             <button
               key={tab.id}
@@ -578,6 +587,16 @@ export function BranchSettingsPage() {
                 Move business online
               </button>
               {movingOnline ? <MoveOnlineDialog onClose={() => setMovingOnline(false)} /> : null}
+            </div>
+          ) : null}
+          {hosting ? (
+            <div className="card p-5">
+              <h2 className="text-lg font-semibold tracking-tight text-slate-900">Server</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                {hosting === "managed"
+                  ? "This business is on our hosted service."
+                  : "This business is on its own server (self-hosted)."}
+              </p>
             </div>
           ) : null}
           <div className="card p-5">
@@ -997,6 +1016,8 @@ export function BranchSettingsPage() {
           }}
         />
       ) : null}
+
+      {activeTab === "billing" && hosting === "managed" ? <BillingSection /> : null}
 
       {activeTab === "printer" && receiptPrinter ? (
         <PrinterSection printing={receiptPrinter} branchId={initialBranchId} />

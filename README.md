@@ -61,6 +61,8 @@ The API runs in one of two modes (`POS_MODE` in `apps/api/.env`):
   ```
   Staff sign in with the business code, their username and password. Owners can also create
   businesses with `POST /businesses` (email and password for their owner account).
+  `POS_HOSTING` says which kind of online server it is: `managed` on our hosted service,
+  `self` (the default) on a business's own server. `GET /meta` reports it as `hosting`.
 
 There are no default passwords; create cashiers from Settings → Cashiers & Access.
 
@@ -205,6 +207,7 @@ the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud.
    SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")
    cat > .env <<EOF
    POS_MODE=online
+   POS_HOSTING=managed
    HOST=127.0.0.1
    PORT=3001
    DATABASE_URL=postgresql://pos:<db-password>@localhost:5432/pos?schema=public
@@ -217,6 +220,9 @@ the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud.
    node dist/tenancy/cli.js migrate        # creates the control schema
    ```
    - Never change `AUTH_SECRET` afterwards: it would sign everyone out.
+   - `POS_HOSTING=managed` marks our hosted service (sign-up and, later, subscriptions). The apps
+     go by what `/meta` says, not by the domain, so leave it out on any other server: a
+     business's own server is `self`, the default.
    - `OWNER_EMAIL_VERIFICATION=off` is only until email works. Then set `SMTP_URL` and
      `MAIL_FROM` (e.g. `MAIL_FROM="POS <no-reply@example.com>"`), remove that line and restart.
      Add the mail provider's SPF and DKIM records to the domain, or mail lands in spam.
@@ -296,6 +302,33 @@ sudo chown -R ubuntu:ubuntu /var/lib/pos/uploads
 cd /opt/pos/apps/api && node dist/tenancy/cli.js migrate
 sudo systemctl start pos-api
 ```
+
+## Subscriptions (managed hosting)
+On our managed hosting (`POS_HOSTING=managed`) businesses pay a subscription. Nothing is charged
+or enforced until a payment gateway is set (`BILLING_GATEWAY`), and never on a self-hosted server.
+- **Plans:** `PLANS` in `packages/contracts/src/billing.ts` (prices in paise before GST, and the
+  branches and active counters each allows; placeholders until pricing is decided), with the trial
+  (14 days on Growth) and the grace period (7 days).
+- **A business's state:** on trial, paid, past due (the trial or paid time has ended; everything
+  works for the grace period) or read-only (changes refused with 402 until it pays; reading,
+  sign-in, closing the register, a fallback counter's sync and paying still work). Owners get
+  emails before the end, at the start of the grace period and when it turns read-only.
+- **Paying:** Settings → Billing (admins) starts a checkout; the app opens `/billing/pay/<id>` on
+  the server in the system browser, which sends it on to the gateway. A payment counts only from
+  the gateway's signed webhook (`POST /billing/webhooks/<gateway>`), once per event, for the
+  checkout's full amount. Paying for the current plan adds to the time already paid (after any
+  trial); another plan starts at once, with paid time left carried over at the new plan's price.
+- **Invoices:** one per payment, numbered per financial year (`POS/26-27/00001`), with the
+  seller details from `BILLING_SELLER_*` (with a GSTIN: 18% GST, CGST and SGST or IGST by the
+  buyer's state). Emailed to the owners and listed under Settings → Billing.
+- **Trying it:** `POS_HOSTING=managed BILLING_GATEWAY=dummy` on a local online API. The dummy
+  gateway's checkout page has buttons to pay or fail; no money moves.
+- **A real gateway** (code in `apps/api/src/billing/`): write a class implementing
+  `PaymentGateway` (`payment-gateway.ts`): `createCheckout` creates the payment with the
+  gateway and answers its id and payment page, `parseWebhook` checks the gateway's signature over
+  the raw body and turns its events into `payment.succeeded` or `payment.failed`. List it in
+  `GATEWAYS` (`gateways.ts`), read its keys from the environment, and point the gateway's webhook
+  at `https://<server>/billing/webhooks/<name>`. Nothing else changes.
 
 ## Auth Model
 A sign-in is a token signed with `AUTH_SECRET` that expires after `AUTH_TOKEN_TTL_HOURS`

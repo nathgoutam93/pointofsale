@@ -4,12 +4,16 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { configureApp, listenAddress } from './app-config';
 import { assertAuthConfigured } from './auth/token';
-import { minClientVersion, posMode } from './common/mode';
+import { configuredGatewayName } from './billing/gateways';
+import { minClientVersion, posHosting, posMode } from './common/mode';
 
 async function bootstrap() {
   assertAuthConfigured();
   const mode = posMode();
-  minClientVersion(); // fails now on a malformed value, not on the first request
+  // Fail now on a malformed value, not on the first request.
+  minClientVersion();
+  posHosting();
+  configuredGatewayName();
   const { port, host } = listenAddress();
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
