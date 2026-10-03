@@ -62,6 +62,12 @@ These need an answer from the product owner before the work that depends on them
   - Tag a first release and check auto-update from GitHub Releases, which so far was tested
     only with a local update server.
 - **Done when:** signed installers for all three OSes install, run and update from a real release.
+- **Status (2026-10-03):** the release workflow builds Linux and Windows (unsigned) into a
+  v0.1.0 draft; macOS failed on the empty signing secrets, fixed since in the workflow. Next:
+  - [ ] Move the `v0.1.0` tag to the latest commit so macOS builds too (this session can't push
+        tags: `git tag -d v0.1.0 && git push origin :v0.1.0`, then tag and push again).
+  - [ ] Test the Windows installer, then publish the draft release (apps only update from
+        published releases).
 
 ## [ ] 3. Hosting infrastructure (plan 4.8)
 
@@ -79,8 +85,11 @@ These need an answer from the product owner before the work that depends on them
   PostgreSQL, the API as a systemd service, nginx with a Let's Encrypt certificate. The setup is
   in README.md ("Hosting the online server"); `deploy/deploy.sh` pulls, builds, migrates and
   restarts; `deploy/backup.sh` makes the nightly database and uploads backups (cron at 21:30
-  UTC). Email works through Brevo SMTP, and owner verification is on. Still to do: an
-  off-server copy of the backups, a restore practised on the server, and uptime monitoring.
+  UTC). Email works through Brevo SMTP, and owner verification is on. Still to do:
+  - [ ] An off-server copy of the backups: Oracle Object Storage (free tier) with rclone, then
+        `POS_BACKUP_RCLONE_REMOTE` in the API's `.env` (see `deploy/backup.sh`).
+  - [ ] A restore practised on the server (README, "Backups"), into `pos_restore_test`.
+  - [ ] Uptime monitoring on `https://pos.hackd.in/meta` (UptimeRobot or similar).
 
 ## [ ] 4. Uploaded files in object storage (plan 4.6)
 
