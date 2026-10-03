@@ -116,6 +116,8 @@ export type DesktopBridge = {
   /** Saves the choice, starts what it needs (the local database and API offline) and reloads the window. */
   chooseMode(choice: ModeChoice): Promise<void>;
   openLogsFolder(): Promise<void>;
+  /** Opens /billing/pay/<id> on the online server in the system browser. Missing in older versions. */
+  openPayment?(path: string): Promise<void>;
   /** Checks an address (empty: the built-in one) is an online server; answers it tidied. */
   checkServer(address: string): Promise<string>;
   /** First launch: creates a business on the server (sent by the app, not the page). */

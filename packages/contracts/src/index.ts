@@ -2,6 +2,12 @@ import { initContract } from '@ts-rest/core';
 import { z } from 'zod';
 import { RECEIPT_CSS_MAX_LENGTH, sanitizeReceiptCss } from './receiptCss.js';
 import { receiptTemplateSchema } from './receiptTemplate.js';
+import {
+  billingCheckoutBodySchema,
+  billingCheckoutResponseSchema,
+  billingStatusSchema,
+  billingSummarySchema
+} from './billing.js';
 
 export { RECEIPT_CSS_MAX_LENGTH, RECEIPT_CSS_SCOPE, sanitizeReceiptCss } from './receiptCss.js';
 export type { ReceiptCssResult } from './receiptCss.js';
@@ -42,6 +48,25 @@ export {
 } from './receiptDocuments.js';
 export type { InvoiceGst, ReceiptBranding } from './receiptDocuments.js';
 export { APP_VERSION, CLIENT_VERSION_HEADER, isOlderVersion, UPDATE_REQUIRED_STATUS } from './version.js';
+export {
+  addBillingPeriod,
+  BILLING_PERIODS,
+  billingCheckoutBodySchema,
+  billingStateAt,
+  billingStatusSchema,
+  billingSummarySchema,
+  GRACE_DAYS,
+  PAYMENT_REQUIRED,
+  PLAN_CODES,
+  PLAN_LIMIT_REACHED,
+  planByCode,
+  PLANS,
+  SUBSCRIPTION_GST_RATE,
+  subscriptionGst,
+  TRIAL_DAYS,
+  TRIAL_PLAN
+} from './billing.js';
+export type { BillingPeriod, BillingState, BillingStatus, BillingSummary, Plan, PlanCode } from './billing.js';
 export {
   MIGRATION_BUNDLE_FORMAT,
   MIGRATION_EXCLUDED_MODELS,
@@ -966,6 +991,35 @@ export const appContract = c.router({
           })
         })
       }
+    }
+  },
+  /** Managed hosting only (404 elsewhere): the business's subscription. */
+  billing: {
+    /** Any signed-in user: where the subscription stands (the banner). */
+    status: {
+      method: 'GET',
+      path: '/billing/status',
+      responses: { 200: billingStatusSchema }
+    },
+    /** Admins: plans, prices, usage and invoices. */
+    summary: {
+      method: 'GET',
+      path: '/billing',
+      responses: { 200: billingSummarySchema }
+    },
+    /** Admins: starts paying for a plan; open payPath on the API to pay. */
+    checkout: {
+      method: 'POST',
+      path: '/billing/checkout',
+      body: billingCheckoutBodySchema,
+      responses: { 201: billingCheckoutResponseSchema }
+    },
+    /** Admins: an invoice as a printable page. */
+    invoice: {
+      method: 'GET',
+      path: '/billing/invoices/:id',
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: z.object({ number: z.string(), html: z.string() }) }
     }
   },
   meta: {

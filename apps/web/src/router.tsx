@@ -232,6 +232,8 @@ const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
   beforeLoad: () => requireAdmin(),
+  // A tab to open on, e.g. ?tab=billing from the subscription banner.
+  validateSearch: (search: Record<string, unknown>): { tab?: string } => (typeof search.tab === 'string' ? { tab: search.tab } : {}),
   component: BranchSettingsPage
 });
 

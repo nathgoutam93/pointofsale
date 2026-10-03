@@ -25,6 +25,9 @@ import { ItemsController } from './items/items.controller';
 import { ItemsService } from './items/items.service';
 import { createPrismaService, PrismaService } from './prisma.service';
 import { AccountsController } from './accounts/accounts.controller';
+import { BillingController } from './billing/billing.controller';
+import { BillingReminders } from './billing/reminders';
+import { BillingService } from './billing/billing.service';
 import { AccountsService } from './accounts/accounts.service';
 import { Mailer } from './mail/mailer';
 import { ReceiptEmailService } from './sales/receipt-email.service';
@@ -62,6 +65,7 @@ import { UsersService } from './users/users.service';
     MetaController,
     SetupController,
     AccountsController,
+    BillingController,
     AuthController,
     BranchesController,
     SettingsController,
@@ -87,6 +91,8 @@ import { UsersService } from './users/users.service';
     ProvisioningService,
     ImportService,
     AccountsService,
+    BillingService,
+    BillingReminders,
     Mailer,
     ReceiptEmailService,
     FallbackService,

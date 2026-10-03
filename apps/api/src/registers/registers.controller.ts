@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Headers, Post } from '@nestjs/common';
 import { appContract, DEVICE_HEADER } from '@pos/contracts';
+import { AllowWhenUnpaid } from '../common/instance-status.guard';
 import { getSession, requireOpenRegisterSession, RequestHeaders } from '../common/request-session';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { RegistersService } from './registers.service';
@@ -29,7 +30,9 @@ export class RegistersController {
     return this.registers.getRegisterSummaries(getSession(headers));
   }
 
+  /** Still allowed once a subscription has ended: the day's cash is counted either way. */
   @Post('/registers/close')
+  @AllowWhenUnpaid()
   @HttpCode(200)
   closeRegister(
     @Body(new ZodValidationPipe(appContract.registers.close.body)) body: { closingBalance: number },

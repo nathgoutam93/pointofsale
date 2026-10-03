@@ -8,6 +8,7 @@ import { BranchesService } from '../branches/branches.service';
 import { SettingsService } from '../settings/settings.service';
 import { lockBranchRegisters } from '../common/counters';
 import { assertOfflineRoomFor } from '../common/offline-limits';
+import { assertPlanRoomFor } from '../billing/limits';
 
 export const counterSelect = { id: true, branchId: true, number: true, name: true, isActive: true, fallbackDeviceId: true } as const;
 
@@ -39,6 +40,7 @@ export class CountersService {
       return await this.prisma.$transaction(async (tx) => {
         await lockBranchRegisters(tx, branchId);
         await assertOfflineRoomFor(tx, 'counter');
+        await assertPlanRoomFor(tx, 'counter');
         await this.assertNameFree(tx, branchId, name);
         // Numbers are never reused, so a deactivated counter's series stays its own.
         const last = await tx.counter.aggregate({ where: { branchId }, _max: { number: true } });
@@ -67,6 +69,10 @@ export class CountersService {
         await lockBranchRegisters(tx, counter.branchId);
         if (input.name !== undefined) {
           await this.assertNameFree(tx, counter.branchId, input.name, counterId);
+        }
+        // Turning a counter back on counts against the plan like adding one.
+        if (input.isActive === true && !counter.isActive) {
+          await assertPlanRoomFor(tx, 'counter');
         }
         if (input.isActive === false && counter.isActive) {
           const open = await tx.registerSession.findFirst({

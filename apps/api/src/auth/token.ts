@@ -19,7 +19,7 @@ type TokenPayload = {
 
 const DEFAULT_TTL_HOURS = 12;
 
-function getSecret() {
+export function getSecret() {
   const secret = process.env.AUTH_SECRET;
   if (!secret || secret.length < 32) {
     throw new Error('AUTH_SECRET must be set to at least 32 characters');

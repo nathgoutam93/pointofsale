@@ -41,9 +41,18 @@ model Business {
   /// Set when the business came from an offline install (moved online). A retried upload with
   /// the same id returns this business instead of creating a second one.
   importId      String?        @unique
+  /// Managed hosting: the plan whose limits apply (PLANS in @pos/contracts), the end of the free
+  /// trial and the end of the time paid for. Self-hosted servers ignore all three.
+  plan          String         @default("growth")
+  trialEndsAt   DateTime?
+  paidUntil     DateTime?
+  /// The last billing reminder emailed (its kind and the date it was about), so each goes once.
+  billingNotice String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   memberships   Membership[]
+  checkouts     BillingCheckout[]
+  invoices      BillingInvoice[]
 }
 
 /// A business owner's sign-in (email and password), separate from the staff users inside a
@@ -100,4 +109,79 @@ model EmailVerification {
   createdAt DateTime  @default(now())
 
   @@index([email])
+}
+
+enum CheckoutStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+/// One attempt to pay for a plan: created when an admin presses Pay, settled by the payment
+/// gateway's webhook (never by the app). Amounts in paise.
+model BillingCheckout {
+  id          String          @id @default(uuid())
+  businessId  String
+  plan        String
+  /// month | year
+  period      String
+  amount      Int
+  gst         Int
+  total       Int
+  /// Which gateway it went through (BILLING_GATEWAY when it was made) and the gateway's own id for it.
+  gateway     String
+  gatewayRef  String?
+  /// The gateway's page the payer is sent to.
+  redirectUrl String?
+  status      CheckoutStatus  @default(PENDING)
+  createdAt   DateTime        @default(now())
+  settledAt   DateTime?
+  business    Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  invoice     BillingInvoice?
+
+  @@unique([gateway, gatewayRef])
+  @@index([businessId])
+}
+
+/// Each gateway event (webhook) handled, so a retried delivery changes nothing.
+model BillingEvent {
+  gateway    String
+  eventId    String
+  receivedAt DateTime @default(now())
+
+  @@id([gateway, eventId])
+}
+
+/// Our tax invoice for a payment, numbered per financial year. Buyer details are copied from
+/// the business when it is issued.
+model BillingInvoice {
+  id          String          @id @default(uuid())
+  number      String          @unique
+  businessId  String
+  checkoutId  String          @unique
+  issuedAt    DateTime        @default(now())
+  buyerName   String
+  buyerGstin  String?
+  /// Two-digit GST state code of the buyer (place of supply); null when unknown.
+  buyerState  String?
+  plan        String
+  period      String
+  periodFrom  DateTime
+  periodTo    DateTime
+  /// Paise: before GST, the tax split, and what was paid.
+  amount      Int
+  cgst        Int
+  sgst        Int
+  igst        Int
+  total       Int
+  business    Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  checkout    BillingCheckout @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+}
+
+/// The last invoice number issued in each financial year (its start year).
+model BillingInvoiceSequence {
+  fiscalYear Int @id
+  last       Int @default(0)
 }

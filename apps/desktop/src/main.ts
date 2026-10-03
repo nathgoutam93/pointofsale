@@ -886,6 +886,17 @@ ipcMain.handle('pos:open-logs', async (event) => {
   await shell.openPath(paths.logs());
 });
 
+/**
+ * Online, managed hosting: a subscription payment, paid in the system browser. Only this app's
+ * own server's /billing/pay/<id> is opened; the server sends the browser on to its gateway.
+ */
+ipcMain.handle('pos:open-payment', async (event, path: unknown) => {
+  assertFromApp(event);
+  if (config.mode !== 'online' || !config.apiBaseUrl) throw new Error('Only for online businesses');
+  if (typeof path !== 'string' || !/^\/billing\/pay\/[0-9a-f-]{36}$/i.test(path)) throw new Error('Not a payment link');
+  await shell.openExternal(`${config.apiBaseUrl}${path}`);
+});
+
 if (!app.requestSingleInstanceLock()) {
   // Another window already runs this app (and its database); show that one instead.
   app.quit();

@@ -7,7 +7,17 @@ import { enterBusiness, runForBusiness, type ActiveBusiness } from './tenant-con
 /** How long a business's details are trusted before the control schema is asked again. */
 const CACHE_MS = 30_000;
 
-const businessSelect = { id: true, code: true, name: true, schemaName: true, dbServer: true, status: true } as const;
+const businessSelect = {
+  id: true,
+  code: true,
+  name: true,
+  schemaName: true,
+  dbServer: true,
+  status: true,
+  plan: true,
+  trialEndsAt: true,
+  paidUntil: true
+} as const;
 
 /**
  * The hosted server's businesses: finds a request's business and points the request at its
@@ -29,12 +39,15 @@ export class TenancyService implements OnModuleDestroy {
   private async load(id: string) {
     const cached = this.cache.get(id);
     if (cached && Date.now() - cached.at < CACHE_MS) return cached.business;
-    const business = await this.control.business.findUnique({ where: { id }, select: businessSelect });
-    if (business) this.cache.set(id, { business, at: Date.now() });
+    const found = await this.control.business.findUnique({ where: { id }, select: businessSelect });
+    if (!found) return null;
+    const { plan, trialEndsAt, paidUntil, ...rest } = found;
+    const business = { ...rest, billing: { plan, trialEndsAt, paidUntil } };
+    this.cache.set(id, { business, at: Date.now() });
     return business;
   }
 
-  /** Forget a business's cached details, e.g. after it is suspended. */
+  /** Forget a business's cached details, e.g. after it is suspended or pays. */
   forget(id: string) {
     this.cache.delete(id);
   }

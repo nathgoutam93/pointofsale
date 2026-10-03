@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('posDesktop', {
   version: info.version,
   chooseMode: (choice: ModeChoice) => invoke('pos:choose-mode', choice),
   openLogsFolder: () => invoke('pos:open-logs'),
+  // Managed hosting: a subscription payment page on this app's server, in the system browser.
+  openPayment: (path: string) => invoke('pos:open-payment', path),
   checkServer: (address: string) => invoke('pos:check-server', address),
   restoreFromBackup: () => invoke('pos:restore-from-backup'),
   createOnlineBusiness: (address: string, details: Record<string, unknown>) => invoke('pos:create-business', address, details),

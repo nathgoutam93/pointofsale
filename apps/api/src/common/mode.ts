@@ -80,3 +80,14 @@ export class OnlineOnlyGuard implements CanActivate {
     return true;
   }
 }
+
+/** For routes that exist only on our managed hosting (subscriptions): elsewhere they answer 404. */
+@Injectable()
+export class ManagedOnlyGuard implements CanActivate {
+  canActivate() {
+    if (!isManagedHosting()) {
+      throw new NotFoundException();
+    }
+    return true;
+  }
+}

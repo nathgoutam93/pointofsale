@@ -270,7 +270,7 @@ customers expect. Item 15 comes after that.
   - [ ] On `pos.hackd.in`: add `POS_HOSTING=managed` to `/opt/pos/apps/api/.env` with the deploy
         of this change, then check `curl https://pos.hackd.in/meta` says `"hosting":"managed"`.
 
-## [ ] 14. Managed hosting: subscriptions and payments
+## [~] 14. Managed hosting: subscriptions and payments
 
 - **Why:** the managed server is running, but nothing charges for it. `Business.status` has
   `SUSPENDED`, which today refuses sign-in outright (`apps/api/src/tenancy/tenancy.service.ts`).
@@ -305,6 +305,32 @@ customers expect. Item 15 comes after that.
 - **Done when:** a new business gets a trial, pays through the provider's test mode, its
   `paidUntil` moves on from the webhook alone, a missed payment turns it read-only after the grace
   period, and paying again turns it back.
+- **Status (2026-10-03):** built with a **dummy gateway** behind a gateway interface, so a real
+  one is one new class (README.md, "Subscriptions (managed hosting)"). Code in
+  `apps/api/src/billing/`, plans in `packages/contracts/src/billing.ts`, control migration
+  `20261015100000_billing` (existing businesses get a 14-day trial from the deploy).
+  - Decisions taken for now: plans Starter (1 branch, 2 counters, ₹499/month), Growth (3, 10,
+    ₹999) and Business (10, 50, ₹2,499), a year for 10 months' price, prices before GST; trial 14
+    days on Growth; grace 7 days; prepaid months or years (no automatic renewal yet); the Billing
+    page is a Settings tab for admins (owner screens, item 8, can link to it later); billing is
+    enforced only with `BILLING_GATEWAY` set, so `POS_HOSTING=managed` alone changes nothing.
+  - Tests: `apps/api/test/billing.test.ts` (hosting rules, limits, trial, the dummy payment end
+    to end, bad signatures, retried and short webhooks, failed payments, read-only and paying
+    back, reminders, plan change carry-over, invoice numbers and GST split) and
+    `packages/contracts/src/billing.test.ts`.
+  - Verified in the desktop app (Xvfb, from source, local managed API with the dummy gateway):
+    trial shown under Settings → Billing; Pay opened `/billing/pay/<id>` in the system browser;
+    paying on the dummy page turned the screen to "paid until" on its own; the invoice opened and
+    the owner's "Payment received" email went out; past the grace period the read-only banner
+    and the Billing tab said so.
+  - [ ] Pricing decision: replace the placeholder plans and prices.
+  - [ ] A real gateway (Razorpay likely): its `PaymentGateway` class, keys in the environment,
+        its webhook pointed at `/billing/webhooks/<name>`, then a test-mode payment end to end.
+  - [ ] Automatic renewal (the gateway's subscriptions, e.g. UPI AutoPay): each renewal charge
+        arrives as another `payment.succeeded` for a new checkout.
+  - [ ] Our seller details for invoices (`BILLING_SELLER_*`) and the SAC code.
+  - [ ] Not enforced while a fallback counter sells offline: its local copy has no billing, so a
+        read-only business could still sell there while the server can't be reached.
 
 ## [ ] 15. Self-hosted server (later, after managed hosting)
 
@@ -342,3 +368,4 @@ customers expect. Item 15 comes after that.
 - 2026-10-03: Removed `fix-plan.md` (all done) and `b2b-implementation-plan.md`; added items 10 (B2B GST customers) and 11 (receivables).
 - 2026-10-03: Hosting modes decided (offline, managed, self-hosted; the server says which via `POS_HOSTING`). Added items 13 (hosting kind), 14 (managed subscriptions and payments) and 15 (self-hosted, later). Managed hosting comes first.
 - 2026-10-03: Item 13 done: servers report `hosting` (managed or self) in `/meta`, the desktop app keeps it, Settings shows it. Left: set `POS_HOSTING=managed` on `pos.hackd.in` at the next deploy.
+- 2026-10-03: Item 14 built with a dummy payment gateway (plans, trial, limits, read-only, webhooks, invoices, reminders, Settings → Billing). Left: pricing, a real gateway, renewals, seller details.

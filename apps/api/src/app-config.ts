@@ -1,6 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { json } from 'express';
+import { json, raw } from 'express';
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
@@ -67,6 +67,12 @@ export function configureApp(app: NestExpressApplication) {
   const syncBody = json({ limit: '25mb' });
   app.use('/fallback/sync', function fallbackSyncBody(req: never, res: never, next: never) {
     syncBody(req, res, next);
+  });
+
+  // A payment gateway signs the exact bytes it sends, so its webhooks are kept unparsed.
+  const webhookBody = raw({ type: () => true, limit: '1mb' });
+  app.use('/billing/webhooks', function billingWebhookBody(req: never, res: never, next: never) {
+    webhookBody(req, res, next);
   });
 
   // Every request gets its own business context; sign-in or the token check fills it in.

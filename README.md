@@ -303,6 +303,33 @@ cd /opt/pos/apps/api && node dist/tenancy/cli.js migrate
 sudo systemctl start pos-api
 ```
 
+## Subscriptions (managed hosting)
+On our managed hosting (`POS_HOSTING=managed`) businesses pay a subscription. Nothing is charged
+or enforced until a payment gateway is set (`BILLING_GATEWAY`), and never on a self-hosted server.
+- **Plans:** `PLANS` in `packages/contracts/src/billing.ts` (prices in paise before GST, and the
+  branches and active counters each allows; placeholders until pricing is decided), with the trial
+  (14 days on Growth) and the grace period (7 days).
+- **A business's state:** on trial, paid, past due (the trial or paid time has ended; everything
+  works for the grace period) or read-only (changes refused with 402 until it pays; reading,
+  sign-in, closing the register, a fallback counter's sync and paying still work). Owners get
+  emails before the end, at the start of the grace period and when it turns read-only.
+- **Paying:** Settings → Billing (admins) starts a checkout; the app opens `/billing/pay/<id>` on
+  the server in the system browser, which sends it on to the gateway. A payment counts only from
+  the gateway's signed webhook (`POST /billing/webhooks/<gateway>`), once per event, for the
+  checkout's full amount. Paying for the current plan adds to the time already paid (after any
+  trial); another plan starts at once, with paid time left carried over at the new plan's price.
+- **Invoices:** one per payment, numbered per financial year (`POS/26-27/00001`), with the
+  seller details from `BILLING_SELLER_*` (with a GSTIN: 18% GST, CGST and SGST or IGST by the
+  buyer's state). Emailed to the owners and listed under Settings → Billing.
+- **Trying it:** `POS_HOSTING=managed BILLING_GATEWAY=dummy` on a local online API. The dummy
+  gateway's checkout page has buttons to pay or fail; no money moves.
+- **A real gateway** (code in `apps/api/src/billing/`): write a class implementing
+  `PaymentGateway` (`payment-gateway.ts`): `createCheckout` creates the payment with the
+  gateway and answers its id and payment page, `parseWebhook` checks the gateway's signature over
+  the raw body and turns its events into `payment.succeeded` or `payment.failed`. List it in
+  `GATEWAYS` (`gateways.ts`), read its keys from the environment, and point the gateway's webhook
+  at `https://<server>/billing/webhooks/<name>`. Nothing else changes.
+
 ## Auth Model
 A sign-in is a token signed with `AUTH_SECRET` that expires after `AUTH_TOKEN_TTL_HOURS`
 (default 12). Every request is re-checked against the database (user active, same role, branch
