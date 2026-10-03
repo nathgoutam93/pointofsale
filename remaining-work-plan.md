@@ -339,6 +339,10 @@ managed hosting is selling.
   - [ ] Automatic renewal (the gateway's subscriptions, e.g. UPI AutoPay): each renewal charge
         arrives as another `payment.succeeded` for a new checkout.
   - [ ] Our seller details for invoices (`BILLING_SELLER_*`) and the SAC code.
+  - [ ] **Before turning billing on** (setting `BILLING_GATEWAY` on the server): raise
+        `MIN_CLIENT_VERSION` to the first release with the billing screens (0.1.2). Older apps have
+        no Billing tab, so a read-only business on one couldn't pay; turned away, they update
+        first.
   - [ ] Not enforced while a fallback counter sells offline: its local copy has no billing, so a
         read-only business could still sell there while the server can't be reached.
 
@@ -424,3 +428,4 @@ managed hosting is selling.
 - 2026-10-03: Item 13 done: servers report `hosting` (managed or self) in `/meta`, the desktop app keeps it, Settings shows it. Left: set `POS_HOSTING=managed` on `pos.hackd.in` at the next deploy.
 - 2026-10-03: Item 14 built with a dummy payment gateway (plans, trial, limits, read-only, webhooks, invoices, reminders, Settings → Billing). Left: pricing, a real gateway, renewals, seller details.
 - 2026-10-03: Decided: closed source, self-hosters get built images with a licence key. Item 15 rewritten for that; item 16 added (move the update feed, then make the repository private, before the first real release). Product fixes come before selling.
+- 2026-10-03: Server deployed with `POS_HOSTING=managed` (no `BILLING_GATEWAY`). Version 0.1.2 prepared to ship the Server card and Billing screens to installed apps.
