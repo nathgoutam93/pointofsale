@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { IconRegister } from "../components/icons";
+import { desktop } from "../lib/desktop";
 import { api, apiErrorMessage, authHeaders } from "../lib/api";
 import { updateSession } from "../lib/session";
 import { inr, requireSession } from "./route-helpers";
@@ -81,10 +82,14 @@ export function OpenRegisterPage() {
   // A cashier runs one counter per branch; if they already hold one here, say so.
   const myOpenCounter = counters.find((entry) => entry.current?.openedBy === session.username);
 
+  // A branch's fallback counter opens only on its own computer.
+  const elsewhere = (counter: { fallbackDeviceId?: string | null }) =>
+    Boolean(counter.fallbackDeviceId && counter.fallbackDeviceId !== (desktop?.config.deviceId ?? null));
+
   // Pick the first free counter whenever the branch (or the counters' state) changes.
   useEffect(() => {
-    if (selected && !selected.current) return;
-    const firstFree = counters.find((entry) => !entry.current);
+    if (selected && !selected.current && !elsewhere(selected.counter)) return;
+    const firstFree = counters.find((entry) => !entry.current && !elsewhere(entry.counter));
     setSelectedCounterId(firstFree?.counter.id ?? "");
   }, [counters, selected]);
 
@@ -195,7 +200,8 @@ export function OpenRegisterPage() {
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {counters.map(({ counter, current, lastClosed }) => {
               const isSelected = counter.id === selectedCounterId;
-              const inUse = Boolean(current);
+              const fallbackElsewhere = !current && elsewhere(counter);
+              const inUse = Boolean(current) || fallbackElsewhere;
               return (
                 <button
                   key={counter.id}
@@ -227,12 +233,14 @@ export function OpenRegisterPage() {
                           : "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
                       }`}
                     >
-                      {inUse ? "In use" : "Available"}
+                      {current ? "In use" : fallbackElsewhere ? "Its own computer" : "Available"}
                     </span>
                   </div>
 
                   <div className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
-                    {current ? (
+                    {fallbackElsewhere ? (
+                      <p>The branch's fallback counter: it opens only on its own computer.</p>
+                    ) : current ? (
                       <p>
                         <span className="font-medium text-slate-700">{current.openedBy}</span> since{" "}
                         {formatDateTime(current.openedAt)} · float {inr(current.openingBalance)}

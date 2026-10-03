@@ -26,7 +26,7 @@ import yauzl from 'yauzl';
 
 export const BACKUP_KIND = 'pos-local-backup';
 export const BACKUP_FORMAT = 1;
-export const BACKUP_REASONS = ['daily', 'manual', 'before-update', 'before-restore', 'before-move'] as const;
+export const BACKUP_REASONS = ['daily', 'manual', 'before-update', 'before-restore', 'before-move', 'fallback-copy'] as const;
 export type BackupReason = (typeof BACKUP_REASONS)[number];
 
 /** How many days of backups a user may keep. */
@@ -148,7 +148,11 @@ async function businessTables(client: PrismaClient | Prisma.TransactionClient) {
   return rows.map((row) => row.name);
 }
 
-/** Writes a backup into `dir` and returns its path. */
+/**
+ * Writes a backup into `dir` and returns its path. A partial copy (the online server's copy for
+ * a fallback counter) names its tables, each with an optional SQL condition on its rows, and the
+ * upload files to include (paths under `uploadsDir`); tables left out restore empty.
+ */
 export async function createBackup(options: {
   prisma: PrismaClient;
   dir: string;
@@ -156,6 +160,8 @@ export async function createBackup(options: {
   reason: BackupReason;
   appVersion: string;
   now?: Date;
+  only?: Array<{ name: string; where?: string }>;
+  uploadFiles?: string[];
 }) {
   const { prisma, dir, uploadsDir, reason, appVersion } = options;
   const schemaVersion = await appliedSchemaVersion(prisma);
@@ -168,13 +174,18 @@ export async function createBackup(options: {
     const tables = await prisma.$transaction(
       async (tx) => {
         const written: BackupManifest['tables'] = [];
-        for (const name of await businessTables(tx)) {
+        const existing = await businessTables(tx);
+        const chosen = options.only ?? existing.map((name) => ({ name, where: undefined as string | undefined }));
+        for (const { name, where } of chosen) {
+          if (!existing.includes(name)) throw new Error(`Unknown table ${name}`);
           const file = join(work, `${name}.ndjson`);
           const stream = createWriteStream(file);
           const hash = createHash('sha256');
           let rows = 0;
           try {
-            await tx.$executeRawUnsafe(`DECLARE backup_rows NO SCROLL CURSOR FOR SELECT row_to_json(t)::text AS line FROM ${ident(name)} t`);
+            await tx.$executeRawUnsafe(
+              `DECLARE backup_rows NO SCROLL CURSOR FOR SELECT row_to_json(t)::text AS line FROM ${ident(name)} t${where ? ` WHERE ${where}` : ''}`
+            );
             for (;;) {
               const page = await tx.$queryRawUnsafe<Array<{ line: string }>>(`FETCH ${ROWS_PER_FETCH} FROM backup_rows`);
               for (const { line } of page) {
@@ -197,7 +208,10 @@ export async function createBackup(options: {
     );
 
     const uploads: BackupManifest['uploads'] = [];
-    for (const path of await listFiles(uploadsDir)) {
+    const uploadPaths = options.uploadFiles
+      ? options.uploadFiles.map((file) => join(uploadsDir, ...file.split('/'))).filter((path) => existsSync(path))
+      : await listFiles(uploadsDir);
+    for (const path of uploadPaths) {
       const file = ['uploads', ...relative(uploadsDir, path).split(sep)].join('/');
       uploads.push({ file, bytes: (await stat(path)).size, sha256: await sha256OfFile(path) });
     }

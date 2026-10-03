@@ -5,6 +5,8 @@ import { IconRegister } from "../../components/icons";
 import { api, apiErrorMessage, authHeaders } from "../../lib/api";
 import { useIsOffline } from "../../lib/mode";
 import { GoOnlineDialog, OnlineOnlyBadge } from "../../components/OnlineOnly";
+import { desktop } from "../../lib/desktop";
+import { canBeFallbackCounter, fallbackBridge, useFallbackStatus } from "../../lib/fallback";
 
 /**
  * A branch's counters (tills). Each counter runs its own register and cash drawer, so
@@ -30,6 +32,21 @@ export function CountersSection({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [error, setError] = useState("");
+  const fallbackStatus = useFallbackStatus();
+  const thisDevice = desktop?.config.deviceId ?? null;
+  const [fallbackBusy, setFallbackBusy] = useState(false);
+  const changeFallback = async (action: () => Promise<unknown>) => {
+    setFallbackBusy(true);
+    setError("");
+    try {
+      await action();
+      await queryClient.invalidateQueries({ queryKey: ["branch-counters", branchId] });
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setFallbackBusy(false);
+    }
+  };
 
   const counters = useQuery({
     queryKey: ["branch-counters", branchId],
@@ -140,6 +157,14 @@ export function CountersSection({
         </p>
       ) : null}
 
+      {canBeFallbackCounter && fallbackStatus?.configured ? (
+        <p className="mx-5 mt-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          This computer is the fallback counter for {fallbackStatus.counterName}: if the server can't be reached it keeps selling
+          from an offline copy, {fallbackStatus.refreshedAt ? `last updated ${new Date(fallbackStatus.refreshedAt).toLocaleString()}` : "being made now"}.
+          {fallbackStatus.error ? ` Last problem: ${fallbackStatus.error}` : ""}
+        </p>
+      ) : null}
+
       {counters.isLoading ? (
         <p className="p-5 text-sm text-slate-500">Loading counters…</p>
       ) : (
@@ -183,6 +208,11 @@ export function CountersSection({
                       </p>
                       <p className="text-xs text-slate-500">
                         {!counter.isActive ? "Inactive" : openedBy ? `Open · ${openedBy}` : "Closed"}
+                        {counter.fallbackDeviceId
+                          ? counter.fallbackDeviceId === thisDevice
+                            ? " · Fallback counter (this computer)"
+                            : " · Fallback counter (on its own computer)"
+                          : ""}
                         {` · Invoices ${documentNumber(documentSeries(branchCode, counter.number, "INVOICE"), fiscalYear, 1)}`}
                         {` · Credit notes ${documentNumber(documentSeries(branchCode, counter.number, "RETURN"), fiscalYear, 1)}`}
                       </p>
@@ -194,6 +224,38 @@ export function CountersSection({
                   <div className="flex items-center gap-2">
                     {openedBy ? (
                       <span className="badge bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 ring-inset">In use</span>
+                    ) : null}
+                    {canBeFallbackCounter && counter.isActive ? (
+                      counter.fallbackDeviceId === thisDevice ? (
+                        <button
+                          className="btn-ghost px-2.5 py-1 text-xs"
+                          disabled={fallbackBusy}
+                          onClick={() => {
+                            if (window.confirm(`Stop ${counter.name} being the fallback counter? It then opens on any computer, and none can sell when the server is down.`)) {
+                              void changeFallback(() => fallbackBridge!.remove());
+                            }
+                          }}
+                        >
+                          Stop fallback
+                        </button>
+                      ) : (
+                        <button
+                          className="btn-secondary px-2.5 py-1 text-xs"
+                          disabled={fallbackBusy || Boolean(openedBy)}
+                          title={openedBy ? "Close this counter's register first" : undefined}
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `Make ${counter.name} the fallback counter on this computer?\n\nWhen the server can't be reached, this computer keeps selling on ${counter.name} (cash and card) and sends the sales once the server is back. ${counter.name} then opens only on this computer. A branch has one fallback counter.`,
+                              )
+                            ) {
+                              void changeFallback(() => fallbackBridge!.setup(counter.id));
+                            }
+                          }}
+                        >
+                          {fallbackBusy ? "Setting up…" : "Use as fallback here"}
+                        </button>
+                      )
                     ) : null}
                     <button
                       className="btn-secondary px-2.5 py-1 text-xs"

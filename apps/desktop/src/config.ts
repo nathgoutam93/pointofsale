@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { paths } from './paths.js';
 import { cleanPrintingSettings, DEFAULT_PRINTING, type PrintingSettings } from './printing.js';
+import type { FallbackSettings } from './fallback.js';
 
 export type Mode = 'offline' | 'online';
 
@@ -27,6 +28,10 @@ export type DesktopConfig = {
   backupCopyStatus: { at: string; ok: boolean; file: string | null; error: string | null } | null;
   /** The receipt printer and cash drawer on this computer (both modes). */
   printing: PrintingSettings;
+  /** This computer's id, sent with every request (a fallback counter opens only on its own). */
+  deviceId: string | null;
+  /** Online: this computer as its branch's fallback counter; null if it isn't one. */
+  fallback: FallbackSettings | null;
 };
 
 export const BACKUP_DAYS = { min: 2, max: 5, default: 3 } as const;
@@ -46,7 +51,9 @@ const EMPTY: DesktopConfig = {
   pendingImportId: null,
   backupCopyFolder: null,
   backupCopyStatus: null,
-  printing: DEFAULT_PRINTING
+  printing: DEFAULT_PRINTING,
+  deviceId: null,
+  fallback: null
 };
 
 export function loadConfig(): DesktopConfig {

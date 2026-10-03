@@ -75,7 +75,8 @@ export class RegistersService {
    * and a user runs one counter per branch at a time; other counters in the branch can be
    * open by other cashiers at the same time.
    */
-  async openRegister(session: SessionUser, branchId: string, openingBalance: number, counterId?: string) {
+  /** `deviceId`: the computer asking (desktop app); a fallback counter opens only on its own. */
+  async openRegister(session: SessionUser, branchId: string, openingBalance: number, counterId?: string, deviceId?: string) {
     if (!Number.isFinite(openingBalance) || openingBalance < 0) {
       throw new BadRequestException('Opening balance must be 0 or more');
     }
@@ -85,11 +86,11 @@ export class RegistersService {
     const register = await this.prisma.$transaction(async (tx) => {
       await lockBranchRegisters(tx, branchId);
 
-      let counter: { id: string; name: string; isActive: boolean } | null;
+      let counter: { id: string; name: string; isActive: boolean; fallbackDeviceId: string | null } | null;
       if (counterId) {
         counter = await tx.counter.findFirst({
           where: { id: counterId, branchId },
-          select: { id: true, name: true, isActive: true }
+          select: { id: true, name: true, isActive: true, fallbackDeviceId: true }
         });
         if (!counter) {
           throw new BadRequestException('Counter not found in this branch');
@@ -101,13 +102,20 @@ export class RegistersService {
         // Without a counter the choice must be unambiguous.
         const active = await tx.counter.findMany({
           where: { branchId, isActive: true },
-          select: { id: true, name: true, isActive: true },
+          select: { id: true, name: true, isActive: true, fallbackDeviceId: true },
           take: 2
         });
         if (active.length !== 1) {
           throw new BadRequestException(active.length === 0 ? 'This branch has no active counter' : 'Choose a counter');
         }
         counter = active[0];
+      }
+
+      // Its invoice series is issued only on its own computer, online or not.
+      if (counter.fallbackDeviceId && counter.fallbackDeviceId !== deviceId) {
+        throw new BadRequestException(
+          `${counter.name} is the branch's fallback counter: it opens only on its own computer. Choose another counter.`
+        );
       }
 
       const mine = await tx.registerSession.findFirst({
@@ -179,7 +187,7 @@ export class RegistersService {
     const counters = await this.prisma.counter.findMany({
       where: { branchId: { in: branchIds }, isActive: true },
       orderBy: { number: 'asc' },
-      select: { id: true, branchId: true, number: true, name: true, isActive: true }
+      select: { id: true, branchId: true, number: true, name: true, isActive: true, fallbackDeviceId: true }
     });
     const counterIds = counters.map((counter) => counter.id);
 

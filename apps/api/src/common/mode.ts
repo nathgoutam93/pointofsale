@@ -15,6 +15,14 @@ export function posMode(): PosMode {
 
 export const isOffline = () => posMode() === 'offline';
 
+/**
+ * A fallback counter's local copy: the offline API on an online business's computer, selling
+ * while the server can't be reached (POS_FALLBACK=1, with POS_FALLBACK_COUNTER_ID and the
+ * POS_FALLBACK_SECRET the desktop app reads the offline sales with).
+ */
+export const isFallback = () => isOffline() && process.env.POS_FALLBACK === '1';
+export const fallbackCounterId = () => process.env.POS_FALLBACK_COUNTER_ID?.trim() || null;
+
 /** The most an offline install may have; moving online lifts both. */
 export const OFFLINE_LIMITS = { branches: 1, counters: 1 } as const;
 

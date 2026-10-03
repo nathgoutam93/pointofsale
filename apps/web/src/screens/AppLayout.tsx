@@ -24,6 +24,7 @@ import { RecoveryCodeNotice } from "../components/RecoveryCode";
 import { confirmLeave } from "../lib/leaveGuard";
 import { useIsOffline } from "../lib/mode";
 import { getSession } from "../lib/session";
+import { FallbackBanner } from "../components/FallbackBanner";
 import { signOut } from "../lib/api";
 import { CloseRegisterDialog } from "./CloseRegisterDialog";
 
@@ -116,7 +117,12 @@ export function AppLayout() {
 
   // Without navigation too: the password someone was given, before they may use anything.
   if ((!session && FULL_SCREEN_PATHS.has(location)) || (session?.mustChangePassword && location === "/change-password")) {
-    return <Outlet />;
+    return (
+      <>
+        <FallbackBanner />
+        <Outlet />
+      </>
+    );
   }
 
   const toggleCollapsed = () => {
@@ -306,6 +312,7 @@ export function AppLayout() {
           ) : null}
         </header>
 
+        <FallbackBanner />
         <MoveOnlineNotice />
         <RecoveryCodeNotice />
         <main className="min-h-0 flex-1 overflow-auto print:overflow-visible">

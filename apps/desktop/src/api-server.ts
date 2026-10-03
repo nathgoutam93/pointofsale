@@ -6,7 +6,15 @@ import { join } from 'path';
 import type { Logger } from './log.js';
 import { paths } from './paths.js';
 
-type ApiEnv = { databaseUrl: string; authSecret: string; corsOrigin: string };
+type ApiEnv = {
+  databaseUrl: string;
+  authSecret: string;
+  corsOrigin: string;
+  /** Default: the offline business's uploads folder. */
+  uploadsDir?: string;
+  /** More settings (the fallback counter's local copy). */
+  extraEnv?: Record<string, string>;
+};
 
 /** Collects a child's output line by line, for the log and for messages it prints. */
 function forwardLines(stream: NodeJS.ReadableStream | null | undefined, onLine: (line: string) => void) {
@@ -112,7 +120,7 @@ export class LocalApi {
     return `http://127.0.0.1:${this.port}`;
   }
 
-  start({ databaseUrl, authSecret, corsOrigin }: ApiEnv) {
+  start({ databaseUrl, authSecret, corsOrigin, uploadsDir, extraEnv }: ApiEnv) {
     const apiDir = paths.api();
     const recent: string[] = [];
     return new Promise<void>((resolve, reject) => {
@@ -126,8 +134,9 @@ export class LocalApi {
           HOST: '127.0.0.1',
           PORT: '0',
           AUTH_SECRET: authSecret,
-          UPLOADS_DIR: paths.uploads(),
-          CORS_ORIGINS: corsOrigin
+          UPLOADS_DIR: uploadsDir ?? paths.uploads(),
+          CORS_ORIGINS: corsOrigin,
+          ...extraEnv
         },
         stdio: 'pipe',
         serviceName: 'POS API'

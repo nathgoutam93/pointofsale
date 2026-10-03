@@ -13,6 +13,8 @@ export type DesktopConfig = {
   apiBaseUrl: string | null;
   /** The hosted server built into this app; null when people type an address. */
   defaultServerUrl: string | null;
+  /** This computer's id (a fallback counter opens only on its own computer). Missing in older versions. */
+  deviceId?: string | null;
 };
 
 export type MoveStep = 'checking' | 'account' | 'backup' | 'pausing' | 'exporting' | 'uploading' | 'finishing';
@@ -139,6 +141,8 @@ export type DesktopBridge = {
   updates?: DesktopUpdates;
   /** Missing in versions of the desktop app from before receipt printers. */
   printing?: DesktopPrinting;
+  /** Online: this computer as its branch's fallback counter. Missing in older versions. */
+  fallback?: DesktopFallback;
 };
 
 declare global {
@@ -148,3 +152,34 @@ declare global {
 }
 
 export const desktop: DesktopBridge | null = typeof window !== 'undefined' ? window.posDesktop ?? null : null;
+
+/** How this computer stands as its branch's fallback counter (see apps/desktop/src/fallback.ts). */
+export type FallbackStatus = {
+  configured: boolean;
+  counterId: string | null;
+  counterName: string | null;
+  /** Its offline copy has been made at least once. */
+  ready: boolean;
+  refreshedAt: string | null;
+  /** Selling from the offline copy right now. */
+  active: boolean;
+  /** Sales made offline, not yet on the server. */
+  pendingSync: boolean;
+  syncing: boolean;
+  /** Whether the online server answers; null until known. */
+  serverReachable: boolean | null;
+  error: string | null;
+};
+
+export type DesktopFallback = {
+  status(): Promise<FallbackStatus>;
+  /** Admins: makes `counterId` the branch's fallback counter, on this computer. */
+  setup(counterId: string): Promise<FallbackStatus>;
+  /** Admins: this computer is an ordinary till again. */
+  remove(): Promise<FallbackStatus>;
+  /** Sell from the offline copy (the server can't be reached). */
+  start(): Promise<FallbackStatus>;
+  /** Send the offline sales and work with the server again. */
+  finish(): Promise<FallbackStatus>;
+  onStatus(listener: (status: FallbackStatus) => void): () => void;
+};

@@ -9,7 +9,7 @@ import { SettingsService } from '../settings/settings.service';
 import { lockBranchRegisters } from '../common/counters';
 import { assertOfflineRoomFor } from '../common/offline-limits';
 
-export const counterSelect = { id: true, branchId: true, number: true, name: true, isActive: true } as const;
+export const counterSelect = { id: true, branchId: true, number: true, name: true, isActive: true, fallbackDeviceId: true } as const;
 
 @Injectable()
 export class CountersService {

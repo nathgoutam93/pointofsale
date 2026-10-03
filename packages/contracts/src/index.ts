@@ -234,8 +234,20 @@ export const counterSchema = z.object({
   /** 1, 2, 3... in the branch, never reused: invoices made here are numbered {branch code}/{number}/{YY}/{count}. */
   number: z.number().int().positive(),
   name: z.string(),
-  isActive: z.boolean()
+  isActive: z.boolean(),
+  /**
+   * Online: the computer (desktop app device id) that keeps selling on this counter when the
+   * server can't be reached; only it may open the counter. null: an ordinary counter.
+   */
+  fallbackDeviceId: z.string().nullable().default(null)
 });
+
+/** Sent by the desktop app with every request: which computer it is (not a secret). */
+export const DEVICE_HEADER = 'x-pos-device';
+/** The `code` of the 403 a fallback counter's local copy answers for what it can't do offline. */
+export const FALLBACK_UNAVAILABLE = 'FALLBACK_UNAVAILABLE';
+/** The `code` of the 502 the desktop app answers when it can't reach the online server. */
+export const SERVER_UNREACHABLE = 'SERVER_UNREACHABLE';
 
 const counterNameSchema = z.string().trim().min(1).max(40);
 
@@ -1260,6 +1272,23 @@ export const appContract = c.router({
       body: z
         .object({ name: counterNameSchema.optional(), isActive: z.boolean().optional() })
         .refine((body) => body.name !== undefined || body.isActive !== undefined, 'Nothing to update'),
+      responses: { 200: counterSchema }
+    },
+    /**
+     * Online, admins, from the desktop app on that computer: makes this the branch's fallback
+     * counter, bound to `deviceId` (any other fallback counter of the branch stops being one).
+     * Answers the key that computer keeps, shown only here.
+     */
+    setFallback: {
+      method: 'POST',
+      path: '/counters/:id/fallback',
+      body: z.object({ deviceId: z.string().uuid() }),
+      responses: { 200: z.object({ key: z.string(), counter: counterSchema }) }
+    },
+    /** Online, admins: an ordinary counter again; its computer's key stops working. */
+    clearFallback: {
+      method: 'DELETE',
+      path: '/counters/:id/fallback',
       responses: { 200: counterSchema }
     }
   },

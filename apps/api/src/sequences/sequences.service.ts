@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DocumentKind, Prisma } from '@prisma/client';
 import { documentNumber, documentSeries, financialYearStart, GST_DOCUMENT_NUMBER_MAX_LENGTH } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
+import { fallbackCounterId, isFallback } from '../common/mode';
 import { localDate } from '../reports/zoned-dates';
 
 const SEQUENCE_FIELDS = {
@@ -52,6 +53,17 @@ export class SequenceService {
 
   /** Receipt, customer, purchase and transfer numbers (not GST documents): one running count per branch. */
   async nextSequence(branchId: string, type: 'receipt' | 'customer' | 'purchase' | 'transfer', tx: Prisma.TransactionClient) {
+    // A fallback counter working offline has a receipt series of its own (RCPT-MAI-F1-000001),
+    // which the branch's other tills, still online, never use.
+    const fallbackCounter = fallbackCounterId();
+    if (type === 'receipt' && isFallback() && fallbackCounter) {
+      const counter = await tx.counter.update({
+        where: { id: fallbackCounter },
+        data: { fallbackReceiptSeq: { increment: 1 } },
+        select: { number: true, fallbackReceiptSeq: true, branch: { select: { code: true, receiptPrefix: true } } }
+      });
+      return { branchCode: `${counter.branch.code}-F${counter.number}`, seq: counter.fallbackReceiptSeq, prefix: counter.branch.receiptPrefix };
+    }
     const field = SEQUENCE_FIELDS[type];
     const branch = await tx.branch.update({
       where: { id: branchId },

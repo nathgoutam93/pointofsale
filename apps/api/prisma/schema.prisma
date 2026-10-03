@@ -261,20 +261,28 @@ model UserBranchAccess {
 /// A till in a branch, set up by an admin. Each counter has its own register session and
 /// cash drawer, so several cashiers can sell in one branch at once.
 model Counter {
-  id        String            @id @default(uuid())
-  branchId  String
-  branch    Branch            @relation(fields: [branchId], references: [id])
-  name      String
+  id                 String            @id @default(uuid())
+  branchId           String
+  branch             Branch            @relation(fields: [branchId], references: [id])
+  name               String
   /// 1, 2, 3... within the branch, in the order counters were added; never changes or
   /// repeats. Invoices made here are numbered {branch code}/{number}/{YY}/{count}, e.g.
   /// MAI/1/26/00001, and credit notes {branch code}R/{number}/..., so every counter has its
   /// own series (which an offline counter will need).
-  number    Int
+  number             Int
   /// Inactive counters can't be opened; they stay for the history of their registers.
-  isActive  Boolean           @default(true)
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-  registers RegisterSession[]
+  isActive           Boolean           @default(true)
+  /// The fallback counter: the computer (desktop app's device id) that keeps selling on this
+  /// counter when the online server can't be reached. Only that computer may open it, so its
+  /// invoice series is only ever issued there. One per branch.
+  fallbackDeviceId   String?           @unique
+  /// scrypt hash of the key that computer uses to fetch its local copy and send offline sales.
+  fallbackKeyHash    String?
+  /// The last receipt number used offline on this counter (RCPT-MAI-F1-000001…).
+  fallbackReceiptSeq Int               @default(0)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  registers          RegisterSession[]
 
   @@unique([branchId, name])
   @@unique([branchId, number])

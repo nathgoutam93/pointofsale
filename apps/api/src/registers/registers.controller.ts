@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Headers, Post } from '@nestjs/common';
-import { appContract } from '@pos/contracts';
+import { appContract, DEVICE_HEADER } from '@pos/contracts';
 import { getSession, requireOpenRegisterSession, RequestHeaders } from '../common/request-session';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { RegistersService } from './registers.service';
@@ -15,7 +15,8 @@ export class RegistersController {
     body: { branchId: string; counterId?: string; openingBalance: number },
     @Headers() headers: RequestHeaders
   ) {
-    return this.registers.openRegister(getSession(headers), body.branchId, body.openingBalance, body.counterId);
+    const device = headers[DEVICE_HEADER];
+    return this.registers.openRegister(getSession(headers), body.branchId, body.openingBalance, body.counterId, typeof device === 'string' ? device : undefined);
   }
 
   @Get('/registers/current')

@@ -2,14 +2,16 @@ import { app, BrowserWindow, dialog, ipcMain, net, session, shell, type IpcMainI
 import { LocalApi, runMigrations } from './api-server.js';
 import { Backups, backupsFolder } from './backups.js';
 import { emailCodeRequest, moveOnline, type MoveInput } from './move-online.js';
+import { randomBytes, randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
+import { FallbackCounter } from './fallback.js';
 import { join } from 'path';
 import { clampBackupDays, loadConfig, saveConfig, withOfflineSecrets, type DesktopConfig } from './config.js';
 import { logger } from './log.js';
 import { paths } from './paths.js';
 import { describe, LocalPostgres } from './postgres.js';
 import { cleanPrintingSettings, cleanReceiptJob, listPrinters, ReceiptPrinter } from './printing.js';
-import { APP_ORIGIN, PAGE_API_BASE, registerAppScheme, serveWebApp } from './protocol.js';
+import { APP_ORIGIN, PAGE_API_BASE, registerAppScheme, serveWebApp, type ApiTarget } from './protocol.js';
 import { olderThan, Updater } from './updater.js';
 
 // After installing an update on quit, the Linux (AppImage) updater runs the new version once
@@ -63,11 +65,115 @@ const defaultServerUrl = (() => {
   }
 })();
 
-/** The API the web app talks to: the local one offline, the hosted one online. */
+// This computer's id, made once: a fallback counter opens only on its own computer.
+if (!config.deviceId) {
+  config = { ...config, deviceId: randomUUID() };
+  saveConfig(config);
+}
+
+/** Online: this computer as its branch's fallback counter (selling while the server is down). */
+const fallback = new FallbackCounter(
+  logger('fallback'),
+  () => (config.mode === 'online' ? config.fallback : null),
+  (next) => {
+    config = { ...config, fallback: next };
+    saveConfig(config);
+    notifyFallback();
+  },
+  () => paths.postgresHome()
+);
+let fallbackTimers: NodeJS.Timeout[] = [];
+const FALLBACK_REFRESH_MS = 10 * 60 * 1000;
+const FALLBACK_PROBE_MS = 30 * 1000;
+
+function notifyFallback() {
+  window?.webContents.send('pos:fallback-status', fallback.status());
+}
+
+/**
+ * The API the web app talks to: the local one offline, the hosted one online, or the fallback
+ * counter's local copy while it sells without the server.
+ */
 function currentApiBaseUrl() {
   if (config.mode === 'offline') return api?.port ? api.baseUrl : null;
-  if (config.mode === 'online') return config.apiBaseUrl;
+  if (config.mode === 'online') return config.fallback?.active ? fallback.baseUrl : config.apiBaseUrl;
   return null;
+}
+
+/**
+ * An invoice the server just issued through this computer. A fallback counter's series is only
+ * ever issued here, so the last one seen is the series' last: offline invoices carry on after it.
+ */
+function noteInvoiceIssued(invoiceNo: string) {
+  const settings = config.fallback;
+  if (config.mode !== 'online' || !settings || settings.active) return;
+  const at = invoiceNo.lastIndexOf('/');
+  const prefix = invoiceNo.slice(0, at);
+  const seq = Number(invoiceNo.slice(at + 1));
+  if (at <= 0 || !Number.isInteger(seq) || (settings.issued?.[prefix] ?? 0) >= seq) return;
+  config = { ...config, fallback: { ...settings, issued: { ...settings.issued, [prefix]: seq } } };
+  saveConfig(config);
+}
+
+/** Where the page's requests go right now. */
+function apiTarget(): ApiTarget {
+  if (config.mode === 'online' && fallback.syncing) {
+    return { base: null, unavailable: 'Sending the offline sales to the server. Try again in a moment.' };
+  }
+  return { base: currentApiBaseUrl() };
+}
+
+/**
+ * Whether the online server answers, as the page's requests find out; the banner follows it.
+ * A register opened or closed on the fallback counter refreshes its copy, so the copy has the
+ * register that is open if the server goes down next.
+ */
+function onServerAnswer(base: string, reachable: boolean, request: { method: string; path: string; status: number }) {
+  if (config.mode !== 'online' || base !== config.apiBaseUrl) return;
+  if (
+    config.fallback &&
+    request.method === 'POST' &&
+    (request.path === '/registers/open' || request.path === '/registers/close') &&
+    request.status === 200
+  ) {
+    void fallback.refresh().then(() => notifyFallback());
+  }
+  if (fallback.serverReachable === reachable) return;
+  fallback.serverReachable = reachable;
+  log(reachable ? 'The server answers again' : "Can't reach the server");
+  notifyFallback();
+}
+
+/**
+ * The fallback counter at startup: its local copy running (before the page, if it is selling
+ * from it), refreshed every 10 minutes while online, and the server checked every 30 seconds
+ * while selling offline.
+ */
+async function startFallback(options: { refreshNow?: boolean } = {}) {
+  for (const timer of fallbackTimers) clearInterval(timer);
+  fallbackTimers = [];
+  if (config.mode !== 'online' || !config.fallback) return;
+  if (config.fallback.active) {
+    await fallback.start().catch((error) => log(`The offline copy didn't start: ${describe(error)}`));
+  } else if (options.refreshNow !== false) {
+    void fallback
+      .start()
+      .then(() => fallback.refresh())
+      .then(() => notifyFallback())
+      .catch((error) => log(`The offline copy didn't start: ${describe(error)}`));
+  }
+  fallbackTimers.push(
+    setInterval(() => {
+      if (!config.fallback?.active) void fallback.refresh().then(() => notifyFallback());
+    }, FALLBACK_REFRESH_MS),
+    setInterval(() => {
+      if (!config.fallback?.active) return;
+      const before = fallback.serverReachable;
+      void fallback.probe().then((now) => {
+        if (now !== before) notifyFallback();
+      });
+    }, FALLBACK_PROBE_MS)
+  );
 }
 
 /**
@@ -288,7 +394,7 @@ async function checkOnlineServer(raw: unknown) {
 ipcMain.on('pos:get-config', (event) => {
   event.returnValue = {
     // The page reaches the API through this app (see PAGE_API_BASE), never directly.
-    config: { mode: config.mode, apiBaseUrl: config.mode ? PAGE_API_BASE : null, defaultServerUrl },
+    config: { mode: config.mode, apiBaseUrl: config.mode ? PAGE_API_BASE : null, defaultServerUrl, deviceId: config.deviceId },
     version: app.getVersion()
   };
 });
@@ -626,6 +732,130 @@ ipcMain.handle('pos:move-online', async (event, input: Partial<MoveInput>) => {
   return result;
 });
 
+/** Online: whether this computer is its branch's fallback counter, and how that stands. */
+ipcMain.handle('pos:fallback:status', (event) => {
+  assertFromApp(event);
+  return fallback.status();
+});
+
+/**
+ * Online, admins, on this computer: makes `counterId` the branch's fallback counter here. The
+ * server binds it to this computer and answers its key; the local copy is then made at once.
+ */
+ipcMain.handle('pos:fallback:setup', async (event, counterId: unknown) => {
+  assertFromApp(event);
+  if (config.mode !== 'online' || !config.apiBaseUrl) throw new Error('Only for online businesses');
+  if (typeof counterId !== 'string' || !/^[0-9a-f-]{36}$/.test(counterId)) throw new Error('Choose a counter');
+  if (config.fallback?.pendingSync) throw new Error('Send the offline sales to the server first.');
+  await assertAdminOfCurrentApi();
+  const res = await sessionFetch(`${config.apiBaseUrl}/counters/${counterId}/fallback`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceId: config.deviceId }),
+    signal: AbortSignal.timeout(30_000)
+  });
+  const body = (await res.json().catch(() => null)) as { key?: string; counter?: { id: string; name: string; branchId: string }; message?: unknown } | null;
+  if (!res.ok || !body?.key || !body.counter) {
+    throw new Error(typeof body?.message === 'string' ? body.message : "The server didn't set up the fallback counter");
+  }
+  if (config.fallback) await fallback.remove();
+  config = {
+    ...config,
+    fallback: {
+      counterId: body.counter.id,
+      counterName: body.counter.name,
+      branchId: body.counter.branchId,
+      server: config.apiBaseUrl,
+      key: body.key,
+      localSecret: randomBytes(32).toString('base64url'),
+      authSecret: randomBytes(48).toString('base64url'),
+      dbPassword: randomBytes(24).toString('hex'),
+      refreshedAt: null,
+      active: false,
+      pendingSync: false
+    }
+  };
+  saveConfig(config);
+  log(`This computer is now the fallback counter for ${body.counter.name}`);
+  await fallback.start();
+  await fallback.refresh();
+  await startFallback({ refreshNow: false });
+  notifyFallback();
+  return fallback.status();
+});
+
+/** Online, admins: this computer is an ordinary till again; its local copy is deleted. */
+ipcMain.handle('pos:fallback:remove', async (event) => {
+  assertFromApp(event);
+  const settings = config.fallback;
+  if (!settings) return fallback.status();
+  if (settings.pendingSync) throw new Error('Send the offline sales to the server first.');
+  await assertAdminOfCurrentApi();
+  const res = await sessionFetch(`${settings.server}/counters/${settings.counterId}/fallback`, { method: 'DELETE', signal: AbortSignal.timeout(30_000) });
+  if (!res.ok && res.status !== 404) {
+    const body = (await res.json().catch(() => null)) as { message?: unknown } | null;
+    throw new Error(typeof body?.message === 'string' ? body.message : "The server didn't take the change");
+  }
+  for (const timer of fallbackTimers) clearInterval(timer);
+  fallbackTimers = [];
+  await fallback.remove();
+  config = { ...config, fallback: null };
+  saveConfig(config);
+  log('This computer is no longer a fallback counter');
+  notifyFallback();
+  return fallback.status();
+});
+
+/** The server can't be reached: sell from the local copy. Staff sign in again (on the copy). */
+ipcMain.handle('pos:fallback:start', async (event) => {
+  assertFromApp(event);
+  const settings = config.fallback;
+  if (config.mode !== 'online' || !settings) throw new Error('This computer is not a fallback counter');
+  if (!settings.refreshedAt) throw new Error("The offline copy isn't ready yet");
+  if (!settings.active) {
+    await fallback.start();
+    await fallback.catchUpNumbers();
+    config = { ...config, fallback: { ...settings, active: true, pendingSync: true } };
+    saveConfig(config);
+    log(`Selling offline on ${settings.counterName}`);
+  }
+  notifyFallback();
+  setImmediate(() => void loadApp());
+  return fallback.status();
+});
+
+/**
+ * The server is back: send everything sold offline, then work with the server again. While
+ * sending, the page's requests wait; if it fails, selling carries on offline.
+ */
+ipcMain.handle('pos:fallback:finish', async (event) => {
+  assertFromApp(event);
+  const settings = config.fallback;
+  if (!settings?.active && !settings?.pendingSync) return fallback.status();
+  fallback.syncing = true;
+  notifyFallback();
+  try {
+    const sent = await fallback.sync();
+    log(`Sent the offline sales: ${sent.invoices} new invoices, ${sent.registers} registers`);
+    config = { ...config, fallback: { ...(config.fallback as typeof settings), active: false, pendingSync: false } };
+    saveConfig(config);
+    fallback.error = null;
+    fallback.serverReachable = true;
+  } catch (error) {
+    fallback.error = describe(error);
+    log(`Sending the offline sales failed: ${fallback.error}`);
+    throw new Error(`${fallback.error}. The sales are still on this computer; selling carries on offline.`);
+  } finally {
+    fallback.syncing = false;
+    notifyFallback();
+  }
+  setImmediate(() => {
+    void loadApp();
+    void fallback.refresh().then(() => notifyFallback());
+  });
+  return fallback.status();
+});
+
 /** Start the app again from its first screen (after moving online, the online sign-in). */
 ipcMain.handle('pos:reload', (event) => {
   assertFromApp(event);
@@ -649,11 +879,12 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     log(`Starting version ${app.getVersion()} in ${config.mode ?? 'first-run'} mode`);
-    serveWebApp(currentApiBaseUrl);
+    serveWebApp(apiTarget, () => config.deviceId as string, onServerAnswer, noteInvoiceIssued);
     window = createWindow();
     await window.loadURL(LOADING_PAGE);
     try {
       if (config.mode === 'offline') await startOffline();
+      await startFallback();
       await loadApp();
     } catch (error) {
       await showStartupError(error);
@@ -671,7 +902,8 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault();
     if (stopping) return;
     stopping = true;
-    void stopOffline()
+    for (const timer of fallbackTimers) clearInterval(timer);
+    void Promise.all([stopOffline(), fallback.stop()])
       .catch((error) => log(`Shutdown problem: ${describe(error)}`))
       .finally(() => {
         stopped = true;

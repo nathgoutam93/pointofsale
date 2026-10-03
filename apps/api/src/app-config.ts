@@ -1,10 +1,12 @@
 import { ForbiddenException } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { json } from 'express';
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { CLIENT_VERSION_HEADER, isOlderVersion, UPDATE_REQUIRED_STATUS } from '@pos/contracts';
-import { minClientVersion, posMode } from './common/mode';
+import { CLIENT_VERSION_HEADER, FALLBACK_UNAVAILABLE, isOlderVersion, UPDATE_REQUIRED_STATUS } from '@pos/contracts';
+import { isFallback, minClientVersion, posMode } from './common/mode';
+import { FALLBACK_WRITES } from './fallback/outbox';
 import { uploadsDir } from './common/uploads';
 import { tenantStorage } from './tenancy/tenant-context';
 
@@ -60,6 +62,13 @@ function hostName(host: string | undefined) {
 export function configureApp(app: NestExpressApplication) {
   app.enableCors(corsOptions());
 
+  // A fallback counter's offline sales come in one request, larger than other requests may be.
+  // Wrapped under another name: Nest skips its own JSON parser if one named jsonParser is in use.
+  const syncBody = json({ limit: '25mb' });
+  app.use('/fallback/sync', function fallbackSyncBody(req: never, res: never, next: never) {
+    syncBody(req, res, next);
+  });
+
   // Every request gets its own business context; sign-in or the token check fills it in.
   app.use((_req: unknown, _res: unknown, next: () => void) => tenantStorage.run({}, next));
 
@@ -73,6 +82,28 @@ export function configureApp(app: NestExpressApplication) {
       }
       next();
     });
+  }
+
+  // A fallback counter working offline: reading, signing in, the register and selling. The rest
+  // needs the server (balances, numbering, other tills).
+  if (isFallback()) {
+    app.use(
+      (
+        req: { method: string; path: string },
+        res: { status(code: number): { json(body: unknown): void } },
+        next: () => void
+      ) => {
+        if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS' || FALLBACK_WRITES.has(`${req.method} ${req.path}`)) {
+          next();
+          return;
+        }
+        res.status(403).json({
+          statusCode: 403,
+          code: FALLBACK_UNAVAILABLE,
+          message: "Not while working offline. It's back once the server is and the offline sales are sent."
+        });
+      }
+    );
   }
 
   // Online: an app older than MIN_CLIENT_VERSION may not match this API, so it is turned

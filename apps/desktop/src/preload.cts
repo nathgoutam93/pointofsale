@@ -6,7 +6,7 @@ type ModeChoice = { mode: 'offline' } | { mode: 'online'; apiBaseUrl: string };
 
 // Read once: changing mode reloads the window, which runs this again.
 const info = ipcRenderer.sendSync('pos:get-config') as {
-  config: { mode: 'offline' | 'online' | null; apiBaseUrl: string | null; defaultServerUrl: string | null };
+  config: { mode: 'offline' | 'online' | null; apiBaseUrl: string | null; defaultServerUrl: string | null; deviceId: string | null };
   version: string;
 };
 
@@ -59,6 +59,20 @@ contextBridge.exposeInMainWorld('posDesktop', {
     printReceipt: (job: { markup: string; css: string; columns: number; paperMm: 58 | 80 }) => invoke('pos:printing:print-receipt', job),
     openDrawer: () => invoke('pos:printing:open-drawer'),
     testDrawer: () => invoke('pos:printing:test-drawer')
+  },
+  // Online: this computer as its branch's fallback counter (keeps selling when the server is down).
+  fallback: {
+    status: () => invoke('pos:fallback:status'),
+    setup: (counterId: string) => invoke('pos:fallback:setup', counterId),
+    remove: () => invoke('pos:fallback:remove'),
+    start: () => invoke('pos:fallback:start'),
+    finish: () => invoke('pos:fallback:finish'),
+    /** Calls `listener` on every change; returns a function that stops it. */
+    onStatus: (listener: (status: unknown) => void) => {
+      const forward = (_event: IpcRendererEvent, status: unknown) => listener(status);
+      ipcRenderer.on('pos:fallback-status', forward);
+      return () => ipcRenderer.removeListener('pos:fallback-status', forward);
+    }
   },
   // Offline only, admins only (the app asks the local API who is signed in).
   backups: {

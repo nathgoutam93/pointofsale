@@ -33,7 +33,11 @@ export class LocalPostgres {
   constructor(
     private readonly home: string,
     private readonly password: string,
-    private readonly log: Logger
+    private readonly log: Logger,
+    /** The data folder: the offline business's by default; the fallback counter has its own. */
+    private readonly dataDir = paths.database(),
+    /** Its server log, in the logs folder. */
+    private readonly logFile = 'postgres.log'
   ) {}
 
   private bin(name: string) {
@@ -51,10 +55,10 @@ export class LocalPostgres {
 
   /** Creates the data folder on first run. A failed attempt leaves nothing behind. */
   private async ensureInitialised() {
-    const dataDir = paths.database();
+    const dataDir = this.dataDir;
     if (existsSync(join(dataDir, 'PG_VERSION'))) return;
     const staging = `${dataDir}.init`;
-    const passwordFile = join(paths.userData(), 'pg-password.tmp');
+    const passwordFile = join(paths.userData(), `pg-password-${process.pid}.tmp`);
     rmSync(staging, { recursive: true, force: true });
     mkdirSync(paths.userData(), { recursive: true });
     writeFileSync(passwordFile, `${this.password}\n`, { mode: 0o600 });
@@ -77,7 +81,7 @@ export class LocalPostgres {
 
   async start() {
     await this.ensureInitialised();
-    const dataDir = paths.database();
+    const dataDir = this.dataDir;
     // A server left running by a crashed session holds the data folder; stop it first.
     if (existsSync(join(dataDir, 'postmaster.pid'))) {
       await this.pgCtl(['stop', '-D', dataDir, '-m', 'fast', '-w']).catch((error) =>
@@ -92,7 +96,7 @@ export class LocalPostgres {
         '-D',
         dataDir,
         '-l',
-        join(paths.logs(), 'postgres.log'),
+        join(paths.logs(), this.logFile),
         '-w',
         '-t',
         '120',
@@ -100,7 +104,7 @@ export class LocalPostgres {
         `-p ${this.port} -c listen_addresses=127.0.0.1`
       ]);
     } catch (error) {
-      throw new Error(`The database didn't start: ${describe(error)}. See postgres.log in the logs folder.`);
+      throw new Error(`The database didn't start: ${describe(error)}. See ${this.logFile} in the logs folder.`);
     }
     this.log(`Database listening on 127.0.0.1:${this.port}`);
   }
@@ -108,7 +112,7 @@ export class LocalPostgres {
   async stop() {
     if (!this.port) return;
     try {
-      await this.pgCtl(['stop', '-D', paths.database(), '-m', 'fast', '-w'], 60_000);
+      await this.pgCtl(['stop', '-D', this.dataDir, '-m', 'fast', '-w'], 60_000);
     } catch (error) {
       this.log(`Stopping the database failed: ${describe(error)}`);
     }

@@ -3,6 +3,7 @@ import { DiscountScope, DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockT
 import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, resolveDiscountAmounts } from '@pos/contracts';
 import type { DiscountInput } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
+import { isFallback } from '../common/mode';
 import type { PaymentInput, SessionUser, SaleLineInput, CreateSaleInput, ComputedSaleLine } from '../common/types';
 import { toNumber, round2, round3 } from '../common/numbers';
 import { assertQtyRespectsLeastCount } from '../common/quantities';
@@ -462,6 +463,19 @@ export class SalesService {
           input.payments.length === 0
             ? { invoice: created, receipt: null }
             : await this.settleSaleInTx(tx, session, created.id, input.payments);
+        // Working offline (fallback counter): no credit, wallet or change into a wallet, which
+        // need the server's balances.
+        if (isFallback()) {
+          const paid = input.payments.reduce((sum, payment) => sum + payment.amount, 0);
+          const walkIn = (await tx.customer.findUnique({ where: { id: input.customerId }, select: { isWalkIn: true } }))?.isWalkIn;
+          if (
+            input.payments.some((payment) => payment.mode === PaymentMode.WALLET) ||
+            result.invoice.status !== InvoiceStatus.SETTLED ||
+            (!walkIn && paid > toNumber(result.invoice.grandTotal) + 0.005)
+          ) {
+            throw new BadRequestException('While working offline, take the exact amount in cash or card. Credit and wallet need the server.');
+          }
+        }
         // Nobody to collect the rest from, so walk-in sales must be paid in full.
         if (result.invoice.status !== InvoiceStatus.SETTLED) {
           const customer = await tx.customer.findUnique({ where: { id: input.customerId }, select: { isWalkIn: true } });

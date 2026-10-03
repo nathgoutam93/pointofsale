@@ -27,6 +27,9 @@ import { AccountsController } from './accounts/accounts.controller';
 import { AccountsService } from './accounts/accounts.service';
 import { Mailer } from './mail/mailer';
 import { ReceiptEmailService } from './sales/receipt-email.service';
+import { FallbackController } from './fallback/fallback.controller';
+import { FallbackService } from './fallback/fallback.service';
+import { FallbackOutboxController } from './fallback/outbox';
 import { ProvisioningService } from './tenancy/provisioning.service';
 import { ImportService } from './tenancy/import.service';
 import { TenancyService } from './tenancy/tenancy.service';
@@ -53,6 +56,8 @@ import { UsersService } from './users/users.service';
 
 @Module({
   controllers: [
+    FallbackController,
+    FallbackOutboxController,
     MetaController,
     SetupController,
     AccountsController,
@@ -83,6 +88,7 @@ import { UsersService } from './users/users.service';
     AccountsService,
     Mailer,
     ReceiptEmailService,
+    FallbackService,
     SettingsService,
     SequenceService,
     ItemsService,
