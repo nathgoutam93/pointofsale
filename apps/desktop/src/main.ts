@@ -4,6 +4,7 @@ import { Backups, backupsFolder } from './backups.js';
 import { emailCodeRequest, moveOnline, type MoveInput } from './move-online.js';
 import { randomBytes, randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
+import { writeFile } from 'fs/promises';
 import { FallbackCounter } from './fallback.js';
 import { join } from 'path';
 import { clampBackupDays, cleanHosting, loadConfig, saveConfig, withOfflineSecrets, type DesktopConfig } from './config.js';
@@ -145,9 +146,28 @@ function onServerAnswer(base: string, reachable: boolean, request: { method: str
 }
 
 /**
+ * Online: whether the server answers, checked every 30 seconds in the background, so the banner
+ * (and the fallback counter's offer to keep selling) shows before a sale fails, and the offer to
+ * send offline sales shows once the server is back.
+ */
+async function probeServer() {
+  if (config.mode !== 'online' || !config.apiBaseUrl) return;
+  let reachable: boolean;
+  try {
+    const res = await net.fetch(`${config.apiBaseUrl}/meta`, { signal: AbortSignal.timeout(5_000) });
+    reachable = res.ok;
+  } catch {
+    reachable = false;
+  }
+  if (config.mode !== 'online' || fallback.serverReachable === reachable) return;
+  fallback.serverReachable = reachable;
+  log(reachable ? 'The server answers again' : "Can't reach the server");
+  notifyFallback();
+}
+
+/**
  * The fallback counter at startup: its local copy running (before the page, if it is selling
- * from it), refreshed every 10 minutes while online, and the server checked every 30 seconds
- * while selling offline.
+ * from it) and refreshed every 10 minutes while online.
  */
 async function startFallback(options: { refreshNow?: boolean } = {}) {
   for (const timer of fallbackTimers) clearInterval(timer);
@@ -165,14 +185,7 @@ async function startFallback(options: { refreshNow?: boolean } = {}) {
   fallbackTimers.push(
     setInterval(() => {
       if (!config.fallback?.active) void fallback.refresh().then(() => notifyFallback());
-    }, FALLBACK_REFRESH_MS),
-    setInterval(() => {
-      if (!config.fallback?.active) return;
-      const before = fallback.serverReachable;
-      void fallback.probe().then((now) => {
-        if (now !== before) notifyFallback();
-      });
-    }, FALLBACK_PROBE_MS)
+    }, FALLBACK_REFRESH_MS)
   );
 }
 
@@ -875,6 +888,26 @@ ipcMain.handle('pos:fallback:finish', async (event) => {
   return fallback.status();
 });
 
+/**
+ * The offline sales, saved to a file the person picks: for support when the server refuses them
+ * (they also stay on this computer).
+ */
+ipcMain.handle('pos:fallback:save-outbox', async (event) => {
+  assertFromApp(event);
+  const settings = config.fallback;
+  if (config.mode !== 'online' || !settings) throw new Error('This computer is not a fallback counter');
+  const day = new Date().toISOString().slice(0, 10);
+  const picked = await dialog.showSaveDialog({
+    title: 'Save the offline sales',
+    defaultPath: `offline-sales-${settings.counterName.replace(/[^A-Za-z0-9-]+/g, '-')}-${day}.json`,
+    filters: [{ name: 'Offline sales', extensions: ['json'] }]
+  });
+  if (picked.canceled || !picked.filePath) return { saved: false };
+  await writeFile(picked.filePath, await fallback.outbox(), { mode: 0o600 });
+  log(`Saved the offline sales to ${picked.filePath}`);
+  return { saved: true };
+});
+
 /** Start the app again from its first screen (after moving online, the online sign-in). */
 ipcMain.handle('pos:reload', (event) => {
   assertFromApp(event);
@@ -922,6 +955,8 @@ if (!app.requestSingleInstanceLock()) {
     }
     updates.start();
     void checkServerDetails();
+    void probeServer();
+    setInterval(() => void probeServer(), FALLBACK_PROBE_MS).unref();
   });
 
   app.on('window-all-closed', () => app.quit());

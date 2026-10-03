@@ -164,6 +164,16 @@ export class TransfersService {
     });
   }
 
+  /**
+   * Where stock can be sent: every branch of the business, for anyone allowed to send (a cashier
+   * may send to a branch they don't work at, as createTransfer allows).
+   */
+  async listDestinations(session: SessionUser) {
+    if (isOffline()) throw offlineLimitError('transfer stock between branches');
+    await this.access.requirePermission(session, 'SEND_TRANSFERS');
+    return this.prisma.branch.findMany({ select: branchSummarySelect, orderBy: { name: 'asc' } });
+  }
+
   /** Transfers sent from or to a branch, newest first (the latest 200). */
   async listTransfers(session: SessionUser, branchId: string) {
     await this.settings.ensureBranchExists(branchId);

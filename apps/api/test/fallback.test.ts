@@ -6,7 +6,7 @@ import { join } from 'path';
 import { createInterface } from 'readline';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { FALLBACK_UNAVAILABLE } from '@pos/contracts';
+import { FALLBACK_SYNC_CONFLICT, FALLBACK_UNAVAILABLE } from '@pos/contracts';
 import { restoreBackup } from '../src/backup/local-backup';
 import { ADMIN, checkoutBody, line, startApp, type TestApp } from './helpers';
 
@@ -212,6 +212,69 @@ describe('fallback counter, working offline', () => {
     // The next sale online continues after the offline one.
     const next = await t.ok('POST', '/sales/checkout', registerToken, checkoutBody(branchId, walkInId, [line(itemId, { rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], [{ mode: 'CASH', amount: 118 }]));
     expect(next.invoice.invoiceNo).toMatch(/\/00004$/);
+  });
+
+  it('lists the item pictures the copy shows, for the app to keep', async () => {
+    const localDb = new PrismaClient({ datasourceUrl: localDbUrl });
+    try {
+      await localDb.item.update({ where: { id: itemId }, data: { imageUrl: '/uploads/items/fallback-test.png' } });
+      const images = await call(base, 'GET', '/fallback/images', { headers: { 'x-pos-fallback-secret': secret } });
+      expect(images.body.paths).toEqual(['/uploads/items/fallback-test.png']);
+      expect((await call(base, 'GET', '/fallback/images')).status).toBe(401);
+    } finally {
+      await localDb.item.update({ where: { id: itemId }, data: { imageUrl: null } });
+      await localDb.$disconnect();
+    }
+  });
+
+  it('names every clash with the server and adds nothing', async () => {
+    const outbox = await call(base, 'GET', '/fallback/outbox', { headers: { 'x-pos-fallback-secret': secret } });
+    // The same invoice and receipt numbers as the sale already sent, under new ids, selling an
+    // item the server doesn't have.
+    const clashing = structuredClone(outbox.body);
+    const entry = clashing.invoices[0];
+    const id = randomUUID();
+    entry.invoice.id = id;
+    for (const row of [...entry.lines, ...entry.payments, ...entry.receipts]) {
+      row.id = randomUUID();
+      row.invoiceId = id;
+    }
+    for (const row of entry.discounts) row.saleInvoiceId = id;
+    for (const row of entry.ledger) {
+      row.id = randomUUID();
+      row.referenceId = id;
+    }
+    entry.lines[0].itemId = randomUUID();
+    const invoicesBefore = await t.db.saleInvoice.count();
+
+    const refused = await call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body: clashing });
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({ code: FALLBACK_SYNC_CONFLICT, message: expect.stringMatching(/3 places. Nothing was added/) });
+    expect(refused.body.conflicts).toEqual([
+      { document: `Invoice ${entry.invoice.invoiceNo}`, problem: expect.stringMatching(/also used online/) },
+      { document: `Receipt ${entry.receipts[0].receiptNo}`, problem: expect.stringMatching(/also used online/) },
+      { document: `Invoice ${entry.invoice.invoiceNo}`, problem: expect.stringMatching(/item ".+" is no longer on the server/) }
+    ]);
+    expect(await t.db.saleInvoice.count()).toBe(invoicesBefore);
+  });
+
+  it('closes the online register an offline one replaced, with its expected cash and no count', async () => {
+    const outbox = await call(base, 'GET', '/fallback/outbox', { headers: { 'x-pos-fallback-secret': secret } });
+    const online = outbox.body.registers[0];
+    // A register opened offline when the copy didn't know about the one still open online.
+    const opened = { ...online, id: randomUUID(), openedAt: new Date().toISOString(), openingBalance: '0', closedAt: null };
+    const sync = await call(t.baseUrl, 'POST', '/fallback/sync', {
+      headers: { 'x-pos-fallback-key': key },
+      body: { ...outbox.body, registers: [opened], invoices: [], sequences: [] }
+    });
+    expect(sync.status).toBe(200);
+
+    const closed = await t.db.registerSession.findUniqueOrThrow({ where: { id: online.id } });
+    const cash = await t.db.payment.aggregate({ where: { registerSessionId: online.id, mode: 'CASH' }, _sum: { amount: true } });
+    expect(closed.closedAt).toEqual(new Date(opened.openedAt));
+    expect(Number(closed.expectedCash)).toBe(Number(closed.openingBalance) + Number(cash._sum.amount));
+    expect(closed.closingBalance).toBeNull();
+    expect(closed.cashDifference).toBeNull();
   });
 
   it("refuses another counter's rows", async () => {

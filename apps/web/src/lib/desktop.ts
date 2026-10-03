@@ -173,6 +173,8 @@ export type FallbackStatus = {
   /** Whether the online server answers; null until known. */
   serverReachable: boolean | null;
   error: string | null;
+  /** The server refused the offline sales: each clash, to read. Missing in older versions. */
+  conflicts?: Array<{ document: string; problem: string }> | null;
 };
 
 export type DesktopFallback = {
@@ -185,5 +187,7 @@ export type DesktopFallback = {
   start(): Promise<FallbackStatus>;
   /** Send the offline sales and work with the server again. */
   finish(): Promise<FallbackStatus>;
+  /** Saves the offline sales to a file the person picks (for support). Missing in older versions. */
+  saveOutbox?(): Promise<{ saved: boolean }>;
   onStatus(listener: (status: FallbackStatus) => void): () => void;
 };

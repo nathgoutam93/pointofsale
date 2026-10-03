@@ -252,6 +252,9 @@ export function OpenRegisterPage() {
                           <span className={Math.abs(lastClosed.cashDifference) < 0.005 ? "text-emerald-700" : "text-rose-700"}>
                             {" "}· {differenceText(lastClosed.cashDifference)}
                           </span>
+                        ) : lastClosed.closingBalance === null && lastClosed.expectedCash !== null ? (
+                          // Closed when the fallback counter's offline register took over: nobody counted it.
+                          <span className="text-amber-700"> · cash not counted ({inr(lastClosed.expectedCash)} expected)</span>
                         ) : null}
                       </p>
                     ) : (

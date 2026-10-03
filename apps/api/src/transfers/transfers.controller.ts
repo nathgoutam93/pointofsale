@@ -16,6 +16,11 @@ export class TransfersController {
     return this.transfers.createTransfer(getSession(headers), body);
   }
 
+  @Get('/stock-transfers/destinations')
+  listDestinations(@Headers() headers: RequestHeaders) {
+    return this.transfers.listDestinations(getSession(headers));
+  }
+
   @Get('/stock-transfers')
   listTransfers(
     @Query(new ZodValidationPipe(appContract.transfers.list.query)) { branchId }: { branchId: string },
