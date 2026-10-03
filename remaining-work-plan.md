@@ -78,9 +78,9 @@ These need an answer from the product owner before the work that depends on them
 - **Status (2026-10-03):** the server runs at `pos.hackd.in` (Oracle Cloud, Ubuntu 24.04):
   PostgreSQL, the API as a systemd service, nginx with a Let's Encrypt certificate. The setup is
   in README.md ("Hosting the online server"); `deploy/deploy.sh` pulls, builds, migrates and
-  restarts; `deploy/backup.sh` makes the nightly database and uploads backups. Still to do: real
-  SMTP (owner verification is off until then), the cron entry and an off-server copy of the
-  backups, a restore practised on the server, and uptime monitoring.
+  restarts; `deploy/backup.sh` makes the nightly database and uploads backups (cron at 21:30
+  UTC). Email works through Brevo SMTP, and owner verification is on. Still to do: an
+  off-server copy of the backups, a restore practised on the server, and uptime monitoring.
 
 ## [ ] 4. Uploaded files in object storage (plan 4.6)
 
@@ -161,3 +161,4 @@ These need an answer from the product owner before the work that depends on them
 - 2026-10-03: List written.
 - 2026-10-03: The fallback counter is done; its follow-ups are under item 10.
 - 2026-10-03: Item 3 started: the server is up behind HTTPS; deploy and backup scripts added.
+- 2026-10-03: The server sends email (Brevo SMTP); deploy.sh used for the first real deploy. Desktop v0.1.0 built for Linux and Windows by the release workflow (draft).
