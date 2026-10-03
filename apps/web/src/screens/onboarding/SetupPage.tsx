@@ -7,6 +7,7 @@ import { desktop } from "../../lib/desktop";
 import { rememberBusinessCode } from "../../lib/business-code";
 import { setSession, type Session } from "../../lib/session";
 import { ErrorNote, OnboardingShell } from "./OnboardingShell";
+import { RecoveryCodeCard } from "../../components/RecoveryCode";
 
 type CompositionCategory = keyof typeof COMPOSITION_CATEGORY_LABELS;
 
@@ -35,6 +36,8 @@ export function SetupPage({ online = false }: { online?: boolean }) {
   const [ownerPassword, setOwnerPassword] = useState("");
   const [created, setCreated] = useState<Created | null>(null);
   const [switching, setSwitching] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
+  const [savedCode, setSavedCode] = useState(false);
   const [businessName, setBusinessName] = useState("");
   const [gstNumber, setGstNumber] = useState("");
   const [stateCode, setStateCode] = useState("");
@@ -101,6 +104,11 @@ export function SetupPage({ online = false }: { online?: boolean }) {
       return;
     }
     setSession(result);
+    // Offline: the recovery code is shown once, before anything else.
+    if (result.recoveryCode) {
+      setRecoveryCode(result.recoveryCode);
+      return;
+    }
     navigate({ to: "/open-register" });
   };
 
@@ -110,6 +118,23 @@ export function SetupPage({ online = false }: { online?: boolean }) {
     setSwitching(true);
     await desktop.chooseMode({ mode: "online", apiBaseUrl: created.server });
   };
+
+  if (recoveryCode) {
+    return (
+      <OnboardingShell title="Save your recovery code" subtitle="Your business is ready. One more thing before you start.">
+        <RecoveryCodeCard code={recoveryCode} />
+        <label className="mt-5 flex items-center gap-2 text-sm text-slate-700">
+          <input type="checkbox" checked={savedCode} onChange={(e) => setSavedCode(e.target.checked)} />
+          I've written it down or saved it somewhere safe.
+        </label>
+        <div className="mt-4 flex justify-end">
+          <button className="btn-primary h-10 px-5" onClick={() => navigate({ to: "/open-register" })} disabled={!savedCode}>
+            Continue
+          </button>
+        </div>
+      </OnboardingShell>
+    );
+  }
 
   if (created) {
     return (

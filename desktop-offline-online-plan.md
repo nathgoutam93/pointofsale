@@ -574,3 +574,30 @@ Branch: whichever phase needs it first (likely Phase 1).
   - **Special cases:** a backup of a business that had already moved online switches the computer to online (`switchIfMoved`). On any failure, offline services stop and the welcome screen stays: no mode was chosen.
   - **Files:** any file name works, not only the app's backup naming. A non-backup file now says "This file is not a Point of Sale backup" instead of the zip library's message.
   - **Verified in the desktop app** on a fresh computer: cancel → stays; wrong file → that message; a Corner Store backup made at an older migration, renamed `my-shop-backup.zip` → restored, migrated to the latest version, signed in with the old admin password.
+- 2026-10-03: **Admin password recovery (offline) and backups off the computer** (the user's top two of the remaining crucial items). 176 API tests pass.
+  - **Recovery code:**
+    - The format is `XXXX-XXXX-XXXX-XXXX`, from an alphabet without 0/O/1/I/L (about 79 bits). It is stored only as a scrypt hash in `BusinessSettings.recoveryCodeHash` and `recoveryCodeCreatedAt` (migration `20261009100000_recovery_code`). Offline setup creates it and returns it once (`recoveryCode` in the `/setup` response).
+    - `POST /auth/recover` (public, offline, `@AllowWhenLocked`) takes `{recoveryCode, username, newPassword}`. It resets an **admin's** password, reactivates that admin, and replaces the code. A wrong code and a non-admin username get the same message.
+    - Wrong attempts: 5 per address per 15 minutes, then 429.
+    - `GET`/`POST /auth/recovery-code` (offline, admins): status, and a replacement code.
+    - Codes are compared without case, spaces or dashes. They travel with backups and moves, being business data.
+    - **There is deliberately no code-less reset from the computer:** the counter computer is where cashiers sit.
+  - **Web:**
+    - After offline setup, a "Save your recovery code" screen (copy button; Continue needs the "I've saved it" tick).
+    - "Forgot your password?" on the offline sign-in leads to `/recover`.
+    - Settings → Business has a "Password recovery" card (status, make a new code).
+    - `RecoveryCodeNotice` reminds admins of businesses with no code (set up before this).
+    - Code: `components/RecoveryCode.tsx`, `screens/onboarding/RecoverPage.tsx`.
+  - **Second backup folder:**
+    - `config.backupCopyFolder` / `backupCopyStatus`. Settings → Backups → "Keep copies off this computer": Choose folder… (system dialog, admins), Change, Stop copying; the last copy's time, or why it failed.
+    - Every backup (daily, manual, before update, restore or move) is copied there right after it's written, via a `.partial` file then rename, and that folder is pruned to the same 2–5 days with the backup tool's `prune`.
+    - A missing folder (unplugged drive) is recorded, not fatal. The hourly check retries the latest backup after a failed copy, and choosing the folder copies the latest at once.
+    - Code: `Backups.copyOffsite` in `apps/desktop/src/backups.ts`.
+  - **Also fixed:** in the sidebar, Transfers showed both "Online only" and a lock while no register was open, which overflowed the sidebar (horizontal scrollbar, clipped icons). It now shows just the badge.
+  - **Verified in the desktop app** on a fresh computer:
+    - setup shows the code (Continue disabled until ticked)
+    - sign out → Forgot your password? → code typed in lower case → new code shown → signed in with the new password
+    - a backup copied to a "USB" folder
+    - drive "unplugged" → "The last copy failed … Is the drive plugged in?"
+    - plugged back → copy caught up
+  - **Tests:** `test/offline.test.ts` covers setup's code format, status and replacement (admin only), the same refusal for wrong code or cashier, a loosely typed code, old code spent, and lockout.

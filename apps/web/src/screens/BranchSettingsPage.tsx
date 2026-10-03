@@ -16,6 +16,7 @@ import { useIsOffline } from "../lib/mode";
 import { desktop } from "../lib/desktop";
 import { BackupsSection } from "./settings/BackupsSection";
 import { canMoveOnline, MoveOnlineDialog } from "../components/MoveOnline";
+import { RecoveryCodeSettings } from "../components/RecoveryCode";
 import { CountersSection } from "./settings/CountersSection";
 import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
 
@@ -552,6 +553,7 @@ export function BranchSettingsPage() {
 
       {activeTab === "business" ? (
         <div className="grid gap-4">
+          <RecoveryCodeSettings />
           {canMoveOnline() ? (
             <div className="card flex flex-wrap items-center justify-between gap-3 p-5">
               <div className="max-w-xl">

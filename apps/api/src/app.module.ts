@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
+import { RecoveryService } from './auth/recovery.service';
 import { InstanceStatusGuard } from './common/instance-status.guard';
 import { MetaController } from './meta/meta.controller';
 import { MetaService } from './meta/meta.service';
@@ -87,6 +88,7 @@ import { UsersService } from './users/users.service';
     BranchesService,
     UsersService,
     AuthService,
+    RecoveryService,
     CountersService,
     RegistersService,
     SalesService,

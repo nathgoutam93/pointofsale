@@ -164,6 +164,10 @@ model BusinessSettings {
   timezone                  String             @default("Asia/Kolkata")
   /// Shortest HSN code accepted on items: 4 (turnover up to ₹5 crore) or 6.
   hsnMinDigits              Int                @default(4)
+  /// Offline installs: hash of the recovery code that resets a forgotten admin password.
+  /// Shown once when created; never stored or returned in plain text.
+  recoveryCodeHash          String?
+  recoveryCodeCreatedAt     DateTime?
   createdAt                 DateTime           @default(now())
   updatedAt                 DateTime           @updatedAt
 }

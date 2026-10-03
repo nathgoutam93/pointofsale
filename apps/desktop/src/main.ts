@@ -35,7 +35,14 @@ const backups = new Backups(
     if (!postgres) throw new Error('The database is not running');
     return postgres.databaseUrl;
   },
-  () => config.backupDays
+  () => config.backupDays,
+  {
+    folder: () => config.backupCopyFolder,
+    record: (status) => {
+      config = { ...config, backupCopyStatus: { ...status, at: new Date().toISOString() } };
+      saveConfig(config);
+    }
+  }
 );
 let stopping = false;
 let stopped = false;
@@ -81,7 +88,13 @@ async function startOffline() {
   await startApi();
   if (await switchIfMoved()) return;
   backupTimer = setInterval(() => {
-    void backups.daily().catch((error) => log(`Daily backup failed: ${describe(error)}`));
+    void backups
+      .daily()
+      .then(() => {
+        // The second folder was unavailable last time (USB drive unplugged): try again.
+        if (config.backupCopyFolder && config.backupCopyStatus && !config.backupCopyStatus.ok) return backups.copyLatest();
+      })
+      .catch((error) => log(`Daily backup failed: ${describe(error)}`));
   }, HOUR_MS);
   backupTimer.unref();
 }
@@ -303,7 +316,13 @@ async function assertAdmin(token: unknown) {
 ipcMain.handle('pos:backups:list', async (event, token: unknown) => {
   assertFromApp(event);
   await assertAdmin(token);
-  return { days: config.backupDays, folder: backupsFolder(), backups: await backups.list() };
+  return {
+    days: config.backupDays,
+    folder: backupsFolder(),
+    copyFolder: config.backupCopyFolder,
+    copyStatus: config.backupCopyStatus,
+    backups: await backups.list()
+  };
 });
 
 ipcMain.handle('pos:backups:set-days', async (event, token: unknown, days: unknown) => {
@@ -335,6 +354,32 @@ ipcMain.handle('pos:backups:restore', async (event, token: unknown, file: unknow
       .executeJavaScript("localStorage.removeItem('pos_session')")
       .finally(() => void loadApp());
   });
+});
+
+/** A second folder for copies of every backup: a USB drive or a folder a cloud service syncs. */
+ipcMain.handle('pos:backups:choose-copy-folder', async (event, token: unknown) => {
+  assertFromApp(event);
+  await assertAdmin(token);
+  const picked = await dialog.showOpenDialog({
+    title: 'Choose where to keep copies of the backups',
+    buttonLabel: 'Copy backups here',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  const folder = picked.filePaths[0];
+  if (picked.canceled || !folder) return { copyFolder: config.backupCopyFolder, copyStatus: config.backupCopyStatus };
+  if (folder === backupsFolder()) throw new Error("That's where the backups already are; choose another drive or folder");
+  config = { ...config, backupCopyFolder: folder, backupCopyStatus: null };
+  saveConfig(config);
+  log(`Backups will also be copied to ${folder}`);
+  await backups.copyLatest();
+  return { copyFolder: config.backupCopyFolder, copyStatus: config.backupCopyStatus };
+});
+
+ipcMain.handle('pos:backups:stop-copying', async (event, token: unknown) => {
+  assertFromApp(event);
+  await assertAdmin(token);
+  config = { ...config, backupCopyFolder: null, backupCopyStatus: null };
+  saveConfig(config);
 });
 
 ipcMain.handle('pos:backups:open-folder', async (event, token: unknown) => {

@@ -17,6 +17,7 @@ import { BranchSettingsPage } from './screens/BranchSettingsPage';
 import { requireAdmin, requireOperationalSession, requireSession } from './screens/route-helpers';
 import { WelcomePage } from './screens/onboarding/WelcomePage';
 import { SetupPage } from './screens/onboarding/SetupPage';
+import { RecoverPage } from './screens/onboarding/RecoverPage';
 import { api } from './lib/api';
 import { desktop } from './lib/desktop';
 
@@ -71,6 +72,18 @@ const welcomeRoute = createRoute({
     }
   },
   component: WelcomePage
+});
+
+/** Offline: a forgotten admin password, reset with the recovery code. */
+const recoverRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/recover',
+  beforeLoad: () => {
+    if (getSession() || (desktop && desktop.config.mode !== 'offline')) {
+      throw redirect({ to: '/' });
+    }
+  },
+  component: RecoverPage
 });
 
 /** Desktop app, first launch: create a business on the online server. */
@@ -201,6 +214,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   welcomeRoute,
   createBusinessRoute,
+  recoverRoute,
   setupRoute,
   openRegisterRoute,
   posRoute,

@@ -7,6 +7,8 @@ import { CustomersService } from '../customers/customers.service';
 import { DEFAULT_COUNTER_NAME } from '../common/counters';
 import { lockBusiness } from '../common/locks';
 import { localDate } from '../reports/zoned-dates';
+import { isOffline } from '../common/mode';
+import { RecoveryService } from '../auth/recovery.service';
 
 export type SetupInput = {
   businessName: string;
@@ -32,11 +34,13 @@ export class SetupService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auth: AuthService,
-    private readonly customers: CustomersService
+    private readonly customers: CustomersService,
+    private readonly recovery: RecoveryService
   ) {}
 
   async setup(input: SetupInput) {
     const passwordHash = await hashPassword(input.adminPassword);
+    let recoveryCode: string | null = null;
     const branch = await this.prisma.$transaction(async (tx) => {
       // Two setup requests at once: the second waits here, then finds the first one's admin.
       await lockBusiness(tx, 'setup');
@@ -81,10 +85,13 @@ export class SetupService {
           }
         });
       }
+      // Offline there is no one above the admin; the owner keeps this to reset a forgotten
+      // password. Online businesses have their owner account instead.
+      recoveryCode = isOffline() ? await this.recovery.replaceCode(tx) : null;
       return created;
     });
 
     await this.customers.ensureWalkInCustomer(branch.id);
-    return this.auth.login(input.adminUsername, input.adminPassword);
+    return { ...(await this.auth.login(input.adminUsername, input.adminPassword)), recoveryCode };
   }
 }

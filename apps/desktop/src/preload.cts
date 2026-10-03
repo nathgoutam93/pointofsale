@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('posDesktop', {
     setDays: (token: string, days: number) => invoke('pos:backups:set-days', token, days),
     create: (token: string) => invoke('pos:backups:create', token),
     restore: (token: string, file: string) => invoke('pos:backups:restore', token, file),
-    openFolder: (token: string) => invoke('pos:backups:open-folder', token)
+    openFolder: (token: string) => invoke('pos:backups:open-folder', token),
+    chooseCopyFolder: (token: string) => invoke('pos:backups:choose-copy-folder', token),
+    stopCopying: (token: string) => invoke('pos:backups:stop-copying', token)
   }
 });

@@ -27,8 +27,20 @@ export type BackupEntry = {
 };
 
 /** Local backups (offline mode, admins only: the app checks the token with the local API). */
+export type BackupCopyStatus = { at: string; ok: boolean; file: string | null; error: string | null };
+
 export type DesktopBackups = {
-  list(token: string): Promise<{ days: number; folder: string; backups: BackupEntry[] }>;
+  list(token: string): Promise<{
+    days: number;
+    folder: string;
+    /** A second folder every backup is copied to, if chosen. */
+    copyFolder: string | null;
+    copyStatus: BackupCopyStatus | null;
+    backups: BackupEntry[];
+  }>;
+  /** Asks for a folder (system dialog) and copies the newest backup there at once. */
+  chooseCopyFolder(token: string): Promise<{ copyFolder: string | null; copyStatus: BackupCopyStatus | null }>;
+  stopCopying(token: string): Promise<void>;
   setDays(token: string, days: number): Promise<number>;
   create(token: string): Promise<void>;
   /** Replaces the business with the backup, then reloads the window at the sign-in screen. */

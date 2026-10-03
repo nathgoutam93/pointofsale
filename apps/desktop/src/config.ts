@@ -20,6 +20,10 @@ export type DesktopConfig = {
    * retry after a lost answer gets the same business instead of a second one.
    */
   pendingImportId: string | null;
+  /** Offline: a second folder every backup is copied to (USB drive, synced cloud folder). */
+  backupCopyFolder: string | null;
+  /** How the last copy there went. */
+  backupCopyStatus: { at: string; ok: boolean; file: string | null; error: string | null } | null;
 };
 
 export const BACKUP_DAYS = { min: 2, max: 5, default: 3 } as const;
@@ -36,7 +40,9 @@ const EMPTY: DesktopConfig = {
   dbPassword: null,
   authSecret: null,
   backupDays: BACKUP_DAYS.default,
-  pendingImportId: null
+  pendingImportId: null,
+  backupCopyFolder: null,
+  backupCopyStatus: null
 };
 
 export function loadConfig(): DesktopConfig {

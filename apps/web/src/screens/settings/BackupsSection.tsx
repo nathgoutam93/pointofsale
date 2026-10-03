@@ -45,10 +45,21 @@ export function BackupsSection({ backups }: { backups: DesktopBackups }) {
       void refresh();
     },
   });
+  const chooseCopyFolder = useMutation({
+    mutationFn: () => backups.chooseCopyFolder(token),
+    onSuccess: () => void refresh(),
+  });
+  const stopCopying = useMutation({
+    mutationFn: () => backups.stopCopying(token),
+    onSuccess: () => void refresh(),
+  });
+
   // On success the app reloads at the sign-in screen, so there is nothing to do afterwards.
   const restore = useMutation({ mutationFn: (file: string) => backups.restore(token, file) });
 
-  const error = (list.error ?? setDays.error ?? create.error ?? restore.error) as Error | null;
+  const error = (list.error ?? setDays.error ?? create.error ?? restore.error ?? chooseCopyFolder.error ?? stopCopying.error) as Error | null;
+  const copyFolder = list.data?.copyFolder ?? null;
+  const copyStatus = list.data?.copyStatus ?? null;
   const days = setDays.isPending ? setDays.variables : list.data?.days;
 
   return (
@@ -59,8 +70,7 @@ export function BackupsSection({ backups }: { backups: DesktopBackups }) {
             <h2 className="text-lg font-semibold tracking-tight text-slate-900">Backups</h2>
             <p className="mt-1 text-sm text-slate-600">
               A copy of the whole business (sales, stock, items, customers, settings and images) is made every day and
-              before each app update, while you keep working. They are kept on this computer; copy the backups folder to
-              a USB drive or a cloud folder now and then, in case the computer itself is lost.
+              before each app update, while you keep working.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -99,6 +109,46 @@ export function BackupsSection({ backups }: { backups: DesktopBackups }) {
             {error.message}
           </p>
         ) : null}
+      </div>
+
+      <div className="card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-xl">
+            <h3 className="text-sm font-semibold text-slate-900">Keep copies off this computer</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              If this computer is lost, stolen or its disk fails, backups kept on it go too. Choose a USB drive, or a folder
+              that Google Drive, OneDrive or Dropbox keeps in sync, and every backup is copied there as well.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {copyFolder ? (
+              <button className="btn-ghost" onClick={() => stopCopying.mutate()} disabled={stopCopying.isPending}>
+                Stop copying
+              </button>
+            ) : null}
+            <button className="btn-secondary" onClick={() => chooseCopyFolder.mutate()} disabled={chooseCopyFolder.isPending}>
+              {chooseCopyFolder.isPending ? "Copying…" : copyFolder ? "Change folder…" : "Choose folder…"}
+            </button>
+          </div>
+        </div>
+        {copyFolder ? (
+          <div className="mt-3 text-sm">
+            <p className="text-slate-700">
+              Copying to <span className="font-mono break-all">{copyFolder}</span>
+            </p>
+            {copyStatus?.ok ? (
+              <p className="mt-1 text-emerald-700">Last copied {formatWhen(copyStatus.at)}.</p>
+            ) : copyStatus ? (
+              <p className="mt-1 text-rose-700" role="alert">
+                The last copy failed ({formatWhen(copyStatus.at)}): {copyStatus.error} It is tried again every hour.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Backups are only on this computer for now.
+          </p>
+        )}
       </div>
 
       <div className="card overflow-hidden">

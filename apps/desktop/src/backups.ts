@@ -1,3 +1,5 @@
+import { existsSync, statSync } from 'fs';
+import { copyFile, rename, rm } from 'fs/promises';
 import { basename, join } from 'path';
 import { baseEnv, latestMigration, runScript } from './api-server.js';
 import type { Logger } from './log.js';
@@ -26,8 +28,53 @@ export class Backups {
   constructor(
     private readonly log: Logger,
     private readonly databaseUrl: () => string,
-    private readonly days: () => number
+    private readonly days: () => number,
+    /** The second folder backups are copied to, and where to record how each copy went. */
+    private readonly copies: {
+      folder: () => string | null;
+      record: (status: { ok: boolean; file: string | null; error: string | null }) => void;
+    }
   ) {}
+
+  /**
+   * Copies a backup to the second folder, then keeps only its last few days there too. Written
+   * under another name first, so a half-copied file never looks like a backup. A missing folder
+   * (USB drive unplugged) is recorded, not thrown: the backup itself still succeeded.
+   */
+  private async copyOffsite(file: string) {
+    const folder = this.copies.folder();
+    if (!folder) return;
+    const target = join(folder, basename(file));
+    try {
+      if (!existsSync(folder) || !statSync(folder).isDirectory()) {
+        throw new Error("The folder isn't available. Is the drive plugged in?");
+      }
+      await copyFile(file, `${target}.partial`);
+      await rename(`${target}.partial`, target);
+      await this.cli(['prune', '--dir', folder, '--days', String(this.days())], 'Removing old copies failed');
+      this.copies.record({ ok: true, file: basename(file), error: null });
+      this.log(`Copied ${basename(file)} to ${folder}`);
+    } catch (error) {
+      await rm(`${target}.partial`, { force: true }).catch(() => undefined);
+      const message = error instanceof Error ? error.message : String(error);
+      this.copies.record({ ok: false, file: basename(file), error: message });
+      this.log(`Copying ${basename(file)} to ${folder} failed: ${message}`);
+    }
+  }
+
+  /** After a backup is written: its copy in the second folder. */
+  private async withCopy(result: CliResult) {
+    if (result.file) await this.copyOffsite(result.file);
+    return result;
+  }
+
+  /** The newest backup into the second folder (when it's chosen, or after a failed copy). */
+  copyLatest() {
+    return this.serial(async () => {
+      const [latest] = (await this.cli(['list', '--dir', backupsFolder()], 'Listing backups failed')).backups ?? [];
+      if (latest) await this.copyOffsite(join(backupsFolder(), latest.file));
+    });
+  }
 
   private serial<T>(work: () => Promise<T>): Promise<T> {
     const next = this.queue.then(work, work);
@@ -75,7 +122,7 @@ export class Backups {
           ...(options.beforeUpdate && latest ? ['--before-update', latest] : [])
         ],
         'The daily backup failed'
-      )
+      ).then((result) => this.withCopy(result))
     );
   }
 
@@ -84,7 +131,7 @@ export class Backups {
       this.cli(
         ['backup', '--dir', backupsFolder(), '--uploads', paths.uploads(), '--days', String(this.days()), '--reason', reason],
         'The backup failed'
-      )
+      ).then((result) => this.withCopy(result))
     );
   }
 
@@ -92,8 +139,15 @@ export class Backups {
     return (await this.serial(() => this.cli(['list', '--dir', backupsFolder()], 'Listing backups failed'))).backups ?? [];
   }
 
+  /** After the number of days changed: both folders keep only that many. */
   prune() {
-    return this.serial(() => this.cli(['prune', '--dir', backupsFolder(), '--days', String(this.days())], 'Removing old backups failed'));
+    return this.serial(async () => {
+      await this.cli(['prune', '--dir', backupsFolder(), '--days', String(this.days())], 'Removing old backups failed');
+      const folder = this.copies.folder();
+      if (folder && existsSync(folder)) {
+        await this.cli(['prune', '--dir', folder, '--days', String(this.days())], 'Removing old copies failed').catch(() => undefined);
+      }
+    });
   }
 
   /**

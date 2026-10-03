@@ -20,6 +20,7 @@ import {
 } from "../components/icons";
 import { OnlineOnlyBadge } from "../components/OnlineOnly";
 import { MoveOnlineNotice } from "../components/MoveOnline";
+import { RecoveryCodeNotice } from "../components/RecoveryCode";
 import { confirmLeave } from "../lib/leaveGuard";
 import { useIsOffline } from "../lib/mode";
 import { clearSession, getSession } from "../lib/session";
@@ -86,7 +87,7 @@ function initials(name: string) {
 }
 
 /** Screens shown before anyone is signed in, without the app's navigation. */
-const FULL_SCREEN_PATHS = new Set(["/", "/welcome", "/setup", "/create-business"]);
+const FULL_SCREEN_PATHS = new Set(["/", "/welcome", "/setup", "/create-business", "/recover"]);
 
 export function AppLayout() {
   const location = useRouterState({ select: (s) => s.location.pathname });
@@ -177,8 +178,12 @@ export function AppLayout() {
                         >
                           <Icon className="shrink-0" />
                           <span className={`flex-1 truncate ${labelClass}`}>{item.label}</span>
-                          {item.onlineOnly && offline ? <OnlineOnlyBadge className={labelClass} /> : null}
-                          <IconLock width={14} height={14} className={labelClass} />
+                          {/* One marker only: both don't fit the sidebar's width. */}
+                          {item.onlineOnly && offline ? (
+                            <OnlineOnlyBadge className={labelClass} />
+                          ) : (
+                            <IconLock width={14} height={14} className={labelClass} />
+                          )}
                         </span>
                       );
                     }
@@ -296,6 +301,7 @@ export function AppLayout() {
         </header>
 
         <MoveOnlineNotice />
+        <RecoveryCodeNotice />
         <main className="min-h-0 flex-1 overflow-auto print:overflow-visible">
           <Outlet />
         </main>

@@ -141,6 +141,8 @@ describe('offline install', () => {
     const winnerName = first.status === 201 ? SETUP.businessName : 'Other Store';
     expect(winner.body).toMatchObject({ role: 'ADMIN', branches: [{ code: 'CST', name: winnerName }] });
     expect(typeof winner.body.token).toBe('string');
+    // Shown once, for resetting a forgotten admin password.
+    expect(winner.body.recoveryCode).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
 
     expect(await t.db.user.count()).toBe(1);
     const branch = await t.db.branch.findFirstOrThrow();
@@ -289,6 +291,48 @@ describe('moving online, on this computer', () => {
     });
     expect((await t.call('POST', '/migration/abort', closed.token)).status).toBe(409);
     await t.db.localInstance.update({ where: { id: 'local' }, data: { status: 'ACTIVE', movedToBusinessCode: null, movedToServer: null } });
+  });
+});
+
+describe('forgotten admin password', () => {
+  it('resets an admin password with the recovery code, then replaces the code', async () => {
+    let admin = await t.login(SETUP.adminUsername, SETUP.adminPassword);
+    const branch = await t.db.branch.findFirstOrThrow();
+    await t.call('POST', '/users', admin, { branchId: branch.id, username: 'till-2', password: 'till-pass-2' });
+    const cashier = await t.login('till-2', 'till-pass-2');
+
+    // Admins can see whether one exists and replace it; cashiers can't.
+    expect((await t.ok('GET', '/auth/recovery-code', admin)).set).toBe(true);
+    expect((await t.call('POST', '/auth/recovery-code', cashier)).status).toBe(400);
+    const { recoveryCode } = await t.ok('POST', '/auth/recovery-code', admin);
+    // The hash is never shown anywhere.
+    expect(JSON.stringify(await t.ok('GET', '/business/settings', admin))).not.toMatch(/recovery/i);
+
+    const recover = (body: Record<string, string>) => t.call('POST', '/auth/recover', null, body);
+    const wrongCode = await recover({ recoveryCode: 'AAAA-BBBB-CCCC-DDDD', username: SETUP.adminUsername, newPassword: 'new-owner-pass' });
+    const cashierName = await recover({ recoveryCode, username: 'till-2', newPassword: 'new-owner-pass' });
+    expect([wrongCode.status, cashierName.status]).toEqual([400, 400]);
+    expect(wrongCode.body.message).toBe(cashierName.body.message);
+
+    // Typed loosely: lower case, spaces instead of dashes.
+    const typed = recoveryCode.toLowerCase().replace(/-/g, ' ');
+    const done = await t.ok('POST', '/auth/recover', null, { recoveryCode: typed, username: SETUP.adminUsername, newPassword: 'new-owner-pass' });
+    expect(done.recoveryCode).not.toBe(recoveryCode);
+    expect((await t.call('POST', '/auth/login', null, { username: SETUP.adminUsername, password: SETUP.adminPassword })).status).toBe(400);
+    admin = await t.login(SETUP.adminUsername, 'new-owner-pass');
+    // The old code is spent.
+    expect((await recover({ recoveryCode, username: SETUP.adminUsername, newPassword: 'another-pass-1' })).status).toBe(400);
+
+    // Put the password back for the tests after this one.
+    await t.ok('POST', '/auth/recover', null, { recoveryCode: done.recoveryCode, username: SETUP.adminUsername, newPassword: SETUP.adminPassword });
+  });
+
+  it('stops repeated guessing', async () => {
+    for (let i = 0; i < 5; i += 1) {
+      expect((await t.call('POST', '/auth/recover', null, { recoveryCode: 'WRONG', username: 'owner', newPassword: 'whatever-1' })).status).toBe(400);
+    }
+    // Five wrong attempts from one address, then refused for a while.
+    expect((await t.call('POST', '/auth/recover', null, { recoveryCode: 'WRONG', username: 'owner', newPassword: 'whatever-1' })).status).toBe(429);
   });
 });
 

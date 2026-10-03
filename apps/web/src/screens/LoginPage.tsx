@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
 import { IconStore } from "../components/icons";
@@ -9,7 +9,8 @@ import { rememberBusinessCode, rememberedBusinessCode } from "../lib/business-co
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const online = useServerMode() === "online";
+  const serverMode = useServerMode();
+  const online = serverMode === "online";
   const [businessCode, setBusinessCode] = useState(rememberedBusinessCode);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -125,6 +126,11 @@ export function LoginPage() {
             <button className="btn-primary h-10 w-full" type="submit" disabled={login.isPending}>
               {login.isPending ? "Signing in…" : "Sign in"}
             </button>
+            {serverMode === "offline" ? (
+              <Link to="/recover" className="text-center text-sm text-slate-600 hover:text-slate-900">
+                Forgot your password?
+              </Link>
+            ) : null}
           </form>
         </div>
       </main>

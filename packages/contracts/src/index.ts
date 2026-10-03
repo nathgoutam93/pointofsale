@@ -857,7 +857,12 @@ export const appContract = c.router({
       method: 'POST',
       path: '/setup',
       body: businessSetupSchema.superRefine(checkBusinessSetup),
-      responses: { 201: loginResponseSchema }
+      responses: {
+        201: loginResponseSchema.extend({
+          /** Shown once: resets a forgotten admin password (see auth.recover). */
+          recoveryCode: z.string().nullable()
+        })
+      }
     }
   },
   businesses: {
@@ -908,6 +913,29 @@ export const appContract = c.router({
         password: z.string()
       }),
       responses: { 200: loginResponseSchema }
+    },
+    /**
+     * Offline only, no sign-in: a forgotten admin password, reset with the business's recovery
+     * code. The code is replaced; the answer is the new one, shown once.
+     */
+    recover: {
+      method: 'POST',
+      path: '/auth/recover',
+      body: z.object({ recoveryCode: z.string().trim().min(1), username: z.string().trim().min(1), newPassword: passwordSchema }),
+      responses: { 200: z.object({ recoveryCode: z.string() }) }
+    },
+    /** Offline, admins: whether a recovery code exists, and since when. */
+    recoveryCodeStatus: {
+      method: 'GET',
+      path: '/auth/recovery-code',
+      responses: { 200: z.object({ set: z.boolean(), createdAt: z.string().datetime().nullable() }) }
+    },
+    /** Offline, admins: a new recovery code (the old one stops working), shown once. */
+    newRecoveryCode: {
+      method: 'POST',
+      path: '/auth/recovery-code',
+      body: z.object({}).optional(),
+      responses: { 201: z.object({ recoveryCode: z.string() }) }
     },
     me: {
       method: 'GET',
