@@ -3,6 +3,7 @@ import { Link, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
+import { useReceiptPrinting } from "../lib/printing";
 import {
   buildReceiptLines,
   formatReceiptDate,
@@ -116,6 +117,7 @@ export function SalesPage() {
   >([]);
   const [paymentModalError, setPaymentModalError] = useState("");
   const [message, setMessage] = useState("");
+  const receiptPrinting = useReceiptPrinting();
   const [receiptContact, setReceiptContact] = useState("");
   const [selectedReceiptId, setSelectedReceiptId] = useState("");
   const [settledSummary, setSettledSummary] = useState<SettledSummary | null>(
@@ -622,7 +624,10 @@ export function SalesPage() {
       }
       return res.body;
     },
-    onSuccess: (result) => {
+    onSuccess: (result, payload) => {
+      if (payload.payments.some((line) => line.mode === "CASH" && line.amount > 0)) {
+        void receiptPrinting.openDrawer();
+      }
       setSettledSummary({
         invoiceId: result.invoice.id,
         invoiceNo: result.invoice.invoiceNo,
@@ -1230,6 +1235,11 @@ export function SalesPage() {
             {(customers.error as Error).message}
           </p>
         ) : null}
+        {receiptPrinting.error ? (
+          <p className="mx-4 mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+            {receiptPrinting.error}
+          </p>
+        ) : null}
         {message ? (
           <p className="mx-4 mb-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700" role="status">{message}</p>
         ) : null}
@@ -1257,9 +1267,15 @@ export function SalesPage() {
                 Cancel Invoice
               </button>
             ) : null}
-            <button className="btn-secondary" onClick={() => window.print()}>
+            <button
+              className="btn-secondary"
+              disabled={receiptPrinting.busy}
+              onClick={() =>
+                void receiptPrinting.print({ css: `${receiptTemplateCss}${customReceiptCss}`, columns: receiptCharWidth })
+              }
+            >
               <IconPrinter width={16} height={16} />
-              Print
+              {receiptPrinting.busy ? "Printing…" : "Print"}
             </button>
             <button
               className="btn-primary"

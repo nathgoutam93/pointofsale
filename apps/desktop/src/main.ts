@@ -8,6 +8,7 @@ import { clampBackupDays, loadConfig, saveConfig, withOfflineSecrets, type Deskt
 import { logger } from './log.js';
 import { paths } from './paths.js';
 import { describe, LocalPostgres } from './postgres.js';
+import { cleanPrintingSettings, cleanReceiptJob, listPrinters, ReceiptPrinter } from './printing.js';
 import { APP_ORIGIN, registerAppScheme, serveWebApp } from './protocol.js';
 import { olderThan, Updater } from './updater.js';
 
@@ -44,6 +45,7 @@ const backups = new Backups(
     }
   }
 );
+const receiptPrinter = new ReceiptPrinter(logger('printing'), () => currentApiOrigin());
 let stopping = false;
 let stopped = false;
 
@@ -306,8 +308,23 @@ ipcMain.handle('pos:choose-mode', async (event, choice: { mode?: unknown; apiBas
  */
 async function assertAdmin(token: unknown) {
   if (config.mode !== 'offline' || !api) throw new Error('Only for a business kept on this computer');
+  await assertAdminOfCurrentApi(token);
+}
+
+/** As above, against whichever API this window works with (the local one, or the server online). */
+async function assertAdminOfCurrentApi(token: unknown) {
+  const base = currentApiBaseUrl();
+  if (!base) throw new Error('Set up this computer first');
   if (typeof token !== 'string' || !token) throw new Error('Sign in as an admin first');
-  const res = await fetch(`${api.baseUrl}/auth/me`, { headers: { authorization: `Bearer ${token}` } });
+  let res: Response;
+  try {
+    res = await fetch(`${base}/auth/me`, {
+      headers: { authorization: `Bearer ${token}`, 'x-pos-client-version': app.getVersion() },
+      signal: AbortSignal.timeout(10_000)
+    });
+  } catch {
+    throw new Error("Couldn't reach the server to check you're an admin. Check the internet connection.");
+  }
   if (res.status === 401) throw new Error('Your session has ended. Sign in again, then try once more.');
   const me = res.ok ? ((await res.json()) as { role?: string }) : null;
   if (me?.role !== 'ADMIN') throw new Error('Only an admin can do this');
@@ -409,6 +426,60 @@ ipcMain.handle('pos:updates:require', (event, minimum: unknown) => {
   assertFromApp(event);
   if (typeof minimum === 'string') updates.require(minimum);
   return updates.current;
+});
+
+/** This computer's receipt printer settings; any signed-in page may read them (the POS needs them). */
+ipcMain.handle('pos:printing:settings', (event) => {
+  assertFromApp(event);
+  return config.printing;
+});
+
+ipcMain.handle('pos:printing:printers', async (event) => {
+  assertFromApp(event);
+  if (!window) return [];
+  return listPrinters(window.webContents);
+});
+
+ipcMain.handle('pos:printing:save', async (event, token: unknown, raw: unknown) => {
+  assertFromApp(event);
+  await assertAdminOfCurrentApi(token);
+  const printing = cleanPrintingSettings(raw);
+  if (printing.printerName && window) {
+    const printers = await listPrinters(window.webContents);
+    if (!printers.some((printer) => printer.name === printing.printerName)) {
+      throw new Error(`"${printing.printerName}" isn't installed on this computer`);
+    }
+  }
+  config = { ...config, printing };
+  saveConfig(config);
+  log(`Receipt printing: ${printing.printerName ?? 'system dialog'}, auto-print ${printing.autoPrint}, drawer ${printing.openDrawer ? `pin ${printing.drawerPin}` : 'off'}`);
+  return printing;
+});
+
+/** Prints the receipt the page shows straight to the receipt printer, without a dialog. */
+ipcMain.handle('pos:printing:print-receipt', async (event, job: unknown) => {
+  assertFromApp(event);
+  const { printerName } = config.printing;
+  if (!printerName) throw new Error('No receipt printer is set up on this computer');
+  await receiptPrinter.print(printerName, cleanReceiptJob(job));
+});
+
+/** After cash is taken or refunded. Does nothing unless the drawer is switched on in Settings. */
+ipcMain.handle('pos:printing:open-drawer', async (event) => {
+  assertFromApp(event);
+  const { printerName, openDrawer, drawerPin } = config.printing;
+  if (!printerName || !openDrawer) return false;
+  await receiptPrinter.openDrawer(printerName, drawerPin);
+  return true;
+});
+
+/** Settings → Printer: opens the drawer to check it's wired up, whether or not it's switched on. */
+ipcMain.handle('pos:printing:test-drawer', async (event, token: unknown) => {
+  assertFromApp(event);
+  await assertAdminOfCurrentApi(token);
+  const { printerName, drawerPin } = config.printing;
+  if (!printerName) throw new Error('Choose the receipt printer first');
+  await receiptPrinter.openDrawer(printerName, drawerPin);
 });
 
 /** Checks an address (or the built-in one) is an online server; answers it tidied. */

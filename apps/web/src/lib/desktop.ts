@@ -70,6 +70,35 @@ export type DesktopUpdates = {
   onStatus(listener: (status: UpdateStatus) => void): () => void;
 };
 
+/** How this computer prints receipts (kept by the desktop app; printers belong to the computer). */
+export type PrintingSettings = {
+  /** Receipts go straight to this printer. null: every print opens the system dialog. */
+  printerName: string | null;
+  /** Print the receipt as soon as a sale is paid at the POS. */
+  autoPrint: boolean;
+  /** Open the cash drawer (plugged into the receipt printer) when cash is taken or refunded. */
+  openDrawer: boolean;
+  drawerPin: 2 | 5;
+};
+
+export type PrinterInfo = { name: string; displayName: string };
+
+/** The receipt to print: #printable-invoice's outer HTML and the CSS that styles it. */
+export type ReceiptJob = { markup: string; css: string; columns: number };
+
+export type DesktopPrinting = {
+  settings(): Promise<PrintingSettings>;
+  printers(): Promise<PrinterInfo[]>;
+  /** Admins only (the app checks the token with the API). */
+  save(token: string, settings: PrintingSettings): Promise<PrintingSettings>;
+  /** Prints to the receipt printer without a dialog; fails when none is set up. */
+  printReceipt(job: ReceiptJob): Promise<void>;
+  /** Opens the cash drawer if it's switched on; answers whether it did. */
+  openDrawer(): Promise<boolean>;
+  /** Admins only: opens the drawer even when it's switched off, to check the wiring. */
+  testDrawer(token: string): Promise<void>;
+};
+
 export type DesktopBridge = {
   config: DesktopConfig;
   version: string;
@@ -92,6 +121,8 @@ export type DesktopBridge = {
   onMoveOnlineProgress(listener: (step: MoveStep) => void): () => void;
   backups?: DesktopBackups;
   updates?: DesktopUpdates;
+  /** Missing in versions of the desktop app from before receipt printers. */
+  printing?: DesktopPrinting;
 };
 
 declare global {

@@ -49,6 +49,15 @@ contextBridge.exposeInMainWorld('posDesktop', {
       return () => ipcRenderer.removeListener('pos:update-status', forward);
     }
   },
+  // The receipt printer and cash drawer on this computer. Changing them needs an admin's token.
+  printing: {
+    settings: () => invoke('pos:printing:settings'),
+    printers: () => invoke('pos:printing:printers'),
+    save: (token: string, settings: unknown) => invoke('pos:printing:save', token, settings),
+    printReceipt: (job: { markup: string; css: string; columns: number }) => invoke('pos:printing:print-receipt', job),
+    openDrawer: () => invoke('pos:printing:open-drawer'),
+    testDrawer: (token: string) => invoke('pos:printing:test-drawer', token)
+  },
   // Offline only, admins only (checked by the app against the local API with this token).
   backups: {
     list: (token: string) => invoke('pos:backups:list', token),

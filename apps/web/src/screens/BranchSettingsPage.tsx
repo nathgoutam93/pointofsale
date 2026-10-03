@@ -15,6 +15,7 @@ import { GoOnlineDialog, OnlineOnlyBadge } from "../components/OnlineOnly";
 import { useIsOffline } from "../lib/mode";
 import { desktop } from "../lib/desktop";
 import { BackupsSection } from "./settings/BackupsSection";
+import { PrinterSection } from "./settings/PrinterSection";
 import { canMoveOnline, MoveOnlineDialog } from "../components/MoveOnline";
 import { RecoveryCodeSettings } from "../components/RecoveryCode";
 import { CountersSection } from "./settings/CountersSection";
@@ -57,7 +58,7 @@ type CreateBranchForm = {
   code: string;
 };
 
-type SettingsTab = "business" | "branches" | "cashiers" | "backups";
+type SettingsTab = "business" | "branches" | "cashiers" | "printer" | "backups";
 
 const emptyCashierForm = (branchId: string): CashierForm => ({ username: "", password: "", branchIds: [branchId] });
 
@@ -81,6 +82,8 @@ export function BranchSettingsPage() {
   const offline = useIsOffline();
   // Backups are kept by the desktop app, on the computer that holds an offline business.
   const localBackups = desktop?.config.mode === "offline" ? desktop.backups : undefined;
+  // The receipt printer and cash drawer belong to this computer (desktop app, either mode).
+  const receiptPrinter = desktop?.printing;
   const [goOnlinePrompt, setGoOnlinePrompt] = useState(false);
   const [movingOnline, setMovingOnline] = useState(false);
   const [userMessage, setUserMessage] = useState("");
@@ -532,6 +535,7 @@ export function BranchSettingsPage() {
             { id: "business" as const, label: "Business" },
             { id: "branches" as const, label: "Branches" },
             { id: "cashiers" as const, label: "Cashiers & Access" },
+            ...(receiptPrinter ? [{ id: "printer" as const, label: "Printer" }] : []),
             ...(localBackups ? [{ id: "backups" as const, label: "Backups" }] : [])
           ].map((tab) => (
             <button
@@ -975,6 +979,9 @@ export function BranchSettingsPage() {
         </div>
       ) : null}
 
+      {activeTab === "printer" && receiptPrinter ? (
+        <PrinterSection printing={receiptPrinter} branchId={initialBranchId} />
+      ) : null}
       {activeTab === "backups" && localBackups ? <BackupsSection backups={localBackups} /> : null}
 
       {activeTab === "cashiers" ? (

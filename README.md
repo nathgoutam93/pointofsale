@@ -118,7 +118,12 @@ In offline mode the app backs up the business every day and before each update, 
 the last 2–5 days (Settings → Backups, where admins can also restore). Backups can also be copied
 to a second folder (a USB drive or a synced cloud folder). On a new computer, the welcome
 screen's "Restore from a backup" brings a business back from a backup file. A forgotten admin
-password is reset with the recovery code shown at setup ("Forgot your password?"). The app's
+password is reset with the recovery code shown at setup ("Forgot your password?").
+In either mode, each computer can have a receipt printer (Settings → Printer): receipts then
+print in one click with no dialog, sized for 58 or 80 mm paper by the branch's receipt width,
+and optionally as soon as a sale is paid. A cash drawer plugged into that printer opens (ESC/POS
+drawer kick) when cash is taken or refunded. Without a printer, Print opens the system dialog
+as in a browser. Code: `apps/desktop/src/printing.ts`, `apps/web/src/lib/printing.ts`. The app's
 data and logs are in the OS's app-data folder under "Point of Sale". See
 `desktop-offline-online-plan.md` for the design and what's left.
 

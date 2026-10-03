@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { returnLineAmounts, sanitizeReceiptCss } from "@pos/contracts";
 import { API_BASE_URL, api, apiErrorMessage, authHeaders } from "../lib/api";
+import { useReceiptPrinting } from "../lib/printing";
 import {
   buildReceiptLines,
   formatReceiptDate,
@@ -53,6 +54,7 @@ export function ReturnsPage() {
   const [refundMode, setRefundMode] = useState<ReturnRefundMode>("CASH");
   const [lineQtyMap, setLineQtyMap] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
+  const receiptPrinting = useReceiptPrinting();
 
   const returnsList = useQuery({
     queryKey: ["returns-list", session.branchId],
@@ -413,6 +415,7 @@ export function ReturnsPage() {
       return res.body;
     },
     onSuccess: (result) => {
+      if (result.refundMode === "CASH") void receiptPrinting.openDrawer();
       setMessage(`Return created: ${result.returnNo}`);
       setCreateMode(false);
       setSelectedReturnId(result.id);
@@ -679,13 +682,21 @@ export function ReturnsPage() {
                 <button
                   type="button"
                   className="btn-secondary print:hidden"
-                  onClick={() => window.print()}
+                  disabled={receiptPrinting.busy}
+                  onClick={() =>
+                    void receiptPrinting.print({ css: `${receiptTemplateCss}${customReceiptCss}`, columns: receiptCharWidth })
+                  }
                 >
                   <IconPrinter width={16} height={16} />
-                  Print Receipt
+                  {receiptPrinting.busy ? "Printing…" : "Print Receipt"}
                 </button>
               ) : null}
             </div>
+            {receiptPrinting.error ? (
+              <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 print:hidden" role="alert">
+                {receiptPrinting.error}
+              </p>
+            ) : null}
             {!selectedReturnId ? (
               <p className="mt-3 text-sm text-slate-500">Select a return from the left list.</p>
             ) : null}

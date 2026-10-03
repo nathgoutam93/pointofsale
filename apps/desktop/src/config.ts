@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { paths } from './paths.js';
+import { cleanPrintingSettings, DEFAULT_PRINTING, type PrintingSettings } from './printing.js';
 
 export type Mode = 'offline' | 'online';
 
@@ -24,6 +25,8 @@ export type DesktopConfig = {
   backupCopyFolder: string | null;
   /** How the last copy there went. */
   backupCopyStatus: { at: string; ok: boolean; file: string | null; error: string | null } | null;
+  /** The receipt printer and cash drawer on this computer (both modes). */
+  printing: PrintingSettings;
 };
 
 export const BACKUP_DAYS = { min: 2, max: 5, default: 3 } as const;
@@ -42,7 +45,8 @@ const EMPTY: DesktopConfig = {
   backupDays: BACKUP_DAYS.default,
   pendingImportId: null,
   backupCopyFolder: null,
-  backupCopyStatus: null
+  backupCopyStatus: null,
+  printing: DEFAULT_PRINTING
 };
 
 export function loadConfig(): DesktopConfig {
@@ -50,7 +54,7 @@ export function loadConfig(): DesktopConfig {
   if (!existsSync(file)) return { ...EMPTY };
   const saved = JSON.parse(readFileSync(file, 'utf8')) as Partial<DesktopConfig>;
   const config = { ...EMPTY, ...saved };
-  return { ...config, backupDays: clampBackupDays(config.backupDays) };
+  return { ...config, backupDays: clampBackupDays(config.backupDays), printing: cleanPrintingSettings(config.printing) };
 }
 
 export function saveConfig(config: DesktopConfig) {

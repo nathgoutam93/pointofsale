@@ -8,12 +8,16 @@ export function PostPaymentPanel({
   receiptContact,
   onReceiptContactChange,
   onSend,
+  onPrint,
+  printing,
   onNewOrder,
 }: {
   postPayment: PostPaymentSummary;
   receiptContact: string;
   onReceiptContactChange: (value: string) => void;
   onSend: () => void;
+  onPrint: () => void;
+  printing: boolean;
   onNewOrder: () => void;
 }) {
   const paid = postPayment.paymentLines.length > 0;
@@ -35,9 +39,9 @@ export function PostPaymentPanel({
           </p>
         </div>
 
-        <button className="btn-secondary h-11 w-full print:hidden" onClick={() => window.print()}>
+        <button className="btn-secondary h-11 w-full print:hidden" onClick={onPrint} disabled={printing}>
           <IconPrinter />
-          {paid ? "Print Full Receipt" : "Print Invoice"}
+          {printing ? "Printing…" : paid ? "Print Full Receipt" : "Print Invoice"}
         </button>
 
         <div>

@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { computeSaleTotals } from "@pos/contracts";
 import type { DiscountInput } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders } from "../lib/api";
 import { newUuid } from "../lib/id";
+import { receiptPrinterSettings, useReceiptPrinting } from "../lib/printing";
 import { removeDrafts, upsertDraft } from "../lib/draftStore";
 import { inr, requireOperationalSession } from "./route-helpers";
 import {
@@ -71,6 +72,23 @@ export function PosPage() {
     () => (postPayment ? buildInvoiceReceiptLines(postPayment, store, session.username ?? "") : null),
     [postPayment, store.businessSettings.data, store.branchSettings.data, session.username],
   );
+
+  const receiptPrinting = useReceiptPrinting();
+  const receiptStyle = { css: `${receiptTemplateCss}${customReceiptCss}`, columns: store.receiptCharWidth };
+  // Once per sale, as soon as it's paid: the drawer opens for cash, and the receipt prints
+  // if this computer is set to. The receipt is on the page by now (effects run after render).
+  const handledSaleRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!postPayment || handledSaleRef.current === postPayment.invoiceNo) return;
+    handledSaleRef.current = postPayment.invoiceNo;
+    const tookCash = postPayment.paymentLines.some((line) => line.mode === "CASH" && line.amount > 0);
+    void (async () => {
+      if (tookCash) await receiptPrinting.openDrawer();
+      if ((await receiptPrinterSettings())?.autoPrint) {
+        await receiptPrinting.print(receiptStyle, { dialogOnFailure: false });
+      }
+    })();
+  }, [postPayment]);
 
   const exportPrintableInvoice = () => {
     const htmlDocument = postPayment ? buildPrintableInvoiceDocument(postPayment, store) : null;
@@ -404,6 +422,7 @@ export function PosPage() {
 
   const resetCurrentOrder = () => {
     setPostPayment(null);
+    receiptPrinting.clearError();
     setMessage("");
     setReceiptContact("");
     setCustomerId("");
@@ -683,6 +702,8 @@ export function PosPage() {
             receiptContact={receiptContact}
             onReceiptContactChange={setReceiptContact}
             onSend={exportPrintableInvoice}
+            onPrint={() => void receiptPrinting.print(receiptStyle)}
+            printing={receiptPrinting.busy}
             onNewOrder={startNewOrder}
           />
         ) : !isOrderOpen ? (
@@ -738,6 +759,11 @@ export function PosPage() {
         {checkout.error ? (
           <p className="mx-4 mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
             {(checkout.error as Error).message}
+          </p>
+        ) : null}
+        {postPayment && receiptPrinting.error ? (
+          <p className="mx-4 mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+            {receiptPrinting.error}
           </p>
         ) : null}
         {message ? (
