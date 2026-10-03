@@ -3,6 +3,7 @@ import {
   RECEIPT_PAPERS,
   renderReceipt,
   resolveReceiptTemplate,
+  type ReceiptBranding,
   type ReceiptDocument,
   type ReceiptDocumentItem,
   type ReceiptField,
@@ -10,10 +11,12 @@ import {
   type ReceiptTemplate,
   type RenderedReceipt,
 } from "@pos/contracts";
-import { gstDocumentTitle, gstFooterLines, gstMetadata, gstTaxAmounts, type InvoiceGst } from "./gstReceipt";
 import { escapeHtml, formatReceiptDate, formatReceiptTime } from "./receiptFormat";
 
 export type { ReceiptDocument, ReceiptDocumentItem, ReceiptLine, ReceiptTemplate, RenderedReceipt };
+// Built the same way on the server (emailed receipts).
+export { rateFromAmounts, returnReceiptDocument, saleReceiptDocument, settingLines } from "@pos/contracts";
+export type { ReceiptBranding } from "@pos/contracts";
 
 /**
  * The template a branch prints with: its saved one, or the classic layout on the paper its old
@@ -123,121 +126,6 @@ export function receiptMarkup(rendered: RenderedReceipt, logoSrc?: string | null
 }
 
 export { lineClass as receiptLineClass };
-
-const nonEmpty = (lines: string[]) => lines.map((line) => line.trim()).filter(Boolean);
-
-/** Header or footer text as entered in settings: one printed line per line. */
-export const settingLines = (text: string | null | undefined) => nonEmpty((text ?? "").split("\n"));
-
-/** What the store prints at the top and bottom of its receipts. */
-export type ReceiptBranding = {
-  storeName: string;
-  headerLines: string[];
-  footerLines: string[];
-};
-
-/** A sale: its invoice, payments so far and, when one was just taken, the payment's receipt. */
-export function saleReceiptDocument(sale: {
-  branding: ReceiptBranding;
-  invoiceNo: string;
-  receiptNo?: string | null;
-  createdAt: string;
-  cashier: string;
-  customer: string;
-  gst: InvoiceGst;
-  items: ReceiptDocumentItem[];
-  orderDiscount: number;
-  grandTotal: number;
-  payments: Array<{ mode: string; amount: number }>;
-  paidTotal: number;
-}): ReceiptDocument {
-  const fields: ReceiptField[] = [
-    { label: "Invoice", value: sale.invoiceNo },
-    { label: "Receipt", value: sale.receiptNo ?? "" },
-    { label: "Date", value: formatReceiptDate(sale.createdAt) },
-    { label: "Time", value: formatReceiptTime(sale.createdAt) },
-    { key: "cashier", label: "Cashier", value: sale.cashier },
-    { key: "customer", label: "Customer", value: sale.customer },
-  ];
-  return {
-    title: gstDocumentTitle(sale.gst),
-    storeName: sale.branding.storeName,
-    headerLines: sale.branding.headerLines,
-    footerLines: sale.branding.footerLines,
-    // From the invoice, not the current settings: the GSTIN it was made under.
-    legalFields: gstMetadata(sale.gst),
-    fields,
-    barcodeValue: sale.invoiceNo,
-    items: sale.items,
-    itemsTotal: sale.grandTotal + sale.orderDiscount,
-    orderDiscount: sale.orderDiscount,
-    taxTotals: gstTaxAmounts(sale.gst),
-    grandTotalLabel: "TOTAL",
-    grandTotal: sale.grandTotal,
-    payments: sale.payments.map((payment) => ({ label: `Paid by ${payment.mode}`, amount: payment.amount })),
-    due: Math.max(0, sale.grandTotal - sale.paidTotal),
-    legalFooter: gstFooterLines(sale.gst),
-  };
-}
-
-const COMMON_GST_RATES = [0, 0.25, 1.5, 3, 5, 6, 12, 18, 28, 40];
-
-/** A return line's GST rate from its amounts (the line keeps the tax, not the rate). */
-export function rateFromAmounts(taxable: number, tax: number) {
-  if (taxable <= 0 || tax <= 0) return 0;
-  const rate = (tax / taxable) * 100;
-  const nearest = COMMON_GST_RATES.reduce((best, known) => (Math.abs(known - rate) < Math.abs(best - rate) ? known : best));
-  return Math.abs(nearest - rate) < 0.5 ? nearest : Math.round(rate * 100) / 100;
-}
-
-/** A return: what was refunded and how. */
-export function returnReceiptDocument(refund: {
-  branding: ReceiptBranding;
-  returnNo: string;
-  invoiceNo: string;
-  createdAt: string;
-  customer: string;
-  refundMode: "CASH" | "WALLET";
-  items: ReceiptDocumentItem[];
-  totalAmount: number;
-  tax: { cgst: number; sgst: number; igst: number };
-}): ReceiptDocument {
-  const taxTotals = [
-    ...(refund.tax.igst > 0 ? [{ label: "incl. IGST", amount: refund.tax.igst }] : []),
-    ...(refund.tax.cgst > 0 || refund.tax.sgst > 0
-      ? [
-          { label: "incl. CGST", amount: refund.tax.cgst },
-          { label: "incl. SGST", amount: refund.tax.sgst },
-        ]
-      : []),
-  ];
-  return {
-    title: "REFUND",
-    storeName: refund.branding.storeName,
-    headerLines: refund.branding.headerLines,
-    footerLines: refund.branding.footerLines,
-    legalFields: [],
-    fields: [
-      { label: "Return", value: refund.returnNo },
-      { label: "Invoice", value: refund.invoiceNo },
-      { label: "Date", value: formatReceiptDate(refund.createdAt) },
-      { label: "Time", value: formatReceiptTime(refund.createdAt) },
-      { key: "customer", label: "Customer", value: refund.customer },
-    ],
-    barcodeValue: null,
-    items: refund.items,
-    itemsTotal: null,
-    orderDiscount: 0,
-    taxTotals,
-    grandTotalLabel: "REFUND",
-    grandTotal: refund.totalAmount,
-    payments: [
-      { label: refund.refundMode === "WALLET" ? "Credited to Wallet" : "Refunded by Cash", amount: refund.totalAmount },
-    ],
-    due: null,
-    legalFooter: [],
-  };
-}
 
 /** A made-up sale for the layout preview and the test print, with the store's own branding. */
 export function sampleReceiptDocument(branding: ReceiptBranding, options: { title?: string; gstin?: string | null } = {}): ReceiptDocument {

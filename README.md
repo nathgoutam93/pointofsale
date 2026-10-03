@@ -157,8 +157,17 @@ Passwords:
   cashier must choose their own at next sign-in, and is signed out everywhere until then.
 - **A forgotten admin password:** offline, the recovery code from setup resets it; online, the
   business's owner resets it with the owner account ("Forgot your password?" on sign-in).
-- **A forgotten owner password** (online): an 8-digit code is emailed to the owner. This needs
-  `SMTP_URL` and `MAIL_FROM` on the server (`MAIL_TRANSPORT=log` prints the email in development).
+- **A forgotten owner password** (online): an 8-digit code is emailed to the owner.
+
+Email (online server: `SMTP_URL` and `MAIL_FROM`; `MAIL_TRANSPORT=log` prints emails in development):
+- **Owner verification:** the first time an email address creates a business or moves one online,
+  the server emails it a code and the app asks for it. A verified address isn't asked again.
+  `OWNER_EMAIL_VERIFICATION=off` turns this off.
+- **Owner notices:** the business code when a business is created or moved online, and a notice
+  when the owner password changes. A failed notice is logged; it never stops what it reports.
+- **Receipts:** "Email the receipt" on the POS (after a sale) and on Sales (any sale). The server
+  builds it from the invoice with the branch's receipt layout, in the business's time zone; 30
+  an hour per user. Offline it shows "Online only".
 
 ## Implemented Modules
 - Customers + walk-in customer + wallet topup/balance

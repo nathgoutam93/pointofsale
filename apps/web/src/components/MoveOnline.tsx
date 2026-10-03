@@ -6,6 +6,7 @@ import { desktop, type MoveResult, type MoveStep } from "../lib/desktop";
 import { getSession } from "../lib/session";
 import { rememberBusinessCode } from "../lib/business-code";
 import { BusinessCodeCard } from "../screens/onboarding/SetupPage";
+import { EmailCodeField } from "./EmailCodeField";
 
 const STEPS: Array<{ step: MoveStep; label: string }> = [
   { step: "checking", label: "Checking the server" },
@@ -31,18 +32,26 @@ export function MoveOnlineDialog({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState<MoveStep | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<MoveResult | null>(null);
+  const [result, setResult] = useState<Extract<MoveResult, { businessCode: string }> | null>(null);
+  // Set when the server emailed a code to verify the owner's address.
+  const [codeMessage, setCodeMessage] = useState<string | null>(null);
+  const [emailCode, setEmailCode] = useState("");
 
   useEffect(() => desktop?.onMoveOnlineProgress((next) => setStep(next)), []);
 
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const move = async (code: string) => {
     if (!desktop) return;
     setRunning(true);
     setError("");
     setStep(null);
     try {
-      const moved = await desktop.moveOnline({ server, ownerEmail, ownerPassword });
+      const moved = await desktop.moveOnline({ server, ownerEmail, ownerPassword, ...(code ? { emailCode: code } : {}) });
+      if (moved.emailCodeRequired) {
+        setCodeMessage(moved.message);
+        setEmailCode("");
+        setStep(null);
+        return;
+      }
       // Filled in on the online sign-in screen.
       rememberBusinessCode(moved.businessCode);
       setResult(moved);
@@ -51,6 +60,11 @@ export function MoveOnlineDialog({ onClose }: { onClose: () => void }) {
     } finally {
       setRunning(false);
     }
+  };
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void move(codeMessage ? emailCode : "");
   };
 
   const reached = step ? STEPS.findIndex((s) => s.step === step) : -1;
@@ -94,7 +108,11 @@ export function MoveOnlineDialog({ onClose }: { onClose: () => void }) {
               )}
               <div>
                 <label className="field-label" htmlFor="move-email">Owner email</label>
-                <input id="move-email" className="field h-10" type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} autoComplete="email" required disabled={running} />
+                <input id="move-email" className="field h-10" type="email" value={ownerEmail} onChange={(e) => {
+                    setOwnerEmail(e.target.value);
+                    // A code goes with the address it was sent to.
+                    setCodeMessage(null);
+                  }} autoComplete="email" required disabled={running} />
               </div>
               <div>
                 <label className="field-label" htmlFor="move-password">Owner password</label>
@@ -107,6 +125,16 @@ export function MoveOnlineDialog({ onClose }: { onClose: () => void }) {
                   ).
                 </p>
               </div>
+              {codeMessage ? (
+                <EmailCodeField
+                  id="move-email-code"
+                  message={codeMessage}
+                  value={emailCode}
+                  onChange={setEmailCode}
+                  onResend={() => void move("")}
+                  disabled={running}
+                />
+              ) : null}
             </div>
 
             {running || step ? (

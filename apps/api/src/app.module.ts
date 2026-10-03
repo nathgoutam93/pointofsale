@@ -26,6 +26,7 @@ import { createPrismaService, PrismaService } from './prisma.service';
 import { AccountsController } from './accounts/accounts.controller';
 import { AccountsService } from './accounts/accounts.service';
 import { Mailer } from './mail/mailer';
+import { ReceiptEmailService } from './sales/receipt-email.service';
 import { ProvisioningService } from './tenancy/provisioning.service';
 import { ImportService } from './tenancy/import.service';
 import { TenancyService } from './tenancy/tenancy.service';
@@ -81,6 +82,7 @@ import { UsersService } from './users/users.service';
     ImportService,
     AccountsService,
     Mailer,
+    ReceiptEmailService,
     SettingsService,
     SequenceService,
     ItemsService,

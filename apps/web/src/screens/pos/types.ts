@@ -26,6 +26,7 @@ export type CartLine = {
 };
 
 export type PostPaymentSummary = {
+  invoiceId: string;
   invoiceNo: string;
   receiptNo?: string | null;
   createdAt: string;

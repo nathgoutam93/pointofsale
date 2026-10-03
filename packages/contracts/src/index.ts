@@ -23,6 +23,22 @@ export type { ReceiptPaper, ReceiptSection, ReceiptSections, ReceiptStyle, Recei
 export { fitCenter, fitLeft, fitRight, receiptColumns, renderReceipt, tableColumns, wrapText } from './receiptLayout.js';
 export type { ReceiptDocument, ReceiptDocumentItem, ReceiptField, ReceiptLine, RenderedReceipt } from './receiptLayout.js';
 export { canEncodeCode128, code128Modules, code128Values } from './code128.js';
+export {
+  COMPOSITION_DECLARATION,
+  formatReceiptDate,
+  formatReceiptTime,
+  gstDocumentTitle,
+  gstFooterLines,
+  gstMetadata,
+  gstTaxAmounts,
+  invoiceGstOf,
+  invoiceReceiptItems,
+  rateFromAmounts,
+  returnReceiptDocument,
+  saleReceiptDocument,
+  settingLines
+} from './receiptDocuments.js';
+export type { InvoiceGst, ReceiptBranding } from './receiptDocuments.js';
 export { APP_VERSION, CLIENT_VERSION_HEADER, isOlderVersion, UPDATE_REQUIRED_STATUS } from './version.js';
 export {
   MIGRATION_BUNDLE_FORMAT,
@@ -743,6 +759,14 @@ export const PASSWORD_CHANGE_REQUIRED = 'PASSWORD_CHANGE_REQUIRED';
 /** The code emailed to an owner to reset their password: 8 digits. */
 const resetCodeSchema = z.string().trim().regex(/^\d{8}$/, 'Enter the 8-digit code from the email');
 
+/**
+ * The `code` of the 400 answered when an owner's email isn't verified yet: a code was just
+ * emailed to it, and the same request is sent again with `emailCode`.
+ */
+export const EMAIL_VERIFICATION_REQUIRED = 'EMAIL_VERIFICATION_REQUIRED';
+/** The emailed verification code, when the server asked for one. */
+const emailCodeSchema = z.string().trim().regex(/^\d{8}$/, 'Enter the 8-digit code from the email').optional();
+
 /** offline: one branch and one counter, all on this machine. online: the hosted, multi-business server. */
 export const posModeSchema = z.enum(['offline', 'online']);
 export type PosMode = z.infer<typeof posModeSchema>;
@@ -918,7 +942,7 @@ export const appContract = c.router({
       method: 'POST',
       path: '/businesses',
       body: businessSetupSchema
-        .extend({ ownerEmail: emailSchema, ownerPassword: passwordSchema })
+        .extend({ ownerEmail: emailSchema, ownerPassword: passwordSchema, emailCode: emailCodeSchema })
         .superRefine(checkBusinessSetup),
       responses: {
         201: z.object({ business: ownedBusinessSchema, session: loginResponseSchema, accountToken: z.string() })
@@ -930,7 +954,7 @@ export const appContract = c.router({
     signup: {
       method: 'POST',
       path: '/accounts/signup',
-      body: z.object({ email: emailSchema, password: passwordSchema }),
+      body: z.object({ email: emailSchema, password: passwordSchema, emailCode: emailCodeSchema }),
       responses: { 200: z.object({ token: z.string(), businesses: z.array(ownedBusinessSchema) }) }
     },
     /** Online only: an owner's sign-in. The token lists and manages their businesses (not sales). */
@@ -1534,6 +1558,16 @@ export const appContract = c.router({
       method: 'GET',
       path: '/sales/:id',
       responses: { 200: saleInvoiceDetailSchema }
+    },
+    /**
+     * Online only: emails the sale's receipt to a customer, laid out with the branch's receipt
+     * template. Needs the server's email set up (503 otherwise).
+     */
+    emailReceipt: {
+      method: 'POST',
+      path: '/sales/:id/email-receipt',
+      body: z.object({ email: emailSchema }),
+      responses: { 202: z.object({ sent: z.literal(true) }) }
     },
     returns: {
       method: 'POST',

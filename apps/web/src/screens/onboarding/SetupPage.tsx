@@ -8,6 +8,7 @@ import { rememberBusinessCode } from "../../lib/business-code";
 import { setSession, type Session } from "../../lib/session";
 import { ErrorNote, OnboardingShell } from "./OnboardingShell";
 import { RecoveryCodeCard } from "../../components/RecoveryCode";
+import { EmailCodeField } from "../../components/EmailCodeField";
 
 type CompositionCategory = keyof typeof COMPOSITION_CATEGORY_LABELS;
 
@@ -37,6 +38,9 @@ export function SetupPage({ online = false }: { online?: boolean }) {
   const [created, setCreated] = useState<Created | null>(null);
   const [switching, setSwitching] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
+  // Online: set when the server emailed a code to verify the owner's address.
+  const [codeMessage, setCodeMessage] = useState<string | null>(null);
+  const [emailCode, setEmailCode] = useState("");
   const [savedCode, setSavedCode] = useState(false);
   const [businessName, setBusinessName] = useState("");
   const [gstNumber, setGstNumber] = useState("");
@@ -63,17 +67,30 @@ export function SetupPage({ online = false }: { online?: boolean }) {
     adminPassword,
   });
 
-  /** Online: the server (checked by the desktop app) creates the business. */
-  const createOnline = async (): Promise<Created> => {
+  /**
+   * Online: the server (checked by the desktop app) creates the business. null when it emailed
+   * a code to verify the owner's address first (`withCode` false sends a new one).
+   */
+  const createOnline = async (withCode: boolean): Promise<Created | null> => {
     if (!desktop) throw new Error("Creating an online business needs the desktop app.");
-    const created = await desktop.createOnlineBusiness(server, { ...details(), ownerEmail, ownerPassword });
+    const created = await desktop.createOnlineBusiness(server, {
+      ...details(),
+      ownerEmail,
+      ownerPassword,
+      ...(withCode && emailCode ? { emailCode } : {}),
+    });
+    if (created.emailCodeRequired) {
+      setCodeMessage(created.message);
+      setEmailCode("");
+      return null;
+    }
     return { session: created.session as Session, code: created.business.code, name: created.business.name, server: created.server };
   };
 
   const setup = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (withCode: boolean = true) => {
       if (adminPassword !== confirmPassword) throw new Error("The two passwords don't match.");
-      if (online) return createOnline();
+      if (online) return createOnline(withCode);
       const res = await api.setup.run({
         body: {
           businessName,
@@ -95,7 +112,7 @@ export function SetupPage({ online = false }: { online?: boolean }) {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const result = await setup.mutateAsync().catch(() => null);
+    const result = await setup.mutateAsync(true).catch(() => null);
     if (!result) return;
     if ("code" in result) {
       setSession(result.session);
@@ -175,13 +192,35 @@ export function SetupPage({ online = false }: { online?: boolean }) {
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="field-label" htmlFor="setup-owner-email">Email</label>
-                <input id="setup-owner-email" className="field h-10" type="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} autoComplete="email" required />
+                <input
+                id="setup-owner-email"
+                className="field h-10"
+                type="email"
+                value={ownerEmail}
+                onChange={(e) => {
+                  setOwnerEmail(e.target.value);
+                  // A code goes with the address it was sent to.
+                  setCodeMessage(null);
+                }}
+                autoComplete="email"
+                required
+              />
               </div>
               <div>
                 <label className="field-label" htmlFor="setup-owner-password">Password</label>
                 <input id="setup-owner-password" className="field h-10" type="password" value={ownerPassword} onChange={(e) => setOwnerPassword(e.target.value)} autoComplete="new-password" minLength={8} maxLength={128} required />
               </div>
             </div>
+            {codeMessage ? (
+              <EmailCodeField
+                id="setup-email-code"
+                message={codeMessage}
+                value={emailCode}
+                onChange={setEmailCode}
+                onResend={() => void setup.mutateAsync(false).catch(() => null)}
+                disabled={setup.isPending}
+              />
+            ) : null}
           </section>
         ) : null}
         <section className="card grid gap-4 p-5">

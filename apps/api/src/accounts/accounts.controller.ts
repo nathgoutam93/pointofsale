@@ -3,7 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { appContract } from '@pos/contracts';
+import { appContract, EMAIL_VERIFICATION_REQUIRED } from '@pos/contracts';
 import { Public } from '../auth/auth.guard';
 import { readBearerToken, signAccountToken } from '../auth/token';
 import { OnlineOnlyGuard } from '../common/mode';
@@ -20,6 +20,11 @@ const accountFailures = new FailureLimiter(10, 15 * 60 * 1000);
 /** Owner password reset emails: 5 per address and 3 per email an hour, against mail floods. */
 const resetRequestsByAddress = new FailureLimiter(5, 60 * 60 * 1000);
 const resetRequestsByEmail = new FailureLimiter(3, 60 * 60 * 1000);
+/** Verification code emails: 5 per address and 3 per email an hour. */
+const codeSendsByAddress = new FailureLimiter(5, 60 * 60 * 1000);
+const codeSendsByEmail = new FailureLimiter(3, 60 * 60 * 1000);
+const isVerificationRequired = (error: unknown) =>
+  error instanceof BadRequestException && (error.getResponse() as { code?: unknown })?.code === EMAIL_VERIFICATION_REQUIRED;
 /** New businesses: 5 per address per hour, against sign-up floods. */
 const creations = new FailureLimiter(5, 60 * 60 * 1000);
 
@@ -33,18 +38,42 @@ export class AccountsController {
     private readonly imports: ImportService
   ) {}
 
+  /**
+   * The owner account for an email and password, created on first use, with the verification
+   * code when the address isn't verified yet. Counts wrong passwords and codes (not the answer
+   * that a code was just sent), and limits code emails.
+   */
+  private async ownerAccount(input: { email: string; password: string; emailCode?: string }, ip: string) {
+    const key = `${ip}|${input.email}`;
+    accountFailures.assertAllowed(key);
+    if (!input.emailCode) {
+      codeSendsByAddress.assertAllowed(ip);
+      codeSendsByEmail.assertAllowed(input.email);
+    }
+    try {
+      const account = await this.accounts.findOrCreate(input.email, input.password, input.emailCode);
+      accountFailures.succeeded(key);
+      return account;
+    } catch (error) {
+      if (isVerificationRequired(error)) {
+        codeSendsByAddress.failed(ip);
+        codeSendsByEmail.failed(input.email);
+      } else {
+        accountFailures.failed(key);
+      }
+      throw error;
+    }
+  }
+
   /** Creates an owner account, or signs in to an existing one (the desktop app's move online uses this). */
   @Public()
   @Post('/accounts/signup')
   @HttpCode(200)
-  async signup(@Body(new ZodValidationPipe(appContract.accounts.signup.body)) body: { email: string; password: string }, @Ip() ip: string) {
-    const key = `${ip}|${body.email}`;
-    accountFailures.assertAllowed(key);
-    const account = await this.accounts.findOrCreate(body.email, body.password).catch((error) => {
-      accountFailures.failed(key);
-      throw error;
-    });
-    accountFailures.succeeded(key);
+  async signup(
+    @Body(new ZodValidationPipe(appContract.accounts.signup.body)) body: { email: string; password: string; emailCode?: string },
+    @Ip() ip: string
+  ) {
+    const account = await this.ownerAccount(body, ip);
     return { token: signAccountToken(account.id), businesses: await this.accounts.businessesOf(account.id) };
   }
 
@@ -65,7 +94,9 @@ export class AccountsController {
       if (!file) throw new BadRequestException('The export file is missing');
       const importId = typeof body?.importId === 'string' ? body.importId : '';
       if (!/^[0-9a-f-]{36}$/i.test(importId)) throw new BadRequestException('importId must be a UUID');
-      return await this.imports.importBundle(file.path, { accountId, importId: importId.toLowerCase() });
+      const imported = await this.imports.importBundle(file.path, { accountId, importId: importId.toLowerCase() });
+      await this.accounts.notifyBusinessReady(accountId, imported.business, 'moved');
+      return imported;
     } finally {
       if (file) await rm(file.path, { force: true });
     }
@@ -74,20 +105,16 @@ export class AccountsController {
   @Public()
   @Post('/businesses')
   async createBusiness(
-    @Body(new ZodValidationPipe(appContract.businesses.create.body)) body: SetupInput & { ownerEmail: string; ownerPassword: string },
+    @Body(new ZodValidationPipe(appContract.businesses.create.body))
+    body: SetupInput & { ownerEmail: string; ownerPassword: string; emailCode?: string },
     @Ip() ip: string
   ) {
-    const failureKey = `${ip}|${body.ownerEmail}`;
-    accountFailures.assertAllowed(failureKey);
     creations.assertAllowed(ip);
-    const account = await this.accounts.findOrCreate(body.ownerEmail, body.ownerPassword).catch((error) => {
-      accountFailures.failed(failureKey);
-      throw error;
-    });
-    accountFailures.succeeded(failureKey);
+    const account = await this.ownerAccount({ email: body.ownerEmail, password: body.ownerPassword, emailCode: body.emailCode }, ip);
     creations.failed(ip);
-    const { ownerEmail: _email, ownerPassword: _password, ...setup } = body;
+    const { ownerEmail: _email, ownerPassword: _password, emailCode: _code, ...setup } = body;
     const created = await this.provisioning.createBusiness(setup, { accountId: account.id });
+    await this.accounts.notifyBusinessReady(account.id, created.business, 'created');
     return { ...created, accountToken: signAccountToken(account.id) };
   }
 

@@ -86,3 +86,18 @@ model Membership {
   @@id([accountId, businessId])
   @@index([businessId])
 }
+
+/// A code emailed to prove an owner owns their email address, asked for the first time the
+/// address creates a business or moves one online (the account may not exist yet, so it is
+/// keyed by email). Only its hash is kept; it works once, for 15 minutes, with a few tries.
+model EmailVerification {
+  id        String    @id @default(uuid())
+  email     String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email])
+}

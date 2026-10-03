@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, net, session, shell, type IpcMainInvokeEvent } from 'electron';
 import { LocalApi, runMigrations } from './api-server.js';
 import { Backups, backupsFolder } from './backups.js';
-import { moveOnline, type MoveInput } from './move-online.js';
+import { emailCodeRequest, moveOnline, type MoveInput } from './move-online.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { clampBackupDays, loadConfig, saveConfig, withOfflineSecrets, type DesktopConfig } from './config.js';
@@ -519,6 +519,9 @@ ipcMain.handle('pos:create-business', async (event, address: unknown, details: R
     body: JSON.stringify(details ?? {}),
     signal: AbortSignal.timeout(120_000)
   });
+  // The owner's email isn't verified yet: a code was emailed; the page asks for it.
+  const codeMessage = await emailCodeRequest(res);
+  if (codeMessage) return { emailCodeRequired: true, message: codeMessage };
   const body = (await res.json().catch(() => null)) as { message?: unknown; business?: unknown; session?: unknown } | null;
   if (res.status !== 201 || !body) {
     const message = Array.isArray(body?.message) ? body.message.join(', ') : body?.message;
@@ -598,7 +601,8 @@ ipcMain.handle('pos:move-online', async (event, input: Partial<MoveInput>) => {
     {
       server: typeof input?.server === 'string' && input.server.trim() ? input.server : defaultServerUrl ?? '',
       ownerEmail: String(input?.ownerEmail ?? ''),
-      ownerPassword: String(input?.ownerPassword ?? '')
+      ownerPassword: String(input?.ownerPassword ?? ''),
+      emailCode: typeof input?.emailCode === 'string' && input.emailCode.trim() ? input.emailCode.trim() : undefined
     },
     {
       log: logger('move-online'),
@@ -618,7 +622,7 @@ ipcMain.handle('pos:move-online', async (event, input: Partial<MoveInput>) => {
       progress: (step) => event.sender.send('pos:move-online-progress', step)
     }
   );
-  await switchToOnline(result.server);
+  if (!result.emailCodeRequired) await switchToOnline(result.server);
   return result;
 });
 

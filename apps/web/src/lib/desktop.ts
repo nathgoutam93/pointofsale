@@ -17,7 +17,10 @@ export type DesktopConfig = {
 
 export type MoveStep = 'checking' | 'account' | 'backup' | 'pausing' | 'exporting' | 'uploading' | 'finishing';
 
-export type MoveResult = { businessId: string; businessCode: string; businessName: string; server: string };
+/** Moved; or the owner's email needs the code just emailed to it (nothing changed yet). */
+export type MoveResult =
+  | { businessId: string; businessCode: string; businessName: string; server: string; emailCodeRequired?: undefined }
+  | { emailCodeRequired: true; message: string };
 
 export type ModeChoice = { mode: 'offline' } | { mode: 'online'; apiBaseUrl: string };
 
@@ -115,7 +118,11 @@ export type DesktopBridge = {
   createOnlineBusiness(
     address: string,
     details: Record<string, unknown>
-  ): Promise<{ server: string; business: { id: string; code: string; name: string }; session: unknown }>;
+  ): Promise<
+    | { server: string; business: { id: string; code: string; name: string }; session: unknown; emailCodeRequired?: undefined }
+    // The owner's email isn't verified yet: a code was emailed; send again with `emailCode`.
+    | { emailCodeRequired: true; message: string }
+  >;
   /**
    * A forgotten owner password, sent by the app to `address` (empty: this computer's online
    * server, else the built-in one): "request" emails a code, "confirm" sets the new password.
@@ -126,7 +133,7 @@ export type DesktopBridge = {
   /** Back to the app's first screen. */
   reload(): Promise<void>;
   /** Offline, admins: moves the business online; afterwards this computer works online. */
-  moveOnline(input: { server?: string; ownerEmail: string; ownerPassword: string }): Promise<MoveResult>;
+  moveOnline(input: { server?: string; ownerEmail: string; ownerPassword: string; emailCode?: string }): Promise<MoveResult>;
   onMoveOnlineProgress(listener: (step: MoveStep) => void): () => void;
   backups?: DesktopBackups;
   updates?: DesktopUpdates;

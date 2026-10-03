@@ -20,7 +20,9 @@ export default defineConfig({
       AUTH_SECRET: 'test-secret-that-is-at-least-32-characters-long',
       // Their own uploads folder, emptied before each run (see global-setup.ts): moving a business
       // online copies uploads, which would otherwise pile up in the development folder.
-      UPLOADS_DIR: join(tmpdir(), 'pos-test-uploads')
+      UPLOADS_DIR: join(tmpdir(), 'pos-test-uploads'),
+      // Most tests create owners freely; test/owner-email.test.ts turns verification on.
+      OWNER_EMAIL_VERIFICATION: 'off'
     },
     // Files share one database and some change business-wide settings, so run them one at a time.
     fileParallelism: false,

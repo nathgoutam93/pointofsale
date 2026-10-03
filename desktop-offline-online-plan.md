@@ -386,7 +386,7 @@ Branch: whichever phase needs it first (likely Phase 1).
 ## Open questions (decide before the item that needs it)
 
 - Hosting provider and domain for the hosted API (needed for 4.8 and 3.1's CSP).
-- Owner sign-in: email and password with an email code, or phone with OTP? (4.5)
+- ~~Owner sign-in: email and password with an email code, or phone with OTP? (4.5)~~ Decided 2026-10-03: email and password, with an emailed code the first time an address creates or moves a business.
 - Code-signing certificates for Windows and macOS (3.7).
 - Should the hosted web app also be usable in a plain browser for online businesses, or desktop only? (Affects 2.1 fallback and CORS.)
 - How long to keep the archived local database after a move online, and whether to offer deleting it.
@@ -665,3 +665,27 @@ Branch: whichever phase needs it first (likely Phase 1).
       - signed in after a full page load
       - a request without the header gets 401
       - sign-out removes the cookie
+- 2026-10-03: **Owner email verification and the other email features** that waited on email (the user's call, now that the server can send email). 204 API and 126 contracts tests pass.
+  - **Owner verification:**
+    - Control migration `20261012100000_email_verification`: `EmailVerification {email, codeHash, expiresAt, attempts, usedAt}`, keyed by email because the account may not exist yet.
+    - `findOrCreate` (used by `POST /businesses` and `/accounts/signup`, which move online uses) checks the password first. Then, for a new address or an unverified account, without `emailCode` it emails an 8-digit code and answers 400 `code: EMAIL_VERIFICATION_REQUIRED`; with the code it sets `emailVerifiedAt` (and only then creates a new account).
+    - Codes: 15 minutes, 5 wrong tries, once only, scrypt-hashed.
+    - Code emails: 5 per address and 3 per email an hour. A "code sent" answer isn't counted as a failed sign-in.
+    - `OWNER_EMAIL_VERIFICATION=off` turns it off; the API tests run with it off except `test/owner-email.test.ts`.
+  - **Owner notices** (`Mailer.sendNotice`: only when email is set up, failures logged): the business code after creating or moving a business, and "your owner password was changed" after a reset.
+  - **SMTP:** nodemailer gets 10 s connection and greeting and 20 s socket timeouts unless `SMTP_URL` sets its own.
+  - **Emailed receipts:**
+    - `POST /sales/:id/email-receipt` `{email}`: online only, open-register session, this branch's sales; 30 an hour per user; 503 without email.
+    - `ReceiptEmailService` builds the receipt from the invoice (`invoiceReceiptItems`, `saleReceiptDocument`, the branch's template, the business time zone) and sends text plus HTML (monospace; large lines at double size).
+    - Staff can't put their own text into the email.
+  - **Shared receipt code:** the GST helpers (`gstDocumentTitle`, `gstMetadata`, `gstTaxAmounts`, `gstFooterLines`, `invoiceGstOf`), `saleReceiptDocument`, `returnReceiptDocument`, `rateFromAmounts` and `settingLines` moved from the web app to `packages/contracts/src/receiptDocuments.ts`, plus `invoiceReceiptItems` and time-zone-aware `formatReceiptDate`/`formatReceiptTime`. The web app re-exports them.
+  - **Desktop and web:**
+    - Creating a business and moving online return `{emailCodeRequired, message}` instead of failing. The form shows "Code from the email" (`components/EmailCodeField.tsx`) and "Send a new code"; changing the email clears it. Moving online asks before anything changes on the computer.
+    - `components/EmailReceipt.tsx` on the POS after a sale and on Sales for any sale. Offline it shows "Online only", disabled.
+    - The fake "Receipt sent to …" message on Sales is gone. The POS keeps "Download the receipt (to share on WhatsApp)".
+  - **Verified in the desktop app** against a local server with `MAIL_TRANSPORT=log`:
+    - create business → code asked → code from the log → created; the business-code email was sent
+    - a sale emailed from Sales; the email matches the printed layout, with the time in the business time zone
+    - an offline business shows "Online only" on the email field
+    - move online → code asked (still offline) → code → moved; the "has moved online" email was sent
+  - **Not done:** invites (joining stays by business code); a customer email field on customers (the address is typed when sending).

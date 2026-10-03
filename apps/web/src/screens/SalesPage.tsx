@@ -9,8 +9,9 @@ import { invoiceGstOf, type InvoiceGst } from "../lib/gstReceipt";
 import { formatReceiptDate } from "../lib/receiptFormat";
 import { ReceiptView } from "../components/ReceiptView";
 import { ReceiptPrintStyles } from "./pos/ReceiptPrintStyles";
-import { IconCheck, IconPrinter, IconSend } from "../components/icons";
+import { IconCheck, IconPrinter } from "../components/icons";
 import { StatusBadge } from "../components/StatusBadge";
+import { EmailReceipt } from "../components/EmailReceipt";
 import { inr, money, requireOperationalSession } from "./route-helpers";
 
 type PaymentMode = "CASH" | "CARD" | "WALLET";
@@ -111,7 +112,6 @@ export function SalesPage() {
   const [paymentModalError, setPaymentModalError] = useState("");
   const [message, setMessage] = useState("");
   const receiptPrinting = useReceiptPrinting();
-  const [receiptContact, setReceiptContact] = useState("");
   const [selectedReceiptId, setSelectedReceiptId] = useState("");
   const [settledSummary, setSettledSummary] = useState<SettledSummary | null>(
     null,
@@ -635,7 +635,6 @@ export function SalesPage() {
           amount: Number(line.amount),
         })),
       });
-      setReceiptContact("");
       setPaymentModalOpen(false);
       setPaymentLines([]);
       setPaymentAmount("0");
@@ -935,30 +934,7 @@ export function SalesPage() {
                 </p>
               </div>
 
-              <div>
-                <label className="field-label">Send receipt</label>
-                <div className="flex gap-2">
-                  <input
-                    className="field"
-                    placeholder="Email or phone"
-                    value={receiptContact}
-                    onChange={(e) => setReceiptContact(e.target.value)}
-                  />
-                  <button
-                    className="btn-secondary shrink-0"
-                    onClick={() => {
-                      if (!receiptContact.trim()) {
-                        setMessage("Enter email or phone to send receipt.");
-                        return;
-                      }
-                      setMessage(`Receipt sent to ${receiptContact.trim()}`);
-                    }}
-                  >
-                    <IconSend width={16} height={16} />
-                    Send
-                  </button>
-                </div>
-              </div>
+              <EmailReceipt key={settledSummary.invoiceId} invoiceId={settledSummary.invoiceId} />
             </div>
 
             <div className="border-t border-slate-200 p-4">
@@ -1296,7 +1272,14 @@ export function SalesPage() {
             ) : null}
           </div>
 
-          <ReceiptView receipt={printableReceipt} logoSrc={receiptLogoSrc} className="card w-full p-5" />
+          <div className="grid content-start gap-4">
+            <ReceiptView receipt={printableReceipt} logoSrc={receiptLogoSrc} className="card w-full p-5" />
+            {currentInvoice ? (
+              <div className="card p-4 print:hidden">
+                <EmailReceipt key={currentInvoice.id} invoiceId={currentInvoice.id} />
+              </div>
+            ) : null}
+          </div>
         </div>
         </div>
       </div>

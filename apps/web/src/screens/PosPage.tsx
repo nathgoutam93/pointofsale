@@ -57,7 +57,6 @@ export function PosPage() {
   );
   const orderDiscount = useOrderDiscount();
   const orderDiscounts = orderDiscount.discounts;
-  const [receiptContact, setReceiptContact] = useState("");
   const draftStorageKey = useMemo(
     () => `pos_sale_drafts:${session.branchId}:${session.userId}`,
     [session.branchId, session.userId],
@@ -98,14 +97,7 @@ export function PosPage() {
       return;
     }
     downloadHtml(htmlDocument, `invoice-${postPayment?.invoiceNo ?? "receipt"}.html`);
-
-    if (receiptContact.trim()) {
-      setMessage(
-        `Invoice download ready for sharing via WhatsApp (${receiptContact.trim()}).`,
-      );
-    } else {
-      setMessage("Invoice download started. Share it on WhatsApp manually.");
-    }
+    setMessage("Receipt downloaded. Share the file on WhatsApp or anywhere else.");
   };
 
   const items = useQuery({
@@ -425,7 +417,6 @@ export function PosPage() {
     setPostPayment(null);
     receiptPrinting.clearError();
     setMessage("");
-    setReceiptContact("");
     setCustomerId("");
     setWalkInCustomerName("");
     setWalkInCustomerPhone("");
@@ -507,7 +498,6 @@ export function PosPage() {
     setMessage(`Draft restored: ${draft.customerName}`);
     setIsOrderOpen(true);
     setActiveDraft(draft.id);
-    setReceiptContact("");
     setCustomerId(draft.customerId);
     setWalkInCustomerName(draft.walkInCustomerName ?? "");
     setWalkInCustomerPhone(draft.walkInCustomerPhone ?? "");
@@ -601,6 +591,7 @@ export function PosPage() {
           .map((discount) => discount.id),
       );
       setPostPayment({
+        invoiceId: result.invoice.id,
         invoiceNo: result.invoice.invoiceNo,
         receiptNo: result.receipt?.receiptNo ?? null,
         createdAt: result.receipt?.createdAt ?? result.invoice.createdAt,
@@ -655,7 +646,6 @@ export function PosPage() {
           };
         }),
       });
-      setReceiptContact(result.invoice.customerPhone ?? "");
       let draftCleanupFailed = false;
       if (context?.draftIdAtStart || activeDraftIdRef.current) {
         try {
@@ -700,9 +690,7 @@ export function PosPage() {
         {postPayment ? (
           <PostPaymentPanel
             postPayment={postPayment}
-            receiptContact={receiptContact}
-            onReceiptContactChange={setReceiptContact}
-            onSend={exportPrintableInvoice}
+            onDownload={exportPrintableInvoice}
             onPrint={() => void receiptPrinting.print(receiptStyle)}
             printing={receiptPrinting.busy}
             onNewOrder={startNewOrder}

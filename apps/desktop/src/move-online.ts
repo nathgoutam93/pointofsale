@@ -9,9 +9,25 @@ import { paths } from './paths.js';
 
 export type MoveStep = 'checking' | 'account' | 'backup' | 'pausing' | 'exporting' | 'uploading' | 'finishing';
 
-export type MoveInput = { server: string; ownerEmail: string; ownerPassword: string };
+export type MoveInput = { server: string; ownerEmail: string; ownerPassword: string; emailCode?: string };
 
-export type MoveResult = { businessId: string; businessCode: string; businessName: string; server: string };
+/**
+ * Moved; or, before anything changed here, the owner's email isn't verified yet: the server
+ * emailed a code, and the move is started again with it.
+ */
+export type MoveResult =
+  | { businessId: string; businessCode: string; businessName: string; server: string; emailCodeRequired?: undefined }
+  | { emailCodeRequired: true; message: string };
+
+/** EMAIL_VERIFICATION_REQUIRED in @pos/contracts (this app doesn't load it). */
+export const EMAIL_VERIFICATION_REQUIRED = 'EMAIL_VERIFICATION_REQUIRED';
+
+/** A 400 asking for the code emailed to the owner, with its message; else null. */
+export async function emailCodeRequest(res: Response) {
+  if (res.status !== 400) return null;
+  const body = (await res.clone().json().catch(() => null)) as { code?: unknown; message?: unknown } | null;
+  return body?.code === EMAIL_VERIFICATION_REQUIRED ? String(body.message ?? 'Enter the code emailed to you.') : null;
+}
 
 type Dependencies = {
   log: Logger;
@@ -71,14 +87,15 @@ export async function moveOnline(input: MoveInput, deps: Dependencies): Promise<
   }
 
   deps.progress('account');
-  const account = await json<{ token: string }>(
-    await fetch(`${server}/accounts/signup`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: input.ownerEmail, password: input.ownerPassword })
-    }),
-    "Couldn't sign in to your owner account"
-  );
+  const signedUp = await fetch(`${server}/accounts/signup`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: input.ownerEmail, password: input.ownerPassword, ...(input.emailCode ? { emailCode: input.emailCode } : {}) })
+  });
+  // Nothing has changed here yet: ask for the code, then start again.
+  const codeMessage = await emailCodeRequest(signedUp);
+  if (codeMessage) return { emailCodeRequired: true, message: codeMessage };
+  const account = await json<{ token: string }>(signedUp, "Couldn't sign in to your owner account");
 
   deps.progress('backup');
   await deps.backup();

@@ -1,21 +1,19 @@
-import { IconCheck, IconPlus, IconPrinter, IconSend } from "../../components/icons";
+import { EmailReceipt } from "../../components/EmailReceipt";
+import { IconCheck, IconPlus, IconPrinter } from "../../components/icons";
 import { inr } from "../route-helpers";
 import type { PostPaymentSummary } from "./types";
 
-/** Shown after checkout: the result, print and send buttons, and New Order. */
+/** Shown after checkout: the result, print, email and download, and New Order. */
 export function PostPaymentPanel({
   postPayment,
-  receiptContact,
-  onReceiptContactChange,
-  onSend,
+  onDownload,
   onPrint,
   printing,
   onNewOrder,
 }: {
   postPayment: PostPaymentSummary;
-  receiptContact: string;
-  onReceiptContactChange: (value: string) => void;
-  onSend: () => void;
+  /** Saves the receipt as a file, to share on WhatsApp or anywhere else. */
+  onDownload: () => void;
   onPrint: () => void;
   printing: boolean;
   onNewOrder: () => void;
@@ -44,21 +42,11 @@ export function PostPaymentPanel({
           {printing ? "Printing…" : paid ? "Print Full Receipt" : "Print Invoice"}
         </button>
 
-        <div>
-          <label className="field-label">Send receipt</label>
-          <div className="flex gap-2">
-            <input
-              className="field"
-              placeholder="WhatsApp number"
-              value={receiptContact}
-              onChange={(e) => onReceiptContactChange(e.target.value)}
-            />
-            <button className="btn-secondary shrink-0" onClick={onSend} aria-label="Send receipt">
-              <IconSend width={16} height={16} />
-              Send
-            </button>
-          </div>
-        </div>
+        <EmailReceipt key={postPayment.invoiceId} invoiceId={postPayment.invoiceId} />
+
+        <button className="btn-ghost w-full text-sm print:hidden" onClick={onDownload}>
+          Download the receipt (to share on WhatsApp)
+        </button>
       </div>
 
       <div className="border-t border-slate-200 p-4">
