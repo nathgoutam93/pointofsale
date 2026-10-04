@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { invoiceDue, sanitizeReceiptCss } from "@pos/contracts";
+import { invoiceDue, invoiceReceiptItems, sanitizeReceiptCss, type ReceiptDocumentItem } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders, uploadSrc } from "../lib/api";
 import { usePrintTemplate, useReceiptPrinting } from "../lib/printing";
 import { branchReceiptTemplate, receiptStyleFor, renderReceipt, saleReceiptDocument } from "../lib/receipt";
@@ -56,6 +56,8 @@ type SettledSummary = {
   }>;
   payments: Array<{ mode: PaymentMode; amount: number }>;
   gst: InvoiceGst;
+  /** The receipt's lines, built as emailed receipts build them. */
+  receiptItems: ReceiptDocumentItem[];
 };
 
 export function SalesPage() {
@@ -642,6 +644,7 @@ export function SalesPage() {
           hsnCode: line.hsnCode ?? null,
         })),
         gst: invoiceGstOf(result.invoice),
+        receiptItems: invoiceReceiptItems(result.invoice.lines, result.invoice.discounts, (itemId) => itemUomById.get(itemId)),
         payments: result.invoice.payments.map((line) => ({
           mode: line.mode,
           amount: Number(line.amount),
@@ -853,30 +856,12 @@ export function SalesPage() {
       ? formatSaleCreator(currentSaleCreatorId, currentSaleCreatorName)
       : "";
 
-    const items = saleLines.map((line) => {
-      const taxMode = line.taxMode ?? "EXCLUSIVE";
-      const pricingQty = getPricingQty(line);
-      const gross = pricingQty * line.rate;
-      const taxAmount = Math.max(0, line.taxAmount ?? 0);
-      const baseExclusive =
-        taxMode === "INCLUSIVE" && Number(line.taxRate ?? 0) > 0
-          ? (gross * 100) / (100 + Number(line.taxRate ?? 0))
-          : gross;
-      return {
-        name: line.itemName ?? `Item ${line.itemId.slice(0, 6)}`,
-        hsn: line.hsnCode ?? null,
-        qty: pricingQty,
-        qtyLabel: getSaleQtyLabel(line),
-        rate: pricingQty > 0 ? baseExclusive / pricingQty : 0,
-        amount: baseExclusive,
-        taxRate: Number(line.taxRate ?? 0),
-        taxAmount,
-        discount: Math.max(0, line.itemDiscountAmount ?? line.discountAmount ?? 0),
-        // Before the order discount, which is shown once under the items.
-        total: Number(line.netAmount ?? 0) + Number(line.orderDiscountAmount ?? 0),
-        taxable: Number(line.taxableAmount ?? 0),
-      };
-    });
+    // The same lines an emailed receipt has (invoiceReceiptItems), so the two never differ.
+    const items =
+      settledSummary?.receiptItems ??
+      (selectedInvoiceDetails.data
+        ? invoiceReceiptItems(selectedInvoiceDetails.data.lines, selectedInvoiceDetails.data.discounts, (itemId) => itemUomById.get(itemId))
+        : []);
 
     const doc = saleReceiptDocument({
       branding: {
@@ -897,6 +882,8 @@ export function SalesPage() {
       payments: paymentBreakdown,
       paidTotal: invoicePaidTotal,
       creditedTotal: Number(currentInvoice.creditedTotal ?? 0),
+      // The business's time, as on emailed receipts, whatever this computer's clock is set to.
+      timeZone: businessSettings.data?.timezone,
     });
     return renderReceipt(doc, receiptTemplate);
   }, [
@@ -905,7 +892,8 @@ export function SalesPage() {
     previewReceipt?.createdAt,
     currentSaleCreatorId,
     currentSaleCreatorName,
-    saleLines,
+    settledSummary?.receiptItems,
+    selectedInvoiceDetails.data,
     itemUomById,
     invoiceGrandTotal,
     invoicePaidTotal,
@@ -916,7 +904,7 @@ export function SalesPage() {
     invoiceFooterLines,
     receiptTemplate,
     paymentBreakdown,
-    formatQtyLabel,
+    businessSettings.data?.timezone,
   ]);
   const receiptStyle = receiptStyleFor(printableReceipt ?? { columns: 48 }, receiptTemplate, customReceiptCss);
 
@@ -1061,7 +1049,7 @@ export function SalesPage() {
                           {invoice.invoiceNo}
                         </p>
                         <p className="mt-0.5 text-xs text-slate-500">
-                          {formatReceiptDate(invoice.createdAt)} ·{" "}
+                          {formatReceiptDate(invoice.createdAt, businessSettings.data?.timezone)} ·{" "}
                           {formatSaleCreator(
                             invoice.createdBy,
                             invoice.createdByName,

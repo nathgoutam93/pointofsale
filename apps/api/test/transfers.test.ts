@@ -88,5 +88,19 @@ describe('stock transfers', () => {
     // A cashier at the source branch can't list the destination's transfers.
     expect((await t.call('GET', `/stock-transfers?branchId=${to.id}`, cashier)).status).toBe(400);
     expect(await stockAt(from.branch.id, item.id)).toBe(5);
+    // Nor see where to send to.
+    expect((await t.call('GET', '/stock-transfers/destinations', cashier)).status).toBe(400);
+  });
+
+  it('lets a cashier allowed to send pick any branch, not only the ones they work at', async () => {
+    const { token: cashier } = await t.cashierWithRegister(admin, from.branch.id, ['SEND_TRANSFERS']);
+    const destinations = await t.ok<Array<{ id: string }>>('GET', '/stock-transfers/destinations', cashier);
+    expect(destinations.map((branch) => branch.id)).toEqual(expect.arrayContaining([from.branch.id, to.id]));
+    expect(destinations).toHaveLength(await t.db.branch.count());
+
+    const item = await t.item(from.token, from.branch.id, { stock: 5 });
+    const sent = await t.call('POST', '/stock-transfers', cashier, { fromBranchId: from.branch.id, toBranchId: to.id, lines: [{ itemId: item.id, qty: 2 }] });
+    expect(sent.status).toBe(201);
+    expect(await stockAt(from.branch.id, item.id)).toBe(3);
   });
 });

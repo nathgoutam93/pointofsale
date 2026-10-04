@@ -1,7 +1,7 @@
 import { app, net } from 'electron';
-import { createWriteStream } from 'fs';
-import { mkdir, rm } from 'fs/promises';
-import { join } from 'path';
+import { createWriteStream, existsSync } from 'fs';
+import { copyFile, mkdir, readdir, rename, rm } from 'fs/promises';
+import { dirname, join } from 'path';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { baseEnv, LocalApi, runMigrations, runScript } from './api-server.js';
@@ -52,7 +52,14 @@ export type FallbackStatus = {
   /** null: not known yet. */
   serverReachable: boolean | null;
   error: string | null;
+  /** The last sending of offline sales was refused: each clash, for a person to read. */
+  conflicts: SyncConflict[] | null;
 };
+
+/** One reason the server refused the offline sales (FALLBACK_SYNC_CONFLICT in @pos/contracts). */
+export type SyncConflict = { document: string; problem: string };
+
+const FALLBACK_SYNC_CONFLICT = 'FALLBACK_SYNC_CONFLICT';
 
 const FALLBACK_KEY_HEADER = 'x-pos-fallback-key';
 const FALLBACK_SECRET_HEADER = 'x-pos-fallback-secret';
@@ -77,6 +84,7 @@ export class FallbackCounter {
   syncing = false;
   error: string | null = null;
   serverReachable: boolean | null = null;
+  conflicts: SyncConflict[] | null = null;
 
   constructor(
     private readonly log: Logger,
@@ -91,6 +99,11 @@ export class FallbackCounter {
 
   private uploadsDir() {
     return join(FallbackCounter.folder(), 'uploads');
+  }
+
+  /** Item pictures, kept apart from the copy's uploads, which each refresh replaces. */
+  private imagesDir() {
+    return join(FallbackCounter.folder(), 'images');
   }
 
   /** The local API, once running. */
@@ -110,7 +123,8 @@ export class FallbackCounter {
       pendingSync: !!settings?.pendingSync,
       syncing: this.syncing,
       serverReachable: this.serverReachable,
-      error: this.error
+      error: this.error,
+      conflicts: this.conflicts
     };
   }
 
@@ -202,6 +216,8 @@ export class FallbackCounter {
       this.save({ ...now, refreshedAt: new Date().toISOString() });
       this.error = null;
       this.log('Offline copy refreshed');
+      // Pictures are a nicety: the copy sells without them.
+      await this.restoreImages(now).catch((error) => this.log(`Item pictures for the offline copy: ${describe(error)}`));
       return true;
     } catch (error) {
       this.error = describe(error);
@@ -211,6 +227,45 @@ export class FallbackCounter {
       this.refreshing = false;
       await rm(file, { force: true }).catch(() => undefined);
     }
+  }
+
+  /**
+   * The item pictures the copy shows, into its uploads: each fetched from the server once and
+   * kept in imagesDir (a refresh replaces the uploads), and dropped once no item uses it.
+   */
+  private async restoreImages(settings: FallbackSettings) {
+    if (!this.baseUrl) return;
+    const res = await net.fetch(`${this.baseUrl}/fallback/images`, {
+      headers: { [FALLBACK_SECRET_HEADER]: settings.localSecret },
+      signal: AbortSignal.timeout(30_000)
+    });
+    if (!res.ok) throw new Error(await failure(res, "Couldn't list the item pictures"));
+    const { paths: wanted } = (await res.json()) as { paths: string[] };
+    const keep = new Set<string>();
+    let fetched = 0;
+    for (const path of wanted) {
+      const parts = path.slice('/uploads/'.length).split('/');
+      if (!path.startsWith('/uploads/') || parts.some((part) => !part || part === '.' || part === '..')) continue;
+      const cached = join(this.imagesDir(), ...parts);
+      keep.add(cached);
+      if (!existsSync(cached)) {
+        const image = await net.fetch(`${settings.server}${encodeURI(path)}`, { signal: AbortSignal.timeout(30_000) }).catch(() => null);
+        if (!image?.ok || !image.body) continue;
+        await mkdir(dirname(cached), { recursive: true });
+        await pipeline(Readable.fromWeb(image.body as import('stream/web').ReadableStream), createWriteStream(`${cached}.part`));
+        await rename(`${cached}.part`, cached);
+        fetched += 1;
+      }
+      const target = join(this.uploadsDir(), ...parts);
+      await mkdir(dirname(target), { recursive: true });
+      await copyFile(cached, target);
+    }
+    const stored = existsSync(this.imagesDir()) ? await readdir(this.imagesDir(), { recursive: true, withFileTypes: true }) : [];
+    for (const entry of stored) {
+      const file = join(entry.parentPath, entry.name);
+      if (entry.isFile() && !keep.has(file)) await rm(file, { force: true });
+    }
+    if (fetched) this.log(`Fetched ${fetched} item picture${fetched === 1 ? '' : 's'} for the offline copy`);
   }
 
   /** Moves the copy's invoice numbering past what was issued online since it was made. */
@@ -228,38 +283,40 @@ export class FallbackCounter {
     if (!res.ok) throw new Error(await failure(res, "Couldn't bring the offline copy's invoice numbers up to date"));
   }
 
-  /** Sends everything made offline to the server. Safe to repeat: the server keys rows by id. */
-  async sync() {
+  /** Everything made offline, as the server takes it (JSON). */
+  async outbox() {
     const settings = this.settings();
     if (!settings) throw new Error('This computer is not a fallback counter');
     await this.start();
     if (!this.baseUrl) throw new Error("The offline copy isn't running");
-    const outbox = await net.fetch(`${this.baseUrl}/fallback/outbox`, {
+    const res = await net.fetch(`${this.baseUrl}/fallback/outbox`, {
       headers: { [FALLBACK_SECRET_HEADER]: settings.localSecret },
       signal: AbortSignal.timeout(60_000)
     });
-    if (!outbox.ok) throw new Error(await failure(outbox, "Couldn't read the offline sales"));
-    const body = await outbox.text();
+    if (!res.ok) throw new Error(await failure(res, "Couldn't read the offline sales"));
+    return res.text();
+  }
+
+  /**
+   * Sends everything made offline to the server. Safe to repeat: the server keys rows by id.
+   * Refused for clashes, it keeps them (status().conflicts) for the screens to list.
+   */
+  async sync() {
+    const settings = this.settings();
+    if (!settings) throw new Error('This computer is not a fallback counter');
+    const body = await this.outbox();
     const res = await net.fetch(`${settings.server}/fallback/sync`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', [FALLBACK_KEY_HEADER]: settings.key, 'x-pos-client-version': app.getVersion() },
       body,
       signal: AbortSignal.timeout(5 * 60_000)
     });
-    if (!res.ok) throw new Error(await failure(res, "The server didn't take the offline sales"));
-    return (await res.json()) as { invoices: number; registers: number };
-  }
-
-  /** Whether the server answers right now. */
-  async probe() {
-    const settings = this.settings();
-    if (!settings) return null;
-    try {
-      const res = await net.fetch(`${settings.server}/meta`, { signal: AbortSignal.timeout(5_000) });
-      this.serverReachable = res.ok;
-    } catch {
-      this.serverReachable = false;
+    if (!res.ok) {
+      const refusal = (await res.clone().json().catch(() => null)) as { code?: unknown; conflicts?: unknown } | null;
+      this.conflicts = refusal?.code === FALLBACK_SYNC_CONFLICT && Array.isArray(refusal.conflicts) ? (refusal.conflicts as SyncConflict[]) : null;
+      throw new Error(await failure(res, "The server didn't take the offline sales"));
     }
-    return this.serverReachable;
+    this.conflicts = null;
+    return (await res.json()) as { invoices: number; registers: number };
   }
 }

@@ -63,6 +63,19 @@ export class FallbackOutboxController {
     return { moved };
   }
 
+  /**
+   * The item pictures the copy's screens show (paths under /uploads/). The desktop app keeps
+   * them in a folder of its own, fetched once from the server, since each refresh of the copy
+   * replaces its uploads.
+   */
+  @Public()
+  @Get('/fallback/images')
+  async images(@Headers() headers: RequestHeaders) {
+    this.assertApp(headers);
+    const items = await this.prisma.item.findMany({ where: { imageUrl: { startsWith: '/uploads/' } }, select: { imageUrl: true }, distinct: ['imageUrl'] });
+    return { paths: items.map((item) => item.imageUrl!).filter((path) => !path.includes('..')) };
+  }
+
   @Public()
   @Get('/fallback/outbox')
   async outbox(@Headers() headers: RequestHeaders): Promise<FallbackOutbox> {

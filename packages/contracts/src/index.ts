@@ -296,6 +296,12 @@ export const DEVICE_HEADER = 'x-pos-device';
 export const FALLBACK_UNAVAILABLE = 'FALLBACK_UNAVAILABLE';
 /** The `code` of the 502 the desktop app answers when it can't reach the online server. */
 export const SERVER_UNREACHABLE = 'SERVER_UNREACHABLE';
+/**
+ * The `code` of the 409 the server answers when a fallback counter's offline sales clash with
+ * what it has (a number already used, something they point at missing); `conflicts` lists each
+ * as { document, problem } for the person to read. Nothing is added until none are left.
+ */
+export const FALLBACK_SYNC_CONFLICT = 'FALLBACK_SYNC_CONFLICT';
 
 const counterNameSchema = z.string().trim().min(1).max(40);
 
@@ -1631,6 +1637,15 @@ export const appContract = c.router({
           path: ['toBranchId']
         }),
       responses: { 201: stockTransferSchema }
+    },
+    /**
+     * Who may send transfers: every branch of the business, to send to (a cashier may send to a
+     * branch they don't work at).
+     */
+    destinations: {
+      method: 'GET',
+      path: '/stock-transfers/destinations',
+      responses: { 200: z.array(z.object({ id: z.string().uuid(), name: z.string(), code: z.string() })) }
     },
     /** Transfers sent from or to a branch, newest first. */
     list: {

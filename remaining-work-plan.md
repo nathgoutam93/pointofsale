@@ -231,24 +231,36 @@ managed hosting is selling.
 - **Done when:** a customer over their limit is warned or stopped, overdue bills show, and a
   statement matches the bills and payments.
 
-## [ ] 12. Smaller follow-ups
+## [x] 12. Smaller follow-ups
 
-- **Receipt builder:** the Sales screen still builds its receipt from its own line mapping;
-  switch it to `invoiceReceiptItems` (`packages/contracts/src/receiptDocuments.ts`), which
-  emailed receipts already use, so the two can't drift.
-- **Transfers by cashiers:** a cashier allowed to send transfers picks the destination from the
-  branches they have access to; list every branch of the business there instead.
-- **POS check:** look at the POS screen's "Email the receipt" after a sale in the desktop app
-  (the same component is checked on the Sales screen).
+- **Receipt builder:** done. The Sales screen builds its receipt lines with `invoiceReceiptItems`,
+  as emailed receipts do (checked in the desktop app: the same lines as the emailed receipt).
+- **Transfers by cashiers:** done. `GET /stock-transfers/destinations` lists every branch for
+  anyone allowed to send; the Transfers screen uses it (test in `transfers.test.ts`; checked in
+  the desktop app with a cashier who works at one branch).
+- **POS check:** done. "Email the receipt" after a sale on the POS screen sends it (checked in the
+  desktop app).
 - **Fallback counter follow-ups** (Phase 7 of `desktop-offline-online-plan.md`):
-  - Item images in the offline copy (only logos are copied).
-  - Settling credit sales, returns and adding customers offline. Each needs server balances or
-    numbering, and its own outbox rows and checks on the server.
-  - A conflict screen when a sync is refused (an item or customer deleted online, a number used
-    twice), instead of "contact support".
-  - Expected and counted cash for a register the sync closes because one was opened offline.
-  - Check that the server can be reached in the background, so the banner appears before a
-    request fails.
+  - Item images in the offline copy: done. The copy lists them (`GET /fallback/images`); the
+    desktop app keeps them in `fallback/images`, fetching each from the server once, and puts
+    them back after every refresh (which replaces the copy's uploads).
+  - Settling credit sales, returns and adding customers offline: moved to item 17 (each needs
+    its own design).
+  - A conflict screen when a sync is refused: done. Before adding anything, the server checks
+    for invoice and receipt numbers it already used for something else, and for items, customers
+    and staff it no longer has; it answers 409 `FALLBACK_SYNC_CONFLICT` with each clash. The
+    banner lists them and can save the offline sales to a file for support. Items, customers and
+    staff are never deleted through the app, so in practice the clash is a number used twice.
+  - Expected and counted cash for a register the sync closes: done. It gets its expected cash;
+    the count stays empty and Open Register shows "cash not counted (… expected)".
+  - Server reachability in the background: done. Every online computer asks `/meta` every 30
+    seconds, so the banner shows before a request fails, and "Send offline sales" shows once the
+    server is back.
+- **Verified in the desktop app** (Xvfb, from source, as a non-root user, local online API,
+  Playwright over CDP): the server stopped with no request from the page and the banner showed
+  after 26 s; sold offline with the item picture shown from the copy; an online invoice given
+  the offline sale's number made the sync refuse with that clash listed; with the number given
+  back, the sales went in.
 
 ## [x] 13. Hosting kind: managed or self-hosted (do first)
 
@@ -412,6 +424,29 @@ managed hosting is selling.
 - **Done when:** the repository is private, and an installed app updates itself from the new
   place.
 
+## [ ] 17. Fallback counter: credit sales, returns and new customers offline
+
+- **Why:** while the server is down the fallback counter sells for cash and card only. Credit
+  sales, settling old bills, returns and new customers wait for the server.
+- **What (proposal; each part can be done on its own):**
+  - **New customers:** made offline with their own ids (UUIDs already), sent first in the sync.
+    The server matches a phone number it already has to that customer instead of adding a second
+    one, and points the offline invoices at it.
+  - **Credit sales:** the copy already has customers' balances as at the last refresh. Offline
+    credit sales add to the due; the server's balances follow from the synced invoices. Needs a
+    rule for credit limits (item 11) while offline, e.g. offline credit only up to the limit as
+    at the copy.
+  - **Returns:** credit notes have a series per counter (like invoices), so offline numbering is
+    safe. Returns need the original invoice in the copy: only the counter's own recent invoices
+    (the last few days) would be in it, so returns of older or other counters' bills still wait.
+    Stock and refunds sync like sales.
+  - **Settling old bills:** needs the bill's current due, which another till may have changed
+    online; least safe offline. Leave it waiting for the server unless a shop asks.
+  - Each: its own outbox rows, the server's checks (and clash reasons for item 12's list), and
+    tests like `fallback.test.ts`.
+- **Done when:** a fallback counter adds a customer, sells to them on credit and takes a return of
+  its own sale while the server is down, and all three reach the server correctly.
+
 ---
 
 ## Progress log
@@ -429,3 +464,4 @@ managed hosting is selling.
 - 2026-10-03: Item 14 built with a dummy payment gateway (plans, trial, limits, read-only, webhooks, invoices, reminders, Settings → Billing). Left: pricing, a real gateway, renewals, seller details.
 - 2026-10-03: Decided: closed source, self-hosters get built images with a licence key. Item 15 rewritten for that; item 16 added (move the update feed, then make the repository private, before the first real release). Product fixes come before selling.
 - 2026-10-03: Server deployed with `POS_HOSTING=managed` (no `BILLING_GATEWAY`). Version 0.1.2 prepared to ship the Server card and Billing screens to installed apps.
+- 2026-10-03: Item 12 done (receipt builder, transfer destinations, POS email check, and the fallback counter's pictures, sync clashes, uncounted cash and background server check); offline credit, returns and customers moved to item 17.

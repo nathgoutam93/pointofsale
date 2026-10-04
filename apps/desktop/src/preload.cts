@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('posDesktop', {
     remove: () => invoke('pos:fallback:remove'),
     start: () => invoke('pos:fallback:start'),
     finish: () => invoke('pos:fallback:finish'),
+    saveOutbox: () => invoke('pos:fallback:save-outbox'),
     /** Calls `listener` on every change; returns a function that stops it. */
     onStatus: (listener: (status: unknown) => void) => {
       const forward = (_event: IpcRendererEvent, status: unknown) => listener(status);

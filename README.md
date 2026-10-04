@@ -367,10 +367,14 @@ shows both parts.
 
 Fallback counter: on an online business, one counter per branch can keep selling on its own
 computer when the server can't be reached (Settings → Counters → "Use as fallback here", in the
-desktop app). That computer keeps an offline copy, refreshed every 10 minutes. When the server
-is down a banner offers "Keep selling on this computer" (cash and card only). When it's back,
-"Send offline sales and go back online" adds the sales to the server, invoice numbers and stock
-included. See Phase 7 in `desktop-offline-online-plan.md`.
+desktop app). That computer keeps an offline copy, refreshed every 10 minutes, with the item
+pictures (each fetched once). Every online computer checks the server every 30 seconds, so when it
+is down a banner says so before a sale fails, and on the fallback counter offers "Keep selling on
+this computer" (cash and card only). When it's back, "Send offline sales and go back online" adds
+the sales to the server, invoice numbers and stock included. If the server refuses them (a number
+already used online, say), nothing is added: the banner lists each clash and can save the offline
+sales to a file for support. A register the offline one replaced is closed with its expected cash
+and shown as not counted. See Phase 7 in `desktop-offline-online-plan.md`.
 
 Passwords:
 - **Anyone** can change their own password (click your name at the top). Their other sessions end.

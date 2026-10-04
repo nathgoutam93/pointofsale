@@ -48,6 +48,8 @@ export function buildInvoiceReceipt(postPayment: PostPaymentSummary, store: Stor
     grandTotal: postPayment.grandTotal,
     payments: postPayment.paymentLines,
     paidTotal: postPayment.paidTotal,
+    // The business's time, as on emailed receipts, whatever this computer's clock is set to.
+    timeZone: store.businessSettings.data?.timezone,
   });
   return renderReceipt(doc, store.printTemplate);
 }

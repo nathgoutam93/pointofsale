@@ -29,6 +29,29 @@ export function FallbackBanner() {
 
   const errorLine = error ? <p className="mt-1 text-xs font-medium text-rose-700">{error}</p> : null;
 
+  // The server refused the offline sales: what clashes, and a file for support.
+  const conflicts = status.conflicts?.length ? (
+    <div className="mt-2 rounded-lg border border-amber-300 bg-white/70 p-3 text-xs text-amber-950">
+      <p className="font-semibold">The server didn't take the offline sales. Nothing was added; they're safe on this computer.</p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-4">
+        {status.conflicts.map((conflict, index) => (
+          <li key={index}>
+            <span className="font-medium">{conflict.document}:</span> {conflict.problem}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1">
+        Selling carries on here. These need a person to sort out: save the offline sales to a file and send it to support with this
+        list.
+      </p>
+      {fallbackBridge?.saveOutbox ? (
+        <button className="btn-secondary mt-2" disabled={busy} onClick={() => void act(() => fallbackBridge!.saveOutbox!())}>
+          Save the offline sales to a file
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+
   if (status.syncing) {
     return (
       <div className="border-b border-sky-200 bg-sky-50 px-6 py-3 text-sm text-sky-900 print:hidden" role="status">
@@ -46,7 +69,7 @@ export function FallbackBanner() {
             Sales are kept on this computer and sent when the server is back. Cash and card only; credit, returns and
             changes wait for the server.
           </p>
-          {errorLine}
+          {conflicts ?? errorLine}
         </div>
         {status.serverReachable ? (
           <button className="btn-primary" disabled={busy} onClick={() => void act(() => fallbackBridge!.finish())}>

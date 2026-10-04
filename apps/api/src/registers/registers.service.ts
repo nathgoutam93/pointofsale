@@ -39,7 +39,7 @@ export class RegistersService {
    * Cash that should be in a register's drawer: the opening balance plus cash payments
    * taken on it, minus cash refunds given from it. Card and wallet don't touch the drawer.
    */
-  private async registerCash(client: Prisma.TransactionClient | PrismaService, registerId: string, openingBalance: number) {
+  async registerCash(client: Prisma.TransactionClient | PrismaService, registerId: string, openingBalance: number) {
     const [cashIn, cashOut] = await Promise.all([
       client.payment.aggregate({
         where: { registerSessionId: registerId, mode: PaymentMode.CASH },

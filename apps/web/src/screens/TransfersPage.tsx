@@ -41,11 +41,21 @@ function Transfers() {
   // Anyone at a branch receives what arrives there; sending and calling back need the permission.
   const canSend = can(session, "SEND_TRANSFERS");
   const queryClient = useQueryClient();
-  const otherBranches = session.branches.filter((branch) => branch.id !== branchId);
+  // Stock can go to any branch of the business, not only the ones this person works at.
+  const destinations = useQuery({
+    queryKey: ["transfer-destinations"],
+    queryFn: async () => {
+      const res = await api.transfers.destinations({ extraHeaders: authHeaders() });
+      if (res.status !== 200) throw new Error("Failed to load the branches");
+      return res.body;
+    },
+    enabled: canSend,
+  });
+  const otherBranches = (destinations.data ?? session.branches).filter((branch) => branch.id !== branchId);
   const [toBranchId, setToBranchId] = useState(otherBranches[0]?.id ?? "");
   useEffect(() => {
     if (!otherBranches.some((branch) => branch.id === toBranchId)) setToBranchId(otherBranches[0]?.id ?? "");
-  }, [branchId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [branchId, destinations.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [note, setNote] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [error, setError] = useState("");

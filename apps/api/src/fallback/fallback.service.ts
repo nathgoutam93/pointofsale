@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { CustomerScope, DocumentKind, Prisma } from '@prisma/client';
-import { APP_VERSION, documentSeries } from '@pos/contracts';
+import { APP_VERSION, documentSeries, FALLBACK_SYNC_CONFLICT } from '@pos/contracts';
 import { randomBytes } from 'crypto';
 import { mkdtemp } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -15,6 +15,8 @@ import { PrismaService } from '../prisma.service';
 import { currentBusiness } from '../tenancy/tenant-context';
 import { TenancyService } from '../tenancy/tenancy.service';
 import { BranchesService } from '../branches/branches.service';
+import { toNumber } from '../common/numbers';
+import { RegistersService } from '../registers/registers.service';
 
 /** A fallback computer's key: fb1.<business id>.<counter id>.<secret>. Only the secret's hash is kept. */
 const KEY_PATTERN = /^fb1\.([0-9a-f-]{36})\.([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$/;
@@ -46,6 +48,9 @@ export type FallbackOutbox = {
 
 type FallbackCounter = { id: string; branchId: string; number: number; name: string; branchCode: string };
 
+/** One reason offline sales can't be added as they are, for a person to read. */
+export type SyncConflict = { document: string; problem: string };
+
 /**
  * The fallback counter on the online server: one counter per branch bound to one computer,
  * which keeps a local copy of what selling needs and, after working offline, sends its sales.
@@ -55,7 +60,8 @@ export class FallbackService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenancy: TenancyService,
-    private readonly branches: BranchesService
+    private readonly branches: BranchesService,
+    private readonly registers: RegistersService
   ) {}
 
   /** Makes `counterId` the branch's fallback counter on `deviceId`; answers the computer's key. */
@@ -202,17 +208,32 @@ export class FallbackService {
       return await this.prisma.$transaction(
         async (tx) => {
           await lockBranchRegisters(tx, counter.branchId);
+          const conflicts = await this.conflicts(tx, outbox);
+          if (conflicts.length) {
+            throw new ConflictException({
+              statusCode: 409,
+              code: FALLBACK_SYNC_CONFLICT,
+              message: `The offline sales clash with the server in ${conflicts.length === 1 ? 'one place' : `${conflicts.length} places`}. Nothing was added; they stay on this computer.`,
+              conflicts
+            });
+          }
           if (outbox.registers.length) {
             // A register opened offline when the copy didn't have the one open online (opened
             // after the copy's last refresh): that one ended when the offline one began.
             const known = new Set(
               (await tx.registerSession.findMany({ where: { id: { in: [...registerIds] } }, select: { id: true } })).map((row) => row.id)
             );
+            // Its cash is worked out as at close; nobody counted it, so the count stays empty.
             for (const register of outbox.registers.filter((row) => !known.has(String(row.id)))) {
-              await tx.registerSession.updateMany({
-                where: { counterId: counter.id, closedAt: null, id: { notIn: [...registerIds] }, openedAt: { lt: new Date(String(register.openedAt)) } },
-                data: { closedAt: new Date(String(register.openedAt)) }
+              const closedAt = new Date(String(register.openedAt));
+              const replaced = await tx.registerSession.findMany({
+                where: { counterId: counter.id, closedAt: null, id: { notIn: [...registerIds] }, openedAt: { lt: closedAt } },
+                select: { id: true, openingBalance: true }
               });
+              for (const open of replaced) {
+                const cash = await this.registers.registerCash(tx, open.id, toNumber(open.openingBalance));
+                await tx.registerSession.update({ where: { id: open.id }, data: { closedAt, expectedCash: cash.expectedCash } });
+              }
             }
             // A register opened offline is added; one closed offline is closed here too.
             await tx.$executeRawUnsafe(
@@ -259,13 +280,84 @@ export class FallbackService {
       );
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError || error instanceof Prisma.PrismaClientUnknownRequestError) {
-        // A number already used online, or an item or customer deleted meanwhile: needs a person.
+        // Something the checks above don't foresee: the database's own reason, for support.
         throw new ConflictException(
-          `The offline sales couldn't be added (${error.message.split('\n').filter(Boolean).at(-1)}). They stay on this computer; contact support.`
+          `The offline sales couldn't be added (${error.message.split('\n').filter(Boolean).at(-1)}). They stay on this computer; save them to a file from the banner and send it to support.`
         );
       }
       throw error;
     }
+  }
+
+  /**
+   * What would stop the offline sales going in as they are: an invoice or receipt number the
+   * server has already used for something else, or an item, customer or staff member they point
+   * at that the server no longer has. Rows already added (a retry) are not clashes.
+   */
+  private async conflicts(tx: Prisma.TransactionClient, outbox: FallbackOutbox): Promise<SyncConflict[]> {
+    const timezone = (await tx.businessSettings.findUnique({ where: { id: 'default' }, select: { timezone: true } }))?.timezone ?? 'Asia/Kolkata';
+    const when = (date: Date) => date.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: timezone });
+    const conflicts: SyncConflict[] = [];
+    const ids = (rows: Array<Record<string, unknown>>) => rows.map((row) => String(row.id));
+    const invoiceNoOf = new Map(outbox.invoices.map((entry) => [String(entry.invoice.id), String(entry.invoice.invoiceNo)]));
+
+    const invoices = outbox.invoices.map((entry) => entry.invoice);
+    const takenInvoices = await tx.saleInvoice.findMany({
+      where: { invoiceNo: { in: invoices.map((row) => String(row.invoiceNo)) }, id: { notIn: ids(invoices) } },
+      select: { invoiceNo: true, createdAt: true }
+    });
+    for (const taken of takenInvoices) {
+      conflicts.push({
+        document: `Invoice ${taken.invoiceNo}`,
+        problem: `This number was also used online (${when(taken.createdAt)}), for another sale.`
+      });
+    }
+
+    const receipts = outbox.invoices.flatMap((entry) => entry.receipts);
+    const takenReceipts = await tx.receipt.findMany({
+      where: { receiptNo: { in: receipts.map((row) => String(row.receiptNo)) }, id: { notIn: ids(receipts) } },
+      select: { receiptNo: true, createdAt: true }
+    });
+    for (const taken of takenReceipts) {
+      conflicts.push({
+        document: `Receipt ${taken.receiptNo}`,
+        problem: `This number was also used online (${when(taken.createdAt)}), for another payment.`
+      });
+    }
+
+    const missing = async (model: 'item' | 'customer' | 'user', wanted: string[]) => {
+      const unique = [...new Set(wanted)];
+      if (unique.length === 0) return new Set<string>();
+      const where = { id: { in: unique } };
+      const found =
+        model === 'item'
+          ? await tx.item.findMany({ where, select: { id: true } })
+          : model === 'customer'
+            ? await tx.customer.findMany({ where, select: { id: true } })
+            : await tx.user.findMany({ where, select: { id: true } });
+      const present = new Set(found.map((row) => row.id));
+      return new Set(unique.filter((id) => !present.has(id)));
+    };
+    const lines = outbox.invoices.flatMap((entry) => entry.lines);
+    const missingItems = await missing('item', [...lines, ...outbox.invoices.flatMap((entry) => entry.ledger)].map((row) => String(row.itemId)));
+    for (const row of lines.filter((line) => missingItems.has(String(line.itemId)))) {
+      conflicts.push({
+        document: `Invoice ${invoiceNoOf.get(String(row.invoiceId))}`,
+        problem: `Its item "${String(row.itemName)}" is no longer on the server.`
+      });
+    }
+    const missingCustomers = await missing('customer', invoices.map((row) => String(row.customerId)));
+    for (const row of invoices.filter((invoice) => missingCustomers.has(String(invoice.customerId)))) {
+      conflicts.push({ document: `Invoice ${String(row.invoiceNo)}`, problem: `Its customer "${String(row.customerName)}" is no longer on the server.` });
+    }
+    const missingUsers = await missing('user', outbox.registers.map((row) => String(row.userId)));
+    for (const row of outbox.registers.filter((register) => missingUsers.has(String(register.userId)))) {
+      conflicts.push({
+        document: `The register opened ${when(new Date(String(row.openedAt)))}`,
+        problem: 'The staff member who opened it is no longer on the server.'
+      });
+    }
+    return conflicts;
   }
 
   isUuid(value: string) {

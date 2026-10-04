@@ -330,6 +330,7 @@ export function ReturnsPage() {
       items,
       totalAmount: Number(detail.totalAmount),
       dueAdjusted: Number(detail.dueAdjusted ?? 0),
+      timeZone: businessSettings.data?.timezone,
       tax: { cgst: Number(detail.cgstTotal), sgst: Number(detail.sgstTotal), igst: Number(detail.igstTotal) },
     });
     return renderReceipt(doc, receiptTemplate);
@@ -339,6 +340,7 @@ export function ReturnsPage() {
     receiptHeaderLines,
     returnDetail.data,
     storeDisplayName,
+    businessSettings.data?.timezone,
   ]);
   const receiptStyle = receiptStyleFor(printableReturn ?? { columns: 48 }, receiptTemplate, customReceiptCss);
 
