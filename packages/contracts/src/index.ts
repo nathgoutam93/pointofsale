@@ -1183,6 +1183,36 @@ export const appContract = c.router({
       path: '/accounts/businesses',
       responses: { 200: z.array(ownedBusinessSchema) }
     },
+    /** Online, owner token: the staff of one of the owner's businesses. */
+    staff: {
+      method: 'GET',
+      path: '/accounts/businesses/:businessId/staff',
+      responses: {
+        200: z.array(
+          z.object({
+            id: z.string().uuid(),
+            username: z.string(),
+            role: z.enum(['ADMIN', 'CASHIER']),
+            /** Their home branch; admins may manage more (branchCount). */
+            branchName: z.string(),
+            branchCount: z.number().int(),
+            isActive: z.boolean(),
+            mustChangePassword: z.boolean(),
+            createdAt: z.string().datetime()
+          })
+        )
+      }
+    },
+    /**
+     * Online, owner token: turns a staff user of one of the owner's businesses off (they are
+     * signed out everywhere and can't sign in) or on again. The last active admin stays on.
+     */
+    staffActive: {
+      method: 'POST',
+      path: '/accounts/staff-active',
+      body: z.object({ businessId: z.string().uuid(), username: z.string().trim().min(1), isActive: z.boolean() }),
+      responses: { 200: z.object({ username: z.string(), isActive: z.boolean() }) }
+    },
     /**
      * Online, owner token: a new password for a staff user of one of the owner's businesses
      * (an admin who forgot theirs). Their other sessions end; an inactive admin is reactivated.

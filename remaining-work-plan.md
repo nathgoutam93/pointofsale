@@ -196,13 +196,26 @@ managed hosting is selling.
   - **Not done:** a GSTR-1/3B CSV. The GST Returns screen already downloads the GSTR-1 JSON and
     shows both returns.
 
-## [ ] 8. Owner screens
+## [x] 8. Owner screens
 
 - **What:**
   - A screen for owners (owner sign-in) listing their businesses and each business's staff, to
     reset passwords or deactivate staff there instead of through "Forgot your password?".
   - Invites, if joining by business code turns out not to be enough.
 - **Done when:** an owner manages staff of every business from one place.
+- **Status (2026-10-04):** built (no invites; joining by business code is enough so far).
+  - **Screen:** `/owner`, reached from "Business owner? Manage your staff" on the online sign-in.
+    - The owner signs in with the owner account; the owner token stays in the page.
+    - It lists the owner's businesses, and for one business its staff: role, home branch, how
+      many branches they manage, off, and whether they must choose a new password.
+    - Each staff member can be given a new password, or turned off or on.
+  - **API (owner token):**
+    - `GET /accounts/businesses/:businessId/staff`.
+    - `POST /accounts/staff-active`. Turning a user off signs them out everywhere, because each
+      request checks `isActive`. The last active admin stays on.
+    - Both use the same membership check as `staff-password`.
+  - **Tests:** `passwords.test.ts` ("see their staff and turn them off and on"), plus a browser
+    run of the screen.
 
 ## [ ] 9. Real hardware
 
@@ -577,3 +590,4 @@ managed hosting is selling.
 - 2026-10-04: Item 11 done: credit limits (cashiers stopped, admins warned), payment terms and due dates, overdue marks, statements (printed and emailed) and ageing.
 - 2026-10-04: Item 17 done: offline customers, credit sales (within the limit as copied), payments on offline bills and returns of recent own bills, all synced.
 - 2026-10-04: Item 7 done: Settings → Your data downloads the whole online business (restorable offline) and a sales register CSV.
+- 2026-10-04: Item 8 done: the owner's screen (/owner) lists each business's staff, gives new passwords and turns staff off or on.

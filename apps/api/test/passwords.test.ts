@@ -121,6 +121,39 @@ describe('owners', () => {
     expect((await t.call('POST', '/accounts/staff-password', login.body.token, { businessId: owner.businessId, username: 'admin', newPassword: 'whatever-1' })).status).toBe(401);
   });
 
+  it('see their staff and turn them off and on, always keeping an active admin', async () => {
+    const token = await ownerToken();
+    const adminSession = (await t.call('POST', '/auth/login', null, { businessCode: owner.code, username: 'admin', password: 'remembered-1' })).body.token;
+    const branchId = (await t.call('GET', '/branches', adminSession)).body[0].id;
+    expect((await t.call('POST', '/users', adminSession, { branchId, username: 'till-1', password: 'cashier-pass-1' })).status).toBe(201);
+    const cashierLogin = () => t.call('POST', '/auth/login', null, { businessCode: owner.code, username: 'till-1', password: 'cashier-pass-1' });
+    const cashierSession = (await cashierLogin()).body.token;
+
+    const staff = await t.call('GET', `/accounts/businesses/${owner.businessId}/staff`, token);
+    expect(staff.status).toBe(200);
+    expect(staff.body.map((user: { username: string; role: string; isActive: boolean; branchName: string }) => [user.username, user.role, user.isActive, user.branchName])).toEqual([
+      ['admin', 'ADMIN', true, expect.any(String)],
+      ['till-1', 'CASHIER', true, expect.any(String)]
+    ]);
+
+    // Off: signed out everywhere, and can't sign in.
+    const off = await t.call('POST', '/accounts/staff-active', token, { businessId: owner.businessId, username: 'till-1', isActive: false });
+    expect(off.body).toEqual({ username: 'till-1', isActive: false });
+    expect((await t.call('GET', '/auth/me', cashierSession)).status).toBe(401);
+    expect((await cashierLogin()).status).not.toBe(200);
+    expect((await t.call('POST', '/accounts/staff-active', token, { businessId: owner.businessId, username: 'till-1', isActive: true })).status).toBe(200);
+    expect((await cashierLogin()).status).toBe(200);
+
+    // The only admin stays on; other businesses and staff tokens get nothing.
+    const lastAdmin = await t.call('POST', '/accounts/staff-active', token, { businessId: owner.businessId, username: 'admin', isActive: false });
+    expect(lastAdmin.status).toBe(400);
+    expect(lastAdmin.body.message).toMatch(/only active admin/);
+    const testBusinessId = (await control().business.findUniqueOrThrow({ where: { code: t.businessCode! } })).id;
+    expect((await t.call('GET', `/accounts/businesses/${testBusinessId}/staff`, token)).status).toBe(403);
+    expect((await t.call('POST', '/accounts/staff-active', token, { businessId: testBusinessId, username: ADMIN.username, isActive: false })).status).toBe(403);
+    expect((await t.call('GET', `/accounts/businesses/${owner.businessId}/staff`, adminSession)).status).toBe(401);
+  });
+
   it('reset their own password with a code sent by email', async () => {
     const oldToken = await ownerToken();
     expect((await t.call('POST', '/accounts/password-reset', null, { email: owner.email.toUpperCase() })).status).toBe(202);
