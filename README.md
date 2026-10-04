@@ -409,6 +409,11 @@ Passwords:
   new password, and turns staff off (signed out everywhere, can't sign in) or on. The last active
   admin of a business can't be turned off.
 
+Crash reports: the apps report crashes to the online server (an offline install to the hosted
+one), with the error and its stack frames only, scrubbed of anything personal. The desktop app
+sends only after an admin says yes (asked once; Settings → Business). On the server,
+`node dist/tenancy/cli.js crashes [--days 7]` lists them grouped by crash.
+
 Email (online server: `SMTP_URL` and `MAIL_FROM`; `MAIL_TRANSPORT=log` prints emails in development):
 - **Owner verification:** the first time an email address creates a business or moves one online,
   the server emails it a code and the app asks for it. A verified address isn't asked again.

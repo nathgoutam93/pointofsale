@@ -39,6 +39,8 @@ export type DesktopConfig = {
   deviceId: string | null;
   /** Online: this computer as its branch's fallback counter; null if it isn't one. */
   fallback: FallbackSettings | null;
+  /** Whether crash reports may be sent: null until an admin answers (see crash-reports.ts). */
+  crashReports: boolean | null;
 };
 
 export const BACKUP_DAYS = { min: 2, max: 5, default: 3 } as const;
@@ -61,7 +63,8 @@ const EMPTY: DesktopConfig = {
   backupCopyStatus: null,
   printing: DEFAULT_PRINTING,
   deviceId: null,
-  fallback: null
+  fallback: null,
+  crashReports: null
 };
 
 export function loadConfig(): DesktopConfig {

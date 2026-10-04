@@ -77,7 +77,7 @@ managed hosting is selling.
 
 ---
 
-## [ ] 1. Crash reporting
+## [x] 1. Crash reporting
 
 - **Why:** a crash on a shop's computer (desktop main process, local API, the page) is invisible
   to us today. The only trace is the log folder on that computer, which "Open logs folder"
@@ -99,6 +99,36 @@ managed hosting is selling.
     (never names) so reports can be grouped.
 - **Done when:** a crash in each of main, local API, page and online API reaches the chosen
   service with version and mode, nothing personal, and the switch works.
+- **Status (2026-10-04):** built, with our own endpoint (no third party).
+  - **Where reports go:** the `CrashReport` table in the control schema (migration
+    `20261016120000_crash_reports`), kept 90 days.
+    - `POST /crash-reports`: online, needs no sign-in, 60 deliveries an hour per address.
+    - A signed-in page's report gets the business id from its token. A desktop report carries
+      only the install's random device id.
+    - `node dist/tenancy/cli.js crashes [--days 7]` lists reports grouped by crash: count,
+      versions, modes, computers, businesses and the top frames.
+  - **What is sent:** the error's first line and its stack frames only, never request bodies.
+    The text is scrubbed of emails, tokens, GSTINs, numbers, URL queries and user folders
+    (`crashDetails` and `scrubCrashText` in contracts; the desktop app has a copy). The server
+    scrubs again.
+  - **Online API:** `ServerErrorFilter` answers as before and records every unexpected 500. A
+    deliberate 503 is not recorded.
+  - **Desktop app:**
+    - Captures uncaught errors and rejections, a renderer or child process that stops, the local
+      API stopping (exit code and frames only), and the page's errors.
+    - Reports wait in `crash-reports.json` in the app's folder (at most 50) and are sent every
+      10 minutes and after each new one. That is the app's server online, or the hosted server
+      (`posServerUrl`) for an offline install.
+    - Nothing is sent until an admin says yes: a one-time prompt, plus a switch in
+      Settings → Business. No drops what is waiting.
+  - **Browser:** the page sends its errors to the server it already works with. A crashed screen
+    shows "Something went wrong" with Reload (`CrashBoundary`).
+  - **Tests:**
+    - `crash-reports.test.ts`: scrubbing, the business from the token, grouping, and a real 500
+      recorded without the request's data.
+    - Contracts `crash.test.ts`.
+    - In the desktop app (offline install, xvfb): a page crash was kept before anyone answered,
+      then sent after "Send reports", and listed by the CLI.
 
 ## [ ] 2. Windows and macOS builds, signing, icons, first real release (plan 3.7)
 
@@ -591,3 +621,4 @@ managed hosting is selling.
 - 2026-10-04: Item 17 done: offline customers, credit sales (within the limit as copied), payments on offline bills and returns of recent own bills, all synced.
 - 2026-10-04: Item 7 done: Settings → Your data downloads the whole online business (restorable offline) and a sales register CSV.
 - 2026-10-04: Item 8 done: the owner's screen (/owner) lists each business's staff, gives new passwords and turns staff off or on.
+- 2026-10-04: Item 1 done: crash reports to our own server (desktop main, local API, page, online API), scrubbed, sent only after an admin says yes.

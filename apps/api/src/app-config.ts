@@ -1,4 +1,5 @@
 import { ForbiddenException } from '@nestjs/common';
+import { HttpAdapterHost } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { json, raw } from 'express';
 import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
@@ -9,6 +10,8 @@ import { isFallback, minClientVersion, posMode } from './common/mode';
 import { isFallbackWrite } from './fallback/outbox';
 import { uploadsDir } from './common/uploads';
 import { tenantStorage } from './tenancy/tenant-context';
+import { CrashReportsService } from './crash/crash-reports.service';
+import { ServerErrorFilter } from './crash/server-error.filter';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
@@ -61,6 +64,8 @@ function hostName(host: string | undefined) {
 /** CORS, the offline Host check and the /uploads/ static files, shared by main.ts and the tests. */
 export function configureApp(app: NestExpressApplication) {
   app.enableCors(corsOptions());
+  // Unexpected errors (500s) are answered as before and kept as crash reports (online).
+  app.useGlobalFilters(new ServerErrorFilter(app.get(HttpAdapterHost).httpAdapter, app.get(CrashReportsService)));
 
   // A fallback counter's offline sales come in one request, larger than other requests may be.
   // Wrapped under another name: Nest skips its own JSON parser if one named jsonParser is in use.

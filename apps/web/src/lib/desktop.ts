@@ -147,6 +147,17 @@ export type DesktopBridge = {
   printing?: DesktopPrinting;
   /** Online: this computer as its branch's fallback counter. Missing in older versions. */
   fallback?: DesktopFallback;
+  /** Crash reports (apps/desktop/src/crash-reports.ts). Missing in older versions. */
+  crashReports?: DesktopCrashReports;
+};
+
+/** Whether crash reports may be sent (null: no admin has answered yet), and how many wait. */
+export type CrashReportsStatus = { enabled: boolean | null; queued: number };
+
+export type DesktopCrashReports = {
+  status(): Promise<CrashReportsStatus>;
+  set(enabled: boolean): Promise<CrashReportsStatus>;
+  report(report: { message: string; stack: string }): Promise<void>;
 };
 
 declare global {
