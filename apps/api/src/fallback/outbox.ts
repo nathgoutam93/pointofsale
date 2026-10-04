@@ -12,14 +12,29 @@ import type { FallbackOutbox } from './fallback.service';
 /** The header the desktop app reads the offline sales with: the POS_FALLBACK_SECRET it started this API with. */
 export const FALLBACK_SECRET_HEADER = 'x-pos-fallback-secret';
 
-/** What a request may change while a fallback counter works offline; everything else is read-only. */
-export const FALLBACK_WRITES = new Set(['POST /auth/login', 'POST /auth/logout', 'POST /registers/open', 'POST /registers/close', 'POST /sales/checkout', 'POST /fallback/numbers']);
+/**
+ * What a request may change while a fallback counter works offline (selling, credit, adding
+ * customers, taking payment for and returning bills it has); everything else is read-only.
+ */
+const FALLBACK_WRITES = [
+  /^POST \/auth\/log(in|out)$/,
+  /^POST \/registers\/(open|close)$/,
+  /^POST \/sales\/checkout$/,
+  /^POST \/sales\/[0-9a-f-]{36}\/(settle|return)$/,
+  /^POST \/customers$/,
+  /^POST \/fallback\/numbers$/
+];
+
+export function isFallbackWrite(method: string, path: string) {
+  return FALLBACK_WRITES.some((pattern) => pattern.test(`${method} ${path}`));
+}
 
 const rowsOf = (rows: Array<{ row: Record<string, unknown> }>) => rows.map((entry) => entry.row);
 
 /**
  * A fallback counter's local copy: everything made while working offline, for the desktop app
- * to send to the server. The copy started with no sales, so every invoice here is new.
+ * to send to the server: every invoice and return except those that came with the copy
+ * (FallbackCopiedDocument), and the customers added offline.
  */
 @Controller()
 export class FallbackOutboxController {
@@ -38,8 +53,8 @@ export class FallbackOutboxController {
   }
 
   /**
-   * Before selling offline: the last invoice numbers the app saw this counter issue online
-   * (after the copy was made), so offline invoices carry on after them. Numbers of other
+   * Before selling offline: the last invoice and return numbers the app saw this counter issue
+   * online (after the copy was made), so offline ones carry on after them. Numbers of other
    * series are ignored; a number lower than the copy's changes nothing.
    */
   @Public()
@@ -48,16 +63,18 @@ export class FallbackOutboxController {
   async numbers(@Headers() headers: RequestHeaders, @Body() body: { invoiceNumbers?: unknown }) {
     const counterId = this.assertApp(headers);
     const counter = await this.prisma.counter.findUniqueOrThrow({ where: { id: counterId }, select: { number: true, branch: { select: { code: true } } } });
-    const series = documentSeries(counter.branch.code, counter.number, DocumentKind.INVOICE);
+    const seriesOf = [DocumentKind.INVOICE, DocumentKind.RETURN].map((kind) => ({ kind, series: documentSeries(counter.branch.code, counter.number, kind) }));
     let moved = 0;
-    for (const invoiceNo of Array.isArray(body?.invoiceNumbers) ? body.invoiceNumbers : []) {
+    for (const documentNo of Array.isArray(body?.invoiceNumbers) ? body.invoiceNumbers : []) {
+      if (typeof documentNo !== 'string') continue;
       // {series}/{YY}/{number}
-      const match = typeof invoiceNo === 'string' && invoiceNo.startsWith(`${series}/`) ? /^(\d{2})\/(\d+)$/.exec(invoiceNo.slice(series.length + 1)) : null;
-      if (!match) continue;
+      const own = seriesOf.find(({ series }) => documentNo.startsWith(`${series}/`));
+      const match = own ? /^(\d{2})\/(\d+)$/.exec(documentNo.slice(own.series.length + 1)) : null;
+      if (!own || !match) continue;
       const fiscalYear = 2000 + Number(match[1]);
       moved += await this.prisma.$executeRaw`
         INSERT INTO "DocumentSequence" ("kind", "series", "fiscalYear", "lastSeq")
-        VALUES ('INVOICE'::"DocumentKind", ${series}, ${fiscalYear}, ${Number(match[2])})
+        VALUES (${own.kind}::"DocumentKind", ${own.series}, ${fiscalYear}, ${Number(match[2])})
         ON CONFLICT ("kind", "series", "fiscalYear") DO UPDATE SET "lastSeq" = GREATEST("DocumentSequence"."lastSeq", EXCLUDED."lastSeq")`;
     }
     return { moved };
@@ -85,21 +102,27 @@ export class FallbackOutboxController {
       select: { number: true, fallbackReceiptSeq: true, branch: { select: { code: true } } }
     });
     // One consistent read: the sale being made right now is either wholly in or wholly out.
-    const { registers, invoices, lines, discounts, allocations, payments, receipts, ledger, sequences } = await this.prisma.$transaction(
+    const { registers, invoices, lines, discounts, allocations, payments, receipts, ledger, sequences, customers, returns, returnLines, returnLedger } = await this.prisma.$transaction(
       async (tx) => {
         const select = async (table: string, where = 'true') =>
           rowsOf(await tx.$queryRawUnsafe<Array<{ row: Record<string, unknown> }>>(`SELECT row_to_json(t) AS row FROM "${table}" t WHERE ${where}`));
         return {
           registers: await select('RegisterSession', `"counterId" = '${counterId.replace(/[^0-9a-f-]/g, '')}'`),
-          invoices: await select('SaleInvoice'),
+          invoices: await select('SaleInvoice', `"id" NOT IN (SELECT "id" FROM "FallbackCopiedDocument")`),
           lines: await select('SaleInvoiceLine'),
           discounts: await select('Discount'),
           allocations: await select('DiscountAllocation'),
           payments: await select('Payment'),
           receipts: await select('Receipt'),
           ledger: await select('StockLedger', `"referenceType" = 'SALE'`),
+          customers: await select('Customer', `"code" ~ '^OFF-[0-9A-F]{8}$'`),
+          returns: await select('ReturnInvoice', `"id" NOT IN (SELECT "id" FROM "FallbackCopiedDocument")`),
+          returnLines: await select('ReturnInvoiceLine'),
+          returnLedger: await select('StockLedger', `"referenceType" = 'RETURN'`),
           sequences: await tx.documentSequence.findMany({
-            where: { kind: DocumentKind.INVOICE, series: documentSeries(counter.branch.code, counter.number, DocumentKind.INVOICE) }
+            where: {
+              OR: [DocumentKind.INVOICE, DocumentKind.RETURN].map((kind) => ({ kind, series: documentSeries(counter.branch.code, counter.number, kind) }))
+            }
           })
         };
       },
@@ -116,6 +139,8 @@ export class FallbackOutboxController {
     const paymentsOf = by(payments, 'invoiceId');
     const receiptsOf = by(receipts, 'invoiceId');
     const ledgerOf = by(ledger, 'referenceId');
+    const returnLinesOf = by(returnLines, 'returnInvoiceId');
+    const returnLedgerOf = by(returnLedger, 'referenceId');
     return {
       schemaVersion: (await appliedSchemaVersion(this.prisma)) ?? '',
       registers,
@@ -132,7 +157,9 @@ export class FallbackOutboxController {
         };
       }),
       sequences: sequences.map((sequence) => ({ kind: sequence.kind, series: sequence.series, fiscalYear: sequence.fiscalYear, lastSeq: sequence.lastSeq })),
-      receiptSeq: counter.fallbackReceiptSeq
+      receiptSeq: counter.fallbackReceiptSeq,
+      customers,
+      returns: returns.map((ret) => ({ ret, lines: returnLinesOf(ret.id), ledger: returnLedgerOf(ret.id) }))
     };
   }
 }

@@ -494,7 +494,7 @@ managed hosting is selling.
 - **Done when:** the repository is private, and an installed app updates itself from the new
   place.
 
-## [ ] 17. Fallback counter: credit sales, returns and new customers offline
+## [x] 17. Fallback counter: credit sales, returns and new customers offline
 
 - **Why:** while the server is down the fallback counter sells for cash and card only. Credit
   sales, settling old bills, returns and new customers wait for the server.
@@ -516,6 +516,37 @@ managed hosting is selling.
     tests like `fallback.test.ts`.
 - **Done when:** a fallback counter adds a customer, sells to them on credit and takes a return of
   its own sale while the server is down, and all three reach the server correctly.
+- **Status (2026-10-04):** built.
+  - **The copy** (`FallbackService.snapshot`) now also has:
+    - The counter's return series.
+    - Its own paid bills from the last 7 days (`FALLBACK_RETURNABLE_DAYS`), with their lines and
+      returns, listed in `FallbackCopiedDocument` so they aren't sent back as new.
+    - What each customer owed (`FallbackBalance`). The copy holds no unpaid bills, so this is how
+      credit limits work offline.
+    - Both tables are new (migration `20261016100000_fallback_offline`). They are empty on the
+      server and never move with a business.
+    - `createBackup` can build a table's rows from a query (`from`).
+  - **Offline (local API):**
+    - New customers get a code `OFF-xxxxxxxx`.
+    - Credit sales are checked against the limit, with what the customer owed at the copy counted
+      in.
+    - Bills made offline can be paid (part or full).
+    - Returns are allowed for bills made offline and the copied ones; refunds are in cash.
+    - No wallet payments, wallet refunds or change into a wallet.
+    - Editing customers and older or other counters' bills still waits for the server.
+  - **Sync (`FallbackService.sync`):**
+    - Customers are added with the server's next code and a wallet.
+    - One whose phone number the server already has becomes that customer, and the offline bills
+      move to them.
+    - Returns are checked: their series, their register, and that the bill is the counter's own.
+    - Clashes are listed, as for invoices:
+      - A return number already used online.
+      - Goods also returned online, so more would come back than was sold.
+      - More money handed back than was paid.
+      - Lowering what is owed on a bill the server had.
+  - **Desktop:** the app also notes return numbers issued online, so offline returns carry on
+    after them.
+  - **Tests:** `fallback.test.ts`.
 
 ---
 
@@ -537,4 +568,5 @@ managed hosting is selling.
 - 2026-10-03: Item 12 done (receipt builder, transfer destinations, POS email check, and the fallback counter's pictures, sync clashes, uncounted cash and background server check); offline credit, returns and customers moved to item 17.
 - 2026-10-04: Item 10 done: registered (B2B) buyers on customers, bills, receipts and GSTR-1 (B2B, CDNR).
 - 2026-10-04: Item 11 done: credit limits (cashiers stopped, admins warned), payment terms and due dates, overdue marks, statements (printed and emailed) and ageing.
+- 2026-10-04: Item 17 done: offline customers, credit sales (within the limit as copied), payments on offline bills and returns of recent own bills, all synced.
 - 2026-10-04: Item 8 done: the owner's screen (/owner) lists each business's staff, gives new passwords and turns staff off or on.

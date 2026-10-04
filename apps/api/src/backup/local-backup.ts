@@ -160,7 +160,8 @@ export async function createBackup(options: {
   reason: BackupReason;
   appVersion: string;
   now?: Date;
-  only?: Array<{ name: string; where?: string }>;
+  /** Tables to include (default: all), each limited by `where`, or its rows made by `from` (a query with the table's columns). */
+  only?: Array<{ name: string; where?: string; from?: string }>;
   uploadFiles?: string[];
 }) {
   const { prisma, dir, uploadsDir, reason, appVersion } = options;
@@ -175,8 +176,8 @@ export async function createBackup(options: {
       async (tx) => {
         const written: BackupManifest['tables'] = [];
         const existing = await businessTables(tx);
-        const chosen = options.only ?? existing.map((name) => ({ name, where: undefined as string | undefined }));
-        for (const { name, where } of chosen) {
+        const chosen = options.only ?? existing.map((name) => ({ name, where: undefined as string | undefined, from: undefined as string | undefined }));
+        for (const { name, where, from } of chosen) {
           if (!existing.includes(name)) throw new Error(`Unknown table ${name}`);
           const file = join(work, `${name}.ndjson`);
           const stream = createWriteStream(file);
@@ -184,7 +185,7 @@ export async function createBackup(options: {
           let rows = 0;
           try {
             await tx.$executeRawUnsafe(
-              `DECLARE backup_rows NO SCROLL CURSOR FOR SELECT row_to_json(t)::text AS line FROM ${ident(name)} t${where ? ` WHERE ${where}` : ''}`
+              `DECLARE backup_rows NO SCROLL CURSOR FOR SELECT row_to_json(t)::text AS line FROM ${from ? `(${from})` : ident(name)} t${where ? ` WHERE ${where}` : ''}`
             );
             for (;;) {
               const page = await tx.$queryRawUnsafe<Array<{ line: string }>>(`FETCH ${ROWS_PER_FETCH} FROM backup_rows`);
