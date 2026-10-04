@@ -1,4 +1,5 @@
 import { GST_STATES, gstStateLabel } from "@pos/contracts";
+import type { CustomerAccount } from "@pos/contracts";
 import { inr } from "../route-helpers";
 
 /**
@@ -11,6 +12,7 @@ export function CustomerSection({
   walkInName,
   walkInPhone,
   walletBalance,
+  account,
   branchStateCode,
   placeOfSupply,
   onPlaceOfSupplyChange,
@@ -29,6 +31,8 @@ export function CustomerSection({
   walkInName: string;
   walkInPhone: string;
   walletBalance: number;
+  /** What a registered customer owes already; null for walk-in or while loading. */
+  account: CustomerAccount | null;
   /** The branch's state; null hides the place of supply (no state set, or a composition taxpayer). */
   branchStateCode: string | null;
   /** The state goods are shipped to; null for a counter sale. */
@@ -88,9 +92,24 @@ export function CustomerSection({
             />
           </div>
         ) : (
-          <p className="mt-1 text-xs text-slate-500">
-            Wallet balance: <span className="font-semibold text-slate-700 tabular-nums">{inr(walletBalance)}</span>
-          </p>
+          <div className="mt-1 space-y-0.5 text-xs text-slate-500">
+            <p>
+              Wallet balance: <span className="font-semibold text-slate-700 tabular-nums">{inr(walletBalance)}</span>
+            </p>
+            {account && (account.outstanding > 0 || account.creditLimit !== null) ? (
+              <p>
+                Owes <span className="font-semibold text-amber-700 tabular-nums">{inr(account.outstanding)}</span>
+                {account.creditLimit !== null ? (
+                  <>
+                    {" "}of <span className="tabular-nums">{inr(account.creditLimit)}</span> limit
+                  </>
+                ) : null}
+                {account.overdue > 0 ? (
+                  <span className="ml-1.5 badge bg-rose-50 text-rose-700 ring-1 ring-rose-200 ring-inset">{inr(account.overdue)} overdue</span>
+                ) : null}
+              </p>
+            ) : null}
+          </div>
         )}
         {buyerGstin ? (
           <div className="mt-2 space-y-2">

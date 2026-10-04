@@ -329,23 +329,28 @@ model RegisterSession {
 }
 
 model Customer {
-  id        String         @id @default(uuid())
-  branchId  String
-  branch    Branch         @relation(fields: [branchId], references: [id])
-  code      String
-  name      String
-  phone     String?
+  id               String         @id @default(uuid())
+  branchId         String
+  branch           Branch         @relation(fields: [branchId], references: [id])
+  code             String
+  name             String
+  phone            String?
   /// A registered buyer's GSTIN (their state is its first two digits): their bills carry it and
   /// go in GSTR-1's B2B section.
-  gstin     String?
+  gstin            String?
   /// Billing address, printed on a registered buyer's tax invoice.
-  address   String?
+  address          String?
   /// Offered by "Email the receipt".
-  email     String?
-  isWalkIn  Boolean        @default(false)
-  wallet    WalletAccount?
-  invoices  SaleInvoice[]
-  createdAt DateTime       @default(now())
+  email            String?
+  /// The most this customer may owe across their unpaid bills; null for no limit. Cashiers
+  /// can't make a credit sale past it; admins can.
+  creditLimit      Decimal?       @db.Decimal(14, 2)
+  /// Days a credit bill has before it is due (its dueDate); null for no due date.
+  paymentTermsDays Int?
+  isWalkIn         Boolean        @default(false)
+  wallet           WalletAccount?
+  invoices         SaleInvoice[]
+  createdAt        DateTime       @default(now())
 
   @@unique([branchId, code])
 }
@@ -482,6 +487,9 @@ model SaleInvoice {
   buyerAddress           String?
   /// The buyer's order or reference number, printed on the bill.
   reference              String?
+  /// When what is owed on this bill is due: the sale's date plus the customer's payment terms,
+  /// as they were then; null when the customer had none. Overdue once past it with money owed.
+  dueDate                DateTime?
   status                 InvoiceStatus
   subTotal               Decimal              @db.Decimal(14, 2)
   discountTotal          Decimal              @db.Decimal(14, 2)

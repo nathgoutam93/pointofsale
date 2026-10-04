@@ -383,6 +383,20 @@ export function PosPage() {
     },
   });
   const walletBalance = Number(customerWallet.data?.balance ?? 0);
+  // What they owe already, against their credit limit.
+  const customerAccount = useQuery({
+    queryKey: ["customer-account", customerId],
+    enabled: !!customerId && !selectedCustomer?.isWalkIn,
+    queryFn: async () => {
+      const res = await api.customers.account({
+        params: { id: customerId },
+        extraHeaders: authHeaders(),
+      });
+      if (res.status !== 200) throw new Error("Failed to load what the customer owes");
+      return res.body;
+    },
+  });
+  const account = !isWalkInSelected ? customerAccount.data ?? null : null;
   const branchStateCode = store.branchSettings.data?.stateCode ?? null;
   // Composition taxpayers can't sell to another state, and a branch without a state can't
   // name one, so the choice only counts for a regular branch with its state set.
@@ -676,6 +690,7 @@ export function PosPage() {
       queryClient.invalidateQueries({
         queryKey: ["stock-module", session.branchId],
       });
+      queryClient.invalidateQueries({ queryKey: ["customer-account"] });
     },
   });
 
@@ -734,6 +749,7 @@ export function PosPage() {
               walkInName={walkInCustomerName}
               walkInPhone={walkInCustomerPhone}
               walletBalance={walletBalance}
+              account={account}
               branchStateCode={chargeTax ? branchStateCode : null}
               placeOfSupply={placeOfSupplyChoice}
               onPlaceOfSupplyChange={setPlaceOfSupply}
@@ -797,6 +813,8 @@ export function PosPage() {
           total={total}
           isWalkInSelected={isWalkInSelected}
           walletBalance={walletBalance}
+          account={account}
+          isAdmin={session.role === "ADMIN"}
           checkoutPending={checkout.isPending}
           onValidate={() => checkout.mutate({ payments: payment.lines })}
         />

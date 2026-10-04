@@ -247,7 +247,7 @@ managed hosting is selling.
   - **Not checked yet:** importing a file with B2B and CDNR into the current GST offline tool. Do
     it before filing.
 
-## [ ] 11. Receivables: credit limits, due dates, statements
+## [x] 11. Receivables: credit limits, due dates, statements
 
 - **Why:** credit sales, part payments, the amount due per bill and per customer, and returns
   against the due already work; what's missing is control and follow-up.
@@ -263,6 +263,30 @@ managed hosting is selling.
     customer price lists.
 - **Done when:** a customer over their limit is warned or stopped, overdue bills show, and a
   statement matches the bills and payments.
+- **Status (2026-10-04):** built.
+  - **Customer:** `creditLimit` (none when empty) and `paymentTermsDays`; only admins set them.
+    **Sale:** `dueDate`, the start of the day the terms run out (business time zone), set at
+    checkout; none without terms. Migration `20261015110000_receivables`.
+  - **What is owed** is grandTotal − paidTotal − creditedTotal on unpaid and part-paid bills, at
+    every branch (the customer owes the business). A bill is overdue once its due date is before
+    today.
+  - **Checkout (`ReceivablesService.assertWithinCreditLimit`):** a credit or part-paid sale that
+    takes a customer past their limit is refused for cashiers (400, `CREDIT_LIMIT_EXCEEDED`); admins
+    may go past it. The customer's row is locked, so two tills can't both use the last of the room.
+    The POS shows "Owes ₹X of ₹Y limit" and the overdue amount, and the payment dialog says how much
+    more to take (a cashier can't validate; an admin is warned).
+  - **API:** `GET /customers/:id/account`, `GET /customers/:id/statement?from&to`,
+    `POST /customers/:id/statement/email` (online, 30 an hour per user) and
+    `GET /customers/ageing?branchId`.
+  - **Statement:** bills as debits; payments as credits, only what they took off the bill (the
+    extra that went into the wallet is noted, not counted); returns as credits of what they took off
+    what was owed (refunds aren't on the account). Opening balance, running balance, closing
+    balance, and what is owed now by age.
+  - **Screens:** Customers: credit fields for admins, credit limit and available room, overdue
+    amount, a Statement panel (period, print, email) and an "Owed" (ageing) view; the list marks
+    overdue customers. Sales: an Overdue badge and the due date.
+  - **Tests:** `receivables.test.ts`; in a browser: limit set, a cashier stopped and then within it
+    after a part payment, overdue marks, statement printed and emailed, ageing.
 
 ## [x] 12. Smaller follow-ups
 
@@ -499,3 +523,4 @@ managed hosting is selling.
 - 2026-10-03: Server deployed with `POS_HOSTING=managed` (no `BILLING_GATEWAY`). Version 0.1.2 prepared to ship the Server card and Billing screens to installed apps.
 - 2026-10-03: Item 12 done (receipt builder, transfer destinations, POS email check, and the fallback counter's pictures, sync clashes, uncounted cash and background server check); offline credit, returns and customers moved to item 17.
 - 2026-10-04: Item 10 done: registered (B2B) buyers on customers, bills, receipts and GSTR-1 (B2B, CDNR).
+- 2026-10-04: Item 11 done: credit limits (cashiers stopped, admins warned), payment terms and due dates, overdue marks, statements (printed and emailed) and ageing.

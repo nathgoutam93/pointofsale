@@ -19,6 +19,7 @@ import { CountersController } from './counters/counters.controller';
 import { CountersService } from './counters/counters.service';
 import { CustomersController } from './customers/customers.controller';
 import { CustomersService } from './customers/customers.service';
+import { ReceivablesService } from './customers/receivables.service';
 import { GstController } from './gst/gst.controller';
 import { GstService } from './gst/gst.service';
 import { ItemsController } from './items/items.controller';
@@ -103,6 +104,7 @@ import { UsersService } from './users/users.service';
     PurchasesService,
     TransfersService,
     CustomersService,
+    ReceivablesService,
     BranchesService,
     AccessService,
     UsersService,

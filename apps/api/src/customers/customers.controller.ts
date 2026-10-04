@@ -1,15 +1,30 @@
-import { Body, Controller, Get, HttpCode, Headers, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Headers, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
+import { OnlineOnlyGuard } from '../common/mode';
+import { FailureLimiter } from '../common/rate-limit';
 import { getSession, RequestHeaders } from '../common/request-session';
 import type { SessionUser } from '../common/types';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
-import { CustomersService, type BuyerFields } from './customers.service';
+import { CustomersService, type BuyerFields, type CreditFields } from './customers.service';
+import { ReceivablesService } from './receivables.service';
+
+/** Statements emailed, per user: 30 an hour, so the server can't be used to send mail in bulk. */
+const statementEmailsSent = new FailureLimiter(30, 60 * 60 * 1000);
+
+/** Only admins give credit: setting a credit limit or payment terms. */
+function assertMaySetCredit(session: SessionUser, body: CreditFields) {
+  if ((body.creditLimit !== undefined || body.paymentTermsDays !== undefined) && session.role !== UserRole.ADMIN) {
+    throw new BadRequestException('Only admins set credit limits and payment terms');
+  }
+}
 
 @Controller()
 export class CustomersController {
   constructor(
     private readonly customers: CustomersService,
+    private readonly receivables: ReceivablesService,
     private readonly access: AccessService
   ) {}
 
@@ -19,6 +34,7 @@ export class CustomersController {
   }
 
   private static readonly branchQuery = new ZodValidationPipe(appContract.customers.getWallet.query);
+  private static readonly statementQuery = new ZodValidationPipe(appContract.customers.statement.query);
 
   @Get('/customers')
   async listCustomers(
@@ -30,10 +46,12 @@ export class CustomersController {
 
   @Post('/customers')
   async createCustomer(
-    @Body(new ZodValidationPipe(appContract.customers.create.body)) body: { branchId: string; name: string; phone?: string } & BuyerFields,
+    @Body(new ZodValidationPipe(appContract.customers.create.body)) body: { branchId: string; name: string; phone?: string } & BuyerFields & CreditFields,
     @Headers() headers: RequestHeaders
   ) {
-    await this.branch(getSession(headers), body.branchId);
+    const session = getSession(headers);
+    await this.branch(session, body.branchId);
+    assertMaySetCredit(session, body);
     return this.customers.createCustomer(body.branchId, body.name, body.phone, body);
   }
 
@@ -41,10 +59,57 @@ export class CustomersController {
   async updateCustomer(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(CustomersController.branchQuery) { branchId }: { branchId?: string },
-    @Body(new ZodValidationPipe(appContract.customers.update.body)) body: { name?: string; phone?: string | null } & BuyerFields,
+    @Body(new ZodValidationPipe(appContract.customers.update.body)) body: { name?: string; phone?: string | null } & BuyerFields & CreditFields,
     @Headers() headers: RequestHeaders
   ) {
-    return this.customers.updateCustomer(await this.branch(getSession(headers), branchId), id, body);
+    const session = getSession(headers);
+    const branch = await this.branch(session, branchId);
+    assertMaySetCredit(session, body);
+    return this.customers.updateCustomer(branch, id, body);
+  }
+
+  @Get('/customers/ageing')
+  async ageing(
+    @Query(new ZodValidationPipe(appContract.customers.ageing.query)) { branchId }: { branchId: string },
+    @Headers() headers: RequestHeaders
+  ) {
+    return this.receivables.ageing(await this.branch(getSession(headers), branchId));
+  }
+
+  @Get('/customers/:id/account')
+  async account(
+    @Param('id', ParseUUIDPipe) customerId: string,
+    @Query(CustomersController.branchQuery) { branchId }: { branchId?: string },
+    @Headers() headers: RequestHeaders
+  ) {
+    return this.receivables.account(await this.branch(getSession(headers), branchId), customerId);
+  }
+
+  @Get('/customers/:id/statement')
+  async statement(
+    @Param('id', ParseUUIDPipe) customerId: string,
+    @Query(CustomersController.statementQuery) query: { branchId?: string; from: string; to: string },
+    @Headers() headers: RequestHeaders
+  ) {
+    return this.receivables.statement(await this.branch(getSession(headers), query.branchId), customerId, query.from, query.to);
+  }
+
+  /** Online: the statement by email. */
+  @UseGuards(OnlineOnlyGuard)
+  @Post('/customers/:id/statement/email')
+  @HttpCode(202)
+  async emailStatement(
+    @Param('id', ParseUUIDPipe) customerId: string,
+    @Query(CustomersController.branchQuery) { branchId }: { branchId?: string },
+    @Body(new ZodValidationPipe(appContract.customers.emailStatement.body)) body: { from: string; to: string; email: string },
+    @Headers() headers: RequestHeaders
+  ) {
+    const session = getSession(headers);
+    const branch = await this.branch(session, branchId);
+    statementEmailsSent.assertAllowed(session.userId);
+    await this.receivables.emailStatement(branch, customerId, body.from, body.to, body.email);
+    statementEmailsSent.failed(session.userId);
+    return { sent: true as const };
   }
 
   @Get('/customers/walk-in/:branchId')

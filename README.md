@@ -355,6 +355,13 @@ and emailed. Their sales go in GSTR-1's B2B section and returns in CDNR. A count
 CGST + SGST even for a buyer from another state; the POS offers "ship to" their state when the
 goods are delivered there.
 
+Credit and what customers owe: an admin can give a customer a credit limit and payment terms
+(days). A cashier can't make a credit or part-paid sale that takes the customer past their limit
+(an admin can); with terms, each credit bill gets a due date and is marked overdue once it passes.
+Customers has a statement for any period (bills, payments and returns with the running balance;
+printable, and emailed when online) and an "Owed" view of what everyone owes by age (0–30, 31–60,
+61–90, over 90 days).
+
 Who may do what, where (`apps/api/src/common/access.service.ts`):
 - **Selling** (POS checkout, returns, taking payments) happens at the branch of the open register.
 - **Managing a branch** (inventory, customers, sales and returns history, branch settings,

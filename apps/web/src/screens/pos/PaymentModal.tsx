@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { CustomerAccount } from "@pos/contracts";
 import { inr, money } from "../route-helpers";
 import { keypadKeyFromEvent, shouldIgnoreDialogKey } from "./keyboard";
 import type { Payment } from "./usePayment";
@@ -12,6 +13,8 @@ export function PaymentModal({
   total,
   isWalkInSelected,
   walletBalance,
+  account,
+  isAdmin,
   checkoutPending,
   onValidate,
 }: {
@@ -19,21 +22,34 @@ export function PaymentModal({
   total: number;
   isWalkInSelected: boolean;
   walletBalance: number;
+  /** What the customer owes already, against their credit limit; null for walk-in. */
+  account: CustomerAccount | null;
+  /** Admins may sell past a credit limit; cashiers can't. */
+  isAdmin: boolean;
   checkoutPending: boolean;
   onValidate: () => void;
 }) {
-  const latestRef = useRef({ payment, checkoutPending, onValidate });
-  latestRef.current = { payment, checkoutPending, onValidate };
+  // What they would owe once this sale is made, and by how much that passes their limit.
+  const leftUnpaid = isWalkInSelected ? 0 : Math.max(0, total - payment.totalPaid);
+  const owedAfter = (account?.outstanding ?? 0) + leftUnpaid;
+  const overLimit =
+    account && account.creditLimit !== null && leftUnpaid > 0 && owedAfter > account.creditLimit + 0.005
+      ? Math.round((owedAfter - account.creditLimit) * 100) / 100
+      : 0;
+  const blockedByLimit = overLimit > 0 && !isAdmin;
+
+  const latestRef = useRef({ payment, checkoutPending, onValidate, blockedByLimit });
+  latestRef.current = { payment, checkoutPending, onValidate, blockedByLimit };
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (shouldIgnoreDialogKey(event)) return;
-      const { payment: current, checkoutPending: pending, onValidate: validate } = latestRef.current;
+      const { payment: current, checkoutPending: pending, onValidate: validate, blockedByLimit: blocked } = latestRef.current;
 
       if (event.key === "Enter") {
         event.preventDefault();
         if (event.ctrlKey || event.metaKey) {
-          if (!pending && !current.walletOverused && current.canValidate) {
+          if (!pending && !current.walletOverused && current.canValidate && !blocked) {
             validate();
           }
           return;
@@ -121,7 +137,7 @@ export function PaymentModal({
             className="btn-primary mt-4 h-12 w-full text-base"
             onClick={onValidate}
             disabled={
-              checkoutPending || payment.walletOverused || !payment.canValidate
+              checkoutPending || payment.walletOverused || !payment.canValidate || blockedByLimit
             }
           >
             Validate
@@ -158,6 +174,13 @@ export function PaymentModal({
             <p className="mt-2 text-sm text-emerald-700">
               Excess {inr(payment.excessAmount)} will be deposited to customer
               wallet.
+            </p>
+          ) : null}
+          {overLimit > 0 && payment.canValidate ? (
+            <p className={`mt-2 text-sm ${blockedByLimit ? "text-rose-700" : "text-amber-700"}`} role="alert">
+              {blockedByLimit
+                ? `This leaves ${inr(owedAfter)} owed, ${inr(overLimit)} over the customer's credit limit of ${inr(account!.creditLimit!)}. Take at least ${inr(overLimit)} more, or ask an admin.`
+                : `This leaves ${inr(owedAfter)} owed, ${inr(overLimit)} over the customer's credit limit of ${inr(account!.creditLimit!)}. As an admin you can still go ahead.`}
             </p>
           ) : null}
           {payment.error ? (
