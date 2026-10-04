@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CompositionCategory, CustomerScope, Prisma, TaxpayerType } from '@prisma/client';
-import { COMPOSITION_CATEGORY_LABELS, gstStateLabel, type ReceiptTemplate } from '@pos/contracts';
+import { COMPOSITION_CATEGORY_LABELS, gstStateLabel, type ReceiptTemplate, type ScaleBarcode } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import { toNumber } from '../common/numbers';
 import { businessSettingsSelect, branchSettingsSelect } from '../common/selects';
@@ -71,6 +71,7 @@ export class SettingsService {
     returnWindowDays?: number | null;
     roundOffMode?: 'NONE' | 'NEAREST_1' | 'NEAREST_050';
     allowNegativeStock?: boolean;
+    scaleBarcode?: ScaleBarcode | null;
   }) {
     await this.ensureBusinessSettings();
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -88,7 +89,8 @@ export class SettingsService {
           hsnMinDigits: input.hsnMinDigits,
           returnWindowDays: input.returnWindowDays,
           roundOffMode: input.roundOffMode,
-          allowNegativeStock: input.allowNegativeStock
+          allowNegativeStock: input.allowNegativeStock,
+          scaleBarcode: input.scaleBarcode === null ? Prisma.DbNull : input.scaleBarcode
         },
         select: businessSettingsSelect
       });

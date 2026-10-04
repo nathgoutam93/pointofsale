@@ -251,7 +251,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   items "below zero" and can filter to them. The count is corrected with a stock adjustment.
   Tests: `stock.test.ts`.
 
-### [ ] B4. Barcodes
+### [x] B4. Barcodes
 
 - **Why:** an item's only barcode is its code. Shops get several EANs for one product, and
   loose goods come with weighing-scale labels that carry the weight or price.
@@ -260,6 +260,15 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   weight/price digits) set per business.
 - **Done when:** two different EANs find the same item, and a scale label adds the right
   quantity.
+- **Status (2026-10-04):** `ItemBarcode` (migration `20261020170000_item_barcodes`): many per
+  item, unique across items, never another item's code, optionally selling a sale unit (a box).
+  Kept in the offline copy, backups and "move online". Barcodes are edited on the Items page.
+  Settings → "Weighing scale labels" (`scaleBarcode`): a prefix, item-code digits, weight or price
+  digits and decimals, and an EAN check digit (`parseScaleBarcode` in `@pos/contracts`). The scan
+  box tries the item code, then barcodes, then a scale label (the label's item code is the item's
+  code, leading zeros aside). A price label adds the weight that price buys. Checked in the real
+  POS: an extra EAN, a 1.250 kg label, and a label with a bad check digit refused. Tests:
+  `item-barcodes.test.ts`, `barcodes.test.ts`.
 
 ### [ ] B5. Reports a shop owner uses
 

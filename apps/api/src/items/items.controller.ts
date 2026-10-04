@@ -86,6 +86,7 @@ export class ItemsController {
       uqc?: string | null;
       supplyType?: GstSupplyType;
       imageUrl?: string;
+      barcodes?: Array<{ barcode: string; saleUom?: string | null }>;
     },
     @Headers() headers: RequestHeaders
   ) {
@@ -113,6 +114,7 @@ export class ItemsController {
       supplyType?: GstSupplyType;
       imageUrl?: string | null;
       isActive?: boolean;
+      barcodes?: Array<{ barcode: string; saleUom?: string | null }>;
     },
     @Headers() headers: RequestHeaders
   ) {

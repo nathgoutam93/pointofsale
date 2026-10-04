@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { join } from 'path';
-import { appContract, type ReceiptTemplate } from '@pos/contracts';
+import { appContract, type ReceiptTemplate, type ScaleBarcode } from '@pos/contracts';
 import { getSession, requireAdminSession, requireAdmin, RequestHeaders } from '../common/request-session';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { uploadsDir } from '../common/uploads';
@@ -38,6 +38,7 @@ export class SettingsController {
       returnWindowDays?: number | null;
       roundOffMode?: 'NONE' | 'NEAREST_1' | 'NEAREST_050';
       allowNegativeStock?: boolean;
+      scaleBarcode?: ScaleBarcode | null;
     },
     @Headers() headers: RequestHeaders
   ) {

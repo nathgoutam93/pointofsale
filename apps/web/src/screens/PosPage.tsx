@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { computeSaleTotals } from "@pos/contracts";
+import { computeSaleTotals, parseScaleBarcode, sameScaleItemCode, scaleBarcodeSchema } from "@pos/contracts";
 import type { DiscountInput } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders } from "../lib/api";
 import { newUuid } from "../lib/id";
@@ -199,7 +199,7 @@ export function PosPage() {
     saleUom?: string;
     saleUomQty?: number;
     saleUomConversionQty?: number;
-  }) => {
+  }, options: { qty?: number } = {}) => {
     setIsOrderOpen(true);
     const rate = Number(item.sellPrice) || 0;
     const taxRate = Number(item.taxRate) || 0;
@@ -209,7 +209,12 @@ export function PosPage() {
     const saleUom = item.saleUom;
     const saleUomQty = item.saleUomQty ?? 1;
     const saleUomConversionQty = normalizeLeastCount(item.saleUomConversionQty ?? leastCount);
-    const qty = item.saleUom ? snapQtyToLeastCount(saleUomQty * saleUomConversionQty, leastCount) : leastCount;
+    // A weighed item's label says how much (options.qty, in the base unit).
+    const qty = item.saleUom
+      ? snapQtyToLeastCount(saleUomQty * saleUomConversionQty, leastCount)
+      : options.qty !== undefined
+        ? snapQtyToLeastCount(options.qty, leastCount)
+        : leastCount;
     const cartKey = `${item.id}:${displayUom ?? "BASE"}`;
     setCart((prev) => {
       const idx = prev.findIndex((l) => getCartLineKey(l) === cartKey);
@@ -244,28 +249,62 @@ export function PosPage() {
     });
   };
 
+  /**
+   * Adds what was scanned or typed: an item by its code, or by one of its barcodes (a box's
+   * barcode adds the box), or a weighing scale's label (the item with the weight, or the
+   * weight its price buys).
+   */
   const addScannedItem = () => {
-    const normalizedCode = scanCode.trim().toLowerCase();
+    const scanned = scanCode.trim();
+    const normalizedCode = scanned.toLowerCase();
     if (!normalizedCode) return;
 
     const codeMatches = allSaleItemChoices.filter(
       (item) => item.code.trim().toLowerCase() === normalizedCode,
     );
+    const barcodeOwner = (items.data ?? [])
+      .flatMap((item) => (item.barcodes ?? []).map((entry) => ({ item, entry })))
+      .find(({ entry }) => entry.barcode.toLowerCase() === normalizedCode);
     const match =
       codeMatches.find((item) => !item.saleUom) ??
       codeMatches[0] ??
+      (barcodeOwner
+        ? allSaleItemChoices.find(
+            (choice) =>
+              choice.id === barcodeOwner.item.id &&
+              (barcodeOwner.entry.saleUom
+                ? choice.saleUom?.toLowerCase() === barcodeOwner.entry.saleUom.toLowerCase()
+                : !choice.saleUom),
+          )
+        : undefined) ??
       allSaleItemChoices.find(
         (item) => item.choiceKey.toLowerCase() === normalizedCode,
       );
 
-    if (!match) {
-      setMessage(`No item found for code ${scanCode.trim()}`);
+    if (match) {
+      addItem(match);
+      setScanCode("");
+      setMessage(`Added ${match.name} (${match.displayUom})`);
       return;
     }
 
-    addItem(match);
-    setScanCode("");
-    setMessage(`Added ${match.name} (${match.displayUom})`);
+    const scaleConfig = scaleBarcodeSchema.safeParse(store.businessSettings.data?.scaleBarcode);
+    const label = scaleConfig.success ? parseScaleBarcode(scanned, scaleConfig.data) : null;
+    const weighed = label ? allSaleItemChoices.find((choice) => !choice.saleUom && sameScaleItemCode(label.itemCode, choice.code)) : undefined;
+    if (label && weighed) {
+      const rate = Number(weighed.sellPrice) || 0;
+      const qty = label.qty ?? (rate > 0 ? round3((label.price ?? 0) / rate) : 0);
+      if (qty <= 0) {
+        setMessage(`The label for ${weighed.name} has no quantity`);
+        return;
+      }
+      addItem(weighed, { qty });
+      setScanCode("");
+      setMessage(`Added ${qty} ${weighed.displayUom} of ${weighed.name}`);
+      return;
+    }
+
+    setMessage(`No item found for code ${scanned}`);
   };
 
   const total = useMemo(() => {

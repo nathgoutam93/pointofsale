@@ -18,7 +18,8 @@ export const businessSettingsSelect = {
   hsnMinDigits: true,
   returnWindowDays: true,
   roundOffMode: true,
-  allowNegativeStock: true
+  allowNegativeStock: true,
+  scaleBarcode: true
 } as const;
 
 export const branchSettingsSelect = {

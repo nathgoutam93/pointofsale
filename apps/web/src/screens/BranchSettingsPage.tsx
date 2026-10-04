@@ -56,6 +56,13 @@ type BusinessSettingsForm = {
   returnWindowDays: string;
   roundOffMode: "NONE" | "NEAREST_1" | "NEAREST_050";
   allowNegativeStock: boolean;
+  /** The weighing scale's label layout; `scaleEnabled` false for no scale. */
+  scaleEnabled: boolean;
+  scalePrefix: string;
+  scaleItemDigits: string;
+  scaleValueType: "WEIGHT" | "PRICE";
+  scaleValueDigits: string;
+  scaleValueDecimals: string;
 };
 
 type CashierForm = {
@@ -184,7 +191,13 @@ export function BranchSettingsPage() {
     hsnMinDigits: 4,
     returnWindowDays: "",
     roundOffMode: "NONE",
-    allowNegativeStock: false
+    allowNegativeStock: false,
+    scaleEnabled: false,
+    scalePrefix: "2",
+    scaleItemDigits: "6",
+    scaleValueType: "WEIGHT",
+    scaleValueDigits: "5",
+    scaleValueDecimals: "3"
   });
 
   useEffect(() => {
@@ -216,7 +229,13 @@ export function BranchSettingsPage() {
       hsnMinDigits: businessSettings.data.hsnMinDigits === 6 ? 6 : 4,
       returnWindowDays: businessSettings.data.returnWindowDays === null ? "" : String(businessSettings.data.returnWindowDays),
       roundOffMode: businessSettings.data.roundOffMode ?? "NONE",
-      allowNegativeStock: businessSettings.data.allowNegativeStock ?? false
+      allowNegativeStock: businessSettings.data.allowNegativeStock ?? false,
+      scaleEnabled: !!businessSettings.data.scaleBarcode,
+      scalePrefix: businessSettings.data.scaleBarcode?.prefix ?? "2",
+      scaleItemDigits: String(businessSettings.data.scaleBarcode?.itemDigits ?? 6),
+      scaleValueType: businessSettings.data.scaleBarcode?.valueType ?? "WEIGHT",
+      scaleValueDigits: String(businessSettings.data.scaleBarcode?.valueDigits ?? 5),
+      scaleValueDecimals: String(businessSettings.data.scaleBarcode?.valueDecimals ?? 3)
     });
   }, [businessSettings.data]);
 
@@ -281,7 +300,16 @@ export function BranchSettingsPage() {
           hsnMinDigits: businessForm.hsnMinDigits,
           returnWindowDays,
           roundOffMode: businessForm.roundOffMode,
-          allowNegativeStock: businessForm.allowNegativeStock
+          allowNegativeStock: businessForm.allowNegativeStock,
+          scaleBarcode: businessForm.scaleEnabled
+            ? {
+                prefix: businessForm.scalePrefix.trim(),
+                itemDigits: Number(businessForm.scaleItemDigits),
+                valueType: businessForm.scaleValueType,
+                valueDigits: Number(businessForm.scaleValueDigits),
+                valueDecimals: Number(businessForm.scaleValueDecimals)
+              }
+            : null
         },
         extraHeaders: authHeaders()
       });
@@ -713,6 +741,52 @@ export function BranchSettingsPage() {
                     For when the count is wrong but the goods are on the counter. Admins can then sell past it, and
                     cashiers given "Sell past stock". Stock goes below zero until it is counted (Stock shows which items).
                   </p>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="flex items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={businessForm.scaleEnabled}
+                      onChange={(e) => setBusinessForm((prev) => ({ ...prev, scaleEnabled: e.target.checked }))}
+                    />
+                    Weighing scale labels
+                  </label>
+                  <p className="mt-1 text-xs text-slate-500">
+                    How the scale prints its barcode: a prefix, the item's code (its PLU, the same as the item code here), the
+                    weight or price, and a check digit. For example 2 · 001234 · 01250 · check, read as item 1234, 1.250 kg.
+                  </p>
+                  {businessForm.scaleEnabled ? (
+                    <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-5">
+                      <label className="text-xs text-slate-600">
+                        Prefix
+                        <input className="field mt-1" inputMode="numeric" value={businessForm.scalePrefix}
+                          onChange={(e) => setBusinessForm((prev) => ({ ...prev, scalePrefix: e.target.value }))} />
+                      </label>
+                      <label className="text-xs text-slate-600">
+                        Item code digits
+                        <input className="field mt-1" inputMode="numeric" value={businessForm.scaleItemDigits}
+                          onChange={(e) => setBusinessForm((prev) => ({ ...prev, scaleItemDigits: e.target.value }))} />
+                      </label>
+                      <label className="text-xs text-slate-600">
+                        The label carries
+                        <select className="field mt-1" value={businessForm.scaleValueType}
+                          onChange={(e) => setBusinessForm((prev) => ({ ...prev, scaleValueType: e.target.value as "WEIGHT" | "PRICE", scaleValueDecimals: e.target.value === "PRICE" ? "2" : "3" }))}>
+                          <option value="WEIGHT">Weight</option>
+                          <option value="PRICE">Price</option>
+                        </select>
+                      </label>
+                      <label className="text-xs text-slate-600">
+                        Its digits
+                        <input className="field mt-1" inputMode="numeric" value={businessForm.scaleValueDigits}
+                          onChange={(e) => setBusinessForm((prev) => ({ ...prev, scaleValueDigits: e.target.value }))} />
+                      </label>
+                      <label className="text-xs text-slate-600">
+                        Decimal places
+                        <input className="field mt-1" inputMode="numeric" value={businessForm.scaleValueDecimals}
+                          onChange={(e) => setBusinessForm((prev) => ({ ...prev, scaleValueDecimals: e.target.value }))} />
+                      </label>
+                    </div>
+                  ) : null}
                 </div>
                 <div>
                   <label className="text-sm text-slate-600">Return window for cashiers (days)</label>

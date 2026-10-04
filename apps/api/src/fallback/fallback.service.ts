@@ -176,6 +176,7 @@ export class FallbackService {
       { name: 'FallbackCopiedDocument', from: `${ownBills} UNION ALL ${ownReturns}` },
       { name: 'Item' },
       { name: 'ItemSaleUom' },
+      { name: 'ItemBarcode' },
       { name: 'ItemBranchPrice', where: `"branchId" = ${branchId}` },
       { name: 'ItemStock', where: `"branchId" = ${branchId}` },
       { name: 'RegisterSession', where: `"counterId" = ${lit(counter.id)} AND "closedAt" IS NULL` }

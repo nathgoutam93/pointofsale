@@ -10,6 +10,14 @@ import { withBranchPrices } from '../common/branch-prices';
 import { toNumber, round2 } from '../common/numbers';
 import { normalizeLeastCount } from '../common/quantities';
 
+/** An item as the API answers it: its sale units in order and its barcodes. */
+const itemInclude = {
+  saleUoms: { orderBy: { sortOrder: 'asc' } },
+  barcodes: { orderBy: { createdAt: 'asc' }, select: { id: true, barcode: true, saleUom: true } }
+} satisfies Prisma.ItemInclude;
+
+type ItemBarcodeInput = { barcode: string; saleUom?: string | null };
+
 @Injectable()
 export class ItemsService {
   constructor(
@@ -113,7 +121,7 @@ export class ItemsService {
     }
     const items = await this.prisma.item.findMany({
       where: activeOnly ? { isActive: true } : undefined,
-      include: { saleUoms: { orderBy: { sortOrder: 'asc' } } },
+      include: itemInclude,
       orderBy: { createdAt: 'desc' }
     });
     if (!branchId) return items;
@@ -182,6 +190,29 @@ export class ItemsService {
   }
 
   /**
+   * Replaces an item's barcodes. Each is unique across items and never another item's code; a
+   * sale unit named must be one the item is sold in (other than its base unit).
+   */
+  private async replaceBarcodes(tx: Prisma.TransactionClient, itemId: string, input: ItemBarcodeInput[]) {
+    const item = await tx.item.findUniqueOrThrow({ where: { id: itemId }, select: { code: true, uom: true, saleUoms: { select: { uom: true, isDefault: true } } } });
+    const rows = input.map((entry) => {
+      const barcode = entry.barcode.trim();
+      const wanted = entry.saleUom?.trim();
+      const isBase = !wanted || wanted.toLowerCase() === item.uom.toLowerCase();
+      const unit = isBase ? null : item.saleUoms.find((variant) => !variant.isDefault && variant.uom.toLowerCase() === wanted.toLowerCase());
+      if (!isBase && !unit) throw new BadRequestException(`This item is not sold in ${wanted}`);
+      return { itemId, barcode, saleUom: unit?.uom ?? null };
+    });
+    const codes = rows.map((row) => row.barcode);
+    const itemWithCode = await tx.item.findFirst({ where: { code: { in: codes, mode: 'insensitive' }, id: { not: itemId } }, select: { code: true, name: true } });
+    if (itemWithCode) throw new BadRequestException(`${itemWithCode.code} is the code of ${itemWithCode.name}`);
+    const taken = await tx.itemBarcode.findFirst({ where: { barcode: { in: codes }, itemId: { not: itemId } }, select: { barcode: true, item: { select: { name: true } } } });
+    if (taken) throw new BadRequestException(`Barcode ${taken.barcode} is already on ${taken.item.name}`);
+    await tx.itemBarcode.deleteMany({ where: { itemId } });
+    if (rows.length > 0) await tx.itemBarcode.createMany({ data: rows });
+  }
+
+  /**
    * Keeps branch prices on the item's units after they change: a renamed base unit takes its
    * prices along, and prices for units the item no longer has are dropped.
    */
@@ -219,6 +250,7 @@ export class ItemsService {
     uqc?: string | null;
     supplyType?: GstSupplyType;
     imageUrl?: string;
+    barcodes?: ItemBarcodeInput[];
   }) {
     const leastCount = normalizeLeastCount(input.leastCount ?? 1);
     const supplyType = input.supplyType ?? defaultSupplyType(input.taxRate);
@@ -226,25 +258,32 @@ export class ItemsService {
     await this.assertHsnCode(input.hsnCode);
     const saleUoms = this.normalizeItemSaleUoms(input);
     await this.assertWithinMrp(saleUoms, { taxMode: input.taxMode ?? 'EXCLUSIVE', taxRate: input.taxRate });
-    return this.prisma.item.create({
-      data: {
-        code: input.code,
-        name: input.name,
-        category: input.category,
-        uom: input.uom,
-        leastCount,
-        costPrice: input.costPrice ?? 0,
-        sellPrice: input.sellPrice,
-        mrp: input.mrp ?? 0,
-        taxMode: input.taxMode ?? 'EXCLUSIVE',
-        taxRate: input.taxRate,
-        hsnCode: input.hsnCode || null,
-        uqc: input.uqc === undefined ? suggestUqc(input.uom) : input.uqc,
-        supplyType,
-        imageUrl: input.imageUrl,
-        saleUoms: { create: saleUoms }
-      },
-      include: { saleUoms: { orderBy: { sortOrder: 'asc' } } }
+    return this.prisma.$transaction(async (tx) => {
+      // An item's code is scanned too, so it can't be another item's barcode.
+      const barcodeOwner = await tx.itemBarcode.findFirst({ where: { barcode: { equals: input.code.trim(), mode: 'insensitive' } }, select: { item: { select: { name: true } } } });
+      if (barcodeOwner) throw new BadRequestException(`${input.code} is a barcode of ${barcodeOwner.item.name}`);
+      const created = await tx.item.create({
+        data: {
+          code: input.code,
+          name: input.name,
+          category: input.category,
+          uom: input.uom,
+          leastCount,
+          costPrice: input.costPrice ?? 0,
+          sellPrice: input.sellPrice,
+          mrp: input.mrp ?? 0,
+          taxMode: input.taxMode ?? 'EXCLUSIVE',
+          taxRate: input.taxRate,
+          hsnCode: input.hsnCode || null,
+          uqc: input.uqc === undefined ? suggestUqc(input.uom) : input.uqc,
+          supplyType,
+          imageUrl: input.imageUrl,
+          saleUoms: { create: saleUoms }
+        },
+        select: { id: true }
+      });
+      if (input.barcodes?.length) await this.replaceBarcodes(tx, created.id, input.barcodes);
+      return tx.item.findUniqueOrThrow({ where: { id: created.id }, include: itemInclude });
     });
   }
 
@@ -266,9 +305,10 @@ export class ItemsService {
       supplyType?: GstSupplyType;
       imageUrl?: string | null;
       isActive?: boolean;
+      barcodes?: ItemBarcodeInput[];
     }
   ) {
-    const { saleUoms: saleUomInput, ...data } = input;
+    const { saleUoms: saleUomInput, barcodes: barcodeInput, ...data } = input;
     if (data.leastCount !== undefined) {
       data.leastCount = normalizeLeastCount(data.leastCount);
     }
@@ -306,11 +346,18 @@ export class ItemsService {
       const updated = await tx.item.update({
         where: { id },
         data,
-        include: { saleUoms: { orderBy: { sortOrder: 'asc' } } }
+        include: itemInclude
       });
       if (data.uom !== undefined || saleUomInput !== undefined) {
         await this.syncBranchPriceUnits(tx, id, previousBaseUom);
+        // Barcodes of sale units the item no longer has go too.
+        const units = new Set(updated.saleUoms.filter((unit) => !unit.isDefault).map((unit) => unit.uom.toLowerCase()));
+        const stale = (await tx.itemBarcode.findMany({ where: { itemId: id, saleUom: { not: null } }, select: { id: true, saleUom: true } }))
+          .filter((row) => !units.has(row.saleUom!.toLowerCase()))
+          .map((row) => row.id);
+        if (stale.length > 0) await tx.itemBarcode.deleteMany({ where: { id: { in: stale } } });
       }
+      if (barcodeInput !== undefined) await this.replaceBarcodes(tx, id, barcodeInput);
       // Prices, MRPs and tax as they now are, the branches' own prices too, all within the MRP.
       const branchPrices = await tx.itemBranchPrice.findMany({ where: { itemId: id }, select: { uom: true, sellPrice: true, mrp: true } });
       await this.assertWithinMrp(
@@ -325,7 +372,7 @@ export class ItemsService {
         { taxMode: updated.taxMode, taxRate: toNumber(updated.taxRate) },
         tx
       );
-      return updated;
+      return tx.item.findUniqueOrThrow({ where: { id }, include: itemInclude });
     });
   }
 

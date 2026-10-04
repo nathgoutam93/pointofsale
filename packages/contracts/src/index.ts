@@ -2,6 +2,7 @@ import { initContract } from '@ts-rest/core';
 import { z } from 'zod';
 import { RECEIPT_CSS_MAX_LENGTH, sanitizeReceiptCss } from './receiptCss.js';
 import { receiptTemplateSchema } from './receiptTemplate.js';
+import { scaleBarcodeSchema } from './barcodes.js';
 import {
   billingCheckoutBodySchema,
   billingCheckoutResponseSchema,
@@ -76,6 +77,8 @@ export {
   migrationManifestSchema
 } from './migration.js';
 export type { MigrationImportResult, MigrationManifest, MigrationTable } from './migration.js';
+export { hasValidCheckDigit, parseScaleBarcode, sameScaleItemCode, scaleBarcodeSchema } from './barcodes.js';
+export type { ScaleBarcode } from './barcodes.js';
 export {
   allocateDiscountAcrossBases,
   computeSaleTotals,
@@ -400,7 +403,9 @@ export const businessSettingsSchema = z.object({
   /** How each bill's total is rounded. */
   roundOffMode: z.enum(['NONE', 'NEAREST_1', 'NEAREST_050']).default('NONE'),
   /** Admins (and cashiers allowed to) may sell more than the stock count shows. */
-  allowNegativeStock: z.boolean().default(false)
+  allowNegativeStock: z.boolean().default(false),
+  /** How the weighing scale's labels are laid out; null without a scale. */
+  scaleBarcode: scaleBarcodeSchema.nullable().default(null)
 });
 
 export const taxpayerTypeChangeSchema = z.object({
@@ -602,8 +607,19 @@ const itemSaleUomSchema = itemSaleUomInputSchema.extend({
   createdAt: z.string().datetime()
 });
 
+/** A barcode an item is scanned by besides its code; `saleUom` when it sells a sale unit (a box). */
+const itemBarcodeInputSchema = z.object({
+  barcode: z.string().trim().min(3, 'A barcode has at least 3 characters').max(64),
+  saleUom: z.string().trim().min(1).nullable().optional()
+});
+const itemBarcodeListSchema = z
+  .array(itemBarcodeInputSchema)
+  .max(50)
+  .superRefine(uniqueBy((entry) => entry.barcode.toLowerCase(), 'A barcode is listed more than once'));
+
 export const itemWithSaleUomsSchema = itemSchema.extend({
-  saleUoms: z.array(itemSaleUomSchema)
+  saleUoms: z.array(itemSaleUomSchema),
+  barcodes: z.array(z.object({ id: z.string().uuid(), barcode: z.string(), saleUom: z.string().nullable() })).default([])
 });
 
 const discountInputSchema = z
@@ -1389,7 +1405,8 @@ export const appContract = c.router({
         hsnMinDigits: z.union([z.literal(4), z.literal(6)]).optional(),
         returnWindowDays: z.number().int().min(0).max(3650).nullable().optional(),
         roundOffMode: z.enum(['NONE', 'NEAREST_1', 'NEAREST_050']).optional(),
-        allowNegativeStock: z.boolean().optional()
+        allowNegativeStock: z.boolean().optional(),
+        scaleBarcode: scaleBarcodeSchema.nullable().optional()
       }),
       responses: { 200: businessSettingsSchema }
     },
@@ -1765,6 +1782,7 @@ export const appContract = c.router({
         sellPrice: moneySchema.nonnegative(),
         mrp: moneySchema.nonnegative().optional(),
         saleUoms: saleUomInputListSchema.optional(),
+        barcodes: itemBarcodeListSchema.optional(),
         taxMode: taxModeSchema.optional(),
         taxRate: taxRateSchema,
         hsnCode: hsnCodeSchema.nullable().optional(),
@@ -1789,6 +1807,8 @@ export const appContract = c.router({
         sellPrice: moneySchema.nonnegative().optional(),
         mrp: moneySchema.nonnegative().optional(),
         saleUoms: saleUomInputListSchema.optional(),
+        /** Replaces the item's barcodes; an empty list clears them. */
+        barcodes: itemBarcodeListSchema.optional(),
         taxMode: taxModeSchema.optional(),
         taxRate: taxRateSchema.optional(),
         hsnCode: hsnCodeSchema.nullable().optional(),

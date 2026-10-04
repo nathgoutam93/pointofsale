@@ -75,6 +75,12 @@ export function ItemsPage() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState(initialForm);
   const [saleUomRows, setSaleUomRows] = useState<SaleUomFormState[]>([]);
+  // Barcodes scanned for the item besides its code; a unit when one sells a box.
+  const [barcodeRows, setBarcodeRows] = useState<Array<{ barcode: string; saleUom: string }>>([]);
+  const barcodeBody = () =>
+    barcodeRows
+      .filter((row) => row.barcode.trim())
+      .map((row) => ({ barcode: row.barcode.trim(), saleUom: row.saleUom || null }));
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [panelMode, setPanelMode] = useState<"view" | "create" | "edit">(
     "view",
@@ -197,6 +203,7 @@ export function ItemsPage() {
           sellPrice: Number(form.sellPrice),
           mrp: Number(form.mrp),
           saleUoms: normalizeSaleUomRows(saleUomRows, form.uom),
+          barcodes: barcodeBody(),
           taxMode: form.taxMode,
           taxRate: Number(form.taxRate),
           hsnCode: form.gst.hsnCode.trim() || null,
@@ -221,6 +228,7 @@ export function ItemsPage() {
       queryClient.invalidateQueries({ queryKey: ["items-module"] });
       setForm(initialForm);
       setSaleUomRows([]);
+      setBarcodeRows([]);
       setPanelMode("view");
       setSelectedItemId(createdItem.id);
     },
@@ -247,6 +255,7 @@ export function ItemsPage() {
           sellPrice: Number(form.sellPrice),
           mrp: Number(form.mrp),
           saleUoms: normalizeSaleUomRows(saleUomRows, form.uom),
+          barcodes: barcodeBody(),
           taxMode: form.taxMode,
           taxRate: Number(form.taxRate),
           hsnCode: form.gst.hsnCode.trim() || null,
@@ -267,6 +276,7 @@ export function ItemsPage() {
       setRemoveImageOnEdit(false);
       setForm(initialForm);
       setSaleUomRows([]);
+      setBarcodeRows([]);
       setSelectedItemId(updatedItem.id);
     },
   });
@@ -307,6 +317,68 @@ export function ItemsPage() {
         : deleteItem.error instanceof Error
           ? deleteItem.error.message
           : "Action failed.";
+
+  const renderBarcodeEditor = () => (
+    <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-medium text-slate-600">Barcodes</p>
+          <p className="text-xs text-slate-500">
+            Scanned besides the item code: every EAN on the product, and a box's own barcode.
+          </p>
+        </div>
+        <button
+          className="btn-secondary text-xs"
+          type="button"
+          onClick={() => setBarcodeRows((rows) => [...rows, { barcode: "", saleUom: "" }])}
+        >
+          Add barcode
+        </button>
+      </div>
+      {barcodeRows.length === 0 ? (
+        <p className="text-sm text-slate-500">Only the item code.</p>
+      ) : (
+        <div className="space-y-2">
+          {barcodeRows.map((row, index) => (
+            <div key={index} className="grid grid-cols-[1fr_auto_auto] gap-2">
+              <input
+                className="field"
+                placeholder="Scan or type the barcode"
+                value={row.barcode}
+                onChange={(e) =>
+                  setBarcodeRows((rows) => rows.map((entry, i) => (i === index ? { ...entry, barcode: e.target.value } : entry)))
+                }
+              />
+              <select
+                className="field w-32"
+                value={row.saleUom}
+                aria-label="Sells"
+                onChange={(e) =>
+                  setBarcodeRows((rows) => rows.map((entry, i) => (i === index ? { ...entry, saleUom: e.target.value } : entry)))
+                }
+              >
+                <option value="">{form.uom || "Base unit"}</option>
+                {saleUomRows
+                  .filter((unit) => unit.uom.trim())
+                  .map((unit) => (
+                    <option key={unit.uom} value={unit.uom.trim()}>
+                      {unit.uom.trim()}
+                    </option>
+                  ))}
+              </select>
+              <button
+                className="btn-ghost text-xs text-rose-600"
+                type="button"
+                onClick={() => setBarcodeRows((rows) => rows.filter((_, i) => i !== index))}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   const renderSaleUomEditor = () => (
     <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -440,6 +512,7 @@ export function ItemsPage() {
               resetMutationErrors();
               setForm(initialForm);
               setSaleUomRows([]);
+              setBarcodeRows([]);
               setPanelMode("create");
               setRemoveImageOnEdit(false);
             }}
@@ -542,6 +615,7 @@ export function ItemsPage() {
                 onClick={() => {
                   resetMutationErrors();
                   setSaleUomRows([]);
+                  setBarcodeRows([]);
                   setPanelMode("view");
                 }}
               >
@@ -697,6 +771,7 @@ export function ItemsPage() {
                 )}
               </label>
               {renderSaleUomEditor()}
+              {renderBarcodeEditor()}
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-slate-600">
                   Tax Mode
@@ -761,6 +836,7 @@ export function ItemsPage() {
                   setRemoveImageOnEdit(false);
                   setForm(initialForm);
                   setSaleUomRows([]);
+                  setBarcodeRows([]);
                 }}
               >
                 Cancel
@@ -973,6 +1049,7 @@ export function ItemsPage() {
                 )}
               </label>
               {renderSaleUomEditor()}
+              {renderBarcodeEditor()}
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-slate-600">
                   Tax Mode
@@ -1065,6 +1142,9 @@ export function ItemsPage() {
                           sellPrice: String(variant.sellPrice),
                           mrp: String(variant.mrp),
                         })),
+                    );
+                    setBarcodeRows(
+                      (selectedItem.barcodes ?? []).map((entry) => ({ barcode: entry.barcode, saleUom: entry.saleUom ?? "" })),
                     );
                     setRemoveImageOnEdit(false);
                     setPanelMode("edit");
