@@ -197,7 +197,7 @@ managed hosting is selling.
   - Open the pull request, review it and merge.
 - **Done when:** CI is green on the pull request and it's merged.
 
-## [ ] 7. Data export for online businesses
+## [x] 7. Data export for online businesses
 
 - **Why:** offline businesses have backups; an online owner can't download a copy of their own
   data (and may need one to leave, or for their accountant).
@@ -205,6 +205,26 @@ managed hosting is selling.
   format, `ExportService`, already does this for offline businesses) plus a readable CSV
   option for sales and GST. A button in Settings for admins, or the owner screens.
 - **Done when:** an owner downloads a complete copy and it can be restored into an offline install.
+- **Status (2026-10-04):** built. Settings → Your data (admins).
+  - **Everything** (`GET /exports/business`, online only):
+    - Downloads every table of the business with its logos and item pictures, in the local
+      backup format (reason `export`), not the move-online bundle. The desktop app's first-launch
+      "Restore from a backup" takes it.
+    - Only for an admin of every branch.
+    - One export at a time per business, and 6 an hour.
+    - Restored into an offline install, a former fallback counter opens on any computer: the
+      fallback binding only counts online and on the fallback copy.
+  - **Sales register** (`GET /exports/sales.csv?from&to&branchId`, online and offline):
+    - One row per invoice and credit note (credit notes negative), with buyer GSTIN, place of
+      supply, taxable value, CGST, SGST, IGST, paid, credited, owed, refunded, status and
+      payment modes.
+    - Dates are in the business's time zone.
+    - Every branch the admin manages when no branch is chosen.
+    - Text that a spreadsheet would run as a formula is defused.
+  - **Tests:** `exports.test.ts` (the export restored into a fresh database, pictures included;
+    admin-of-every-branch rule; CSV rows). Both downloads were also checked in a browser.
+  - **Not done:** a GSTR-1/3B CSV. The GST Returns screen already downloads the GSTR-1 JSON and
+    shows both returns.
 
 ## [ ] 8. Owner screens
 
@@ -511,7 +531,7 @@ managed hosting is selling.
 - **Done when:** the repository is private, and an installed app updates itself from the new
   place.
 
-## [ ] 17. Fallback counter: credit sales, returns and new customers offline
+## [x] 17. Fallback counter: credit sales, returns and new customers offline
 
 - **Why:** while the server is down the fallback counter sells for cash and card only. Credit
   sales, settling old bills, returns and new customers wait for the server.
@@ -533,6 +553,37 @@ managed hosting is selling.
     tests like `fallback.test.ts`.
 - **Done when:** a fallback counter adds a customer, sells to them on credit and takes a return of
   its own sale while the server is down, and all three reach the server correctly.
+- **Status (2026-10-04):** built.
+  - **The copy** (`FallbackService.snapshot`) now also has:
+    - The counter's return series.
+    - Its own paid bills from the last 7 days (`FALLBACK_RETURNABLE_DAYS`), with their lines and
+      returns, listed in `FallbackCopiedDocument` so they aren't sent back as new.
+    - What each customer owed (`FallbackBalance`). The copy holds no unpaid bills, so this is how
+      credit limits work offline.
+    - Both tables are new (migration `20261016100000_fallback_offline`). They are empty on the
+      server and never move with a business.
+    - `createBackup` can build a table's rows from a query (`from`).
+  - **Offline (local API):**
+    - New customers get a code `OFF-xxxxxxxx`.
+    - Credit sales are checked against the limit, with what the customer owed at the copy counted
+      in.
+    - Bills made offline can be paid (part or full).
+    - Returns are allowed for bills made offline and the copied ones; refunds are in cash.
+    - No wallet payments, wallet refunds or change into a wallet.
+    - Editing customers and older or other counters' bills still waits for the server.
+  - **Sync (`FallbackService.sync`):**
+    - Customers are added with the server's next code and a wallet.
+    - One whose phone number the server already has becomes that customer, and the offline bills
+      move to them.
+    - Returns are checked: their series, their register, and that the bill is the counter's own.
+    - Clashes are listed, as for invoices:
+      - A return number already used online.
+      - Goods also returned online, so more would come back than was sold.
+      - More money handed back than was paid.
+      - Lowering what is owed on a bill the server had.
+  - **Desktop:** the app also notes return numbers issued online, so offline returns carry on
+    after them.
+  - **Tests:** `fallback.test.ts`.
 
 ---
 
@@ -554,4 +605,6 @@ managed hosting is selling.
 - 2026-10-03: Item 12 done (receipt builder, transfer destinations, POS email check, and the fallback counter's pictures, sync clashes, uncounted cash and background server check); offline credit, returns and customers moved to item 17.
 - 2026-10-04: Item 10 done: registered (B2B) buyers on customers, bills, receipts and GSTR-1 (B2B, CDNR).
 - 2026-10-04: Item 11 done: credit limits (cashiers stopped, admins warned), payment terms and due dates, overdue marks, statements (printed and emailed) and ageing.
+- 2026-10-04: Item 17 done: offline customers, credit sales (within the limit as copied), payments on offline bills and returns of recent own bills, all synced.
+- 2026-10-04: Item 7 done: Settings → Your data downloads the whole online business (restorable offline) and a sales register CSV.
 - 2026-10-04: Item 1 done: crash reports to our own server (desktop main, local API, page, online API), scrubbed, sent only after an admin says yes.

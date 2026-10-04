@@ -7,7 +7,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { CLIENT_VERSION_HEADER, FALLBACK_UNAVAILABLE, isOlderVersion, UPDATE_REQUIRED_STATUS } from '@pos/contracts';
 import { isFallback, minClientVersion, posMode } from './common/mode';
-import { FALLBACK_WRITES } from './fallback/outbox';
+import { isFallbackWrite } from './fallback/outbox';
 import { uploadsDir } from './common/uploads';
 import { tenantStorage } from './tenancy/tenant-context';
 import { CrashReportsService } from './crash/crash-reports.service';
@@ -95,8 +95,8 @@ export function configureApp(app: NestExpressApplication) {
     });
   }
 
-  // A fallback counter working offline: reading, signing in, the register and selling. The rest
-  // needs the server (balances, numbering, other tills).
+  // A fallback counter working offline: reading, signing in, the register, selling (credit too),
+  // adding customers, and payments and returns of the bills it has. The rest needs the server.
   if (isFallback()) {
     app.use(
       (
@@ -104,7 +104,7 @@ export function configureApp(app: NestExpressApplication) {
         res: { status(code: number): { json(body: unknown): void } },
         next: () => void
       ) => {
-        if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS' || FALLBACK_WRITES.has(`${req.method} ${req.path}`)) {
+        if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS' || isFallbackWrite(req.method, req.path)) {
           next();
           return;
         }

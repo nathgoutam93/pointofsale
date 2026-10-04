@@ -18,6 +18,8 @@ import { AccessService } from './common/access.service';
 import { CountersController } from './counters/counters.controller';
 import { CountersService } from './counters/counters.service';
 import { CustomersController } from './customers/customers.controller';
+import { ExportsController } from './exports/exports.controller';
+import { ExportsService } from './exports/exports.service';
 import { CrashReportsController } from './crash/crash-reports.controller';
 import { CrashReportsService } from './crash/crash-reports.service';
 import { CustomersService } from './customers/customers.service';
@@ -76,6 +78,7 @@ import { UsersService } from './users/users.service';
     CountersController,
     UsersController,
     CustomersController,
+    ExportsController,
     CrashReportsController,
     ItemsController,
     StockController,
@@ -107,6 +110,7 @@ import { UsersService } from './users/users.service';
     PurchasesService,
     TransfersService,
     CustomersService,
+    ExportsService,
     CrashReportsService,
     ReceivablesService,
     BranchesService,

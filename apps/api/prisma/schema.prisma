@@ -730,3 +730,17 @@ model StockTransferLine {
 
   @@unique([transferId, itemId])
 }
+
+/// Fallback copies only (empty on the server): what each customer owed when the copy was made,
+/// since the copy carries no unpaid bills. Offline credit sales count it against the credit limit.
+model FallbackBalance {
+  customerId String  @id
+  owed       Decimal @db.Decimal(14, 2)
+}
+
+/// Fallback copies only (empty on the server): bills and returns that came with the copy (the
+/// counter's own recent paid bills, so their goods can be returned offline). What the counter
+/// sends back is everything else.
+model FallbackCopiedDocument {
+  id String @id
+}

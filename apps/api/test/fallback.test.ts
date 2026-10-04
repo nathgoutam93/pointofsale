@@ -33,6 +33,8 @@ let key: string;
 let itemId: string;
 let walkInId: string;
 let registerToken: string;
+let creditCoId: string;
+let copiedSale: { id: string; lines: Array<{ id: string }> };
 const deviceId = randomUUID();
 const device = { 'x-pos-device': deviceId };
 
@@ -95,6 +97,13 @@ describe('fallback counter, on the server', () => {
     walkInId = (await t.ok('GET', `/customers/walk-in/${branchId}`, registerToken)).id;
     const sale = await t.ok('POST', '/sales/checkout', registerToken, checkoutBody(branchId, walkInId, [line(itemId, { rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], [{ mode: 'CASH', amount: 118 }]));
     expect(sale.invoice.invoiceNo).toMatch(new RegExp(`^${branchCode}/${counterNumber}/\\d{2}/00001$`));
+    copiedSale = sale.invoice;
+
+    // A customer with a credit limit who owes 118 from a credit sale at another branch.
+    const other = await t.branchWithRegister(admin);
+    await t.ok('POST', '/stock/opening', other.token, { branchId: other.branch.id, itemId, qty: 5 });
+    creditCoId = (await t.ok('POST', '/customers', admin, { branchId: other.branch.id, name: 'Credit Co', creditLimit: 300 })).id;
+    await t.ok('POST', '/sales/checkout', other.token, checkoutBody(other.branch.id, creditCoId, [line(itemId, { rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], []));
   });
 
   it('refuses a wrong or missing key', async () => {
@@ -122,12 +131,22 @@ describe('fallback counter, working offline', () => {
     await server.$disconnect();
     const manifest = await restoreBackup({ file, databaseUrl: localDbUrl, uploadsDir: join(dir, 'uploads'), apiRoot });
     const tables = Object.fromEntries(manifest.tables.map((table) => [table.name, table.rows]));
-    // What selling needs, and no sales history.
+    // What selling needs; of the sales history only the counter's own recent paid bills (for
+    // returns), and what customers owe.
     expect(tables.Counter).toBeGreaterThanOrEqual(1);
     expect(tables.RegisterSession).toBe(1);
     expect(tables.DocumentSequence).toBe(1);
-    expect(tables.SaleInvoice).toBeUndefined();
+    expect(tables.SaleInvoice).toBe(1);
+    expect(tables.FallbackCopiedDocument).toBe(1);
+    expect(tables.ReturnInvoice).toBe(0);
     expect(tables.ItemStock).toBe(1);
+    const copy = new PrismaClient({ datasourceUrl: localDbUrl });
+    try {
+      expect((await copy.fallbackBalance.findMany()).map((row) => [row.customerId, Number(row.owed)])).toContainEqual([creditCoId, 118]);
+      expect(await copy.saleInvoice.findMany({ select: { id: true } })).toEqual([{ id: copiedSale.id }]);
+    } finally {
+      await copy.$disconnect();
+    }
 
     local = spawn(process.execPath, [join(build, 'main.js')], {
       env: {
@@ -181,14 +200,15 @@ describe('fallback counter, working offline', () => {
   });
 
   it('does only what needs no server', async () => {
-    const customer = await call(base, 'POST', '/customers', { token: localToken, body: { branchId, name: 'New', phone: null } });
-    expect(customer.status).toBe(403);
-    expect(customer.body.code).toBe(FALLBACK_UNAVAILABLE);
-    const credit = await call(base, 'POST', '/sales/checkout', {
+    const edit = await call(base, 'PATCH', `/customers/${creditCoId}`, { token: localToken, body: { name: 'Renamed' } });
+    expect(edit.status).toBe(403);
+    expect(edit.body.code).toBe(FALLBACK_UNAVAILABLE);
+    const wallet = await call(base, 'POST', '/sales/checkout', {
       token: localToken,
       body: checkoutBody(branchId, walkInId, [line(itemId, { rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], [{ mode: 'WALLET', amount: 118 }])
     });
-    expect(credit.status).toBe(400);
+    expect(wallet.status).toBe(400);
+    expect(wallet.body.message).toMatch(/wallet/i);
     expect((await call(base, 'GET', '/fallback/outbox')).status).toBe(401);
   });
 
@@ -212,6 +232,94 @@ describe('fallback counter, working offline', () => {
     // The next sale online continues after the offline one.
     const next = await t.ok('POST', '/sales/checkout', registerToken, checkoutBody(branchId, walkInId, [line(itemId, { rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], [{ mode: 'CASH', amount: 118 }]));
     expect(next.invoice.invoiceNo).toMatch(/\/00004$/);
+  });
+
+  it('adds customers, sells on credit, takes payments and returns offline, and sends them', async () => {
+    const local = (method: string, path: string, body?: unknown) => call(base, method, path, { token: localToken, headers: device, body });
+    const sell = (customerId: string, qty: number, payments: unknown[]) =>
+      local('POST', '/sales/checkout', checkoutBody(branchId, customerId, [line(itemId, { qty, rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], payments));
+
+    // Back online the counter sold more; the app catches the copy's numbering up before selling.
+    const lastOnline = await t.db.saleInvoice.findFirstOrThrow({ where: { branchId, documentSeries: `${branchCode}/${counterNumber}` }, orderBy: { invoiceNo: 'desc' } });
+    await call(base, 'POST', '/fallback/numbers', { headers: { 'x-pos-fallback-secret': secret }, body: { invoiceNumbers: [lastOnline.invoiceNo] } });
+
+    // Credit: what they owed when the copy was made counts.
+    const owedBefore = await local('GET', `/customers/${creditCoId}/account`);
+    expect(owedBefore.body).toMatchObject({ outstanding: 118, creditLimit: 300, available: 182 });
+    const credit = await sell(creditCoId, 1, []);
+    expect(credit.status).toBe(200);
+    expect(credit.body.invoice.status).toBe('DRAFT');
+    expect((await local('GET', `/customers/${creditCoId}/account`)).body).toMatchObject({ outstanding: 236, available: 64 });
+
+    // A new customer, sold to on credit, then paying part of it.
+    const shop = await local('POST', '/customers', { branchId, name: 'Offline Shop', phone: '9111100000' });
+    expect(shop.status).toBe(201);
+    expect(shop.body.code).toMatch(/^OFF-[0-9A-F]{8}$/);
+    const shopSale = await sell(shop.body.id, 1, []);
+    const paid = await local('POST', `/sales/${shopSale.body.invoice.id}/settle`, { payments: [{ mode: 'CASH', amount: 50 }] });
+    expect(paid.status).toBe(200);
+    expect(paid.body.invoice.status).toBe('PARTIALLY_SETTLED');
+    // The wallet stays out of it offline.
+    expect((await local('POST', `/sales/${shopSale.body.invoice.id}/settle`, { payments: [{ mode: 'CASH', amount: 500 }] })).status).toBe(400);
+
+    // A customer the server added after the copy was made, added again offline by phone.
+    const late = await t.ok('POST', '/customers', admin, { branchId, name: 'Late Online', phone: '9222200000' });
+    const lateHere = await local('POST', '/customers', { branchId, name: 'Late (offline)', phone: '9222200000' });
+    const lateSale = await sell(lateHere.body.id, 1, [{ mode: 'CASH', amount: 118 }]);
+
+    // Returns: of a paid bill that came with the copy (cash back), and of the new customer's
+    // credit bill (68 off what they owe, 50 back). Never into the wallet offline.
+    expect((await local('POST', `/sales/${copiedSale.id}/return`, { refundMode: 'WALLET', lines: [{ saleLineId: copiedSale.lines[0].id, qty: 1 }] })).status).toBe(400);
+    const copiedReturn = await local('POST', `/sales/${copiedSale.id}/return`, { refundMode: 'CASH', lines: [{ saleLineId: copiedSale.lines[0].id, qty: 1 }] });
+    expect(copiedReturn.status).toBe(201);
+    expect(copiedReturn.body.returnNo).toMatch(new RegExp(`^${branchCode}R/${counterNumber}/\\d{2}/00001$`));
+    const shopReturn = await local('POST', `/sales/${shopSale.body.invoice.id}/return`, { refundMode: 'CASH', lines: [{ saleLineId: shopSale.body.invoice.lines[0].id, qty: 1 }] });
+    expect(shopReturn.body).toMatchObject({ dueAdjusted: '68', refundAmount: '50' });
+
+    const outbox = await call(base, 'GET', '/fallback/outbox', { headers: { 'x-pos-fallback-secret': secret } });
+    expect(outbox.body.customers.map((row: { name: string }) => row.name).sort()).toEqual(['Late (offline)', 'Offline Shop']);
+    expect(outbox.body.returns).toHaveLength(2);
+    // The bill that came with the copy isn't sent back as new.
+    expect(outbox.body.invoices.map((entry: { invoice: { id: string } }) => entry.invoice.id)).not.toContain(copiedSale.id);
+
+    const stockBefore = await t.onHand(registerToken, branchId, itemId);
+    const sync = await call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body: outbox.body });
+    expect(sync.body).toMatchObject({ invoices: 3, customers: 1, returns: 2 });
+    // Sold 3, 2 came back.
+    expect(await t.onHand(registerToken, branchId, itemId)).toBe(stockBefore - 1);
+
+    // The new customer, with a code from the server and a wallet; what they owe is right.
+    const added = await t.db.customer.findUniqueOrThrow({ where: { id: shop.body.id } });
+    expect(added.code).toMatch(new RegExp(`^CUST-${branchCode}-\\d{6}$`));
+    expect(await t.ok('GET', `/customers/${shop.body.id}/wallet?branchId=${branchId}`, admin)).toMatchObject({ balance: 0 });
+    expect(await t.ok('GET', `/customers/${shop.body.id}/account?branchId=${branchId}`, admin)).toMatchObject({ outstanding: 0 });
+    expect(await t.ok('GET', `/customers/${creditCoId}/account?branchId=${branchId}`, admin)).toMatchObject({ outstanding: 236 });
+    // The customer added twice is one: the offline bill is theirs.
+    expect((await t.db.saleInvoice.findUniqueOrThrow({ where: { id: lateSale.body.invoice.id } })).customerId).toBe(late.id);
+    expect(await t.db.customer.findUnique({ where: { id: lateHere.body.id } })).toBeNull();
+    // The copied bill's return is on the server's bill.
+    expect(await t.db.returnInvoice.count({ where: { saleInvoiceId: copiedSale.id } })).toBe(1);
+
+    // Sent again: nothing changes.
+    const again = await call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body: outbox.body });
+    expect(again.body).toMatchObject({ invoices: 0, customers: 0, returns: 0 });
+
+    // The same goods returned again (another return made offline): a clash, nothing added.
+    const twice = structuredClone(outbox.body);
+    const copied = twice.returns.find((entry: { ret: { saleInvoiceId: string } }) => entry.ret.saleInvoiceId === copiedSale.id);
+    copied.ret.id = randomUUID();
+    copied.ret.returnNo = copied.ret.returnNo.replace(/\d{5}$/, '00009');
+    for (const row of [...copied.lines, ...copied.ledger]) {
+      row.id = randomUUID();
+      if ('returnInvoiceId' in row) row.returnInvoiceId = copied.ret.id;
+      if ('referenceId' in row) row.referenceId = copied.ret.id;
+    }
+    const refused = await call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body: twice });
+    expect(refused.status).toBe(409);
+    expect(refused.body.conflicts).toEqual([
+      { document: `Return ${copied.ret.returnNo}`, problem: expect.stringMatching(/would be returned on .+ than was sold/) },
+      { document: `Return ${copied.ret.returnNo}`, problem: expect.stringMatching(/More money would be handed back/) }
+    ]);
   });
 
   it('lists the item pictures the copy shows, for the app to keep', async () => {
@@ -265,14 +373,16 @@ describe('fallback counter, working offline', () => {
     const opened = { ...online, id: randomUUID(), openedAt: new Date().toISOString(), openingBalance: '0', closedAt: null };
     const sync = await call(t.baseUrl, 'POST', '/fallback/sync', {
       headers: { 'x-pos-fallback-key': key },
-      body: { ...outbox.body, registers: [opened], invoices: [], sequences: [] }
+      body: { ...outbox.body, registers: [opened], invoices: [], sequences: [], customers: [], returns: [] }
     });
     expect(sync.status).toBe(200);
 
     const closed = await t.db.registerSession.findUniqueOrThrow({ where: { id: online.id } });
     const cash = await t.db.payment.aggregate({ where: { registerSessionId: online.id, mode: 'CASH' }, _sum: { amount: true } });
     expect(closed.closedAt).toEqual(new Date(opened.openedAt));
-    expect(Number(closed.expectedCash)).toBe(Number(closed.openingBalance) + Number(cash._sum.amount));
+    // Cash taken, less cash handed back for returns.
+    const refunds = await t.db.returnInvoice.aggregate({ where: { registerSessionId: online.id, refundMode: 'CASH' }, _sum: { refundAmount: true } });
+    expect(Number(closed.expectedCash)).toBe(Number(closed.openingBalance) + Number(cash._sum.amount) - Number(refunds._sum.refundAmount ?? 0));
     expect(closed.closingBalance).toBeNull();
     expect(closed.cashDifference).toBeNull();
   });

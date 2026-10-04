@@ -133,8 +133,9 @@ function currentApiBaseUrl() {
 }
 
 /**
- * An invoice the server just issued through this computer. A fallback counter's series is only
- * ever issued here, so the last one seen is the series' last: offline invoices carry on after it.
+ * An invoice or return the server just numbered through this computer. A fallback counter's
+ * series are only ever issued here, so the last one seen is the series' last: offline ones
+ * carry on after it.
  */
 function noteInvoiceIssued(invoiceNo: string) {
   const settings = config.fallback;
@@ -901,7 +902,7 @@ ipcMain.handle('pos:fallback:finish', async (event) => {
   notifyFallback();
   try {
     const sent = await fallback.sync();
-    log(`Sent the offline sales: ${sent.invoices} new invoices, ${sent.registers} registers`);
+    log(`Sent the offline sales: ${sent.invoices} new invoices, ${sent.returns ?? 0} returns, ${sent.customers ?? 0} new customers, ${sent.registers} registers`);
     config = { ...config, fallback: { ...(config.fallback as typeof settings), active: false, pendingSync: false } };
     saveConfig(config);
     fallback.error = null;
