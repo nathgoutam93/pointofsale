@@ -1,10 +1,9 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { join } from 'path';
 import { appContract, type ReceiptTemplate, type ScaleBarcode } from '@pos/contracts';
 import { getSession, requireAdminSession, requireAdmin, RequestHeaders } from '../common/request-session';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
-import { uploadsDir } from '../common/uploads';
+import { imageUploadOptions, saveImage } from '../common/uploads';
 import { SettingsService } from './settings.service';
 import { AccessService } from '../common/access.service';
 import { BranchesService } from '../branches/branches.service';
@@ -95,28 +94,13 @@ export class SettingsController {
   }
 
   @Post('/business/logo')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      dest: join(uploadsDir, 'business'),
-      fileFilter: (_req: unknown, file: { mimetype: string }, cb: (error: Error | null, acceptFile: boolean) => void) => {
-        if (!file.mimetype?.startsWith('image/')) {
-          cb(new BadRequestException('Only image files are allowed'), false);
-          return;
-        }
-        cb(null, true);
-      },
-      limits: { fileSize: 5 * 1024 * 1024 }
-    })
-  )
-  uploadBusinessLogo(
-    @UploadedFile() file: { filename: string } | undefined,
+  @UseInterceptors(FileInterceptor('file', imageUploadOptions))
+  async uploadBusinessLogo(
+    @UploadedFile() file: { buffer?: Buffer } | undefined,
     @Headers() headers: RequestHeaders
   ) {
     requireAdmin(getSession(headers));
-    if (!file) {
-      throw new BadRequestException('Image file is required');
-    }
-    return this.settings.updateBusinessSettings({ logoUrl: `/uploads/business/${file.filename}` });
+    return this.settings.updateBusinessSettings({ logoUrl: await saveImage(file, 'business') });
   }
 
   @Get('/branches/:id')
@@ -167,28 +151,13 @@ export class SettingsController {
   }
 
   @Post('/branches/:id/logo')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      dest: join(uploadsDir, 'branches'),
-      fileFilter: (_req: unknown, file: { mimetype: string }, cb: (error: Error | null, acceptFile: boolean) => void) => {
-        if (!file.mimetype?.startsWith('image/')) {
-          cb(new BadRequestException('Only image files are allowed'), false);
-          return;
-        }
-        cb(null, true);
-      },
-      limits: { fileSize: 5 * 1024 * 1024 }
-    })
-  )
+  @UseInterceptors(FileInterceptor('file', imageUploadOptions))
   async uploadBranchLogo(
     @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: { filename: string } | undefined,
+    @UploadedFile() file: { buffer?: Buffer } | undefined,
     @Headers() headers: RequestHeaders
   ) {
     await this.access.requireBranch(requireAdminSession(headers), id);
-    if (!file) {
-      throw new BadRequestException('Image file is required');
-    }
-    return this.settings.updateBranchSettings(id, { logoUrl: `/uploads/branches/${file.filename}` });
+    return this.settings.updateBranchSettings(id, { logoUrl: await saveImage(file, 'branches') });
   }
 }

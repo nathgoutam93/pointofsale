@@ -405,7 +405,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   the API. Tests: `tenant-clients.test.ts`. A 150-business run on the real server, ideally with
   PgBouncer, is still worth doing before launch.
 
-### [ ] C4. Uploads
+### [x] C4. Uploads
 
 - **Why:** image type is checked only from the browser-supplied MIME type (SVG passes); files
   are served publicly without `X-Content-Type-Options: nosniff`; the item-image permission check
@@ -414,6 +414,13 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 - **What:** check the file's content (PNG, JPEG, WebP only), save with the right extension,
   send `nosniff`, check permission before saving, and `git rm --cached apps/api/uploads`.
 - **Done when:** an SVG or a renamed HTML file is refused, and uploads are out of git.
+- **Status (2026-10-04):** item images and business and branch logos are held in memory until the
+  handler has checked who may upload; nothing reaches disk before that. Only PNG, JPEG or WebP
+  are accepted, recognised by their first bytes whatever the browser claims, and saved with that
+  extension (`saveImage` in `common/uploads.ts`). Everything under `/uploads/` is served with
+  `X-Content-Type-Options: nosniff`, and an SVG left from an older version gets a script-blocking
+  `Content-Security-Policy`. The file pickers ask for those three types. The 16 committed upload
+  files are out of git (still on disk, and ignored). Tests: `uploads.test.ts`.
 
 ### [ ] C5. Lint, web tests, contracts in controllers
 

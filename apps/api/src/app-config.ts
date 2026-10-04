@@ -8,7 +8,7 @@ import { join } from 'path';
 import { CLIENT_VERSION_HEADER, FALLBACK_UNAVAILABLE, isOlderVersion, UPDATE_REQUIRED_STATUS } from '@pos/contracts';
 import { isFallback, minClientVersion, posMode } from './common/mode';
 import { isFallbackWrite } from './fallback/outbox';
-import { uploadsDir } from './common/uploads';
+import { uploadHeaders, uploadsDir } from './common/uploads';
 import { tenantStorage, type TenantStore } from './tenancy/tenant-context';
 import { CrashReportsService } from './crash/crash-reports.service';
 import { ServerErrorFilter } from './crash/server-error.filter';
@@ -150,5 +150,5 @@ export function configureApp(app: NestExpressApplication) {
       mkdirSync(dir, { recursive: true });
     }
   }
-  app.useStaticAssets(uploadsDir, { prefix: '/uploads/' });
+  app.useStaticAssets(uploadsDir, { prefix: '/uploads/', setHeaders: uploadHeaders });
 }

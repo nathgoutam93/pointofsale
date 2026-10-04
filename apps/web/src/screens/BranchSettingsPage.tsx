@@ -863,7 +863,7 @@ export function BranchSettingsPage() {
                   <div className="grid gap-2">
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/png,image/jpeg,image/webp"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) uploadBusinessLogoMutation.mutate(file);
@@ -1031,7 +1031,7 @@ export function BranchSettingsPage() {
                     <div className="grid gap-2">
                       <input
                         type="file"
-                        accept="image/*"
+                        accept="image/png,image/jpeg,image/webp"
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (file) uploadLogoMutation.mutate(file);

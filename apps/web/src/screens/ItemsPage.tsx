@@ -636,7 +636,7 @@ export function ItemsPage() {
                 </span>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/webp"
                   onChange={(e) =>
                     setForm((s) => ({
                       ...s,
@@ -886,7 +886,7 @@ export function ItemsPage() {
                       <input
                         className="field"
                         type="file"
-                        accept="image/*"
+                        accept="image/png,image/jpeg,image/webp"
                         onChange={(e) =>
                           setForm((s) => {
                             const nextFile = e.target.files?.[0] ?? null;

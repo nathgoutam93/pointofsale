@@ -1,12 +1,11 @@
 import type { GstSupplyType } from '@pos/contracts';
-import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { join } from 'path';
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
 import { getSession, requireAdminSession, RequestHeaders } from '../common/request-session';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
-import { uploadsDir } from '../common/uploads';
+import { imageUploadOptions, saveImage } from '../common/uploads';
 import { ItemsService } from './items.service';
 
 @Controller()
@@ -45,26 +44,11 @@ export class ItemsController {
   }
 
   @Post('/items/upload-image')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      dest: join(uploadsDir, 'items'),
-      fileFilter: (_req: unknown, file: { mimetype: string }, cb: (error: Error | null, acceptFile: boolean) => void) => {
-        if (!file.mimetype?.startsWith('image/')) {
-          cb(new BadRequestException('Only image files are allowed'), false);
-          return;
-        }
-        cb(null, true);
-      },
-      limits: { fileSize: 5 * 1024 * 1024 }
-    })
-  )
-  async uploadItemImage(@UploadedFile() file: { filename: string } | undefined, @Headers() headers: RequestHeaders) {
+  @UseInterceptors(FileInterceptor('file', imageUploadOptions))
+  async uploadItemImage(@UploadedFile() file: { buffer?: Buffer } | undefined, @Headers() headers: RequestHeaders) {
+    // Checked before anything is saved: the upload is held in memory until then.
     await this.managing(headers);
-    if (!file) {
-      throw new BadRequestException('Image file is required');
-    }
-
-    return { path: `/uploads/items/${file.filename}` };
+    return { path: await saveImage(file, 'items') };
   }
 
   @Post('/items')
