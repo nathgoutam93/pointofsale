@@ -98,7 +98,7 @@ function initials(name: string) {
 }
 
 /** Screens shown before anyone is signed in, without the app's navigation. */
-const FULL_SCREEN_PATHS = new Set(["/", "/welcome", "/setup", "/create-business", "/recover", "/owner-password"]);
+const FULL_SCREEN_PATHS = new Set(["/", "/welcome", "/setup", "/create-business", "/recover", "/owner-password", "/owner"]);
 
 export function AppLayout() {
   const location = useRouterState({ select: (s) => s.location.pathname });

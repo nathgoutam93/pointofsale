@@ -176,13 +176,26 @@ managed hosting is selling.
   option for sales and GST. A button in Settings for admins, or the owner screens.
 - **Done when:** an owner downloads a complete copy and it can be restored into an offline install.
 
-## [ ] 8. Owner screens
+## [x] 8. Owner screens
 
 - **What:**
   - A screen for owners (owner sign-in) listing their businesses and each business's staff, to
     reset passwords or deactivate staff there instead of through "Forgot your password?".
   - Invites, if joining by business code turns out not to be enough.
 - **Done when:** an owner manages staff of every business from one place.
+- **Status (2026-10-04):** built (no invites; joining by business code is enough so far).
+  - **Screen:** `/owner`, reached from "Business owner? Manage your staff" on the online sign-in.
+    - The owner signs in with the owner account; the owner token stays in the page.
+    - It lists the owner's businesses, and for one business its staff: role, home branch, how
+      many branches they manage, off, and whether they must choose a new password.
+    - Each staff member can be given a new password, or turned off or on.
+  - **API (owner token):**
+    - `GET /accounts/businesses/:businessId/staff`.
+    - `POST /accounts/staff-active`. Turning a user off signs them out everywhere, because each
+      request checks `isActive`. The last active admin stays on.
+    - Both use the same membership check as `staff-password`.
+  - **Tests:** `passwords.test.ts` ("see their staff and turn them off and on"), plus a browser
+    run of the screen.
 
 ## [ ] 9. Real hardware
 
@@ -524,3 +537,4 @@ managed hosting is selling.
 - 2026-10-03: Item 12 done (receipt builder, transfer destinations, POS email check, and the fallback counter's pictures, sync clashes, uncounted cash and background server check); offline credit, returns and customers moved to item 17.
 - 2026-10-04: Item 10 done: registered (B2B) buyers on customers, bills, receipts and GSTR-1 (B2B, CDNR).
 - 2026-10-04: Item 11 done: credit limits (cashiers stopped, admins warned), payment terms and due dates, overdue marks, statements (printed and emailed) and ageing.
+- 2026-10-04: Item 8 done: the owner's screen (/owner) lists each business's staff, gives new passwords and turns staff off or on.

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Ip, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Ip, Param, ParseUUIDPipe, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { rm } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -137,6 +137,24 @@ export class AccountsController {
   @Get('/accounts/businesses')
   async businesses(@Headers() headers: RequestHeaders) {
     return this.accounts.businessesOf(await this.accounts.accountIdFrom(readBearerToken(headers)));
+  }
+
+  /** Owner token: the staff of one of their businesses. */
+  @Public()
+  @Get('/accounts/businesses/:businessId/staff')
+  async staff(@Param('businessId', ParseUUIDPipe) businessId: string, @Headers() headers: RequestHeaders) {
+    return this.accounts.staffOf(await this.accounts.accountIdFrom(readBearerToken(headers)), businessId);
+  }
+
+  /** Owner token: turns a staff user of one of their businesses off or on. */
+  @Public()
+  @Post('/accounts/staff-active')
+  @HttpCode(200)
+  async staffActive(
+    @Body(new ZodValidationPipe(appContract.accounts.staffActive.body)) body: { businessId: string; username: string; isActive: boolean },
+    @Headers() headers: RequestHeaders
+  ) {
+    return this.accounts.setStaffActive(await this.accounts.accountIdFrom(readBearerToken(headers)), body);
   }
 
   /** Owner token: a forgotten staff password (usually the business's admin), reset by its owner. */

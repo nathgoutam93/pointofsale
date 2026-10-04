@@ -5,6 +5,7 @@ import { randomInt } from 'crypto';
 import { hashPassword, newPasswordFields, verifyPassword } from '../auth/password';
 import { signedBeforePasswordChange, verifyAccountToken } from '../auth/token';
 import { Mailer } from '../mail/mailer';
+import { lockBusiness } from '../common/locks';
 import { PrismaService } from '../prisma.service';
 import { TenancyService } from '../tenancy/tenancy.service';
 
@@ -152,19 +153,72 @@ export class AccountsService {
     return memberships.map((membership) => membership.business);
   }
 
+  /** Makes the rest of the request work in one of the owner's businesses. */
+  private async enterOwned(accountId: string, businessId: string) {
+    const membership = await this.tenancy.control.membership.findUnique({
+      where: { accountId_businessId: { accountId, businessId } },
+      select: { role: true }
+    });
+    if (!membership) throw new ForbiddenException("That business isn't one of yours");
+    await this.tenancy.enterById(businessId).catch(() => {
+      throw new BadRequestException("This business isn't active");
+    });
+  }
+
+  /** The staff of one of the owner's businesses: admins first, then by name. */
+  async staffOf(accountId: string, businessId: string) {
+    await this.enterOwned(accountId, businessId);
+    const users = await this.prisma.user.findMany({
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        isActive: true,
+        mustChangePassword: true,
+        createdAt: true,
+        branch: { select: { name: true } },
+        _count: { select: { branchAccesses: true } }
+      }
+    });
+    return users
+      .map((user) => ({
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        branchName: user.branch.name,
+        branchCount: Math.max(1, user._count.branchAccesses),
+        isActive: user.isActive,
+        mustChangePassword: user.mustChangePassword,
+        createdAt: user.createdAt.toISOString()
+      }))
+      .sort((a, b) => (a.role === b.role ? a.username.localeCompare(b.username) : a.role === UserRole.ADMIN ? -1 : 1));
+  }
+
+  /**
+   * An owner turns a staff user off (signed out everywhere: each request checks isActive) or on.
+   * The business keeps at least one active admin, so someone can still run it.
+   */
+  async setStaffActive(accountId: string, input: { businessId: string; username: string; isActive: boolean }) {
+    await this.enterOwned(accountId, input.businessId);
+    return this.prisma.$transaction(async (tx) => {
+      await lockBusiness(tx, 'staff-active');
+      const user = await tx.user.findUnique({ where: { username: input.username }, select: { id: true, role: true, username: true, isActive: true } });
+      if (!user) throw new BadRequestException(`There is no user "${input.username}" in this business`);
+      if (!input.isActive && user.role === UserRole.ADMIN && user.isActive) {
+        const otherAdmins = await tx.user.count({ where: { role: UserRole.ADMIN, isActive: true, id: { not: user.id } } });
+        if (otherAdmins === 0) throw new BadRequestException(`${user.username} is the only active admin. Turn another admin on first, or give ${user.username} a new password instead.`);
+      }
+      await tx.user.update({ where: { id: user.id }, data: { isActive: input.isActive } });
+      return { username: user.username, isActive: input.isActive };
+    });
+  }
+
   /**
    * An owner gives a staff user of their business a new password (an admin who forgot theirs).
    * Their sessions end. An admin is reactivated; a cashier chooses their own at next sign-in.
    */
   async resetStaffPassword(accountId: string, input: { businessId: string; username: string; newPassword: string }) {
-    const membership = await this.tenancy.control.membership.findUnique({
-      where: { accountId_businessId: { accountId, businessId: input.businessId } },
-      select: { role: true }
-    });
-    if (!membership) throw new ForbiddenException("That business isn't one of yours");
-    await this.tenancy.enterById(input.businessId).catch(() => {
-      throw new BadRequestException("This business isn't active");
-    });
+    await this.enterOwned(accountId, input.businessId);
     const user = await this.prisma.user.findUnique({ where: { username: input.username }, select: { id: true, role: true, username: true } });
     if (!user) throw new BadRequestException(`There is no user "${input.username}" in this business`);
     const admin = user.role === UserRole.ADMIN;
