@@ -31,7 +31,7 @@ describe('cashier permissions', () => {
       purchases: () => t.call('POST', '/purchases', cashier.token, { branchId: a.branch.id, supplierName: 'Acme', lines: [{ itemId, qty: 1, unitCost: 5 }] }),
       transfers: () => t.call('POST', '/stock-transfers', cashier.token, { fromBranchId: a.branch.id, toBranchId: b.branch.id, lines: [{ itemId, qty: 1 }] }),
       wallet: () => t.call('POST', `/customers/${customerId}/wallet/topup`, cashier.token, { amount: 50, mode: 'CASH' }),
-      cancel: () => t.call('POST', `/sales/${unpaid.id}/cancel`, cashier.token)
+      cancel: () => t.call('POST', `/sales/${unpaid.id}/cancel`, cashier.token, { reason: 'Test cancel' })
     };
     for (const [name, attempt] of Object.entries(attempts)) {
       const res = await attempt();

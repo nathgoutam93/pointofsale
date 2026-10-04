@@ -46,7 +46,7 @@ describe('returns', () => {
     let invoice = await t.ok('GET', `/sales/${credit.id}`, ctx.token);
     expect({ ...money(invoice), status: invoice.status }).toMatchObject({ paidTotal: 0, creditedTotal: 100, status: 'PARTIALLY_SETTLED' });
     // With a credit note against it, the bill can't be cancelled any more.
-    expect((await t.call('POST', `/sales/${credit.id}/cancel`, ctx.token)).status).toBe(400);
+    expect((await t.call('POST', `/sales/${credit.id}/cancel`, ctx.token, { reason: 'Test cancel' })).status).toBe(400);
     // Paying what is left settles it; nothing more can be paid.
     expect((await t.call('POST', `/sales/${credit.id}/settle`, ctx.token, { payments: [{ mode: 'WALLET', amount: 250 }] })).status).toBe(400);
 

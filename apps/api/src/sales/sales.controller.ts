@@ -91,11 +91,15 @@ export class SalesController {
 
   @Post('/sales/:id/cancel')
   @HttpCode(200)
-  async cancelSale(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
+  async cancelSale(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(appContract.sales.cancel.body)) body: { reason: string },
+    @Headers() headers: RequestHeaders
+  ) {
     const session = getSession(headers);
     const branchId = await this.lookupBranch(session, { invoice: id });
     await this.access.requirePermission(session, 'CANCEL_SALES');
-    return this.sales.cancelSale(branchId, id);
+    return this.sales.cancelSale(session, branchId, id, body.reason);
   }
 
   @Post('/sales/:id/settle')

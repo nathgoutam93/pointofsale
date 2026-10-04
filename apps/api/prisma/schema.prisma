@@ -526,6 +526,12 @@ model SaleInvoice {
   creditedTotal          Decimal              @default(0) @db.Decimal(14, 2)
   createdBy              String
   createdByName          String
+  /// A cancelled bill (status CANCELLED): when, by whom and why. Bills can be cancelled only on
+  /// the day they were made, while nothing is paid; after that the way out is a return.
+  cancelledAt            DateTime?
+  cancelledBy            String?
+  cancelledByName        String?
+  cancelReason           String?
   /// The business's GST registration type when the sale was made; never changes afterwards.
   taxpayerType           TaxpayerType         @default(REGULAR)
   documentType           GstDocumentType      @default(TAX_INVOICE)

@@ -17,6 +17,7 @@ import { StockService } from '../stock/stock.service';
 import { CustomersService, walletTxnAuthor } from '../customers/customers.service';
 import { ReceivablesService } from '../customers/receivables.service';
 import { RegistersService } from '../registers/registers.service';
+import { localDate } from '../reports/zoned-dates';
 
 @Injectable()
 export class SalesService {
@@ -521,12 +522,16 @@ export class SalesService {
   }
 
   /**
-   * For an unpaid DRAFT invoice at `branchId` (for example one left behind when payment failed
-   * in the old two-step checkout): marks it CANCELLED and puts its stock back. The caller checks
-   * who may (admins, and cashiers allowed to cancel unpaid bills).
+   * For an unpaid DRAFT invoice at `branchId` (one left behind when payment failed, or a credit
+   * sale nothing has been paid on): marks it CANCELLED, records who did it and why, and puts its
+   * stock back. Only on the day it was made (business time zone): later, the goods have gone and
+   * the bill may be in a filed GST return, so the way out is a return (credit note). The caller
+   * checks who may (admins, and cashiers allowed to cancel unpaid bills).
    */
-  async cancelSale(branchId: string, invoiceId: string) {
+  async cancelSale(session: SessionUser, branchId: string, invoiceId: string, reason: string) {
     const sessionBranchId = branchId;
+    const cancelReason = reason?.trim() ?? '';
+    if (cancelReason.length < 3) throw new BadRequestException('Say why the bill is cancelled');
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
       const invoice = await tx.saleInvoice.findFirst({
@@ -537,6 +542,16 @@ export class SalesService {
       if (invoice.status !== InvoiceStatus.DRAFT || toNumber(invoice.paidTotal) > 0) {
         throw new BadRequestException(`Only unpaid draft invoices can be cancelled; ${invoice.invoiceNo} is ${invoice.status}`);
       }
+      const { timezone } = await this.settings.ensureBusinessSettings(tx);
+      const day = (at: Date) => {
+        const { year, month, day: d } = localDate(at, timezone);
+        return `${year}-${month}-${d}`;
+      };
+      if (day(invoice.createdAt) !== day(new Date())) {
+        throw new BadRequestException(`${invoice.invoiceNo} was made on an earlier day, so it can't be cancelled; make a return instead.`);
+      }
+      const canceller = await tx.user.findUnique({ where: { id: session.userId }, select: { username: true } });
+      if (!canceller) throw new NotFoundException('User not found');
       await this.stock.recordStock(
         tx,
         invoice.lines.map((line) => ({
@@ -551,7 +566,13 @@ export class SalesService {
       );
       const updated = await tx.saleInvoice.update({
         where: { id: invoice.id },
-        data: { status: InvoiceStatus.CANCELLED },
+        data: {
+          status: InvoiceStatus.CANCELLED,
+          cancelledAt: new Date(),
+          cancelledBy: session.userId,
+          cancelledByName: canceller.username,
+          cancelReason
+        },
         include: saleInvoiceInclude
       });
       return updated;

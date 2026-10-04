@@ -58,14 +58,35 @@ describe('cancelling an unpaid draft', () => {
   it('cancels it and puts the stock back; nothing else can be cancelled', async () => {
     const draft = await t.ok('POST', '/sales', ctx.token, { branchId: ctx.branch.id, customerId, lines: [line(itemId, { qty: 2 })] });
     const stock = await t.onHand(ctx.token, ctx.branch.id, itemId);
-    const res = await t.call('POST', `/sales/${draft.id}/cancel`, ctx.token);
+    const res = await t.call('POST', `/sales/${draft.id}/cancel`, ctx.token, { reason: 'Test cancel' });
     expect(res.body.status).toBe('CANCELLED');
     expect(await t.onHand(ctx.token, ctx.branch.id, itemId)).toBe(stock + 2);
     expect(await t.db.stockLedger.count({ where: { referenceId: draft.id, txnType: 'SALE_CANCEL' } })).toBe(1);
-    expect((await t.call('POST', `/sales/${draft.id}/cancel`, ctx.token)).status).toBe(400);
+    expect((await t.call('POST', `/sales/${draft.id}/cancel`, ctx.token, { reason: 'Test cancel' })).status).toBe(400);
     expect((await t.call('POST', `/sales/${draft.id}/settle`, ctx.token, { payments: cash(200) })).status).toBe(400);
     const paid = (await checkout(checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(itemId)], cash()))).body.invoice;
-    expect((await t.call('POST', `/sales/${paid.id}/cancel`, ctx.token)).status).toBe(400);
+    expect((await t.call('POST', `/sales/${paid.id}/cancel`, ctx.token, { reason: 'Test cancel' })).status).toBe(400);
+  });
+
+  it('records who cancelled it and why, and needs a reason', async () => {
+    const draft = await t.ok('POST', '/sales', ctx.token, { branchId: ctx.branch.id, customerId, lines: [line(itemId)] });
+    expect((await t.call('POST', `/sales/${draft.id}/cancel`, ctx.token, { reason: ' ' })).status).toBe(400);
+    expect((await t.call('POST', `/sales/${draft.id}/cancel`, ctx.token)).status).toBe(400);
+    const res = await t.ok('POST', `/sales/${draft.id}/cancel`, ctx.token, { reason: '  Customer changed their mind  ' });
+    expect(res).toMatchObject({ status: 'CANCELLED', cancelReason: 'Customer changed their mind', cancelledByName: expect.any(String) });
+    expect(res.cancelledAt).toBeTruthy();
+  });
+
+  it('only on the day it was made: an older credit sale is returned, not cancelled', async () => {
+    const credit = (await checkout(checkoutBody(ctx.branch.id, customerId, [line(itemId)], []))).body.invoice;
+    expect(credit.status).toBe('DRAFT');
+    await t.db.saleInvoice.update({ where: { id: credit.id }, data: { createdAt: new Date(Date.now() - 2 * 86_400_000) } });
+    const stock = await t.onHand(ctx.token, ctx.branch.id, itemId);
+    const refused = await t.call('POST', `/sales/${credit.id}/cancel`, ctx.token, { reason: 'Too late' });
+    expect(refused.status).toBe(400);
+    expect(refused.body.message).toMatch(/make a return instead/);
+    expect((await t.ok('GET', `/sales/${credit.id}`, ctx.token)).status).toBe('DRAFT');
+    expect(await t.onHand(ctx.token, ctx.branch.id, itemId)).toBe(stock);
   });
 
   it('does not accept a key another user already used', async () => {

@@ -78,7 +78,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   only admins. The fallback counter's local API applies the same rules from its copy. Tests:
   `return-controls.test.ts`. Left for later: an admin's password at the counter for large refunds.
 
-### [ ] A4. Credit sales can't be cancelled like abandoned bills
+### [x] A4. Credit sales can't be cancelled like abandoned bills
 
 - **Why:** a credit sale is saved as `DRAFT` with nothing paid, which is exactly what
   `SalesService.cancelSale` allows (`apps/api/src/sales/sales.service.ts`). A cashier with
@@ -93,6 +93,13 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   - Reports, ageing, statements and GSTR-1 follow the new status.
 - **Done when:** a credit bill from an earlier day can't be cancelled, only returned, and no
   filed period changes.
+- **Status (2026-10-04):** done without a new status. Any unpaid bill (abandoned or credit) can
+  be cancelled only on the calendar day it was made (business time zone), by admins and cashiers
+  with `CANCEL_SALES`; after that the server answers "make a return instead". Cancelling needs a
+  reason and records `cancelledAt`, `cancelledBy`, `cancelledByName`, `cancelReason` (migration
+  `20261020130000_sale_cancellation`), shown on the Sales page. A same-day cancellation stays in
+  the same GST period. A separate status for credit sales (so `DRAFT` means only "abandoned") is
+  still worth doing for clarity, but nothing depends on it now. Tests: `checkout.test.ts`.
 
 ### [ ] A5. Remove (or fix) "tax before discount"
 

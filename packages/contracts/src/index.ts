@@ -149,7 +149,7 @@ export const CASHIER_PERMISSION_LABELS: Record<CashierPermission, { label: strin
   RECORD_PURCHASES: { label: 'Record purchases', detail: 'Goods received from suppliers' },
   SEND_TRANSFERS: { label: 'Send transfers', detail: 'Send stock to another branch, or call a transfer back' },
   TOP_UP_WALLETS: { label: 'Top up wallets', detail: "Add credit to a customer's wallet" },
-  CANCEL_SALES: { label: 'Cancel unpaid bills', detail: 'Cancel a bill nothing has been paid on' },
+  CANCEL_SALES: { label: 'Cancel unpaid bills', detail: 'Cancel a bill nothing has been paid on, on the day it was made' },
   MAKE_RETURNS: { label: 'Make returns', detail: 'Take goods back and refund them, within the return window' }
 };
 
@@ -779,6 +779,10 @@ const saleInvoiceSchema = z.object({
   createdBy: z.string().uuid(),
   createdByName: z.string(),
   createdAt: z.string().datetime(),
+  /** A cancelled bill: when, by whom and why. */
+  cancelledAt: z.string().datetime().nullable().optional(),
+  cancelledByName: z.string().nullable().optional(),
+  cancelReason: z.string().nullable().optional(),
   taxpayerType: taxpayerTypeSchema.default('REGULAR'),
   documentType: gstDocumentTypeSchema.default('TAX_INVOICE'),
   compositionCategory: compositionCategorySchema.nullable().default(null),
@@ -1912,11 +1916,14 @@ export const appContract = c.router({
       body: z.object({ payments: z.array(paymentInputSchema).min(1) }),
       responses: { 200: z.object({ invoice: saleInvoiceWithLinesSchema, receipt: receiptSchema }) }
     },
-    /** Admin: cancel an unpaid DRAFT invoice and put its stock back. */
+    /**
+     * Admins, and cashiers allowed to: cancel an unpaid DRAFT invoice on the day it was made and
+     * put its stock back. Later, the way out is a return (credit note).
+     */
     cancel: {
       method: 'POST',
       path: '/sales/:id/cancel',
-      body: z.undefined(),
+      body: z.object({ reason: z.string().trim().min(3, 'Say why the bill is cancelled').max(200) }),
       responses: { 200: saleInvoiceWithLinesSchema }
     },
     list: {

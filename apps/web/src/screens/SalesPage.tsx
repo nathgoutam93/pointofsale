@@ -561,18 +561,23 @@ export function SalesPage() {
     setMessage("");
   };
 
-  // An unpaid draft (e.g. one left by a failed checkout) can be cancelled, by admins and cashiers
-  // allowed to; its stock goes back.
+  // An unpaid draft (one left by a failed checkout, or a credit sale nothing is paid on) can be
+  // cancelled on the day it was made, by admins and cashiers allowed to; its stock goes back.
+  // Later, the way out is a return.
+  const shopDay = (date: Date | string) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: businessSettings.data?.timezone }).format(new Date(date));
   const canCancelInvoice =
     can(session, "CANCEL_SALES") &&
     currentInvoice?.status === "DRAFT" &&
     Number(currentInvoice?.paidTotal ?? 0) === 0 &&
-    Number(currentInvoice?.creditedTotal ?? 0) === 0;
+    Number(currentInvoice?.creditedTotal ?? 0) === 0 &&
+    shopDay(currentInvoice.createdAt) === shopDay(new Date());
 
   const cancelInvoice = useMutation({
-    mutationFn: async (invoiceId: string) => {
+    mutationFn: async ({ invoiceId, reason }: { invoiceId: string; reason: string }) => {
       const res = await api.sales.cancel({
         params: { id: invoiceId },
+        body: { reason },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) {
@@ -1143,8 +1148,15 @@ export function SalesPage() {
                 disabled={cancelInvoice.isPending}
                 onClick={() => {
                   if (!currentInvoice) return;
-                  if (!window.confirm(`Cancel ${currentInvoice.invoiceNo}? Nothing has been paid; its stock will be put back.`)) return;
-                  cancelInvoice.mutate(currentInvoice.id);
+                  const reason = window.prompt(
+                    `Cancel ${currentInvoice.invoiceNo}? Nothing has been paid; its stock will be put back.\n\nWhy is it cancelled?`,
+                  );
+                  if (reason === null) return;
+                  if (reason.trim().length < 3) {
+                    setMessage("Say why the bill is cancelled.");
+                    return;
+                  }
+                  cancelInvoice.mutate({ invoiceId: currentInvoice.id, reason: reason.trim() });
                 }}
               >
                 Cancel Invoice
@@ -1220,6 +1232,15 @@ export function SalesPage() {
                   </dd>
                 ) : null}
               </div>
+              {currentInvoice?.status === "CANCELLED" && currentInvoice.cancelReason ? (
+                <div className="col-span-full">
+                  <dt className="eyebrow">Cancelled</dt>
+                  <dd className="mt-1 text-slate-900">
+                    {currentInvoice.cancelReason}
+                    {currentInvoice.cancelledByName ? <span className="text-slate-500"> · by {currentInvoice.cancelledByName}</span> : null}
+                  </dd>
+                </div>
+              ) : null}
             </dl>
 
             <table className="w-full text-sm">
