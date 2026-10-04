@@ -10,6 +10,7 @@ import { SequenceService } from '../sequences/sequences.service';
 import { StockService } from '../stock/stock.service';
 import { CustomersService } from '../customers/customers.service';
 import { RegistersService } from '../registers/registers.service';
+import { isFallback } from '../common/mode';
 
 type StoredGstAmounts = {
   taxableAmount: Prisma.Decimal | number;
@@ -157,6 +158,7 @@ export class ReturnsService {
       }
       if (refundAmount > 0 && input.refundMode === PaymentMode.WALLET) {
         this.customers.assertHasWallet(invoice.customer);
+        if (isFallback()) throw new BadRequestException("While working offline, refunds are in cash: the wallet needs the server.");
       }
       if (dueAdjusted > 0) {
         const credited = round2(creditedTotal + dueAdjusted);

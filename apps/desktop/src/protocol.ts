@@ -90,15 +90,15 @@ async function forwardToApi(
     path: url.pathname.slice('/api'.length),
     status: response.status
   });
-  // Invoice numbers issued here, so a fallback counter's offline copy carries on after them.
+  // Invoice and return numbers issued here, so a fallback counter's offline copy carries on after them.
   const path = url.pathname.slice('/api'.length);
-  if (request.method === 'POST' && (path === '/sales' || path === '/sales/checkout') && response.ok) {
+  if (request.method === 'POST' && (path === '/sales' || path === '/sales/checkout' || /^\/sales\/[^/]+\/return$/.test(path)) && response.ok) {
     void response
       .clone()
       .json()
-      .then((body: { invoiceNo?: unknown; invoice?: { invoiceNo?: unknown } }) => {
-        const invoiceNo = body?.invoice?.invoiceNo ?? body?.invoiceNo;
-        if (typeof invoiceNo === 'string') onInvoice(invoiceNo);
+      .then((body: { invoiceNo?: unknown; returnNo?: unknown; invoice?: { invoiceNo?: unknown } }) => {
+        const documentNo = body?.invoice?.invoiceNo ?? body?.invoiceNo ?? body?.returnNo;
+        if (typeof documentNo === 'string') onInvoice(documentNo);
       })
       .catch(() => undefined);
   }

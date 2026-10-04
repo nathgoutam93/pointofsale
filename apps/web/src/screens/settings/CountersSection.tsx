@@ -246,7 +246,7 @@ export function CountersSection({
                           onClick={() => {
                             if (
                               window.confirm(
-                                `Make ${counter.name} the fallback counter on this computer?\n\nWhen the server can't be reached, this computer keeps selling on ${counter.name} (cash and card) and sends the sales once the server is back. ${counter.name} then opens only on this computer. A branch has one fallback counter.`,
+                                `Make ${counter.name} the fallback counter on this computer?\n\nWhen the server can't be reached, this computer keeps selling on ${counter.name} (cash, card and credit, with new customers and returns of its recent bills) and sends the sales once the server is back. ${counter.name} then opens only on this computer. A branch has one fallback counter.`,
                               )
                             ) {
                               void changeFallback(() => fallbackBridge!.setup(counter.id));

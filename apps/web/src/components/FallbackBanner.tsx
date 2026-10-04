@@ -66,8 +66,9 @@ export function FallbackBanner() {
         <div>
           <p className="font-semibold">Working offline on {status.counterName}</p>
           <p className="text-xs">
-            Sales are kept on this computer and sent when the server is back. Cash and card only; credit, returns and
-            changes wait for the server.
+            Sales are kept on this computer and sent when the server is back. Cash, card and credit (within the
+            credit limit), new customers, and returns of this counter's bills from the last week work; the wallet,
+            older bills and other changes wait for the server.
           </p>
           {conflicts ?? errorLine}
         </div>
