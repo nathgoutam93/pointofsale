@@ -8,7 +8,7 @@ import { paths } from './paths.js';
 export type BackupEntry = {
   file: string;
   createdAt: string;
-  reason: 'daily' | 'manual' | 'before-update' | 'before-restore' | 'before-move';
+  reason: 'daily' | 'manual' | 'before-update' | 'before-restore' | 'before-move' | 'export';
   bytes: number;
 };
 

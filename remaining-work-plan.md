@@ -167,7 +167,7 @@ managed hosting is selling.
   - Open the pull request, review it and merge.
 - **Done when:** CI is green on the pull request and it's merged.
 
-## [ ] 7. Data export for online businesses
+## [x] 7. Data export for online businesses
 
 - **Why:** offline businesses have backups; an online owner can't download a copy of their own
   data (and may need one to leave, or for their accountant).
@@ -175,6 +175,26 @@ managed hosting is selling.
   format, `ExportService`, already does this for offline businesses) plus a readable CSV
   option for sales and GST. A button in Settings for admins, or the owner screens.
 - **Done when:** an owner downloads a complete copy and it can be restored into an offline install.
+- **Status (2026-10-04):** built. Settings → Your data (admins).
+  - **Everything** (`GET /exports/business`, online only):
+    - Downloads every table of the business with its logos and item pictures, in the local
+      backup format (reason `export`), not the move-online bundle. The desktop app's first-launch
+      "Restore from a backup" takes it.
+    - Only for an admin of every branch.
+    - One export at a time per business, and 6 an hour.
+    - Restored into an offline install, a former fallback counter opens on any computer: the
+      fallback binding only counts online and on the fallback copy.
+  - **Sales register** (`GET /exports/sales.csv?from&to&branchId`, online and offline):
+    - One row per invoice and credit note (credit notes negative), with buyer GSTIN, place of
+      supply, taxable value, CGST, SGST, IGST, paid, credited, owed, refunded, status and
+      payment modes.
+    - Dates are in the business's time zone.
+    - Every branch the admin manages when no branch is chosen.
+    - Text that a spreadsheet would run as a formula is defused.
+  - **Tests:** `exports.test.ts` (the export restored into a fresh database, pictures included;
+    admin-of-every-branch rule; CSV rows). Both downloads were also checked in a browser.
+  - **Not done:** a GSTR-1/3B CSV. The GST Returns screen already downloads the GSTR-1 JSON and
+    shows both returns.
 
 ## [ ] 8. Owner screens
 
@@ -524,3 +544,4 @@ managed hosting is selling.
 - 2026-10-03: Item 12 done (receipt builder, transfer destinations, POS email check, and the fallback counter's pictures, sync clashes, uncounted cash and background server check); offline credit, returns and customers moved to item 17.
 - 2026-10-04: Item 10 done: registered (B2B) buyers on customers, bills, receipts and GSTR-1 (B2B, CDNR).
 - 2026-10-04: Item 11 done: credit limits (cashiers stopped, admins warned), payment terms and due dates, overdue marks, statements (printed and emailed) and ageing.
+- 2026-10-04: Item 7 done: Settings → Your data downloads the whole online business (restorable offline) and a sales register CSV.
