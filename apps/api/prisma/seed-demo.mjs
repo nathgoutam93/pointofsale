@@ -166,7 +166,8 @@ async function seed() {
       items.push({
         id: randomUUID(), code: product.code, name: product.name, category: product.category,
         uom: 'PCS', leastCount: 1, costPrice: product.cost, sellPrice: product.price,
-        mrp: product.price, taxMode: 'EXCLUSIVE', taxRate: product.tax,
+        // MRP includes GST: never below what the customer pays.
+        mrp: Math.round(product.price * (100 + product.tax)) / 100, taxMode: 'EXCLUSIVE', taxRate: product.tax,
         hsnCode: product.hsn, uqc: 'PCS', supplyType: 'TAXABLE',
         imageUrl: `${apiBaseUrl}/uploads/items/${product.code.toLowerCase()}.svg`
       });

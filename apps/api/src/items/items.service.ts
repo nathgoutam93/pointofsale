@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { defaultSupplyType, hsnProblem, suggestUqc, supplyTypeProblem, type GstSupplyType } from '@pos/contracts';
+import { chargesGst, defaultSupplyType, hsnProblem, mrpProblem, suggestUqc, supplyTypeProblem, type GstSupplyType } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { BranchesService } from '../branches/branches.service';
@@ -47,6 +47,23 @@ export class ItemsService {
     return item.id;
   }
 
+  /**
+   * Goods may never be sold above their MRP (Legal Metrology rules), which includes GST: a
+   * tax-exclusive price is checked with GST added while the business charges it. An MRP of 0
+   * means none is printed.
+   */
+  private async assertWithinMrp(
+    units: Array<{ uom: string; sellPrice: number; mrp: number }>,
+    tax: { taxMode: 'INCLUSIVE' | 'EXCLUSIVE'; taxRate: number },
+    tx?: Prisma.TransactionClient
+  ) {
+    const { taxpayerType } = await this.settings.taxpayerTypeAt(new Date(), tx);
+    for (const unit of units) {
+      const problem = mrpProblem(unit.sellPrice, unit.mrp, tax.taxMode, tax.taxRate, chargesGst(taxpayerType));
+      if (problem) throw new BadRequestException(`The price per ${unit.uom} can't be above its MRP: ${problem}`);
+    }
+  }
+
   private normalizeItemSaleUoms(input: {
     uom: string;
     sellPrice: number;
@@ -63,7 +80,8 @@ export class ItemsService {
         uom: baseUom,
         conversionQty: 1,
         sellPrice: round2(input.sellPrice),
-        mrp: round2(input.mrp ?? input.sellPrice),
+        // No MRP given: none printed (0), so there is nothing to check it against.
+        mrp: round2(input.mrp ?? 0),
         isDefault: true,
         sortOrder: 0
       }
@@ -78,13 +96,12 @@ export class ItemsService {
         uom,
         conversionQty,
         sellPrice: round2(variant.sellPrice),
-        mrp: round2(variant.mrp ?? variant.sellPrice),
+        mrp: round2(variant.mrp ?? 0),
         isDefault: false,
         sortOrder: normalized.length
       });
       seen.add(uom.toLowerCase());
     }
-
     return normalized;
   }
 
@@ -141,7 +158,7 @@ export class ItemsService {
     return this.prisma.$transaction(async (tx) => {
       const item = await tx.item.findUnique({
         where: { id: itemId },
-        select: { uom: true, mrp: true, saleUoms: { select: { uom: true, mrp: true } } }
+        select: { uom: true, mrp: true, taxMode: true, taxRate: true, saleUoms: { select: { uom: true, mrp: true } } }
       });
       if (!item) throw new NotFoundException('Item not found');
       const units = [{ uom: item.uom, mrp: item.mrp }, ...item.saleUoms];
@@ -157,6 +174,7 @@ export class ItemsService {
           mrp: round2(price.mrp ?? toNumber(unit.mrp))
         };
       });
+      await this.assertWithinMrp(rows, { taxMode: item.taxMode, taxRate: toNumber(item.taxRate) }, tx);
       await tx.itemBranchPrice.deleteMany({ where: { branchId, itemId } });
       await tx.itemBranchPrice.createMany({ data: rows });
       return tx.itemBranchPrice.findMany({ where: { branchId, itemId }, orderBy: { uom: 'asc' } });
@@ -207,6 +225,7 @@ export class ItemsService {
     this.assertSupplyType(supplyType, input.taxRate);
     await this.assertHsnCode(input.hsnCode);
     const saleUoms = this.normalizeItemSaleUoms(input);
+    await this.assertWithinMrp(saleUoms, { taxMode: input.taxMode ?? 'EXCLUSIVE', taxRate: input.taxRate });
     return this.prisma.item.create({
       data: {
         code: input.code,
@@ -216,7 +235,7 @@ export class ItemsService {
         leastCount,
         costPrice: input.costPrice ?? 0,
         sellPrice: input.sellPrice,
-        mrp: input.mrp ?? input.sellPrice,
+        mrp: input.mrp ?? 0,
         taxMode: input.taxMode ?? 'EXCLUSIVE',
         taxRate: input.taxRate,
         hsnCode: input.hsnCode || null,
@@ -292,6 +311,20 @@ export class ItemsService {
       if (data.uom !== undefined || saleUomInput !== undefined) {
         await this.syncBranchPriceUnits(tx, id, previousBaseUom);
       }
+      // Prices, MRPs and tax as they now are, the branches' own prices too, all within the MRP.
+      const branchPrices = await tx.itemBranchPrice.findMany({ where: { itemId: id }, select: { uom: true, sellPrice: true, mrp: true } });
+      await this.assertWithinMrp(
+        [
+          { uom: updated.uom, sellPrice: toNumber(updated.sellPrice), mrp: toNumber(updated.mrp) },
+          // The default row mirrors the base unit (the item's own price is what is charged).
+          ...updated.saleUoms
+            .filter((unit) => !unit.isDefault)
+            .map((unit) => ({ uom: unit.uom, sellPrice: toNumber(unit.sellPrice), mrp: toNumber(unit.mrp) })),
+          ...branchPrices.map((price) => ({ uom: price.uom, sellPrice: toNumber(price.sellPrice), mrp: toNumber(price.mrp) }))
+        ],
+        { taxMode: updated.taxMode, taxRate: toNumber(updated.taxRate) },
+        tx
+      );
       return updated;
     });
   }

@@ -112,7 +112,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 - **Done when:** every saved line's tax equals its rate × taxable value (within a paisa), and
   a test says so.
 
-### [ ] A6. Never sell above MRP
+### [x] A6. Never sell above MRP
 
 - **Why:** item, sale-unit and branch prices accept any MRP; the server only checks rate ≤ list
   price (`resolveLinePricing`), not list price ≤ MRP. Selling above MRP breaks the Legal
@@ -121,6 +121,14 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   branch prices (`apps/api/src/items/items.service.ts`, contracts schemas), and reject a sale
   line above it. Show existing items that break the rule so the owner can fix them.
 - **Done when:** no price path can save or bill above MRP, with tests.
+- **Status (2026-10-04):** MRP includes GST, so the check is on what the customer pays: a
+  tax-exclusive price with GST added (not while the business is a composition taxpayer, which
+  charges none). `priceWithTax` / `mrpProblem` in `packages/contracts/src/pricing.ts` are used
+  by item create and update (including tax changes and the branches' own prices), branch prices
+  and every sale line. An MRP of 0 means none is printed; the API now stores 0 when no MRP is
+  sent (it used to copy the pre-tax price, which would fail the check). The Items page warns in
+  the form and marks items "Above MRP"; such items can't be billed until fixed, so check the list
+  after deploying. Demo seeds set MRP with GST. Tests: `mrp.test.ts`, `pricing.test.ts`.
 
 ### [ ] A7. The server re-checks offline sales instead of trusting them
 

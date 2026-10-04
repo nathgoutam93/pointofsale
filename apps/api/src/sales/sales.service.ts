@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DiscountScope, DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, TaxpayerType, UserRole, WalletTxnType } from '@prisma/client';
-import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, invoiceDue, resolveDiscountAmounts } from '@pos/contracts';
+import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, invoiceDue, mrpProblem, resolveDiscountAmounts } from '@pos/contracts';
 import type { DiscountInput } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import { isFallback } from '../common/mode';
@@ -47,11 +47,13 @@ export class SalesService {
       name: string;
       uom: string;
       sellPrice: Prisma.Decimal;
+      mrp: Prisma.Decimal;
       taxRate: Prisma.Decimal;
       taxMode: 'INCLUSIVE' | 'EXCLUSIVE';
-      saleUoms: Array<{ uom: string; conversionQty: Prisma.Decimal; sellPrice: Prisma.Decimal; isDefault: boolean }>;
+      saleUoms: Array<{ uom: string; conversionQty: Prisma.Decimal; sellPrice: Prisma.Decimal; mrp: Prisma.Decimal; isDefault: boolean }>;
     },
-    line: SaleLineInput
+    line: SaleLineInput,
+    chargeTax: boolean
   ) {
     const taxRate = toNumber(item.taxRate);
     const taxMode = item.taxMode;
@@ -72,6 +74,7 @@ export class SalesService {
     let saleUomQty: number | undefined;
     let saleUomConversionQty: number | undefined;
     let listRate = toNumber(item.sellPrice);
+    let mrp = toNumber(item.mrp);
     if (variant) {
       if (line.saleUomQty === undefined) {
         throw new BadRequestException(`Sale line ${line.itemId} has incomplete UOM details`);
@@ -86,11 +89,17 @@ export class SalesService {
         throw new BadRequestException(`Sale line ${line.itemId} UOM quantity does not match stock quantity`);
       }
       listRate = toNumber(variant.sellPrice);
+      mrp = toNumber(variant.mrp);
     }
 
     const rate = round2(line.rate);
     if (rate > listRate) {
       throw new BadRequestException(`Price for ${item.name} can't be above its list price of ${listRate.toFixed(2)}`);
+    }
+    // Never above the MRP (0: none printed; it includes GST), even if the list price was set above it.
+    const overMrp = mrpProblem(rate, mrp, taxMode, taxRate, chargeTax);
+    if (overMrp) {
+      throw new BadRequestException(`Price for ${item.name} can't be above its MRP: ${overMrp}`);
     }
     return { qty, rate, listRate, saleUom: variant?.uom, saleUomQty, saleUomConversionQty, taxRate, taxMode };
   }
@@ -234,6 +243,7 @@ export class SalesService {
           uom: true,
           leastCount: true,
           sellPrice: true,
+          mrp: true,
           costPrice: true,
           taxRate: true,
           taxMode: true,
@@ -241,7 +251,7 @@ export class SalesService {
           uqc: true,
           supplyType: true,
           isActive: true,
-          saleUoms: { select: { uom: true, conversionQty: true, sellPrice: true, isDefault: true } }
+          saleUoms: { select: { uom: true, conversionQty: true, sellPrice: true, mrp: true, isDefault: true } }
         }
       });
       if (!item) {
@@ -252,7 +262,8 @@ export class SalesService {
       }
       const pricing = this.resolveLinePricing(
         withBranchPrices(item, await this.items.branchPricesFor(tx, input.branchId, normalizedItemId)),
-        line
+        line,
+        chargeTax
       );
       assertQtyRespectsLeastCount(pricing.qty, toNumber(item.leastCount), `Sale line ${line.itemId}`);
       normalizedLines.push({

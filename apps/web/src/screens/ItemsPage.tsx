@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, apiErrorMessage, apiFetch, authHeaders, uploadSrc } from "../lib/api";
-import { GST_SUPPLY_TYPE_LABELS } from "@pos/contracts";
+import { GST_SUPPLY_TYPE_LABELS, mrpProblem } from "@pos/contracts";
 import { can } from "../lib/session";
 import { inr, requireSession } from "./route-helpers";
 import { BranchPricesSection } from "./items/BranchPricesSection";
@@ -100,6 +100,19 @@ export function ItemsPage() {
     },
   });
   const hsnMinDigits = businessSettings.data?.hsnMinDigits ?? 4;
+  // Prices may never be above the MRP, which includes GST (while the business charges it).
+  const chargeTax = businessSettings.data?.taxpayerType !== "COMPOSITION";
+  const formMrpProblem = mrpProblem(Number(form.sellPrice) || 0, Number(form.mrp) || 0, form.taxMode, Number(form.taxRate) || 0, chargeTax);
+  const itemAboveMrp = (item: {
+    sellPrice: number | string;
+    mrp?: number | string;
+    taxMode: "INCLUSIVE" | "EXCLUSIVE";
+    taxRate: number | string;
+    saleUoms?: Array<{ sellPrice: number | string; mrp: number | string; isDefault?: boolean }>;
+  }) =>
+    [{ sellPrice: item.sellPrice, mrp: item.mrp ?? 0 }, ...(item.saleUoms ?? []).filter((unit) => !unit.isDefault)].some(
+      (unit) => !!mrpProblem(Number(unit.sellPrice), Number(unit.mrp), item.taxMode, Number(item.taxRate), chargeTax),
+    );
 
   const selectedItem = useMemo(
     () => items.data?.find((item) => item.id === selectedItemId) ?? null,
@@ -478,6 +491,11 @@ export function ItemsPage() {
                           {!item.hsnCode ? "No HSN" : "No GST unit"}
                         </span>
                       ) : null}
+                      {itemAboveMrp(item) ? (
+                        <span className="badge ml-2 bg-rose-50 text-rose-700" title="Its price with GST is above its MRP; it can't be sold until fixed">
+                          Above MRP
+                        </span>
+                      ) : null}
                     </p>
                   </div>
                   <span className="text-sm font-semibold text-slate-900 tabular-nums">
@@ -485,7 +503,7 @@ export function ItemsPage() {
                   </span>
                 </div>
                 <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-slate-500">
-                  <span className="tabular-nums">MRP {inr((item as { mrp?: number }).mrp ?? item.sellPrice)}</span>
+                  <span className="tabular-nums">{Number((item as { mrp?: number }).mrp ?? 0) > 0 ? `MRP ${inr((item as { mrp?: number }).mrp)}` : "No MRP"}</span>
                   <span className="badge bg-slate-100 text-slate-600">{item.taxMode}</span>
                 </div>
                 {!!item.saleUoms?.length && (
@@ -672,6 +690,11 @@ export function ItemsPage() {
                     setForm((s) => ({ ...s, mrp: e.target.value }))
                   }
                 />
+                {formMrpProblem ? (
+                  <span className="text-xs text-rose-700">Price can't be above the MRP: {formMrpProblem}</span>
+                ) : (
+                  <span className="text-xs text-slate-500">Includes GST. 0 if none is printed.</span>
+                )}
               </label>
               {renderSaleUomEditor()}
               <label className="flex flex-col gap-1">
@@ -943,6 +966,11 @@ export function ItemsPage() {
                     setForm((s) => ({ ...s, mrp: e.target.value }))
                   }
                 />
+                {formMrpProblem ? (
+                  <span className="text-xs text-rose-700">Price can't be above the MRP: {formMrpProblem}</span>
+                ) : (
+                  <span className="text-xs text-slate-500">Includes GST. 0 if none is printed.</span>
+                )}
               </label>
               {renderSaleUomEditor()}
               <label className="flex flex-col gap-1">

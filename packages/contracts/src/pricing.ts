@@ -8,6 +8,25 @@ export type TaxCalculationMode = 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
 
 export const round2 = (value: number) => Math.round(value * 100) / 100;
 
+/**
+ * What the customer pays for one unit at `price` before any discount: with GST added for a
+ * tax-exclusive price when tax is charged. This is what may never be above the MRP, which
+ * includes all taxes.
+ */
+export function priceWithTax(price: number, taxMode: TaxMode | undefined, taxRate: number, chargeTax = true) {
+  return round2(chargeTax && taxMode !== 'INCLUSIVE' && taxRate > 0 ? (price * (100 + taxRate)) / 100 : price);
+}
+
+/** Why `price` breaks its MRP (0: none printed), or null when it doesn't. */
+export function mrpProblem(price: number, mrp: number, taxMode: TaxMode | undefined, taxRate: number, chargeTax = true) {
+  if (!(mrp > 0)) return null;
+  const charged = priceWithTax(price, taxMode, taxRate, chargeTax);
+  if (charged <= round2(mrp)) return null;
+  return charged === round2(price)
+    ? `${charged.toFixed(2)} is above the MRP of ${round2(mrp).toFixed(2)}`
+    : `${charged.toFixed(2)} with GST is above the MRP of ${round2(mrp).toFixed(2)}`;
+}
+
 /** The amount before tax for a gross line amount (the shelf price × quantity). */
 export function exclusiveBase(gross: number, taxMode: TaxMode | undefined, taxRate: number) {
   return round2(taxMode === 'INCLUSIVE' && taxRate > 0 ? (gross * 100) / (100 + taxRate) : gross);

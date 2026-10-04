@@ -30,8 +30,8 @@ describe('branch prices', () => {
     await t.ok('POST', '/stock/opening', b.token, { branchId: b.branch.id, itemId: item.id, qty: 100 });
     const set = await setPrices(item.id, a.branch.id, [{ uom: 'pcs', sellPrice: 120 }, { uom: 'box', sellPrice: 1100, mrp: 1200 }]);
     expect(set.status).toBe(200);
-    // Units are stored as the item spells them; a left-out MRP is the item's.
-    expect(set.body.map((p: any) => [p.uom, Number(p.sellPrice), Number(p.mrp)])).toEqual([['BOX', 1100, 1200], ['PCS', 120, 100]]);
+    // Units are stored as the item spells them; a left-out MRP is the item's (none here).
+    expect(set.body.map((p: any) => [p.uom, Number(p.sellPrice), Number(p.mrp)])).toEqual([['BOX', 1100, 1200], ['PCS', 120, 0]]);
 
     const atA = await listed(a.token, a.branch.id, item.id);
     expect(Number(atA.sellPrice)).toBe(120);

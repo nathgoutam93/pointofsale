@@ -81,6 +81,8 @@ export {
   computeSaleTotals,
   exclusiveBase,
   lineTax,
+  mrpProblem,
+  priceWithTax,
   resolveDiscountAmounts,
   returnLineAmounts,
   splitGst

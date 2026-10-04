@@ -3,6 +3,8 @@ import {
   allocateDiscountAcrossBases,
   computeSaleTotals,
   exclusiveBase,
+  mrpProblem,
+  priceWithTax,
   lineTax,
   resolveDiscountAmounts,
   returnLineAmounts,
@@ -271,5 +273,17 @@ describe('returnLineAmounts', () => {
 
   it('refunds nothing for nothing', () => {
     expect(returnLineAmounts({ line: { ...zero, taxable: 10 }, soldQty: 1, alreadyReturnedQty: 0, alreadyReturned: zero, qty: 0 }).amount).toBe(0);
+  });
+});
+
+describe('MRP', () => {
+  it('compares what the customer pays (with GST on a tax-exclusive price) with the MRP', () => {
+    expect(priceWithTax(100, 'EXCLUSIVE', 18)).toBe(118);
+    expect(priceWithTax(100, 'INCLUSIVE', 18)).toBe(100);
+    expect(priceWithTax(100, 'EXCLUSIVE', 18, false)).toBe(100); // composition: no GST charged
+    expect(mrpProblem(100, 118, 'EXCLUSIVE', 18)).toBeNull();
+    expect(mrpProblem(100, 117.99, 'EXCLUSIVE', 18)).toBe('118.00 with GST is above the MRP of 117.99');
+    expect(mrpProblem(119, 118, 'INCLUSIVE', 18)).toBe('119.00 is above the MRP of 118.00');
+    expect(mrpProblem(1000, 0, 'EXCLUSIVE', 18)).toBeNull(); // no MRP printed
   });
 });
