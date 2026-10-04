@@ -151,6 +151,85 @@ describe('GSTR-1 builder', () => {
   });
 });
 
+describe('GSTR-1 for registered buyers', () => {
+  const BUYER = '27AAACR5055K1Z5';
+  const OTHER_BUYER = '29AAGCB7383J1Z4';
+
+  it('reports their invoices one by one under their GSTIN (B2B), whatever the value or state', () => {
+    const local = invoice({ buyerGstin: OTHER_BUYER, lines: [line(), line({ supplyType: 'EXEMPT', taxRate: 0, taxable: 50, cgst: 0, sgst: 0 })] });
+    const shipped = invoice({ buyerGstin: BUYER, placeOfSupplyStateCode: '27', lines: [interLine(200000), interLine(1000, 5)] });
+    const unregistered = invoice();
+    const { json, summary, problems } = build([local, shipped, unregistered]);
+    expect(problems).toEqual([]);
+    expect(json.b2b).toEqual([
+      {
+        ctin: BUYER,
+        inv: [
+          {
+            inum: shipped.invoiceNo,
+            idt: '05-10-2026',
+            val: 237050,
+            pos: '27',
+            rchrg: 'N',
+            inv_typ: 'R',
+            itms: [
+              { num: 1, itm_det: { rt: 5, txval: 1000, iamt: 50, camt: 0, samt: 0, csamt: 0 } },
+              { num: 2, itm_det: { rt: 18, txval: 200000, iamt: 36000, camt: 0, samt: 0, csamt: 0 } }
+            ]
+          }
+        ]
+      },
+      {
+        ctin: OTHER_BUYER,
+        inv: [{ inum: local.invoiceNo, idt: '05-10-2026', val: 168, pos: '29', rchrg: 'N', inv_typ: 'R', itms: [{ num: 1, itm_det: { rt: 18, txval: 100, iamt: 0, camt: 9, samt: 9, csamt: 0 } }] }]
+      }
+    ]);
+    // Not in B2CL (a registered buyer), and B2CS has only the unregistered sale.
+    expect(json.b2cl).toBeUndefined();
+    expect(json.b2cs).toEqual([{ sply_ty: 'INTRA', rt: 18, typ: 'OE', pos: '29', txval: 100, iamt: 0, camt: 9, samt: 9, csamt: 0 }]);
+    // An exempt line to a registered buyer goes in the nil section's B2B row.
+    expect(json.nil).toEqual({ inv: [{ sply_ty: 'INTRAB2B', expt_amt: 50, nil_amt: 0, ngsup_amt: 0 }] });
+    // The HSN summary has a table for registered buyers and one for the rest.
+    expect(json.hsn).toEqual({
+      hsn_b2b: [
+        { num: 1, hsn_sc: '8517', desc: 'Phone', uqc: 'NOS', qty: 1, rt: 0, txval: 50, iamt: 0, camt: 0, samt: 0, csamt: 0 },
+        { num: 2, hsn_sc: '8517', desc: 'Phone', uqc: 'NOS', qty: 1, rt: 5, txval: 1000, iamt: 50, camt: 0, samt: 0, csamt: 0 },
+        { num: 3, hsn_sc: '8517', desc: 'Phone', uqc: 'NOS', qty: 2, rt: 18, txval: 200100, iamt: 36000, camt: 9, samt: 9, csamt: 0 }
+      ],
+      hsn_b2c: [{ num: 1, hsn_sc: '8517', desc: 'Phone', uqc: 'NOS', qty: 1, rt: 18, txval: 100, iamt: 0, camt: 9, samt: 9, csamt: 0 }]
+    });
+    expect(summary.b2b.map((row) => [row.ctin, row.inum])).toEqual([[BUYER, shipped.invoiceNo], [OTHER_BUYER, local.invoiceNo]]);
+  });
+
+  it('reports credit notes for their invoices under their GSTIN (CDNR)', () => {
+    const sale = invoice({ buyerGstin: BUYER, lines: [line({ qty: 2, taxable: 200, cgst: 18, sgst: 18 })] });
+    const returns: Gstr1Return[] = [
+      { returnNo: 'MAINR/2627/00003', documentSeries: 'MAINR', createdAt: at(9), totalAmount: 118, invoice: sale, lines: [{ saleLine: sale.lines[0], qty: 1, taxable: 100, cgst: 9, sgst: 9, igst: 0 }] }
+    ];
+    const { json } = build([sale], returns);
+    expect(json.cdnr).toEqual([
+      {
+        ctin: BUYER,
+        nt: [{ ntty: 'C', nt_num: 'MAINR/2627/00003', nt_dt: '09-10-2026', pos: '29', rchrg: 'N', inv_typ: 'R', val: 118, itms: [{ num: 1, itm_det: { rt: 18, txval: 100, iamt: 0, camt: 9, samt: 9, csamt: 0 } }] }]
+      }
+    ]);
+    expect(json.cdnur).toBeUndefined();
+    expect(json.b2cs).toBeUndefined();
+    // The B2B HSN table is net of the return.
+    expect(json.hsn).toEqual({ hsn_b2b: [{ num: 1, hsn_sc: '8517', desc: 'Phone', uqc: 'NOS', qty: 1, rt: 18, txval: 100, iamt: 0, camt: 9, samt: 9, csamt: 0 }] });
+  });
+
+  it('counts in GSTR-3B 3.1, but not in 3.2 (supplies to unregistered persons)', () => {
+    const sale = invoice({ buyerGstin: BUYER, placeOfSupplyStateCode: '27', lines: [interLine(1000)] });
+    const returns: Gstr1Return[] = [
+      { returnNo: 'MAINR/2627/00004', documentSeries: 'MAINR', createdAt: at(9), totalAmount: 118, invoice: sale, lines: [{ saleLine: sale.lines[0], qty: 1, taxable: 100, cgst: 0, sgst: 0, igst: 18 }] }
+    ];
+    const { table31, table32 } = buildGstr3b(build([sale], returns));
+    expect(table31.outwardTaxable).toEqual({ txval: 900, iamt: 162, camt: 0, samt: 0, csamt: 0 });
+    expect(table32.unregistered).toEqual([]);
+  });
+});
+
 describe('GSTR-3B builder', () => {
   it('totals Table 3.1 and 3.2 from the GSTR-1 figures, net of credit notes', () => {
     const intra = invoice({ lines: [line({ qty: 2, taxable: 200, cgst: 18, sgst: 18 }), line({ supplyType: 'EXEMPT', taxRate: 0, taxable: 40, cgst: 0, sgst: 0 })] });

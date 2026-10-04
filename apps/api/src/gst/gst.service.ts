@@ -19,6 +19,7 @@ const invoiceSelect = {
   sellerGstin: true,
   sellerStateCode: true,
   placeOfSupplyStateCode: true,
+  buyerGstin: true,
   grandTotal: true,
   lines: {
     select: {
@@ -47,6 +48,7 @@ type InvoiceRow = {
   sellerGstin: string | null;
   sellerStateCode: string | null;
   placeOfSupplyStateCode: string | null;
+  buyerGstin: string | null;
   grandTotal: unknown;
   lines: Array<{
     id: string;
@@ -91,6 +93,7 @@ function toInvoice(row: InvoiceRow): Gstr1Invoice {
     sellerGstin: row.sellerGstin,
     sellerStateCode: row.sellerStateCode,
     placeOfSupplyStateCode: row.placeOfSupplyStateCode,
+    buyerGstin: row.buyerGstin,
     grandTotal: num(row.grandTotal),
     lines: row.lines.map(toLine)
   };

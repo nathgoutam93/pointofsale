@@ -416,12 +416,23 @@ export const userSchema = z.object({
   createdAt: z.string().datetime()
 });
 
+/** A customer's registered-buyer details; null (or empty) clears one. */
+const customerBuyerFields = {
+  gstin: z.preprocess((value) => (value === '' ? null : value), gstinSchema.nullable()).optional(),
+  address: z.preprocess((value) => (typeof value === 'string' && !value.trim() ? null : value), z.string().trim().max(300).nullable()).optional(),
+  email: z.preprocess((value) => (typeof value === 'string' && !value.trim() ? null : value), z.string().trim().email('Enter a valid email address').nullable()).optional()
+};
+
 export const customerSchema = z.object({
   id: z.string().uuid(),
   branchId: z.string().uuid(),
   code: z.string(),
   name: z.string(),
   phone: z.string().nullable(),
+  /** A registered buyer's GSTIN; their state is its first two digits. */
+  gstin: z.string().nullable().default(null),
+  address: z.string().nullable().default(null),
+  email: z.string().nullable().default(null),
   isWalkIn: z.boolean(),
   createdAt: z.string().datetime()
 });
@@ -649,6 +660,10 @@ const saleInvoiceSchema = z.object({
   customerId: z.string().uuid(),
   customerName: z.string(),
   customerPhone: z.string().nullable(),
+  /** A registered buyer's GSTIN and billing address, as at the sale. */
+  buyerGstin: z.string().nullable().default(null),
+  buyerAddress: z.string().nullable().default(null),
+  reference: z.string().nullable().default(null),
   subTotal: moneySchema,
   discountTotal: moneySchema,
   orderDiscountAmount: moneySchema.default(0),
@@ -779,7 +794,9 @@ const saleCreateBodySchema = z.object({
   lines: z.array(saleLineInput).min(1),
   discounts: z.array(discountInputSchema).default([]),
   /** Where the goods go, when shipped to another state. Defaults to the branch's state (sold over the counter). */
-  placeOfSupplyStateCode: gstStateCodeSchema.optional()
+  placeOfSupplyStateCode: gstStateCodeSchema.optional(),
+  /** The buyer's order or reference number, printed on the bill. */
+  reference: z.string().trim().max(40).optional()
 });
 
 const paymentInputSchema = z.object({ mode: paymentModeSchema, amount: moneySchema.positive(), reference: z.string().optional() });
@@ -985,6 +1002,9 @@ export const appContract = c.router({
             invoices: z.number(),
             cancelledInvoices: z.number(),
             creditNotes: z.number(),
+            /** Invoices to registered buyers, and credit notes for them, by the buyer's GSTIN (ctin). */
+            b2b: z.array(z.object({ ctin: z.string(), inum: z.string(), idt: z.string(), pos: z.string(), val: z.number() }).passthrough()).default([]),
+            cdnr: z.array(z.object({ ctin: z.string(), nt_num: z.string(), nt_dt: z.string(), pos: z.string(), val: z.number() }).passthrough()).default([]),
             b2cs: z.array(z.object({ sply_ty: z.string(), pos: z.string(), rt: z.number(), txval: z.number(), iamt: z.number(), camt: z.number(), samt: z.number() })),
             b2cl: z.array(z.object({ pos: z.string(), inum: z.string(), idt: z.string(), val: z.number() }).passthrough()),
             cdnur: z.array(z.object({ nt_num: z.string(), nt_dt: z.string(), pos: z.string(), val: z.number() }).passthrough()),
@@ -1283,7 +1303,12 @@ export const appContract = c.router({
     create: {
       method: 'POST',
       path: '/customers',
-      body: z.object({ branchId: z.string().uuid(), name: requiredText, phone: z.string().optional() }),
+      body: z.object({
+        branchId: z.string().uuid(),
+        name: requiredText,
+        phone: z.string().optional(),
+        ...customerBuyerFields
+      }),
       responses: { 201: customerSchema }
     },
     update: {
@@ -1291,7 +1316,7 @@ export const appContract = c.router({
       path: '/customers/:id',
       /** The branch it's done at; defaults to the open register's. Admins may name any branch they manage. */
       query: z.object({ branchId: z.string().uuid().optional() }),
-      body: z.object({ name: requiredText.optional(), phone: z.string().nullable().optional() }),
+      body: z.object({ name: requiredText.optional(), phone: z.string().nullable().optional(), ...customerBuyerFields }),
       responses: { 200: customerSchema }
     },
     getWalkIn: {

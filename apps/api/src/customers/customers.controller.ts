@@ -4,7 +4,7 @@ import { AccessService } from '../common/access.service';
 import { getSession, RequestHeaders } from '../common/request-session';
 import type { SessionUser } from '../common/types';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
-import { CustomersService } from './customers.service';
+import { CustomersService, type BuyerFields } from './customers.service';
 
 @Controller()
 export class CustomersController {
@@ -30,18 +30,18 @@ export class CustomersController {
 
   @Post('/customers')
   async createCustomer(
-    @Body(new ZodValidationPipe(appContract.customers.create.body)) body: { branchId: string; name: string; phone?: string },
+    @Body(new ZodValidationPipe(appContract.customers.create.body)) body: { branchId: string; name: string; phone?: string } & BuyerFields,
     @Headers() headers: RequestHeaders
   ) {
     await this.branch(getSession(headers), body.branchId);
-    return this.customers.createCustomer(body.branchId, body.name, body.phone);
+    return this.customers.createCustomer(body.branchId, body.name, body.phone, body);
   }
 
   @Patch('/customers/:id')
   async updateCustomer(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(CustomersController.branchQuery) { branchId }: { branchId?: string },
-    @Body(new ZodValidationPipe(appContract.customers.update.body)) body: { name?: string; phone?: string | null },
+    @Body(new ZodValidationPipe(appContract.customers.update.body)) body: { name?: string; phone?: string | null } & BuyerFields,
     @Headers() headers: RequestHeaders
   ) {
     return this.customers.updateCustomer(await this.branch(getSession(headers), branchId), id, body);

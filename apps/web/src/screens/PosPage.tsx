@@ -51,6 +51,8 @@ export function PosPage() {
   const [walkInCustomerPhone, setWalkInCustomerPhone] = useState("");
   // The state goods are shipped to; null for a counter sale (the branch's own state).
   const [placeOfSupply, setPlaceOfSupply] = useState<string | null>(null);
+  // A registered buyer's order or reference number, printed on their bill.
+  const [reference, setReference] = useState("");
   const [message, setMessage] = useState("");
   const [postPayment, setPostPayment] = useState<PostPaymentSummary | null>(
     null,
@@ -421,6 +423,7 @@ export function PosPage() {
     setWalkInCustomerName("");
     setWalkInCustomerPhone("");
     setPlaceOfSupply(null);
+    setReference("");
     setCart([]);
     lineEditor.close();
     orderDiscount.reset();
@@ -444,6 +447,7 @@ export function PosPage() {
       walkInCustomerName: isWalkInSelected ? normalizedWalkInCustomerName : null,
       walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone : null,
       placeOfSupplyStateCode: placeOfSupply,
+      reference: reference.trim() || null,
       cart: cart.map((line) => ({ ...line })),
       orderDiscountMode: orderDiscount.mode,
       orderDiscountValue: orderDiscount.value,
@@ -502,6 +506,7 @@ export function PosPage() {
     setWalkInCustomerName(draft.walkInCustomerName ?? "");
     setWalkInCustomerPhone(draft.walkInCustomerPhone ?? "");
     setPlaceOfSupply(draft.placeOfSupplyStateCode ?? null);
+    setReference(draft.reference ?? "");
     setCart(draft.cart.map((line) => ({ ...line })));
     lineEditor.close();
     orderDiscount.restore(draft.orderDiscountValue, draft.orderDiscountMode);
@@ -536,6 +541,7 @@ export function PosPage() {
       walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone || null : null,
       // Only a shipped regular sale names one; otherwise the server uses the branch's state.
       placeOfSupplyStateCode: placeOfSupplyChoice ?? undefined,
+      reference: !isWalkInSelected && reference.trim() ? reference.trim() : undefined,
       lines: cart.map((line) => ({
         itemId: line.itemId,
         qty: line.qty,
@@ -597,6 +603,7 @@ export function PosPage() {
         createdAt: result.receipt?.createdAt ?? result.invoice.createdAt,
         customerName: result.invoice.customerName,
         customerPhone: result.invoice.customerPhone ?? "",
+        customerEmail: selectedCustomer && !selectedCustomer.isWalkIn ? selectedCustomer.email : null,
         subTotal: Number(result.invoice.subTotal),
         orderDiscountAmount: Number(result.invoice.orderDiscountAmount ?? 0),
         taxTotal: Number(result.invoice.taxTotal),
@@ -730,6 +737,8 @@ export function PosPage() {
               branchStateCode={chargeTax ? branchStateCode : null}
               placeOfSupply={placeOfSupplyChoice}
               onPlaceOfSupplyChange={setPlaceOfSupply}
+              reference={reference}
+              onReferenceChange={setReference}
               busy={checkout.isPending}
               onWalkIn={() => {
                 setCustomerId("");

@@ -48,6 +48,8 @@ export type CreateSaleInput = {
   discounts?: DiscountInput[];
   /** Set when goods are shipped to another state; defaults to the branch's state. */
   placeOfSupplyStateCode?: string;
+  /** The buyer's order or reference number. */
+  reference?: string;
   /** From POST /sales/checkout only; see checkoutSale. */
   idempotencyKey?: string;
 };

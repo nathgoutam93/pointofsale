@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { invoiceDue } from "@pos/contracts";
-import { api, authHeaders } from "../lib/api";
+import { api, apiErrorMessage, authHeaders } from "../lib/api";
+import { BuyerFields, buyerBody, buyerFrom, buyerProblem, emptyBuyer, type BuyerDetails } from "../components/BuyerFields";
+import { gstStateLabel } from "@pos/contracts";
 import { BranchPicker } from "../components/BranchPicker";
 import { useManagedBranch } from "../lib/branch";
 import { can } from "../lib/session";
@@ -23,6 +25,9 @@ export function CustomersPage() {
     const [isEditingCustomer, setIsEditingCustomer] = useState(false);
     const [editName, setEditName] = useState("");
     const [editPhone, setEditPhone] = useState("");
+    // GSTIN, address and email, when creating and when editing.
+    const [buyer, setBuyer] = useState<BuyerDetails>(emptyBuyer);
+    const [editBuyer, setEditBuyer] = useState<BuyerDetails>(emptyBuyer);
     const [walletTopupAmount, setWalletTopupAmount] = useState("");
 
     const customers = useQuery({
@@ -44,15 +49,17 @@ export function CustomersPage() {
                     branchId: branchId,
                     name: name.trim(),
                     phone: phone.trim() || undefined,
+                    ...buyerBody(buyer),
                 },
                 extraHeaders: authHeaders(),
             });
-            if (res.status !== 201) throw new Error("Failed to create customer");
+            if (res.status !== 201) throw new Error(apiErrorMessage(res.body, "Failed to create customer"));
             return res.body;
         },
         onSuccess: (created) => {
             setName("");
             setPhone("");
+            setBuyer(emptyBuyer);
             setShowCreateForm(false);
             setSelectedCustomerId(created.id);
             queryClient.invalidateQueries({
@@ -72,16 +79,18 @@ export function CustomersPage() {
                 body: {
                     name: editName.trim(),
                     phone: editPhone.trim() || null,
+                    ...buyerBody(editBuyer),
                 },
                 extraHeaders: authHeaders(),
             });
-            if (res.status !== 200) throw new Error("Failed to update customer");
+            if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to update customer"));
             return res.body;
         },
         onSuccess: (updated) => {
             setSelectedCustomerId(updated.id);
             setEditName(updated.name);
             setEditPhone(updated.phone ?? "");
+            setEditBuyer(buyerFrom(updated));
             setIsEditingCustomer(false);
             queryClient.invalidateQueries({
                 queryKey: ["customers-module", branchId],
@@ -149,6 +158,7 @@ export function CustomersPage() {
         setIsEditingCustomer(false);
         setEditName(selectedCustomer.name);
         setEditPhone(selectedCustomer.phone ?? "");
+        setEditBuyer(buyerFrom(selectedCustomer));
         setWalletTopupAmount("");
     }, [selectedCustomer]);
 
@@ -221,9 +231,10 @@ export function CustomersPage() {
         if (!selectedCustomer) return false;
         return (
             editName.trim() !== selectedCustomer.name ||
-            editPhone.trim() !== (selectedCustomer.phone ?? "")
+            editPhone.trim() !== (selectedCustomer.phone ?? "") ||
+            JSON.stringify(buyerBody(editBuyer)) !== JSON.stringify(buyerBody(buyerFrom(selectedCustomer)))
         );
-    }, [editName, editPhone, selectedCustomer]);
+    }, [editName, editPhone, editBuyer, selectedCustomer]);
 
     return (
         <section className="grid grid-cols-1 xl:h-[calc(100vh-48px)] xl:grid-cols-[360px_1fr]">
@@ -269,13 +280,17 @@ export function CustomersPage() {
                                 value={phone}
                                 onChange={(e) => setPhone(e.target.value)}
                             />
+                            <BuyerFields value={buyer} onChange={setBuyer} />
                             <button
                                 className="btn-primary"
-                                disabled={createCustomer.isPending || !name.trim()}
+                                disabled={createCustomer.isPending || !name.trim() || !!buyerProblem(buyer)}
                                 type="submit"
                             >
                                 {createCustomer.isPending ? "Creating..." : "Create Customer"}
                             </button>
+                            {createCustomer.isError ? (
+                                <p className="text-xs text-rose-700">{(createCustomer.error as Error).message}</p>
+                            ) : null}
                         </form>
                     ) : null}
 
@@ -372,6 +387,13 @@ export function CustomersPage() {
                                                         onChange={(e) => setEditPhone(e.target.value)}
                                                     />
                                                 </div>
+                                                <div className="sm:col-span-2">
+                                                    <label className="field-label">GST and billing</label>
+                                                    <BuyerFields value={editBuyer} onChange={setEditBuyer} />
+                                                </div>
+                                                {updateCustomer.isError ? (
+                                                    <p className="text-xs text-rose-700 sm:col-span-2">{(updateCustomer.error as Error).message}</p>
+                                                ) : null}
                                             </div>
                                         ) : (
                                             <>
@@ -381,7 +403,18 @@ export function CustomersPage() {
                                                 <p className="mt-0.5 text-sm text-slate-500">
                                                     <span>{selectedCustomer.code}</span> ·{" "}
                                                     {selectedCustomer.phone ?? "No phone"}
+                                                    {selectedCustomer.email ? ` · ${selectedCustomer.email}` : ""}
                                                 </p>
+                                                {selectedCustomer.gstin ? (
+                                                    <p className="mt-1 text-sm text-slate-600">
+                                                        <span className="badge bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 ring-inset">Registered buyer</span>{" "}
+                                                        GSTIN <span className="font-mono font-semibold text-slate-800">{selectedCustomer.gstin}</span> ·{" "}
+                                                        {gstStateLabel(selectedCustomer.gstin.slice(0, 2))}
+                                                    </p>
+                                                ) : null}
+                                                {selectedCustomer.address ? (
+                                                    <p className="mt-0.5 whitespace-pre-line text-sm text-slate-500">{selectedCustomer.address}</p>
+                                                ) : null}
                                             </>
                                         )}
                                     </div>
@@ -396,6 +429,7 @@ export function CustomersPage() {
                                                 setIsEditingCustomer(false);
                                                 setEditName(selectedCustomer.name);
                                                 setEditPhone(selectedCustomer.phone ?? "");
+                                                setEditBuyer(buyerFrom(selectedCustomer));
                                             }}
                                             type="button"
                                         >
@@ -406,7 +440,8 @@ export function CustomersPage() {
                                             disabled={
                                                 updateCustomer.isPending ||
                                                 !editName.trim() ||
-                                                !hasCustomerEdits
+                                                !hasCustomerEdits ||
+                                                !!buyerProblem(editBuyer)
                                             }
                                             onClick={() => updateCustomer.mutate()}
                                             type="button"

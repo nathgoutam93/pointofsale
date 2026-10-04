@@ -64,6 +64,18 @@ export function Gstr1View({ gstin, period }: { gstin: string; period: GstPeriod 
       {data ? (
         <div className="grid gap-4">
           <Table
+            title="B2B: invoices to registered buyers"
+            headers={["Buyer GSTIN", "Invoice", "Date", "Place of supply", "Invoice value"]}
+            rows={data.summary.b2b.map((r) => [r.ctin, r.inum, r.idt, gstStateLabel(r.pos), r.val])}
+            empty="None. Customers with a GSTIN are registered buyers; their sales are listed here."
+          />
+          <Table
+            title="Credit notes to registered buyers (CDNR)"
+            headers={["Buyer GSTIN", "Credit note", "Date", "Place of supply", "Value"]}
+            rows={data.summary.cdnr.map((r) => [r.ctin, r.nt_num, r.nt_dt, gstStateLabel(r.pos), r.val])}
+            empty="None."
+          />
+          <Table
             title="B2C small (B2CS), net of returns"
             headers={["Supply", "Place of supply", "Rate %", "Taxable value", "IGST", "CGST", "SGST"]}
             rows={data.summary.b2cs.map((r) => [r.sply_ty === "INTER" ? "Inter-state" : "Intra-state", gstStateLabel(r.pos), String(r.rt), r.txval, r.iamt, r.camt, r.samt])}
@@ -84,13 +96,29 @@ export function Gstr1View({ gstin, period }: { gstin: string; period: GstPeriod 
           <Table
             title="Nil rated, exempt and non-GST"
             headers={["Supply", "Nil rated", "Exempt", "Non-GST"]}
-            rows={data.summary.nil.map((r) => [r.sply_ty === "INTRB2C" ? "Inter-state" : "Intra-state", r.nil_amt, r.expt_amt, r.ngsup_amt])}
+            rows={data.summary.nil.map((r) => [
+              `${r.sply_ty.startsWith("INTRB") ? "Inter-state" : "Intra-state"}, ${r.sply_ty.endsWith("B2B") ? "registered" : "unregistered"}`,
+              r.nil_amt,
+              r.expt_amt,
+              r.ngsup_amt,
+            ])}
             empty="None."
           />
           <Table
             title="HSN summary"
-            headers={["HSN", "Description", "UQC", "Quantity", "Rate %", "Taxable value", "IGST", "CGST", "SGST"]}
-            rows={data.summary.hsn.map((r) => [r.hsn_sc, r.desc, r.uqc, String(r.qty), String(r.rt), r.txval, r.iamt, r.camt, r.samt])}
+            headers={["Buyers", "HSN", "Description", "UQC", "Quantity", "Rate %", "Taxable value", "IGST", "CGST", "SGST"]}
+            rows={data.summary.hsn.map((r) => [
+              (r as { typ?: string }).typ === "B2B" ? "Registered" : "Unregistered",
+              r.hsn_sc,
+              r.desc,
+              r.uqc,
+              String(r.qty),
+              String(r.rt),
+              r.txval,
+              r.iamt,
+              r.camt,
+              r.samt,
+            ])}
             empty="None."
           />
           <Table

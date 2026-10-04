@@ -935,7 +935,7 @@ export function SalesPage() {
                 </p>
               </div>
 
-              <EmailReceipt key={settledSummary.invoiceId} invoiceId={settledSummary.invoiceId} />
+              <EmailReceipt key={settledSummary.invoiceId} invoiceId={settledSummary.invoiceId} defaultEmail={selectedCustomer?.email} />
             </div>
 
             <div className="border-t border-slate-200 p-4">
@@ -1169,6 +1169,12 @@ export function SalesPage() {
               <div>
                 <dt className="eyebrow">Customer</dt>
                 <dd className="mt-1 truncate font-medium text-slate-900">{currentCustomerName}</dd>
+                {currentInvoice?.buyerGstin ? (
+                  <dd className="mt-0.5 font-mono text-xs text-slate-600" title="Registered buyer: this bill goes in GSTR-1 B2B">
+                    GSTIN {currentInvoice.buyerGstin}
+                  </dd>
+                ) : null}
+                {currentInvoice?.reference ? <dd className="mt-0.5 text-xs text-slate-600">Ref {currentInvoice.reference}</dd> : null}
               </div>
               <div>
                 <dt className="eyebrow">Sold by</dt>
@@ -1288,7 +1294,7 @@ export function SalesPage() {
             <ReceiptView receipt={printableReceipt} logoSrc={receiptLogoSrc} className="card w-full p-5" />
             {currentInvoice ? (
               <div className="card p-4 print:hidden">
-                <EmailReceipt key={currentInvoice.id} invoiceId={currentInvoice.id} />
+                <EmailReceipt key={currentInvoice.id} invoiceId={currentInvoice.id} defaultEmail={selectedCustomer?.email} />
               </div>
             ) : null}
           </div>

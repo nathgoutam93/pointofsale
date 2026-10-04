@@ -194,7 +194,7 @@ export class SalesService {
     const interState = !!seller.stateCode && !!placeOfSupplyStateCode && placeOfSupplyStateCode !== seller.stateCode;
     const customer = await tx.customer.findUnique({
       where: { id: input.customerId },
-      select: { id: true, branchId: true, name: true, phone: true, isWalkIn: true }
+      select: { id: true, branchId: true, name: true, phone: true, isWalkIn: true, gstin: true, address: true }
     });
     if (!customer) {
       throw new NotFoundException('Customer not found');
@@ -320,6 +320,10 @@ export class SalesService {
         customerId: input.customerId,
         customerName: invoiceCustomerName,
         customerPhone: invoiceCustomerPhone,
+        // A registered buyer's details as they are now; later edits to the customer don't change the bill.
+        buyerGstin: customer.isWalkIn ? null : customer.gstin,
+        buyerAddress: customer.isWalkIn || !customer.gstin ? null : customer.address,
+        reference: input.reference?.trim() || null,
         status: InvoiceStatus.DRAFT,
         subTotal,
         discountTotal,

@@ -14,6 +14,8 @@ export function CustomerSection({
   branchStateCode,
   placeOfSupply,
   onPlaceOfSupplyChange,
+  reference,
+  onReferenceChange,
   busy,
   onWalkIn,
   onPickCustomer,
@@ -22,7 +24,7 @@ export function CustomerSection({
   onPayment,
   onBack,
 }: {
-  selectedCustomer: { name: string | null; phone: string | null } | undefined;
+  selectedCustomer: { name: string | null; phone: string | null; gstin?: string | null } | undefined;
   isWalkInSelected: boolean;
   walkInName: string;
   walkInPhone: string;
@@ -32,6 +34,9 @@ export function CustomerSection({
   /** The state goods are shipped to; null for a counter sale. */
   placeOfSupply: string | null;
   onPlaceOfSupplyChange: (stateCode: string | null) => void;
+  /** A registered buyer's order or reference number. */
+  reference: string;
+  onReferenceChange: (value: string) => void;
   busy: boolean;
   onWalkIn: () => void;
   onPickCustomer: () => void;
@@ -40,6 +45,9 @@ export function CustomerSection({
   onPayment: () => void;
   onBack: () => void;
 }) {
+  // A registered buyer: their GSTIN goes on the bill. Their state is the GSTIN's first two digits.
+  const buyerGstin = !isWalkInSelected ? selectedCustomer?.gstin ?? null : null;
+  const buyerState = buyerGstin?.slice(0, 2) ?? null;
   return (
     <div className="space-y-3 p-4">
       <div>
@@ -84,6 +92,21 @@ export function CustomerSection({
             Wallet balance: <span className="font-semibold text-slate-700 tabular-nums">{inr(walletBalance)}</span>
           </p>
         )}
+        {buyerGstin ? (
+          <div className="mt-2 space-y-2">
+            <p className="text-xs text-slate-600">
+              <span className="badge bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 ring-inset">Registered buyer</span>{" "}
+              GSTIN <span className="font-mono font-semibold text-slate-800">{buyerGstin}</span>: printed on the bill, filed under B2B.
+            </p>
+            <input
+              className="field"
+              placeholder="Their order / reference no. (optional)"
+              maxLength={40}
+              value={reference}
+              onChange={(event) => onReferenceChange(event.target.value)}
+            />
+          </div>
+        ) : null}
       </div>
       {branchStateCode ? (
         <div>
@@ -102,6 +125,16 @@ export function CustomerSection({
           </select>
           {placeOfSupply ? (
             <p className="mt-1 text-xs text-amber-700">Inter-state sale: IGST applies instead of CGST and SGST.</p>
+          ) : null}
+          {buyerState && buyerState !== branchStateCode && placeOfSupply !== buyerState ? (
+            <p className="mt-1 text-xs text-slate-600">
+              The buyer is in {gstStateLabel(buyerState)}. Sold over the counter, CGST and SGST apply; if the goods are
+              delivered to them,{" "}
+              <button type="button" className="font-semibold text-brand-600 hover:underline" onClick={() => onPlaceOfSupplyChange(buyerState)}>
+                ship to {gstStateLabel(buyerState)}
+              </button>
+              .
+            </p>
           ) : null}
         </div>
       ) : null}

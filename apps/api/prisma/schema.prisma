@@ -335,6 +335,13 @@ model Customer {
   code      String
   name      String
   phone     String?
+  /// A registered buyer's GSTIN (their state is its first two digits): their bills carry it and
+  /// go in GSTR-1's B2B section.
+  gstin     String?
+  /// Billing address, printed on a registered buyer's tax invoice.
+  address   String?
+  /// Offered by "Email the receipt".
+  email     String?
   isWalkIn  Boolean        @default(false)
   wallet    WalletAccount?
   invoices  SaleInvoice[]
@@ -469,6 +476,12 @@ model SaleInvoice {
   customer               Customer             @relation(fields: [customerId], references: [id])
   customerName           String
   customerPhone          String?
+  /// The buyer's GSTIN and billing address when they are registered, as at the sale (from the
+  /// customer); such a bill goes in GSTR-1's B2B section.
+  buyerGstin             String?
+  buyerAddress           String?
+  /// The buyer's order or reference number, printed on the bill.
+  reference              String?
   status                 InvoiceStatus
   subTotal               Decimal              @db.Decimal(14, 2)
   discountTotal          Decimal              @db.Decimal(14, 2)

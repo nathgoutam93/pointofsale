@@ -67,6 +67,10 @@ export class ReceiptEmailService {
         sellerGstin: invoice.sellerGstin,
         sellerStateCode: invoice.sellerStateCode,
         placeOfSupplyStateCode: invoice.placeOfSupplyStateCode,
+        customerName: invoice.customerName,
+        buyerGstin: invoice.buyerGstin,
+        buyerAddress: invoice.buyerAddress,
+        reference: invoice.reference,
         cgstTotal: Number(invoice.cgstTotal),
         sgstTotal: Number(invoice.sgstTotal),
         igstTotal: Number(invoice.igstTotal)

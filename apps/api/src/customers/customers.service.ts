@@ -5,6 +5,9 @@ import { toNumber } from '../common/numbers';
 import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 
+/** A registered buyer's details (see Customer in schema.prisma); null clears one. */
+export type BuyerFields = { gstin?: string | null; address?: string | null; email?: string | null };
+
 @Injectable()
 export class CustomersService {
   constructor(
@@ -95,7 +98,7 @@ export class CustomersService {
     return this.prisma.customer.findMany({ where, orderBy: { createdAt: 'desc' } });
   }
 
-  async createCustomer(branchId: string, name: string, phone?: string) {
+  async createCustomer(branchId: string, name: string, phone?: string, buyer: BuyerFields = {}) {
     const normalizedPhone = phone?.trim() || null;
     return this.prisma.$transaction(async (tx) => {
       const scope = await this.settings.getCustomerScope(tx);
@@ -106,7 +109,10 @@ export class CustomersService {
           branchId,
           code: `CUST-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`,
           name,
-          phone: normalizedPhone
+          phone: normalizedPhone,
+          gstin: buyer.gstin ?? null,
+          address: buyer.address ?? null,
+          email: buyer.email ?? null
         }
       });
 
@@ -122,7 +128,7 @@ export class CustomersService {
     });
   }
 
-  async updateCustomer(branchId: string, customerId: string, input: { name?: string; phone?: string | null }) {
+  async updateCustomer(branchId: string, customerId: string, input: { name?: string; phone?: string | null } & BuyerFields) {
     const scope = await this.settings.getCustomerScope();
     const customer = await this.prisma.customer.findUnique({
       where: { id: customerId },
@@ -135,7 +141,11 @@ export class CustomersService {
       throw new BadRequestException('Walk-in customer cannot be edited');
     }
 
-    const updates: { name?: string; phone?: string | null } = {};
+    const updates: { name?: string; phone?: string | null } & BuyerFields = {};
+    // Validated (and empty values made null) by the contract.
+    if (input.gstin !== undefined) updates.gstin = input.gstin;
+    if (input.address !== undefined) updates.address = input.address;
+    if (input.email !== undefined) updates.email = input.email;
     if (input.name !== undefined) {
       updates.name = input.name.trim();
     }
