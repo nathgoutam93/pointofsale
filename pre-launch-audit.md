@@ -363,7 +363,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   needs every item for scanning and offline use, and both lists grow slowly. Server search for
   them can come later if a shop has tens of thousands.
 
-### [ ] C2. Fewer queries inside checkout
+### [x] C2. Fewer queries inside checkout
 
 - **Why:** `createSaleInTx` makes several queries per cart line and per discount inside one
   interactive transaction, which Prisma ends after 5 seconds by default. A long cart on a remote
@@ -371,6 +371,14 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 - **What:** load items, branch prices and stock for all lines at once; `createMany` lines,
   discounts and allocations; set an explicit transaction timeout.
 - **Done when:** a 100-line checkout against the hosted database takes well under the timeout.
+- **Status (2026-10-04):** checkout loads every line's item, branch prices and stock in single
+  queries, writes lines, discounts and allocations with one insert each (ids made in the app),
+  takes all item locks in one statement (in key order, as before), and writes stock movements
+  with one ledger insert and one on-hand upsert (`recordStock`, used everywhere). Sale
+  transactions have an explicit 20 s timeout and 10 s wait. Measured for a 100-line checkout on
+  a local database: about 1,385 SQL statements and 1.5 s before, 95 statements and 140 ms after.
+  On a hosted database the round trips shrink by the same factor. The concurrency tests (five
+  tills, last unit) still pass.
 
 ### [ ] C3. Database connections on the hosted server
 

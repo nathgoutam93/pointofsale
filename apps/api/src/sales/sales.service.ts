@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { DiscountScope, DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, TaxpayerType, UserRole, WalletTxnType } from '@prisma/client';
 import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, invoiceDue, mrpProblem, resolveDiscountAmounts } from '@pos/contracts';
 import type { DiscountInput, RoundOffMode } from '@pos/contracts';
@@ -20,6 +21,12 @@ import { RegistersService } from '../registers/registers.service';
 import { localDate } from '../reports/zoned-dates';
 import { afterCursor, newestFirst, type PageQuery } from '../common/paging';
 import { AuditService } from '../common/audit.service';
+
+/**
+ * A sale's transaction: long enough for a big cart on a slow link to the database (Prisma's
+ * default is 5 seconds), and a wait for a connection that fails a busy till soon rather than late.
+ */
+const SALE_TRANSACTION = { timeout: 20_000, maxWait: 10_000 };
 
 @Injectable()
 export class SalesService {
@@ -196,7 +203,7 @@ export class SalesService {
       const invoice = await this.createSaleInTx(tx, session, input);
       await this.receivables.assertWithinCreditLimit(tx, session, invoice.customerId);
       return invoice;
-    });
+    }, SALE_TRANSACTION);
   }
 
   /** Creates a DRAFT invoice and deducts its stock, inside the caller's transaction. */
@@ -239,11 +246,12 @@ export class SalesService {
     }
     const normalizedLines = [];
 
-    for (const line of input.lines) {
-      const normalizedItemId = await this.items.resolveItemId(line.itemId, tx);
-      const item = await tx.item.findUnique({
-        where: { id: normalizedItemId },
-        select: {
+    // Every line's item and the branch's own prices for them, in two queries.
+    const itemIds = [...new Set(input.lines.map((line) => line.itemId))];
+    const itemRows = await tx.item.findMany({
+      where: { id: { in: itemIds } },
+      select: {
+        id: true,
           name: true,
           uom: true,
           leastCount: true,
@@ -255,10 +263,19 @@ export class SalesService {
           hsnCode: true,
           uqc: true,
           supplyType: true,
-          isActive: true,
-          saleUoms: { select: { uom: true, conversionQty: true, sellPrice: true, mrp: true, isDefault: true } }
-        }
-      });
+        isActive: true,
+        saleUoms: { select: { uom: true, conversionQty: true, sellPrice: true, mrp: true, isDefault: true } }
+      }
+    });
+    const itemsById = new Map(itemRows.map((row) => [row.id, row]));
+    const branchPriceRows = await tx.itemBranchPrice.findMany({
+      where: { branchId: input.branchId, itemId: { in: itemIds } },
+      select: { itemId: true, uom: true, sellPrice: true, mrp: true }
+    });
+
+    for (const line of input.lines) {
+      const normalizedItemId = line.itemId;
+      const item = itemsById.get(normalizedItemId);
       if (!item) {
         throw new NotFoundException('Item not found');
       }
@@ -266,7 +283,7 @@ export class SalesService {
         throw new BadRequestException(`${item.name} is no longer for sale`);
       }
       const pricing = this.resolveLinePricing(
-        withBranchPrices(item, await this.items.branchPricesFor(tx, input.branchId, normalizedItemId)),
+        withBranchPrices(item, branchPriceRows.filter((price) => price.itemId === normalizedItemId)),
         line,
         chargeTax
       );
@@ -297,8 +314,9 @@ export class SalesService {
     const maySellPastStock =
       businessSettings.allowNegativeStock &&
       (createdByUser.role === UserRole.ADMIN || createdByUser.permissions.includes('SELL_PAST_STOCK'));
+    const onHandByItem = await this.stock.getOnHandForItems(tx, input.branchId, Array.from(qtyByItem.keys()));
     for (const [itemId, { name, qty }] of qtyByItem) {
-      const onHand = await this.stock.getOnHandForItem(input.branchId, itemId, tx);
+      const onHand = onHandByItem.get(itemId) ?? 0;
       if (onHand + 1e-9 < qty && !maySellPastStock) {
         throw new BadRequestException(
           `Insufficient stock for ${name}: ${round3(onHand)} on hand, ${qty} needed` +
@@ -383,86 +401,55 @@ export class SalesService {
       select: { id: true }
     });
 
-    const createdLines = [];
-    for (const line of computedLines) {
-      createdLines.push(
-        await tx.saleInvoiceLine.create({
-          data: {
-            invoiceId: invoice.id,
-            itemId: line.itemId,
-            itemName: line.itemName ?? 'Unknown Item',
-            qty: line.qty,
-            rate: line.rate,
-            listRate: line.listRate,
-            unitCost: line.unitCost,
-            saleUom: line.saleUom,
-            saleUomQty: line.saleUomQty,
-            saleUomConversionQty: line.saleUomConversionQty,
-            discountAmount: line.discountAmount,
-            taxMode: line.taxMode ?? 'EXCLUSIVE',
-            taxRate: line.taxRate,
-            taxableAmount: line.taxableAmount,
-            taxAmount: line.taxAmount,
-            cgstAmount: line.cgstAmount,
-            sgstAmount: line.sgstAmount,
-            igstAmount: line.igstAmount,
-            netAmount: line.netAmount,
-            hsnCode: line.hsnCode,
-            uqc: line.uqc,
-            supplyType: line.supplyType
-          },
-          select: { id: true, itemId: true }
-        })
-      );
-    }
+    // Lines, discounts and their allocations in three inserts, with their ids made here.
+    const createdLines = computedLines.map(() => ({ id: randomUUID() }));
+    await tx.saleInvoiceLine.createMany({
+      data: computedLines.map((line, index) => ({
+        id: createdLines[index].id,
+        invoiceId: invoice.id,
+        itemId: line.itemId,
+        itemName: line.itemName ?? 'Unknown Item',
+        qty: line.qty,
+        rate: line.rate,
+        listRate: line.listRate,
+        unitCost: line.unitCost,
+        saleUom: line.saleUom,
+        saleUomQty: line.saleUomQty,
+        saleUomConversionQty: line.saleUomConversionQty,
+        discountAmount: line.discountAmount,
+        taxMode: line.taxMode ?? 'EXCLUSIVE',
+        taxRate: line.taxRate,
+        taxableAmount: line.taxableAmount,
+        taxAmount: line.taxAmount,
+        cgstAmount: line.cgstAmount,
+        sgstAmount: line.sgstAmount,
+        igstAmount: line.igstAmount,
+        netAmount: line.netAmount,
+        hsnCode: line.hsnCode,
+        uqc: line.uqc,
+        supplyType: line.supplyType
+      }))
+    });
 
-    for (let lineIdx = 0; lineIdx < computedLines.length; lineIdx += 1) {
-      const line = computedLines[lineIdx];
-      const persistedLine = createdLines[lineIdx];
-      const itemDiscounts = resolveDiscountAmounts(line.discounts, line.baseExclusive);
-      for (const discount of itemDiscounts) {
-        const createdDiscount = await tx.discount.create({
-          data: {
-            saleInvoiceId: invoice.id,
-            scope: DiscountScope.ITEM,
-            type: discount.type,
-            value: discount.value
-          },
-          select: { id: true }
-        });
-        await tx.discountAllocation.create({
-          data: {
-            discountId: createdDiscount.id,
-            saleInvoiceLineId: persistedLine.id,
-            amount: discount.amount
-          }
-        });
+    const discountRows: Prisma.DiscountCreateManyInput[] = [];
+    const allocationRows: Prisma.DiscountAllocationCreateManyInput[] = [];
+    computedLines.forEach((line, lineIdx) => {
+      for (const discount of resolveDiscountAmounts(line.discounts, line.baseExclusive)) {
+        const discountId = randomUUID();
+        discountRows.push({ id: discountId, saleInvoiceId: invoice.id, scope: DiscountScope.ITEM, type: discount.type, value: discount.value });
+        allocationRows.push({ discountId, saleInvoiceLineId: createdLines[lineIdx].id, amount: discount.amount });
       }
-    }
-
+    });
     for (const orderDiscount of orderDiscountPlans) {
-      const createdDiscount = await tx.discount.create({
-        data: {
-          saleInvoiceId: invoice.id,
-          scope: DiscountScope.ORDER,
-          type: orderDiscount.type,
-          value: orderDiscount.value
-        },
-        select: { id: true }
-      });
-
-      for (let lineIdx = 0; lineIdx < createdLines.length; lineIdx += 1) {
+      const discountId = randomUUID();
+      discountRows.push({ id: discountId, saleInvoiceId: invoice.id, scope: DiscountScope.ORDER, type: orderDiscount.type, value: orderDiscount.value });
+      createdLines.forEach((line, lineIdx) => {
         const amount = round2(orderDiscount.allocations[lineIdx] ?? 0);
-        if (amount <= 0) continue;
-        await tx.discountAllocation.create({
-          data: {
-            discountId: createdDiscount.id,
-            saleInvoiceLineId: createdLines[lineIdx].id,
-            amount
-          }
-        });
-      }
+        if (amount > 0) allocationRows.push({ discountId, saleInvoiceLineId: line.id, amount });
+      });
     }
+    if (discountRows.length > 0) await tx.discount.createMany({ data: discountRows });
+    if (allocationRows.length > 0) await tx.discountAllocation.createMany({ data: allocationRows });
 
     const createdInvoice = await tx.saleInvoice.findUnique({
       where: { id: invoice.id },
@@ -521,7 +508,7 @@ export class SalesService {
           await this.receivables.assertWithinCreditLimit(tx, session, input.customerId);
         }
         return result;
-      });
+      }, SALE_TRANSACTION);
     } catch (error) {
       // A concurrent request with the same key won the race; return what it created.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {

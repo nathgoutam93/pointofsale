@@ -21,9 +21,20 @@ export class StockService {
    * takes stock out calls this first; items are locked in sorted order to avoid deadlocks.
    */
   async lockItemStock(tx: Prisma.TransactionClient, branchId: string, itemIds: string[]) {
-    for (const itemId of Array.from(new Set(itemIds)).sort()) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`stock:${branchId}:${itemId}`}, 0))`;
-    }
+    const keys = Array.from(new Set(itemIds)).sort().map((itemId) => `stock:${branchId}:${itemId}`);
+    if (keys.length === 0) return;
+    // One statement, taking the locks one after another in key order.
+    await tx.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(key, 0))
+      FROM unnest(${keys}::text[]) WITH ORDINALITY AS keys(key, position)
+      ORDER BY position`;
+  }
+
+  /** On-hand stock of several items at a branch (0 for an item with none recorded). */
+  async getOnHandForItems(tx: Prisma.TransactionClient, branchId: string, itemIds: string[]) {
+    const rows = await tx.itemStock.findMany({ where: { branchId, itemId: { in: itemIds } }, select: { itemId: true, qty: true } });
+    const byItem = new Map(rows.map((row) => [row.itemId, toNumber(row.qty)]));
+    return new Map(itemIds.map((itemId) => [itemId, byItem.get(itemId) ?? 0]));
   }
 
   /** Moves the on-hand row for (branch, item) by `delta`. The caller holds the item lock. */
@@ -52,10 +63,24 @@ export class StockService {
     for (const [branchId, itemIds] of [...itemsByBranch].sort(([a], [b]) => a.localeCompare(b))) {
       await this.lockItemStock(tx, branchId, itemIds);
     }
-    const created = [];
+    if (entries.length === 0) return [];
+    const created = await tx.stockLedger.createManyAndReturn({ data: entries });
+    // Each (branch, item) moves once, by the sum of its entries, in one statement.
+    const deltas = new Map<string, { branchId: string; itemId: string; delta: number }>();
     for (const entry of entries) {
-      created.push(await tx.stockLedger.create({ data: entry }));
-      await this.adjustItemStock(tx, entry.branchId, entry.itemId, round3(entry.qtyIn - entry.qtyOut));
+      const key = `${entry.branchId}:${entry.itemId}`;
+      const current = deltas.get(key) ?? { branchId: entry.branchId, itemId: entry.itemId, delta: 0 };
+      current.delta = round3(current.delta + entry.qtyIn - entry.qtyOut);
+      deltas.set(key, current);
+    }
+    const moves = [...deltas.values()].filter((move) => move.delta !== 0);
+    if (moves.length > 0) {
+      await tx.$executeRaw`
+        INSERT INTO "ItemStock" ("branchId", "itemId", "qty", "updatedAt")
+        SELECT branch, item, delta, now()
+        FROM unnest(${moves.map((move) => move.branchId)}::text[], ${moves.map((move) => move.itemId)}::text[], ${moves.map((move) => move.delta)}::numeric[])
+          AS moves(branch, item, delta)
+        ON CONFLICT ("branchId", "itemId") DO UPDATE SET "qty" = "ItemStock"."qty" + EXCLUDED."qty", "updatedAt" = now()`;
     }
     return created;
   }
