@@ -622,3 +622,4 @@ managed hosting is selling.
 - 2026-10-04: Item 7 done: Settings → Your data downloads the whole online business (restorable offline) and a sales register CSV.
 - 2026-10-04: Item 8 done: the owner's screen (/owner) lists each business's staff, gives new passwords and turns staff off or on.
 - 2026-10-04: Item 1 done: crash reports to our own server (desktop main, local API, page, online API), scrubbed, sent only after an admin says yes.
+- 2026-10-04: Version 0.1.3 prepared: ships items 10, 11, 17, 7, 8 and 1 to installed apps. Deploy the server first (two new migrations). Then set `MIN_CLIENT_VERSION=0.1.3`: a 0.1.2 fallback counter can't load the new offline copy (it lacks the migration) and its offline sales are refused until it updates.
