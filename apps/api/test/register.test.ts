@@ -45,7 +45,7 @@ describe('register balance', () => {
 
     // Not by another cashier, nor at a branch the admin can't manage.
     const other = await t.cashierWithRegister(admin, ctx.branch.id);
-    expect((await t.call('POST', `/registers/${cashier.registerId}/close`, other.token, { closingBalance: 100 })).status).toBe(400);
+    expect((await t.call('POST', `/registers/${cashier.registerId}/close`, other.token, { closingBalance: 100 })).status).toBe(403);
 
     const closed = await t.ok('POST', `/registers/${cashier.registerId}/close`, admin, { closingBalance: null });
     expect(closed).toMatchObject({ expectedCash: 100, closingBalance: null, cashDifference: null, cashSales: 100 });

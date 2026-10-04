@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Headers, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
@@ -16,7 +16,7 @@ const statementEmailsSent = new FailureLimiter(30, 60 * 60 * 1000);
 /** Only admins give credit: setting a credit limit or payment terms. */
 function assertMaySetCredit(session: SessionUser, body: CreditFields) {
   if ((body.creditLimit !== undefined || body.paymentTermsDays !== undefined) && session.role !== UserRole.ADMIN) {
-    throw new BadRequestException('Only admins set credit limits and payment terms');
+    throw new ForbiddenException('Only admins set credit limits and payment terms');
   }
 }
 

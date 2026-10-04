@@ -66,7 +66,7 @@ describe('taxpayer type', () => {
     await t.ok('POST', '/users', admin, { branchId: c.branch.id, username, password: 'cashier-pass-1' });
     const cashier = await t.login(username, 'cashier-pass-1');
     const res = await change({ taxpayerType: 'COMPOSITION', compositionCategory: 'TRADER', effectiveDate: today() }, cashier);
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
     expect(res.body.message).toBe('Admin role required');
   });
 

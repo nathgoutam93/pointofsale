@@ -23,7 +23,7 @@ describe('sales summary', () => {
     const adminUser = await t.db.user.findUniqueOrThrow({ where: { username: ADMIN.username } });
     await t.db.userBranchAccess.delete({ where: { userId_branchId: { userId: adminUser.id, branchId: other.branch.id } } });
     const denied = await t.call('GET', `/reports/sales-summary?branchId=${other.branch.id}`, here.token);
-    expect(denied.status).toBe(400);
+    expect(denied.status).toBe(403);
     expect(denied.body.message).toBe('You do not have access to this branch');
   });
 

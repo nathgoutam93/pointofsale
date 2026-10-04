@@ -49,7 +49,7 @@ describe('image uploads', () => {
     const files = () => readdirSync(join(uploadsDir, 'items')).length;
     const before = files();
     const res = await upload('/items/upload-image', cashier.token, PNG, 'image/png', 'x.png');
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
     expect(((await res.json()) as { message: string }).message).toMatch(/aren't allowed/);
     expect(files()).toBe(before);
   });

@@ -1,4 +1,4 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { readBearerToken, verifyToken } from '../auth/token';
 import type { SessionUser } from './types';
@@ -40,6 +40,6 @@ export function requireAdminSession(headers: RequestHeaders) {
 
 export function requireAdmin(session: SessionUser) {
   if (session.role !== UserRole.ADMIN) {
-    throw new BadRequestException('Admin role required');
+    throw new ForbiddenException('Admin role required');
   }
 }

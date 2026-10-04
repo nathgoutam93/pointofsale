@@ -90,6 +90,6 @@ describe('GSTR-1', () => {
     const c = await t.branchWithRegister(admin);
     const username = `gstr1-${Date.now()}`;
     await t.ok('POST', '/users', admin, { branchId: c.branch.id, username, password: 'cashier-pass-1' });
-    expect((await t.call('GET', query(month), await t.login(username, 'cashier-pass-1'))).status).toBe(400);
+    expect((await t.call('GET', query(month), await t.login(username, 'cashier-pass-1'))).status).toBe(403);
   });
 });

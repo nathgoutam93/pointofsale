@@ -28,8 +28,8 @@ describe('counters', () => {
     expect(first).toMatchObject({ name: 'Counter 1', isActive: true });
 
     const till = await cashier(branch.id);
-    expect((await t.call('POST', `/branches/${branch.id}/counters`, till.token, { name: 'Counter 2' })).status).toBe(400);
-    expect((await t.call('PATCH', `/counters/${first.id}`, till.token, { name: 'Front' })).status).toBe(400);
+    expect((await t.call('POST', `/branches/${branch.id}/counters`, till.token, { name: 'Counter 2' })).status).toBe(403);
+    expect((await t.call('PATCH', `/counters/${first.id}`, till.token, { name: 'Front' })).status).toBe(403);
     // Cashiers can still see the branch's counters to pick one.
     expect(await t.ok('GET', `/branches/${branch.id}/counters`, till.token)).toHaveLength(1);
 
@@ -128,7 +128,7 @@ describe('counters', () => {
     // One active counter left, so no choice is needed.
     expect((await open(till.token, branch.id)).status).toBe(200);
     // A cashier without access to the other branch can't list its counters.
-    expect((await t.call('GET', `/branches/${other.id}/counters`, till.token)).status).toBe(400);
+    expect((await t.call('GET', `/branches/${other.id}/counters`, till.token)).status).toBe(403);
   });
 
   it('opens each counter once when cashiers race for it', async () => {

@@ -28,7 +28,7 @@ describe('return controls', () => {
     const invoice = await sale();
     const without = await t.cashierWithRegister(admin, ctx.branch.id);
     const refused = await returnOne(without.token, invoice);
-    expect(refused.status).toBe(400);
+    expect(refused.status).toBe(403);
     expect(refused.body.message).toMatch(/aren't allowed/);
 
     const allowed = await t.cashierWithRegister(admin, ctx.branch.id, ['MAKE_RETURNS']);

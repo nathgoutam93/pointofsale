@@ -86,10 +86,10 @@ describe('stock transfers', () => {
     const cashier = await t.login(username, 'cashier-pass-1');
     expect((await t.call('POST', '/stock-transfers', cashier, { fromBranchId: from.branch.id, toBranchId: to.id, lines: [{ itemId: item.id, qty: 1 }] })).status).toBe(400);
     // A cashier at the source branch can't list the destination's transfers.
-    expect((await t.call('GET', `/stock-transfers?branchId=${to.id}`, cashier)).status).toBe(400);
+    expect((await t.call('GET', `/stock-transfers?branchId=${to.id}`, cashier)).status).toBe(403);
     expect(await stockAt(from.branch.id, item.id)).toBe(5);
     // Nor see where to send to.
-    expect((await t.call('GET', '/stock-transfers/destinations', cashier)).status).toBe(400);
+    expect((await t.call('GET', '/stock-transfers/destinations', cashier)).status).toBe(403);
   });
 
   it('lets a cashier allowed to send pick any branch, not only the ones they work at', async () => {

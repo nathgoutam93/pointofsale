@@ -35,7 +35,7 @@ const sale = (token: string, qty: number, payments: unknown[] = []) =>
 describe('credit limits and payment terms', () => {
   it('are set by admins only', async () => {
     const denied = await t.call('POST', '/customers', cashier.token, { branchId: ctx.branch.id, name: 'Too generous', creditLimit: 100000 });
-    expect(denied.status).toBe(400);
+    expect(denied.status).toBe(403);
     expect(denied.body.message).toMatch(/Only admins/);
     expect((await t.call('POST', '/customers', ctx.token, { branchId: ctx.branch.id, name: 'Negative', creditLimit: -1 })).status).toBe(400);
 
@@ -44,7 +44,7 @@ describe('credit limits and payment terms', () => {
     customerId = customer.id;
     // A cashier may still edit everything else.
     expect(await t.ok('PATCH', `/customers/${customerId}`, cashier.token, { phone: '9000000001' })).toMatchObject({ creditLimit: 2500 });
-    expect((await t.call('PATCH', `/customers/${customerId}`, cashier.token, { paymentTermsDays: 90 })).status).toBe(400);
+    expect((await t.call('PATCH', `/customers/${customerId}`, cashier.token, { paymentTermsDays: 90 })).status).toBe(403);
   });
 
   it('stop a cashier taking a customer past their limit; admins may', async () => {

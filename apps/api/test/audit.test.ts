@@ -71,6 +71,6 @@ describe('audit log', () => {
 
     const ctx = await t.branchWithRegister(admin);
     const cashier = await t.cashierWithRegister(admin, ctx.branch.id);
-    expect((await t.call('GET', '/audit', cashier.token)).status).toBe(400);
+    expect((await t.call('GET', '/audit', cashier.token)).status).toBe(403);
   });
 });

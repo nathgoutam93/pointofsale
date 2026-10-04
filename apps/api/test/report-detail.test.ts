@@ -63,6 +63,6 @@ describe('detailed report', () => {
     expect((await t.call('GET', `/reports/detail?from=2024-01-01&to=2026-01-01`, admin)).status).toBe(400);
     expect((await t.call('GET', `/reports/detail?from=2026-1-1&to=2026-01-02`, admin)).status).toBe(400);
     const cashier = await t.cashierWithRegister(admin, ctx.branch.id);
-    expect((await t.call('GET', `/reports/detail?from=${today()}&to=${today()}`, cashier.token)).status).toBe(400);
+    expect((await t.call('GET', `/reports/detail?from=${today()}&to=${today()}`, cashier.token)).status).toBe(403);
   });
 });

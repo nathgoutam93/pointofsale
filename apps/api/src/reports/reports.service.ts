@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { reportPeriods, startOfLocalDay } from './zoned-dates';
@@ -137,7 +137,7 @@ export class ReportsService {
    * cashier, discounts given, and the day-end figures of each register open in it.
    */
   async getDetail(session: SessionUser, input: { branchId?: string; from: string; to: string }) {
-    if (session.role !== UserRole.ADMIN) throw new BadRequestException('Admin role required');
+    if (session.role !== UserRole.ADMIN) throw new ForbiddenException('Admin role required');
     const { timezone } = await this.settings.ensureBusinessSettings();
     const [fy, fm, fd] = input.from.split('-').map(Number);
     const [ty, tm, td] = input.to.split('-').map(Number);

@@ -84,7 +84,7 @@ describe('wallet adjustments', () => {
     expect((await adjust(admin, { amount: 10, reason: ' ' })).status).toBe(400);
     expect((await adjust(admin, { amount: 0, reason: 'Nothing' })).status).toBe(400);
     const cashier = await t.cashierWithRegister(admin, ctx.branch.id, ['TOP_UP_WALLETS']);
-    expect((await adjust(cashier.token, { amount: 10, reason: 'Cashier tries' })).status).toBe(400);
+    expect((await adjust(cashier.token, { amount: 10, reason: 'Cashier tries' })).status).toBe(403);
     expect((await t.ok('GET', `/customers/${customer.id}/wallet`, ctx.token)).balance).toBe(25);
     // Nothing in the drawer.
     expect(await t.ok('GET', '/registers/current', ctx.token)).toMatchObject({ cashTopups: 0, expectedCash: 0 });

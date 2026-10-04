@@ -78,7 +78,7 @@ describe('the whole business', () => {
 
   it('is for admins of every branch only', async () => {
     const cashier = await t.cashierWithRegister(admin, ctx.branch.id);
-    expect((await download('/exports/business', cashier.token)).status).toBe(400);
+    expect((await download('/exports/business', cashier.token)).status).toBe(403);
     // An admin of one branch only (made from a cashier: the screens have no such step).
     const username = `branch-admin-${randomUUID().slice(0, 8)}`;
     const user = await t.ok('POST', '/users', admin, { branchId: ctx.branch.id, username, password: 'admin-pass-123' });
@@ -118,7 +118,7 @@ describe('the sales register', () => {
 
     // Admins only; a period the right way round.
     const cashier = await t.cashierWithRegister(admin, branch.branch.id);
-    expect((await download(`/exports/sales.csv?from=${today()}&to=${today()}`, cashier.token)).status).toBe(400);
+    expect((await download(`/exports/sales.csv?from=${today()}&to=${today()}`, cashier.token)).status).toBe(403);
     expect((await download(`/exports/sales.csv?from=${today()}&to=2000-01-01`, admin)).status).toBe(400);
   });
 });

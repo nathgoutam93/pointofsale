@@ -72,7 +72,7 @@ describe('branch prices', () => {
     const username = `till-${Date.now()}`;
     await t.ok('POST', '/users', admin, { branchId: a.branch.id, username, password: 'cashier-pass-1' });
     const cashier = await t.login(username, 'cashier-pass-1');
-    expect((await t.call('PUT', `/items/${item.id}/branch-prices`, cashier, { branchId: a.branch.id, prices: [] })).status).toBe(400);
-    expect((await t.call('GET', `/items/${item.id}/branch-prices`, cashier)).status).toBe(400);
+    expect((await t.call('PUT', `/items/${item.id}/branch-prices`, cashier, { branchId: a.branch.id, prices: [] })).status).toBe(403);
+    expect((await t.call('GET', `/items/${item.id}/branch-prices`, cashier)).status).toBe(403);
   });
 });
