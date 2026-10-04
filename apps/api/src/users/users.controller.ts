@@ -30,7 +30,7 @@ export class UsersController {
     const session = requireAdminSession(headers);
     await this.access.requireBranch(session, body.branchId);
     for (const branchId of body.branchIds ?? []) await this.access.requireBranch(session, branchId);
-    return this.users.createUser(body.branchId, body);
+    return this.users.createUser(session, body.branchId, body);
   }
 
   @Patch('/users/:id')

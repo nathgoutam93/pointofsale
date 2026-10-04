@@ -15,6 +15,8 @@ import { SetupService } from './setup/setup.service';
 import { BranchesController } from './branches/branches.controller';
 import { BranchesService } from './branches/branches.service';
 import { AccessService } from './common/access.service';
+import { AuditService } from './common/audit.service';
+import { AuditController } from './audit/audit.controller';
 import { CountersController } from './counters/counters.controller';
 import { CountersService } from './counters/counters.service';
 import { CustomersController } from './customers/customers.controller';
@@ -65,6 +67,7 @@ import { UsersService } from './users/users.service';
 
 @Module({
   controllers: [
+    AuditController,
     FallbackController,
     FallbackOutboxController,
     MetaController,
@@ -94,6 +97,7 @@ import { UsersService } from './users/users.service';
     // Offline: the local database. Online: the current request's business (see prisma.service.ts).
     { provide: PrismaService, useFactory: createPrismaService },
     TenantClients,
+    AuditService,
     TenancyService,
     ProvisioningService,
     ImportService,

@@ -292,13 +292,23 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   Reports page has a "Detailed report" section with a date range, tabs and a CSV download per
   tab. Checked in the browser. Tests: `report-detail.test.ts`.
 
-### [ ] B6. Audit log
+### [x] B6. Audit log
 
 - **Why:** nothing records price changes, cancellations, permission changes or settings changes.
 - **What:** an append-only `AuditEvent` (who, when, what, before / after) written by item
   price and tax changes, cancellations, returns, wallet adjustments, user and permission changes,
   and settings; a screen for admins.
 - **Done when:** every action in the list leaves an entry an admin can see.
+- **Status (2026-10-04):** `AuditEvent` (migration `20261020180000_audit_events`, included in
+  "move online") and `AuditService` record entries in the same transaction as the change where
+  there is one, so a failed change leaves none. Recorded: items added, changed (price and tax
+  changes marked as such, with before and after), removed, and branch prices; bills cancelled;
+  returns; wallet corrections; stock adjustments and opening corrections; cashiers added,
+  changed (permissions, deactivation, password resets) and branch access; business and branch
+  settings with before and after; GST registration changes; registers closed for someone else.
+  Admins read it at `GET /audit` (newest first, paged, filtered by kind) and on the new Activity
+  page. Tests: `audit.test.ts`. Entries made on a fallback counter while offline stay on that
+  computer.
 
 ### [ ] B7. Purchases: input tax and suppliers
 

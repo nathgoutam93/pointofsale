@@ -800,6 +800,28 @@ model StockTransferLine {
   @@unique([transferId, itemId])
 }
 
+/// Who changed what, and when: prices and tax, cancellations, returns, wallet corrections, staff
+/// and permissions, settings. Rows are only ever added (see AuditService).
+model AuditEvent {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  userId     String
+  userName   String
+  /// What was done, e.g. ITEM_PRICE_CHANGED, SALE_CANCELLED, RETURN_MADE.
+  action     String
+  entityType String
+  entityId   String?
+  /// The branch it happened at, when it belongs to one.
+  branchId   String?
+  /// One line for a person to read.
+  summary    String
+  /// Before and after, or other facts.
+  details    Json?
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
+
 /// Fallback copies only (empty on the server): what each customer owed when the copy was made,
 /// since the copy carries no unpaid bills. Offline credit sales count it against the credit limit.
 model FallbackBalance {

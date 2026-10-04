@@ -17,8 +17,7 @@ import {
   IconTag,
   IconTransfer,
   IconTruck,
-  IconUsers,
-} from "../components/icons";
+  IconUsers, IconHistory } from "../components/icons";
 import { OnlineOnlyBadge } from "../components/OnlineOnly";
 import { MoveOnlineNotice } from "../components/MoveOnline";
 import { RecoveryCodeNotice } from "../components/RecoveryCode";
@@ -72,6 +71,7 @@ const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
     items: [
       { to: "/reports", label: "Reports", icon: IconChart, adminOnly: true },
       { to: "/gst", label: "GST Returns", icon: IconFile, adminOnly: true },
+      { to: "/activity", label: "Activity", icon: IconHistory, adminOnly: true },
       { to: "/settings", label: "Settings", icon: IconSettings, adminOnly: true },
     ],
   },

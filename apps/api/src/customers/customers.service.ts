@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma.service';
 import { round2, toNumber } from '../common/numbers';
 import type { SessionUser } from '../common/types';
 import { assertRegisterOpen } from '../common/register-open';
+import { AuditService } from '../common/audit.service';
 import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 import { isFallback } from '../common/mode';
@@ -31,7 +32,8 @@ export class CustomersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
-    private readonly sequences: SequenceService
+    private readonly sequences: SequenceService,
+    private readonly audit: AuditService
   ) {}
 
   async ensureWalkInCustomer(branchId: string) {
@@ -286,6 +288,18 @@ export class CustomersService {
           ...(await walletTxnAuthor(tx, session))
         }
       });
+      await this.audit.record(
+        session,
+        {
+          action: 'WALLET_ADJUSTED',
+          entityType: 'Customer',
+          entityId: customerId,
+          branchId,
+          summary: `Wallet ${change > 0 ? 'credited' : 'debited'} ${Math.abs(change).toFixed(2)}: ${reason.trim()}`,
+          details: { amount: change, reason: reason.trim(), balanceBefore: toNumber(wallet.balance) }
+        },
+        tx
+      );
       return { ...txn, amount: toNumber(txn.amount) };
     });
   }

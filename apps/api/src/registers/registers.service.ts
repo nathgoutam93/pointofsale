@@ -10,6 +10,7 @@ import { branchSummarySelect, registerSelect } from '../common/selects';
 import { SettingsService } from '../settings/settings.service';
 import { lockBranchRegisters } from '../common/counters';
 import { requireAdmin } from '../common/request-session';
+import { AuditService } from '../common/audit.service';
 import { assertRegisterOpen } from '../common/register-open';
 import { BranchesService } from '../branches/branches.service';
 
@@ -18,7 +19,8 @@ export class RegistersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
-    private readonly branches: BranchesService
+    private readonly branches: BranchesService,
+    private readonly audit: AuditService
   ) {}
 
   private toRegisterDto(register: Prisma.RegisterSessionGetPayload<{ select: typeof registerSelect }>) {
@@ -259,7 +261,16 @@ export class RegistersService {
     const register = await this.prisma.registerSession.findUnique({ where: { id: registerId }, select: { branchId: true } });
     if (!register) throw new NotFoundException('Open register not found');
     await this.branches.ensureUserHasBranchAccess(session.userId, register.branchId);
-    return this.closeOpenRegister({ id: registerId }, closingBalance);
+    const closed = await this.closeOpenRegister({ id: registerId }, closingBalance);
+    await this.audit.record(session, {
+      action: 'REGISTER_CLOSED_FOR',
+      entityType: 'RegisterSession',
+      entityId: registerId,
+      branchId: register.branchId,
+      summary: `Closed ${closed.counterName}, opened by ${closed.openedBy}: ${closingBalance === null ? 'cash not counted' : `counted ${closingBalance.toFixed(2)}`} (${closed.expectedCash?.toFixed(2) ?? '0.00'} expected)`,
+      details: { expectedCash: closed.expectedCash, closingBalance, cashDifference: closed.cashDifference }
+    });
+    return closed;
   }
 
   /** Closes the open register matching `where`, recording the cash expected and, when counted, the difference. */

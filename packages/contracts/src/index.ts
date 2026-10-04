@@ -929,6 +929,19 @@ const reportRangeSchema = z.object({
     .default({ cash: 0, card: 0, upi: 0, wallet: 0 })
 });
 
+export const auditEventSchema = z.object({
+  id: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  userId: z.string(),
+  userName: z.string(),
+  action: z.string(),
+  entityType: z.string(),
+  entityId: z.string().nullable(),
+  branchId: z.string().nullable(),
+  summary: z.string(),
+  details: z.unknown().nullable()
+});
+
 /** Sales of one item or category in a period, net of what came back in it (amounts before tax). */
 const reportSalesRowSchema = z.object({
   qty: z.number(),
@@ -2079,6 +2092,20 @@ export const appContract = c.router({
       method: 'GET',
       path: '/returns/:id',
       responses: { 200: returnDetailSchema }
+    }
+  },
+  /** Admins: who changed what (prices, cancellations, returns, staff, settings), newest first. */
+  audit: {
+    list: {
+      method: 'GET',
+      path: '/audit',
+      query: z.object({
+        action: z.string().max(64).optional(),
+        /** An entry's createdAt: the page after it. */
+        before: z.string().datetime().optional(),
+        limit: z.coerce.number().int().min(1).max(200).default(50)
+      }),
+      responses: { 200: z.array(auditEventSchema) }
     }
   },
   reports: {

@@ -4,12 +4,14 @@ import { AccessService } from '../common/access.service';
 import { getSession, RequestHeaders } from '../common/request-session';
 import { ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { StockService } from './stock.service';
+import { AuditService } from '../common/audit.service';
 
 @Controller()
 export class StockController {
   constructor(
     private readonly stock: StockService,
-    private readonly access: AccessService
+    private readonly access: AccessService,
+    private readonly audit: AuditService
   ) {}
 
   /** Stock changes: at a branch the user manages, by an admin or a cashier allowed to. */
@@ -17,6 +19,7 @@ export class StockController {
     const session = getSession(headers);
     await this.access.requireBranch(session, branchId);
     await this.access.requirePermission(session, 'MANAGE_STOCK');
+    return session;
   }
 
   @Post('/stock/opening')
@@ -33,8 +36,17 @@ export class StockController {
     @Body(new ZodValidationPipe(appContract.stock.updateOpening.body)) body: { branchId: string; itemId: string; qty: number; costPrice?: number; reason?: string },
     @Headers() headers: RequestHeaders
   ) {
-    await this.changing(headers, body.branchId);
-    return this.stock.updateStockOpening(body.branchId, body.itemId, body.qty, body.costPrice, body.reason);
+    const session = await this.changing(headers, body.branchId);
+    const entry = await this.stock.updateStockOpening(body.branchId, body.itemId, body.qty, body.costPrice, body.reason);
+    await this.audit.record(session, {
+      action: 'OPENING_STOCK_CORRECTED',
+      entityType: 'Item',
+      entityId: entry.itemId,
+      branchId: body.branchId,
+      summary: `Opening stock corrected to ${body.qty}${body.reason ? ` (${body.reason})` : ''}`,
+      details: { qty: body.qty, costPrice: body.costPrice ?? null, reason: body.reason ?? null }
+    });
+    return entry;
   }
 
   @Post('/stock/adjustment')
@@ -42,8 +54,17 @@ export class StockController {
     @Body(new ZodValidationPipe(appContract.stock.adjustment.body)) body: { branchId: string; itemId: string; qty: number; direction: 'IN' | 'OUT'; costPrice?: number; reason: string },
     @Headers() headers: RequestHeaders
   ) {
-    await this.changing(headers, body.branchId);
-    return this.stock.createStockAdjustment(body.branchId, body.itemId, body.qty, body.direction, body.costPrice, body.reason);
+    const session = await this.changing(headers, body.branchId);
+    const entry = await this.stock.createStockAdjustment(body.branchId, body.itemId, body.qty, body.direction, body.costPrice, body.reason);
+    await this.audit.record(session, {
+      action: 'STOCK_ADJUSTED',
+      entityType: 'Item',
+      entityId: entry.itemId,
+      branchId: body.branchId,
+      summary: `Stock ${body.direction === 'IN' ? 'added' : 'taken off'}: ${body.qty} (${body.reason})`,
+      details: { ledgerId: entry.id, qty: body.qty, direction: body.direction, reason: body.reason }
+    });
+    return entry;
   }
 
   @Get('/stock/on-hand')

@@ -9,6 +9,7 @@ import { requireAdmin } from '../common/request-session';
 import { withBranchPrices } from '../common/branch-prices';
 import { toNumber, round2 } from '../common/numbers';
 import { normalizeLeastCount } from '../common/quantities';
+import { AuditService } from '../common/audit.service';
 
 /** An item as the API answers it: its sale units in order and its barcodes. */
 const itemInclude = {
@@ -18,12 +19,16 @@ const itemInclude = {
 
 type ItemBarcodeInput = { barcode: string; saleUom?: string | null };
 
+/** The item fields the audit log follows. */
+const AUDITED_ITEM_FIELDS = ['name', 'code', 'category', 'uom', 'costPrice', 'sellPrice', 'mrp', 'taxMode', 'taxRate', 'hsnCode', 'supplyType', 'isActive'];
+
 @Injectable()
 export class ItemsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
-    private readonly branches: BranchesService
+    private readonly branches: BranchesService,
+    private readonly audit: AuditService
   ) {}
 
   /** Rejects an HSN code shorter than the business requires (the format is checked by the contract). */
@@ -183,8 +188,21 @@ export class ItemsService {
         };
       });
       await this.assertWithinMrp(rows, { taxMode: item.taxMode, taxRate: toNumber(item.taxRate) }, tx);
+      const previous = await tx.itemBranchPrice.findMany({ where: { branchId, itemId }, select: { uom: true, sellPrice: true, mrp: true } });
       await tx.itemBranchPrice.deleteMany({ where: { branchId, itemId } });
       await tx.itemBranchPrice.createMany({ data: rows });
+      await this.audit.record(
+        session,
+        {
+          action: 'ITEM_PRICE_CHANGED',
+          entityType: 'Item',
+          entityId: itemId,
+          branchId,
+          summary: rows.length ? `Set the branch's own prices: ${rows.map((row) => `${row.uom} ${row.sellPrice.toFixed(2)}`).join(', ')}` : "Cleared the branch's own prices",
+          details: { before: previous.map((row) => ({ uom: row.uom, sellPrice: Number(row.sellPrice), mrp: Number(row.mrp) })), after: rows }
+        },
+        tx
+      );
       return tx.itemBranchPrice.findMany({ where: { branchId, itemId }, orderBy: { uom: 'asc' } });
     });
   }
@@ -234,7 +252,7 @@ export class ItemsService {
     }
   }
 
-  async createItem(input: {
+  async createItem(session: SessionUser, input: {
     code: string;
     name: string;
     category?: string;
@@ -283,11 +301,23 @@ export class ItemsService {
         select: { id: true }
       });
       if (input.barcodes?.length) await this.replaceBarcodes(tx, created.id, input.barcodes);
+      await this.audit.record(
+        session,
+        {
+          action: 'ITEM_CREATED',
+          entityType: 'Item',
+          entityId: created.id,
+          summary: `Added item ${input.code} ${input.name} at ${round2(input.sellPrice).toFixed(2)}`,
+          details: { sellPrice: input.sellPrice, mrp: input.mrp ?? 0, taxRate: input.taxRate, taxMode: input.taxMode ?? 'EXCLUSIVE' }
+        },
+        tx
+      );
       return tx.item.findUniqueOrThrow({ where: { id: created.id }, include: itemInclude });
     });
   }
 
   async updateItem(
+    session: SessionUser,
     id: string,
     input: {
       name?: string;
@@ -315,6 +345,7 @@ export class ItemsService {
     return this.prisma.$transaction(async (tx) => {
       const gst = await tx.item.findUnique({ where: { id }, select: { taxRate: true, supplyType: true, uqc: true, uom: true } });
       if (!gst) throw new NotFoundException('Item not found');
+      const before = await tx.item.findUniqueOrThrow({ where: { id } });
       const taxRate = data.taxRate ?? toNumber(gst.taxRate);
       // Without a chosen supply type, keep the current one while it still fits the rate.
       data.supplyType =
@@ -372,19 +403,37 @@ export class ItemsService {
         { taxMode: updated.taxMode, taxRate: toNumber(updated.taxRate) },
         tx
       );
+      const changes = AuditService.changes(before, updated, AUDITED_ITEM_FIELDS);
+      if (Object.keys(changes).length > 0 || saleUomInput !== undefined || barcodeInput !== undefined) {
+        await this.audit.record(
+          session,
+          {
+            action: changes.sellPrice || changes.mrp || changes.taxRate || changes.taxMode ? 'ITEM_PRICE_CHANGED' : 'ITEM_UPDATED',
+            entityType: 'Item',
+            entityId: id,
+            summary: `Changed item ${updated.code} ${updated.name}: ${[...Object.keys(changes), ...(saleUomInput !== undefined ? ['sale units'] : []), ...(barcodeInput !== undefined ? ['barcodes'] : [])].join(', ') || 'no fields'}`,
+            details: { changes, ...(saleUomInput !== undefined ? { saleUoms: saleUomInput } : {}), ...(barcodeInput !== undefined ? { barcodes: barcodeInput } : {}) } as Prisma.InputJsonValue
+          },
+          tx
+        );
+      }
       return tx.item.findUniqueOrThrow({ where: { id }, include: itemInclude });
     });
   }
 
-  async deleteItem(id: string) {
+  async deleteItem(session: SessionUser, id: string) {
     const salesCount = await this.prisma.saleInvoiceLine.count({ where: { itemId: id } });
     if (salesCount > 0) {
       throw new BadRequestException('Cannot delete item with sales history');
     }
 
-    return this.prisma.item.update({
-      where: { id },
-      data: { isActive: false }
+    return this.prisma.$transaction(async (tx) => {
+      const item = await tx.item.update({
+        where: { id },
+        data: { isActive: false }
+      });
+      await this.audit.record(session, { action: 'ITEM_REMOVED', entityType: 'Item', entityId: id, summary: `Removed item ${item.code} ${item.name}` }, tx);
+      return item;
     });
   }
 }

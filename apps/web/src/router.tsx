@@ -12,6 +12,7 @@ import { StockPage } from './screens/StockPage';
 import { PurchasesPage } from './screens/PurchasesPage';
 import { TransfersPage } from './screens/TransfersPage';
 import { ReportsPage } from './screens/ReportsPage';
+import { ActivityPage } from './screens/ActivityPage';
 import { GstReturnsPage } from './screens/GstReturnsPage';
 import { BranchSettingsPage } from './screens/BranchSettingsPage';
 import { requireAdmin, requireManagementSession, requireOperationalSession, requirePermission, requireSession } from './screens/route-helpers';
@@ -232,6 +233,13 @@ const reportsRoute = createRoute({
   component: ReportsPage
 });
 
+const activityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/activity',
+  beforeLoad: () => requireAdmin(),
+  component: ActivityPage
+});
+
 const gstRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/gst',
@@ -267,6 +275,7 @@ const routeTree = rootRoute.addChildren([
   purchasesRoute,
   transfersRoute,
   reportsRoute,
+  activityRoute,
   gstRoute,
   settingsRoute
 ]);

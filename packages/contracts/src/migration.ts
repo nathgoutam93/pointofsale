@@ -41,7 +41,8 @@ export const MIGRATION_TABLES = [
   'Purchase',
   'PurchaseLine',
   'StockTransfer',
-  'StockTransferLine'
+  'StockTransferLine',
+  'AuditEvent'
 ] as const;
 
 /**

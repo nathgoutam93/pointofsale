@@ -91,7 +91,7 @@ export class ItemsController {
     @Headers() headers: RequestHeaders
   ) {
     await this.managing(headers);
-    return this.items.createItem(body);
+    return this.items.createItem(getSession(headers), body);
   }
 
   @Patch('/items/:id')
@@ -119,12 +119,12 @@ export class ItemsController {
     @Headers() headers: RequestHeaders
   ) {
     await this.managing(headers);
-    return this.items.updateItem(id, body);
+    return this.items.updateItem(getSession(headers), id, body);
   }
 
   @Delete('/items/:id')
   async deleteItem(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
     await this.managing(headers);
-    return this.items.deleteItem(id);
+    return this.items.deleteItem(getSession(headers), id);
   }
 }

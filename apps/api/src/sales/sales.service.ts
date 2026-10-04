@@ -18,6 +18,7 @@ import { CustomersService, walletTxnAuthor } from '../customers/customers.servic
 import { ReceivablesService } from '../customers/receivables.service';
 import { RegistersService } from '../registers/registers.service';
 import { localDate } from '../reports/zoned-dates';
+import { AuditService } from '../common/audit.service';
 
 @Injectable()
 export class SalesService {
@@ -29,7 +30,8 @@ export class SalesService {
     private readonly stock: StockService,
     private readonly customers: CustomersService,
     private readonly receivables: ReceivablesService,
-    private readonly registers: RegistersService
+    private readonly registers: RegistersService,
+    private readonly audit: AuditService
   ) {}
 
   /** The quantity a line is priced in: sale units when it has one, otherwise base units. */
@@ -599,6 +601,18 @@ export class SalesService {
         },
         include: saleInvoiceInclude
       });
+      await this.audit.record(
+        session,
+        {
+          action: 'SALE_CANCELLED',
+          entityType: 'SaleInvoice',
+          entityId: invoice.id,
+          branchId: invoice.branchId,
+          summary: `Cancelled ${invoice.invoiceNo} (${toNumber(invoice.grandTotal).toFixed(2)}): ${cancelReason}`,
+          details: { invoiceNo: invoice.invoiceNo, grandTotal: toNumber(invoice.grandTotal), reason: cancelReason }
+        },
+        tx
+      );
       return updated;
     });
   }

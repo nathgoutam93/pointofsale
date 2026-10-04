@@ -12,6 +12,7 @@ import { CustomersService, walletTxnAuthor } from '../customers/customers.servic
 import { RegistersService } from '../registers/registers.service';
 import { isFallback } from '../common/mode';
 import { localDate } from '../reports/zoned-dates';
+import { AuditService } from '../common/audit.service';
 
 type StoredGstAmounts = {
   taxableAmount: Prisma.Decimal | number;
@@ -58,7 +59,8 @@ export class ReturnsService {
     private readonly sequences: SequenceService,
     private readonly stock: StockService,
     private readonly customers: CustomersService,
-    private readonly registers: RegistersService
+    private readonly registers: RegistersService,
+    private readonly audit: AuditService
   ) {}
 
   async createReturn(
@@ -260,6 +262,18 @@ export class ReturnsService {
         });
       }
 
+      await this.audit.record(
+        session,
+        {
+          action: 'RETURN_MADE',
+          entityType: 'ReturnInvoice',
+          entityId: returnInvoice.id,
+          branchId: invoice.branchId,
+          summary: `Return ${returnNo} on ${invoice.invoiceNo}: ${totalAmount.toFixed(2)}${refundAmount > 0 ? `, ${refundAmount.toFixed(2)} back in ${input.refundMode.toLowerCase()}` : ''} (${reason})`,
+          details: { returnNo, invoiceNo: invoice.invoiceNo, totalAmount, refundAmount, dueAdjusted, refundMode: input.refundMode, reason }
+        },
+        tx
+      );
       return returnInvoice;
     });
   }
