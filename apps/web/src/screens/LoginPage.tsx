@@ -131,6 +131,11 @@ export function LoginPage() {
                 Forgot your password?
               </Link>
             ) : null}
+            {online ? (
+              <Link to="/owner" className="text-center text-xs text-slate-500 hover:text-slate-900">
+                Business owner? Manage your staff
+              </Link>
+            ) : null}
           </form>
         </div>
       </main>

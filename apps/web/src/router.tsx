@@ -20,6 +20,7 @@ import { SetupPage } from './screens/onboarding/SetupPage';
 import { RecoverPage } from './screens/onboarding/RecoverPage';
 import { ChangePasswordPage } from './screens/ChangePasswordPage';
 import { OwnerPasswordPage } from './screens/onboarding/OwnerPasswordPage';
+import { OwnerPage } from './screens/onboarding/OwnerPage';
 import { api } from './lib/api';
 import { desktop } from './lib/desktop';
 
@@ -101,6 +102,16 @@ const ownerPasswordRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): { email?: string } =>
     typeof search.email === 'string' && search.email ? { email: search.email } : {},
   component: OwnerPasswordPage
+});
+
+/** Online: the business owner's own screen, signed in with the owner account: staff of each business. */
+const ownerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/owner',
+  beforeLoad: () => {
+    if (desktop && !desktop.config.mode) throw redirect({ to: '/' });
+  },
+  component: OwnerPage
 });
 
 /** Desktop app, first launch: create a business on the online server. */
@@ -243,6 +254,7 @@ const routeTree = rootRoute.addChildren([
   createBusinessRoute,
   recoverRoute,
   ownerPasswordRoute,
+  ownerRoute,
   changePasswordRoute,
   setupRoute,
   openRegisterRoute,

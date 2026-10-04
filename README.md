@@ -404,6 +404,10 @@ Passwords:
 - **A forgotten admin password:** offline, the recovery code from setup resets it; online, the
   business's owner resets it with the owner account ("Forgot your password?" on sign-in).
 - **A forgotten owner password** (online): an 8-digit code is emailed to the owner.
+- **The owner's screen** (online, "Business owner? Manage your staff" on sign-in, `/owner`): the
+  owner signs in with the owner account and sees each of their businesses' staff, gives anyone a
+  new password, and turns staff off (signed out everywhere, can't sign in) or on. The last active
+  admin of a business can't be turned off.
 
 Crash reports: the apps report crashes to the online server (an offline install to the hosted
 one), with the error and its stack frames only, scrubbed of anything personal. The desktop app
