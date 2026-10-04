@@ -74,7 +74,16 @@ export class ReceivablesService {
 
   private async outstanding(customerId: string, tx?: Prisma.TransactionClient) {
     const bills = await (tx ?? this.prisma).saleInvoice.findMany({ where: { customerId, ...unpaidBills }, select: owedSelect });
-    return round2(bills.reduce((sum, bill) => sum + dueOn(bill), 0));
+    return round2(bills.reduce((sum, bill) => sum + dueOn(bill), 0) + (await this.owedAtCopy(customerId, tx)));
+  }
+
+  /**
+   * A fallback counter's copy has no unpaid bills, only what each customer owed when it was
+   * made (FallbackBalance); offline, that counts as owed too. Always 0 on the server.
+   */
+  private async owedAtCopy(customerId: string, tx?: Prisma.TransactionClient) {
+    const row = await (tx ?? this.prisma).fallbackBalance.findUnique({ where: { customerId }, select: { owed: true } });
+    return toNumber(row?.owed);
   }
 
   /**
@@ -113,7 +122,7 @@ export class ReceivablesService {
     const today = this.startOfToday(timezone);
     const bills = (await this.prisma.saleInvoice.findMany({ where: { customerId, ...unpaidBills }, select: owedSelect })).filter((bill) => dueOn(bill) > 0);
     const overdueBills = bills.filter((bill) => bill.dueDate && bill.dueDate < today);
-    const outstanding = round2(bills.reduce((sum, bill) => sum + dueOn(bill), 0));
+    const outstanding = round2(bills.reduce((sum, bill) => sum + dueOn(bill), 0) + (await this.owedAtCopy(customerId)));
     const creditLimit = customer.creditLimit === null ? null : toNumber(customer.creditLimit);
     const oldestDue = overdueBills.reduce<Date | null>((oldest, bill) => (!oldest || bill.dueDate! < oldest ? bill.dueDate : oldest), null);
     return {

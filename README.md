@@ -387,8 +387,12 @@ computer when the server can't be reached (Settings → Counters → "Use as fal
 desktop app). That computer keeps an offline copy, refreshed every 10 minutes, with the item
 pictures (each fetched once). Every online computer checks the server every 30 seconds, so when it
 is down a banner says so before a sale fails, and on the fallback counter offers "Keep selling on
-this computer" (cash and card only). When it's back, "Send offline sales and go back online" adds
-the sales to the server, invoice numbers and stock included. If the server refuses them (a number
+this computer". Offline it sells for cash, card or credit (within each customer's credit limit as
+the copy has it), adds customers, takes payments on bills it made offline, and takes returns of
+those and of its own paid bills from the last 7 days (refunds in cash); the wallet and other changes
+wait for the server. When it's back, "Send offline sales and go back online" adds the sales,
+customers and returns to the server, numbers and stock included. A customer added offline whose
+phone number the server already has becomes that customer. If the server refuses them (a number
 already used online, say), nothing is added: the banner lists each clash and can save the offline
 sales to a file for support. A register the offline one replaced is closed with its expected cash
 and shown as not counted. See Phase 7 in `desktop-offline-online-plan.md`.

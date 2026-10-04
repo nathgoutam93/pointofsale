@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma.service';
 import { toNumber } from '../common/numbers';
 import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
+import { isFallback } from '../common/mode';
+import { randomBytes } from 'crypto';
 
 /** A registered buyer's details (see Customer in schema.prisma); null clears one. */
 export type BuyerFields = { gstin?: string | null; address?: string | null; email?: string | null };
@@ -110,11 +112,15 @@ export class CustomersService {
     return this.prisma.$transaction(async (tx) => {
       const scope = await this.settings.getCustomerScope(tx);
       await this.assertPhoneFree(normalizedPhone, branchId, scope, undefined, tx);
-      const seq = await this.sequences.nextSequence(branchId, 'customer', tx);
+      // Working offline (fallback counter): a code of its own until the server gives it one
+      // (see OFFLINE_CUSTOMER_CODE), since the server may be numbering customers meanwhile.
+      const code = isFallback()
+        ? `OFF-${randomBytes(4).toString('hex').toUpperCase()}`
+        : await this.sequences.nextSequence(branchId, 'customer', tx).then((seq) => `CUST-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`);
       const customer = await tx.customer.create({
         data: {
           branchId,
-          code: `CUST-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`,
+          code,
           name,
           phone: normalizedPhone,
           gstin: buyer.gstin ?? null,
