@@ -739,12 +739,23 @@ model Purchase {
   note                String?
   /// Sum of the lines' amounts (before tax).
   totalCost           Decimal        @db.Decimal(14, 2)
+  /// The GSTIN the goods were bought under (the branch's, as at the purchase); null without one.
+  buyerGstin          String?
+  /// GST charged by the supplier: the lines' sums by kind.
+  taxTotal            Decimal        @default(0) @db.Decimal(14, 2)
+  cgstTotal           Decimal        @default(0) @db.Decimal(14, 2)
+  sgstTotal           Decimal        @default(0) @db.Decimal(14, 2)
+  igstTotal           Decimal        @default(0) @db.Decimal(14, 2)
+  /// Its GST counts as input tax credit (GSTR-3B Table 4): a registered supplier, bought under a
+  /// GSTIN by a regular taxpayer.
+  itcEligible         Boolean        @default(false)
   createdBy           String
   createdByName       String
   createdAt           DateTime       @default(now())
   lines               PurchaseLine[]
 
   @@index([branchId, createdAt])
+  @@index([buyerGstin, createdAt])
 }
 
 model PurchaseLine {
@@ -757,7 +768,14 @@ model PurchaseLine {
   qty        Decimal  @db.Decimal(14, 3)
   /// Cost per base unit, before tax.
   unitCost   Decimal  @db.Decimal(14, 2)
+  /// Before tax: qty × unitCost.
   amount     Decimal  @db.Decimal(14, 2)
+  /// The GST rate the supplier charged, and the tax by kind (CGST + SGST from the same state,
+  /// IGST from another). 0 from an unregistered supplier.
+  taxRate    Decimal  @default(0) @db.Decimal(5, 2)
+  cgstAmount Decimal  @default(0) @db.Decimal(14, 2)
+  sgstAmount Decimal  @default(0) @db.Decimal(14, 2)
+  igstAmount Decimal  @default(0) @db.Decimal(14, 2)
 
   @@unique([purchaseId, itemId])
 }

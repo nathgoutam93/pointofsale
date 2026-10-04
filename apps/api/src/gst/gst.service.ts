@@ -163,7 +163,30 @@ export class GstService {
   /** The sales side of GSTR-3B for the same periods, from the same figures as GSTR-1. */
   async gstr3b(gstin: string, from: string, to: string) {
     assertMonthOrQuarter(from, to);
-    return { gstin, from, to, ...buildGstr3b(buildGstr1(await this.loadPeriod(gstin, from, to))) };
+    const [period, itc] = await Promise.all([this.loadPeriod(gstin, from, to), this.purchaseItc(gstin, from, to)]);
+    return { gstin, from, to, ...buildGstr3b(buildGstr1(period), itc) };
+  }
+
+  /**
+   * Input tax credit from purchases bought under `gstin` in the months from-to: those it counts
+   * for (a registered supplier, a regular taxpayer), by the supplier's invoice date when entered,
+   * else the day the goods were received.
+   */
+  private async purchaseItc(gstin: string, from: string, to: string) {
+    const start = parseMonth(from);
+    const end = parseMonth(to);
+    const { timezone } = await this.settings.ensureBusinessSettings();
+    const firstDay = `${start.year}-${String(start.month).padStart(2, '0')}-01`;
+    const next = end.month === 12 ? { year: end.year + 1, month: 1 } : { year: end.year, month: end.month + 1 };
+    const afterLastDay = `${next.year}-${String(next.month).padStart(2, '0')}-01`;
+    const received = { gte: startOfLocalDay(start.year, start.month, 1, timezone), lt: startOfLocalDay(next.year, next.month, 1, timezone) };
+    const where = {
+      buyerGstin: gstin,
+      itcEligible: true,
+      OR: [{ supplierInvoiceDate: { gte: firstDay, lt: afterLastDay } }, { supplierInvoiceDate: null, createdAt: received }]
+    };
+    const totals = await this.prisma.purchase.aggregate({ where, _count: true, _sum: { igstTotal: true, cgstTotal: true, sgstTotal: true } });
+    return { purchases: totals._count, igst: num(totals._sum.igstTotal), cgst: num(totals._sum.cgstTotal), sgst: num(totals._sum.sgstTotal) };
   }
 
   /** CMP-08: a composition taxpayer's quarter. */

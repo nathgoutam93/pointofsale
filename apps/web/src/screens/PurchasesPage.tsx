@@ -7,7 +7,7 @@ import { useManagedBranch } from "../lib/branch";
 import { inr, requireManagementSession } from "./route-helpers";
 import { ItemPicker } from "./stock/ItemPicker";
 
-type DraftLine = { itemId: string; code: string; name: string; uom: string; qty: string; unitCost: string };
+type DraftLine = { itemId: string; code: string; name: string; uom: string; qty: string; unitCost: string; taxRate: string };
 
 const emptySupplier = { supplierName: "", supplierGstin: "", supplierInvoiceNo: "", supplierInvoiceDate: "", note: "" };
 
@@ -50,6 +50,11 @@ export function PurchasesPage() {
 
   const lineIds = useMemo(() => new Set(lines.map((line) => line.itemId)), [lines]);
   const total = lines.reduce((sum, line) => sum + (Number(line.qty) || 0) * (Number(line.unitCost) || 0), 0);
+  // GST is charged only by a registered supplier (with a GSTIN).
+  const supplierCharges = supplier.supplierGstin.trim().length > 0;
+  const taxTotal = supplierCharges
+    ? lines.reduce((sum, line) => sum + Math.round((Number(line.qty) || 0) * (Number(line.unitCost) || 0) * (Number(line.taxRate) || 0)) / 100, 0)
+    : 0;
 
   const create = useMutation({
     mutationFn: async () => {
@@ -61,7 +66,7 @@ export function PurchasesPage() {
           supplierInvoiceNo: supplier.supplierInvoiceNo.trim() || undefined,
           supplierInvoiceDate: supplier.supplierInvoiceDate || undefined,
           note: supplier.note.trim() || undefined,
-          lines: lines.map((line) => ({ itemId: line.itemId, qty: Number(line.qty), unitCost: Number(line.unitCost) })),
+          lines: lines.map((line) => ({ itemId: line.itemId, qty: Number(line.qty), unitCost: Number(line.unitCost), taxRate: Number(line.taxRate) || 0 })),
         },
         extraHeaders: authHeaders(),
       });
@@ -154,7 +159,7 @@ export function PurchasesPage() {
             onPick={(item) =>
               setLines((current) => [
                 ...current,
-                { itemId: item.id, code: item.code, name: item.name, uom: item.uom, qty: "", unitCost: String(Number(item.costPrice) || 0) },
+                { itemId: item.id, code: item.code, name: item.name, uom: item.uom, qty: "", unitCost: String(Number(item.costPrice) || 0), taxRate: String(Number(item.taxRate) || 0) },
               ])
             }
           />
@@ -166,6 +171,7 @@ export function PurchasesPage() {
                     <th className="py-2">Item</th>
                     <th className="py-2">Qty</th>
                     <th className="py-2">Unit cost</th>
+                    <th className="py-2">GST %</th>
                     <th className="py-2 text-right">Amount</th>
                     <th className="py-2" />
                   </tr>
@@ -201,6 +207,19 @@ export function PurchasesPage() {
                           onChange={(e) => updateLine(line.itemId, { unitCost: e.target.value })}
                         />
                       </td>
+                      <td className="py-2 pr-3">
+                        <input
+                          className="field w-20 py-1"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          disabled={!supplierCharges}
+                          title={supplierCharges ? undefined : "Only a supplier with a GSTIN charges GST"}
+                          value={supplierCharges ? line.taxRate : "0"}
+                          onChange={(e) => updateLine(line.itemId, { taxRate: e.target.value })}
+                        />
+                      </td>
                       <td className="py-2 text-right tabular-nums">{inr((Number(line.qty) || 0) * (Number(line.unitCost) || 0))}</td>
                       <td className="py-2 pl-2 text-right">
                         <button
@@ -217,12 +236,21 @@ export function PurchasesPage() {
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colSpan={3} className="py-2 text-right font-semibold text-slate-900">
-                      Total
+                    <td colSpan={4} className="py-2 text-right font-semibold text-slate-900">
+                      Total before tax
                     </td>
                     <td className="py-2 text-right font-semibold tabular-nums text-slate-900">{inr(total)}</td>
                     <td />
                   </tr>
+                  {supplierCharges ? (
+                    <tr>
+                      <td colSpan={4} className="py-1 text-right text-slate-600">
+                        GST (input tax credit)
+                      </td>
+                      <td className="py-1 text-right tabular-nums text-slate-700">{inr(taxTotal)}</td>
+                      <td />
+                    </tr>
+                  ) : null}
                 </tfoot>
               </table>
             </div>
@@ -278,7 +306,14 @@ export function PurchasesPage() {
                       {` · ${purchase.lines.length} item${purchase.lines.length === 1 ? "" : "s"}`}
                     </p>
                   </div>
-                  <span className="text-sm font-semibold tabular-nums text-slate-900">{inr(purchase.totalCost)}</span>
+                  <span className="text-sm font-semibold tabular-nums text-slate-900">
+                    {inr(purchase.totalCost)}
+                    {Number(purchase.taxTotal ?? 0) > 0 ? (
+                      <span className="block text-right text-xs font-normal text-slate-500">
+                        + {inr(purchase.taxTotal)} GST{purchase.itcEligible ? " (ITC)" : ""}
+                      </span>
+                    ) : null}
+                  </span>
                 </button>
                 {openId === purchase.id && (
                   <div className="bg-slate-50 px-5 pb-4">

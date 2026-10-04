@@ -8,6 +8,7 @@ import { BranchesService } from '../branches/branches.service';
 import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 import { StockService } from '../stock/stock.service';
+import { chargesGst, splitGst } from '@pos/contracts';
 
 export type CreatePurchaseInput = {
   branchId: string;
@@ -16,7 +17,7 @@ export type CreatePurchaseInput = {
   supplierInvoiceNo?: string;
   supplierInvoiceDate?: string;
   note?: string;
-  lines: Array<{ itemId: string; qty: number; unitCost: number }>;
+  lines: Array<{ itemId: string; qty: number; unitCost: number; taxRate?: number }>;
 };
 
 export const purchaseInclude = {
@@ -52,8 +53,16 @@ export class PurchasesService {
       await tx.$queryRaw`SELECT "id" FROM "Item" WHERE "id" IN (${Prisma.join([...itemIds].sort())}) ORDER BY "id" FOR UPDATE`;
       const items = await tx.item.findMany({
         where: { id: { in: itemIds } },
-        select: { id: true, name: true, leastCount: true, costPrice: true }
+        select: { id: true, name: true, leastCount: true, costPrice: true, taxRate: true }
       });
+      // GST: only a registered supplier charges it; from the same state as CGST + SGST, from
+      // another as IGST. It counts as input tax credit when bought under a GSTIN by a regular taxpayer.
+      const supplierGstin = input.supplierGstin?.trim().toUpperCase() || null;
+      const buyer = await this.settings.gstRegistrationFor(input.branchId, tx);
+      const buyerState = buyer.stateCode ?? buyer.gstin?.slice(0, 2) ?? null;
+      const interState = !!supplierGstin && !!buyerState && supplierGstin.slice(0, 2) !== buyerState;
+      const { taxpayerType } = await this.settings.taxpayerTypeAt(new Date(), tx);
+      const itcEligible = !!supplierGstin && !!buyer.gstin && chargesGst(taxpayerType);
       const itemsById = new Map(items.map((item) => [item.id, item]));
 
       const lines = input.lines.map((line) => {
@@ -62,8 +71,12 @@ export class PurchasesService {
         assertQtyRespectsLeastCount(line.qty, toNumber(item.leastCount), item.name);
         const qty = round3(line.qty);
         const unitCost = round2(line.unitCost);
-        return { item, qty, unitCost, amount: round2(qty * unitCost) };
+        const amount = round2(qty * unitCost);
+        const taxRate = supplierGstin ? (line.taxRate ?? toNumber(item.taxRate)) : 0;
+        const tax = round2((amount * taxRate) / 100);
+        return { item, qty, unitCost, amount, taxRate, ...splitGst(tax, interState) };
       });
+      const sum = (pick: (line: (typeof lines)[number]) => number) => round2(lines.reduce((acc, line) => acc + pick(line), 0));
 
       const user = await tx.user.findUnique({ where: { id: session.userId }, select: { username: true } });
       if (!user) throw new NotFoundException('User not found');
@@ -75,15 +88,30 @@ export class PurchasesService {
           purchaseNo,
           branchId: input.branchId,
           supplierName: input.supplierName.trim(),
-          supplierGstin: input.supplierGstin || null,
+          supplierGstin,
           supplierInvoiceNo: input.supplierInvoiceNo?.trim() || null,
           supplierInvoiceDate: input.supplierInvoiceDate || null,
           note: input.note?.trim() || null,
-          totalCost: round2(lines.reduce((sum, line) => sum + line.amount, 0)),
+          totalCost: sum((line) => line.amount),
+          buyerGstin: buyer.gstin,
+          cgstTotal: sum((line) => line.cgst),
+          sgstTotal: sum((line) => line.sgst),
+          igstTotal: sum((line) => line.igst),
+          taxTotal: sum((line) => line.cgst + line.sgst + line.igst),
+          itcEligible,
           createdBy: session.userId,
           createdByName: user.username,
           lines: {
-            create: lines.map((line) => ({ itemId: line.item.id, qty: line.qty, unitCost: line.unitCost, amount: line.amount }))
+            create: lines.map((line) => ({
+              itemId: line.item.id,
+              qty: line.qty,
+              unitCost: line.unitCost,
+              amount: line.amount,
+              taxRate: line.taxRate,
+              cgstAmount: line.cgst,
+              sgstAmount: line.sgst,
+              igstAmount: line.igst
+            }))
           }
         },
         include: purchaseInclude

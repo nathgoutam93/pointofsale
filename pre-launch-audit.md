@@ -310,13 +310,22 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   page. Tests: `audit.test.ts`. Entries made on a fallback counter while offline stay on that
   computer.
 
-### [ ] B7. Purchases: input tax and suppliers
+### [~] B7. Purchases: input tax and suppliers
 
 - **Why:** purchases record goods received but not their GST, so GSTR-3B's input tax credit is
   missing; there are no supplier accounts, payables or purchase returns.
 - **What:** tax per purchase line (rate, CGST/SGST/IGST from the supplier's state), input tax in
   GSTR-3B; then suppliers, amounts owed, payments and purchase returns (debit notes).
 - **Done when:** GSTR-3B shows eligible ITC from recorded purchases.
+- **Status (2026-10-04):** input tax done. Purchase lines carry a GST rate (default: the item's)
+  and CGST/SGST or IGST from the supplier's state. Only a supplier with a GSTIN charges it. A
+  purchase records the GSTIN it was bought under and whether its tax is input tax credit (a
+  registered supplier, a regular taxpayer under a GSTIN), in migration
+  `20261020190000_purchase_gst`. Item cost stays before tax. GSTR-3B Table 4(A)(5) adds up the
+  period's credit by the supplier invoice date (else the day received), with a note to check it
+  against GSTR-2B. The Purchases page has a GST % column and shows the tax. Tests:
+  `purchase-gst.test.ts`, `gstr1-builder.test.ts`. **Still to do:** supplier accounts, amounts
+  owed to suppliers and payments to them, and purchase returns (debit notes).
 
 ### [ ] B8. Decide on scope: batches and expiry, offers
 

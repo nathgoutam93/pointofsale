@@ -683,7 +683,9 @@ const purchaseLineInputSchema = z.object({
   /** In the item's base unit. */
   qty: z.number().positive(),
   /** Per base unit, before tax. */
-  unitCost: moneySchema.nonnegative()
+  unitCost: moneySchema.nonnegative(),
+  /** GST the supplier charged; defaults to the item's rate (0 from a supplier without a GSTIN). */
+  taxRate: taxRateSchema.optional()
 });
 
 const purchaseSchema = z.object({
@@ -696,12 +698,22 @@ const purchaseSchema = z.object({
   supplierInvoiceDate: z.string().nullable(),
   note: z.string().nullable(),
   totalCost: moneySchema,
+  /** GST charged by the supplier, by kind, and whether it counts as input tax credit. */
+  buyerGstin: z.string().nullable().optional(),
+  taxTotal: moneySchema.default(0),
+  cgstTotal: moneySchema.default(0),
+  sgstTotal: moneySchema.default(0),
+  igstTotal: moneySchema.default(0),
+  itcEligible: z.boolean().default(false),
   createdByName: z.string(),
   createdAt: z.string().datetime(),
   lines: z.array(
     purchaseLineInputSchema.extend({
       id: z.string().uuid(),
       amount: moneySchema,
+      cgstAmount: moneySchema.default(0),
+      sgstAmount: moneySchema.default(0),
+      igstAmount: moneySchema.default(0),
       item: z.object({ code: z.string(), name: z.string(), uom: z.string() })
     })
   )
@@ -1151,7 +1163,7 @@ export const appContract = c.router({
       query: z.object({ gstin: gstinSchema, fy: z.coerce.number().int().min(2017).max(2100) }),
       responses: { 200: compositionReturnSchema.extend({ fy: z.number() }) }
     },
-    /** The sales side of GSTR-3B: Tables 3.1 and 3.2 (no input tax credit: purchases aren't recorded). */
+    /** GSTR-3B: Tables 3.1 and 3.2 from the sales, Table 4 (input tax credit) from the purchases recorded. */
     gstr3b: {
       method: 'GET',
       path: '/gst/gstr3b',
@@ -1169,6 +1181,10 @@ export const appContract = c.router({
             outwardNonGst: gstTaxRowSchema
           }),
           table32: z.object({ unregistered: z.array(z.object({ pos: z.string(), txval: z.number(), iamt: z.number() })) }),
+          table4: z.object({
+            itcAvailable: z.object({ iamt: z.number(), camt: z.number(), samt: z.number(), csamt: z.number() }),
+            purchases: z.number().int()
+          }),
           problems: z.array(z.object({ severity: z.enum(['error', 'warning']), message: z.string() }))
         })
       }
