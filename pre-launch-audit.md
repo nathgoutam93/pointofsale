@@ -130,7 +130,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   the form and marks items "Above MRP"; such items can't be billed until fixed, so check the list
   after deploying. Demo seeds set MRP with GST. Tests: `mrp.test.ts`, `pricing.test.ts`.
 
-### [ ] A7. The server re-checks offline sales instead of trusting them
+### [x] A7. The server re-checks offline sales instead of trusting them
 
 - **Why:** `FallbackService.sync` (`apps/api/src/fallback/fallback.service.ts`) inserts the
   fallback computer's rows as sent. Series, branch and references are checked, but not totals,
@@ -142,6 +142,19 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   Mismatches are clashes for a person to look at, like the existing ones.
 - **Done when:** a tampered outbox (changed total, extra stock in, price above list) is refused,
   with tests in `fallback.test.ts`.
+- **Status (2026-10-04):** `apps/api/src/fallback/verify-outbox.ts` (pure) runs inside every
+  sync. For each bill it works the amounts out again from its lines and discounts with
+  `computeSaleTotals`, under either tax calculation mode. Recomputed amounts must agree within 5
+  paise, because the outbox doesn't keep line order and order moves an order discount's last
+  paise. Stored totals must equal the sum of their lines exactly. It also checks: no price above
+  the line's list price, no GST under composition, the cashier discount limit (by the bill's
+  author's role on the server), payments (cash/card/UPI, adding up to `paidTotal`, never above the
+  total), status, and stock out equal to what was sold. Returns: the refund equals the lines,
+  `totalAmount = dueAdjusted + refundAmount`, cash only, never more of a sale line (quantity or
+  any tax part) than was sold counting the server's other returns, and stock in equal to what
+  came back. Any problem is a clash and nothing is added. Tests: `fallback.test.ts` (tampered
+  total, stock, payment mode and amount, price, refund, return stock) and `verify-outbox.test.ts`.
+  Not checked against the server's item prices or MRP, which may have changed since the copy.
 
 ### [ ] A8. Reports don't rewrite past periods
 

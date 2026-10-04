@@ -318,7 +318,9 @@ describe('fallback counter, working offline', () => {
     expect(refused.status).toBe(409);
     expect(refused.body.conflicts).toEqual([
       { document: `Return ${copied.ret.returnNo}`, problem: expect.stringMatching(/would be returned on .+ than was sold/) },
-      { document: `Return ${copied.ret.returnNo}`, problem: expect.stringMatching(/More money would be handed back/) }
+      { document: `Return ${copied.ret.returnNo}`, problem: expect.stringMatching(/More money would be handed back/) },
+      // The server's own check of the returned amounts says so too.
+      { document: `Return ${copied.ret.returnNo}`, problem: expect.stringMatching(/would be given back than was sold/) }
     ]);
   });
 
@@ -353,6 +355,7 @@ describe('fallback counter, working offline', () => {
       row.referenceId = id;
     }
     entry.lines[0].itemId = randomUUID();
+    for (const row of entry.ledger) row.itemId = entry.lines[0].itemId;
     const invoicesBefore = await t.db.saleInvoice.count();
 
     const refused = await call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body: clashing });
@@ -364,6 +367,61 @@ describe('fallback counter, working offline', () => {
       { document: `Invoice ${entry.invoice.invoiceNo}`, problem: expect.stringMatching(/item ".+" is no longer on the server/) }
     ]);
     expect(await t.db.saleInvoice.count()).toBe(invoicesBefore);
+  });
+
+  it('works the money, stock and returns out again, and refuses rows changed on that computer', async () => {
+    const outbox = await call(base, 'GET', '/fallback/outbox', { headers: { 'x-pos-fallback-secret': secret } });
+    const sync = (body: unknown) => call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body });
+    // Untouched, it goes through (nothing new to add).
+    expect((await sync(outbox.body)).status).toBe(200);
+
+    const paidIndex = outbox.body.invoices.findIndex((entry: { payments: unknown[] }) => entry.payments.length > 0);
+    const refusedWith = async (change: (body: any) => string, problem: RegExp) => {
+      const body = structuredClone(outbox.body);
+      const document = change(body);
+      const res = await sync(body);
+      expect(res.status, String(problem)).toBe(409);
+      expect(res.body.conflicts, String(problem)).toContainEqual({ document, problem: expect.stringMatching(problem) });
+    };
+    const ledgerBefore = await t.db.stockLedger.count();
+
+    await refusedWith((body) => {
+      const entry = body.invoices[paidIndex];
+      entry.invoice.grandTotal = Number(entry.invoice.grandTotal) - 50;
+      return `Invoice ${entry.invoice.invoiceNo}`;
+    }, /totals don't match its lines/);
+    await refusedWith((body) => {
+      const entry = body.invoices[paidIndex];
+      entry.ledger[0].qtyOut = Number(entry.ledger[0].qtyOut) / 2;
+      return `Invoice ${entry.invoice.invoiceNo}`;
+    }, /stock movements don't match what was sold/);
+    await refusedWith((body) => {
+      const entry = body.invoices[paidIndex];
+      entry.payments[0].mode = 'WALLET';
+      return `Invoice ${entry.invoice.invoiceNo}`;
+    }, /paid in a way that needs the server/);
+    await refusedWith((body) => {
+      const entry = body.invoices[paidIndex];
+      entry.payments[0].amount = Number(entry.payments[0].amount) + 100;
+      return `Invoice ${entry.invoice.invoiceNo}`;
+    }, /payments don't match/);
+    await refusedWith((body) => {
+      const entry = body.invoices[paidIndex];
+      entry.lines[0].rate = Number(entry.lines[0].listRate) + 10;
+      return `Invoice ${entry.invoice.invoiceNo}`;
+    }, /above its list price/);
+    await refusedWith((body) => {
+      const entry = body.returns[0];
+      entry.ret.refundAmount = Number(entry.ret.refundAmount) + 100;
+      entry.ret.totalAmount = Number(entry.ret.totalAmount) + 100;
+      return `Return ${entry.ret.returnNo}`;
+    }, /total doesn't match its lines and refund/);
+    await refusedWith((body) => {
+      const entry = body.returns[0];
+      entry.ledger[0].qtyIn = Number(entry.ledger[0].qtyIn) + 5;
+      return `Return ${entry.ret.returnNo}`;
+    }, /stock movements don't match what came back/);
+    expect(await t.db.stockLedger.count()).toBe(ledgerBefore);
   });
 
   it('closes the online register an offline one replaced, with its expected cash and no count', async () => {

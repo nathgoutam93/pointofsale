@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { CustomerScope, DocumentKind, Prisma } from '@prisma/client';
+import { CustomerScope, DocumentKind, Prisma, UserRole } from '@prisma/client';
 import { APP_VERSION, documentSeries, FALLBACK_SYNC_CONFLICT } from '@pos/contracts';
 import { randomBytes } from 'crypto';
 import { mkdtemp } from 'fs/promises';
@@ -18,6 +18,7 @@ import { BranchesService } from '../branches/branches.service';
 import { toNumber } from '../common/numbers';
 import { RegistersService } from '../registers/registers.service';
 import { SequenceService } from '../sequences/sequences.service';
+import { verifyOutbox, type ServerSaleLine } from './verify-outbox';
 
 /** How far back the copy carries the counter's own paid bills, so their goods can be returned offline. */
 export const FALLBACK_RETURNABLE_DAYS = 7;
@@ -275,7 +276,11 @@ export class FallbackService {
             fail("a return of another counter's bill");
           }
           const { invoices: placed, created } = await this.placeCustomers(tx, counter, customers, outbox.invoices);
-          const conflicts = await this.conflicts(tx, { ...outbox, invoices: placed, returns }, new Set(created.map((row) => String(row.id))));
+          const conflicts = [
+            ...(await this.conflicts(tx, { ...outbox, invoices: placed, returns }, new Set(created.map((row) => String(row.id))))),
+            // The money, stock and returns worked out again: the rows come from a computer in the shop.
+            ...verifyOutbox({ ...outbox, invoices: placed, returns }, await this.verificationContext(tx, outbox, returns))
+          ];
           if (conflicts.length) {
             throw new ConflictException({
               statusCode: 409,
@@ -410,6 +415,79 @@ export class FallbackService {
         sameAs.has(String(entry.invoice.customerId)) ? { ...entry, invoice: { ...entry.invoice, customerId: sameAs.get(String(entry.invoice.customerId)) } } : entry
       ),
       created
+    };
+  }
+
+  /** What verifyOutbox needs from the server: the business's settings, staff roles, and bills it already had. */
+  private async verificationContext(
+    tx: Prisma.TransactionClient,
+    outbox: FallbackOutbox,
+    returns: NonNullable<FallbackOutbox['returns']>
+  ) {
+    const business = await tx.businessSettings.findUnique({
+      where: { id: 'default' },
+      select: { taxCalculationMode: true, cashierMaxDiscountPercent: true }
+    });
+    const staffIds = [...new Set(outbox.invoices.map((entry) => String(entry.invoice.createdBy)))];
+    const admins = new Set(
+      (await tx.user.findMany({ where: { id: { in: staffIds }, role: UserRole.ADMIN }, select: { id: true } })).map((user) => user.id)
+    );
+    const cashierLimit = toNumber(business?.cashierMaxDiscountPercent ?? 10);
+
+    // Lines of bills the server had (the copy's), with what returns other than these took from them.
+    const outboxInvoiceIds = new Set(outbox.invoices.map((entry) => String(entry.invoice.id)));
+    const returnIds = returns.map((entry) => String(entry.ret.id));
+    const serverBillIds = [...new Set(returns.map((entry) => String(entry.ret.saleInvoiceId)))].filter((id) => !outboxInvoiceIds.has(id));
+    const serverLines = serverBillIds.length
+      ? await tx.saleInvoiceLine.findMany({
+          where: { invoiceId: { in: serverBillIds } },
+          select: {
+            id: true,
+            itemId: true,
+            itemName: true,
+            qty: true,
+            taxableAmount: true,
+            cgstAmount: true,
+            sgstAmount: true,
+            igstAmount: true,
+            invoice: { select: { invoiceNo: true } },
+            returnLines: {
+              where: { returnInvoiceId: { notIn: returnIds } },
+              select: { qty: true, taxableAmount: true, cgstAmount: true, sgstAmount: true, igstAmount: true }
+            }
+          }
+        })
+      : [];
+    const serverSaleLines = new Map<string, ServerSaleLine>(
+      serverLines.map((line) => {
+        const total = (pick: (row: (typeof line.returnLines)[number]) => Prisma.Decimal) => line.returnLines.reduce((sum, row) => sum + toNumber(pick(row)), 0);
+        return [
+          line.id,
+          {
+            id: line.id,
+            invoiceNo: line.invoice.invoiceNo,
+            itemId: line.itemId,
+            itemName: line.itemName,
+            qty: toNumber(line.qty),
+            taxable: toNumber(line.taxableAmount),
+            cgst: toNumber(line.cgstAmount),
+            sgst: toNumber(line.sgstAmount),
+            igst: toNumber(line.igstAmount),
+            returned: {
+              qty: total((row) => row.qty),
+              taxable: total((row) => row.taxableAmount),
+              cgst: total((row) => row.cgstAmount),
+              sgst: total((row) => row.sgstAmount),
+              igst: total((row) => row.igstAmount)
+            }
+          }
+        ];
+      })
+    );
+    return {
+      taxCalculationMode: business?.taxCalculationMode ?? 'AFTER_DISCOUNT',
+      maxDiscountPercentFor: (userId: string) => (admins.has(userId) ? null : cashierLimit),
+      serverSaleLines
     };
   }
 
