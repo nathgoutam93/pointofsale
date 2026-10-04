@@ -416,6 +416,11 @@ export const userSchema = z.object({
   createdAt: z.string().datetime()
 });
 
+/** GET /exports/sales.csv: the sales register (CSV) for a period; every branch the admin manages when no branch is given. */
+export const salesExportQuerySchema = z
+  .object({ branchId: z.string().uuid().optional(), from: calendarDateSchema, to: calendarDateSchema })
+  .refine((query) => query.from <= query.to, { message: 'The start date must be on or before the end date', path: ['to'] });
+
 /** A customer's credit: the most they may owe, and the days a credit bill has before it is due. Admins only. */
 const customerCreditFields = {
   creditLimit: moneySchema.min(0).nullable().optional(),

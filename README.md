@@ -378,6 +378,10 @@ still owes; only the rest is refunded. A credit sale returned in full owes nothi
 nothing back. The register expects only the cash actually handed back, and the return receipt
 shows both parts.
 
+Your data (Settings → Your data, admins): a sales register for any period as CSV (invoices and
+credit notes with the tax split, paid and owed), and, online, the whole business as a backup file
+(every branch, with pictures) that the desktop app's first-launch "Restore from a backup" takes.
+
 Fallback counter: on an online business, one counter per branch can keep selling on its own
 computer when the server can't be reached (Settings → Counters → "Use as fallback here", in the
 desktop app). That computer keeps an offline copy, refreshed every 10 minutes, with the item

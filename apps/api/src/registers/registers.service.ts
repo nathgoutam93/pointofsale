@@ -1,3 +1,4 @@
+import { isFallback, isOffline } from '../common/mode';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PaymentMode, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
@@ -111,8 +112,9 @@ export class RegistersService {
         counter = active[0];
       }
 
-      // Its invoice series is issued only on its own computer, online or not.
-      if (counter.fallbackDeviceId && counter.fallbackDeviceId !== deviceId) {
+      // Its invoice series is issued only on its own computer, online or working offline as the
+      // fallback counter. (In an offline install restored from an online export it means nothing.)
+      if (counter.fallbackDeviceId && counter.fallbackDeviceId !== deviceId && (!isOffline() || isFallback())) {
         throw new BadRequestException(
           `${counter.name} is the branch's fallback counter: it opens only on its own computer. Choose another counter.`
         );
