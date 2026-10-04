@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, session, shell, type IpcMainInvokeEvent } from 'electron';
 import { LocalApi, runMigrations } from './api-server.js';
+import { crashDetails, CrashReports } from './crash-reports.js';
 import { Backups, backupsFolder } from './backups.js';
 import { emailCodeRequest, moveOnline, type MoveInput } from './move-online.js';
 import { randomBytes, randomUUID } from 'crypto';
@@ -50,6 +51,36 @@ const backups = new Backups(
 );
 const receiptPrinter = new ReceiptPrinter(logger('printing'), () => currentApiOrigin());
 let stopping = false;
+
+/**
+ * Crashes of this app, its local API and its screens: kept on this computer and, once an admin
+ * says yes, sent to the online server (this business's, or the hosted one for an offline install).
+ */
+const crashes = new CrashReports(logger('crash-reports'), () => ({
+  enabled: config.crashReports,
+  server: config.mode === 'online' ? config.apiBaseUrl : defaultServerUrl,
+  mode: config.mode === 'online' ? (config.fallback?.active ? 'fallback' : 'online') : 'offline',
+  installId: config.deviceId
+}));
+process.on('uncaughtException', (error) => {
+  log(`Uncaught error: ${error?.stack ?? String(error)}`);
+  crashes.report('desktop', crashDetails(error));
+  // As Electron would without this handler: say so, and carry on.
+  dialog.showErrorBox('Point of Sale ran into a problem', `${crashDetails(error).message}\n\nIf it keeps happening, restart the app.`);
+});
+process.on('unhandledRejection', (reason) => {
+  log(`Unhandled rejection: ${reason instanceof Error ? reason.stack : String(reason)}`);
+  crashes.report('desktop', crashDetails(reason));
+});
+app.on('render-process-gone', (_event, _contents, details) => {
+  if (details.reason === 'clean-exit') return;
+  log(`The window's page stopped: ${details.reason} (exit ${details.exitCode})`);
+  crashes.report('desktop', { message: `The window's page stopped: ${details.reason} (exit ${details.exitCode})`, stack: '' });
+});
+app.on('child-process-gone', (_event, details) => {
+  if (details.reason === 'clean-exit' || details.reason === 'killed') return;
+  crashes.report('desktop', { message: `A ${details.type} process stopped: ${details.reason} (exit ${details.exitCode})`, stack: '' });
+});
 let stopped = false;
 
 /**
@@ -268,6 +299,8 @@ async function startApi() {
   log('Migrations done; starting the API');
   api = new LocalApi(logger('api'), (detail) => {
     log(detail);
+    // Its last lines may quote data: only the exit code and stack frames go in the report.
+    crashes.report('local-api', { message: detail.split(':')[0] ?? 'The API stopped', stack: (detail.match(/at [^()\s]+ \([^)]+\)/g) ?? []).join('\n') });
     void showStartupError(new Error('The background service stopped unexpectedly.'), detail);
   });
   await api.start({ databaseUrl: postgres.databaseUrl, authSecret: config.authSecret as string, corsOrigin: APP_ORIGIN });
@@ -914,6 +947,31 @@ ipcMain.handle('pos:reload', (event) => {
   setImmediate(() => void loadApp());
 });
 
+/** Crash reports: whether they may be sent (null: not asked yet) and how many wait to be. */
+ipcMain.handle('pos:crash-reports:status', (event) => {
+  assertFromApp(event);
+  return { enabled: config.crashReports, queued: crashes.queued() };
+});
+
+/** An admin's answer: yes sends what waits (and what comes); no drops it. */
+ipcMain.handle('pos:crash-reports:set', (event, enabled: unknown) => {
+  assertFromApp(event);
+  if (typeof enabled !== 'boolean') throw new Error('Choose yes or no');
+  config = { ...config, crashReports: enabled };
+  saveConfig(config);
+  if (enabled) void crashes.flush();
+  else crashes.clear();
+  log(`Crash reports ${enabled ? 'turned on' : 'turned off'}`);
+  return { enabled, queued: crashes.queued() };
+});
+
+/** A crash of the screens (the page has already kept only the first line and the frames). */
+ipcMain.handle('pos:crash-reports:report', (event, report: { message?: unknown; stack?: unknown }) => {
+  assertFromApp(event);
+  if (typeof report?.message !== 'string') return;
+  crashes.report('page', { message: report.message.slice(0, 500), stack: typeof report.stack === 'string' ? report.stack.slice(0, 8000) : '' });
+});
+
 ipcMain.handle('pos:open-logs', async (event) => {
   assertFromApp(event);
   await shell.openPath(paths.logs());
@@ -957,6 +1015,8 @@ if (!app.requestSingleInstanceLock()) {
     void checkServerDetails();
     void probeServer();
     setInterval(() => void probeServer(), FALLBACK_PROBE_MS).unref();
+    void crashes.flush();
+    setInterval(() => void crashes.flush(), 10 * 60 * 1000).unref();
   });
 
   app.on('window-all-closed', () => app.quit());

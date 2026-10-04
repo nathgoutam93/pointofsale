@@ -1,3 +1,4 @@
+import { CrashReportsPrompt } from "../components/CrashReportsChoice";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState, type ComponentType, type SVGProps } from "react";
 import {
@@ -345,6 +346,7 @@ export function AppLayout() {
 
         <FallbackBanner />
         <BillingBanner />
+        {session?.role === "ADMIN" ? <CrashReportsPrompt /> : null}
         <MoveOnlineNotice />
         <RecoveryCodeNotice />
         <main className="min-h-0 flex-1 overflow-auto print:overflow-visible">

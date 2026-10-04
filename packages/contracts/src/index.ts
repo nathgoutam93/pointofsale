@@ -48,6 +48,8 @@ export {
 } from './receiptDocuments.js';
 export type { InvoiceGst, ReceiptBranding } from './receiptDocuments.js';
 export { APP_VERSION, CLIENT_VERSION_HEADER, isOlderVersion, UPDATE_REQUIRED_STATUS } from './version.js';
+export { crashDetails, crashReportSchema, crashReportsBodySchema, scrubCrashText } from './crash.js';
+export type { CrashReport } from './crash.js';
 export {
   addBillingPeriod,
   BILLING_PERIODS,

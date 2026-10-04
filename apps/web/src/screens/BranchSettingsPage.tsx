@@ -1,3 +1,4 @@
+import { CrashReportsSetting } from "../components/CrashReportsChoice";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -575,6 +576,7 @@ export function BranchSettingsPage() {
       {activeTab === "business" ? (
         <div className="grid gap-4">
           <RecoveryCodeSettings />
+          <CrashReportsSetting />
           {canMoveOnline() ? (
             <div className="card flex flex-wrap items-center justify-between gap-3 p-5">
               <div className="max-w-xl">

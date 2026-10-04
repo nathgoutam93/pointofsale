@@ -185,3 +185,26 @@ model BillingInvoiceSequence {
   fiscalYear Int @id
   last       Int @default(0)
 }
+
+/// A crash report from an app or this server (see crashReportSchema in contracts): the error's
+/// first line and stack frames, scrubbed; never customer data. Kept 90 days.
+model CrashReport {
+  id          String   @id @default(uuid())
+  /// desktop, local-api, page or server.
+  source      String
+  appVersion  String
+  /// offline, online, fallback, browser or server.
+  mode        String
+  os          String
+  message     String
+  stack       String
+  /// The message and the top frame, hashed: the same crash from anywhere groups together.
+  fingerprint String
+  installId   String?
+  businessId  String?
+  occurredAt  DateTime
+  receivedAt  DateTime @default(now())
+
+  @@index([receivedAt])
+  @@index([fingerprint])
+}

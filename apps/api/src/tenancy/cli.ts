@@ -4,11 +4,14 @@
 //     business's schema to this version's migrations.
 //   node dist/tenancy/cli.js create --name "Shop name" --admin <username> --password <password> [--code CODE]
 //     Creates a business (for local development, or before sign-up is open).
+//   node dist/tenancy/cli.js crashes [--days 7]
+//     Crash reports of the last days, grouped by crash, most frequent first.
 import './../load-env';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { migrateAllBusinesses } from './migrate-all';
 import { ProvisioningService } from './provisioning.service';
+import { CrashReportsService } from '../crash/crash-reports.service';
 
 function option(args: string[], name: string) {
   const at = args.indexOf(`--${name}`);
@@ -26,6 +29,28 @@ async function migrate(args: string[]) {
       (result.ok ? '\n' : `; stopped after a failure, ${result.skipped} not tried\n`)
   );
   return result.ok;
+}
+
+async function crashes(args: string[]) {
+  const days = Number(option(args, 'days') ?? 7);
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
+  try {
+    const groups = await app.get(CrashReportsService).summary(days);
+    if (groups.length === 0) process.stdout.write(`No crash reports in the last ${days} days.\n`);
+    for (const group of groups) {
+      process.stdout.write(
+        [
+          `${group.count}× ${group.source}: ${group.message}`,
+          `   last ${group.lastSeen?.toISOString()} · versions ${group.versions.join(', ')} · ${group.modes.join(', ')} · ${group.computers} computers · ${group.businesses} businesses`,
+          ...group.stack.split('\n').slice(0, 5).map((line) => `     ${line}`),
+          ''
+        ].join('\n') + '\n'
+      );
+    }
+    return true;
+  } finally {
+    await app.close();
+  }
 }
 
 async function create(args: string[]) {
@@ -50,7 +75,8 @@ async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (command === 'migrate') return migrate(args);
   if (command === 'create') return create(args);
-  throw new Error(`Unknown command: ${command ?? '(none)'}; use "migrate" or "create"`);
+  if (command === 'crashes') return crashes(args);
+  throw new Error(`Unknown command: ${command ?? '(none)'}; use "migrate", "create" or "crashes"`);
 }
 
 main().then(
