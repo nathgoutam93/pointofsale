@@ -16,4 +16,12 @@ export class ReportsController {
     const session = requireAdminSession(headers);
     return this.reports.getSalesSummary(session, branchId);
   }
+
+  @Get('/reports/detail')
+  detail(
+    @Query(new ZodValidationPipe(appContract.reports.detail.query)) query: { branchId?: string; from: string; to: string },
+    @Headers() headers: RequestHeaders
+  ) {
+    return this.reports.getDetail(requireAdminSession(headers), query);
+  }
 }

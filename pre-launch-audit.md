@@ -270,7 +270,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   POS: an extra EAN, a 1.250 kg label, and a label with a bad check digit refused. Tests:
   `item-barcodes.test.ts`, `barcodes.test.ts`.
 
-### [ ] B5. Reports a shop owner uses
+### [x] B5. Reports a shop owner uses
 
 - **Why:** reports are Today / This Week / This Month / Overall, one branch at a time.
 - **What:**
@@ -283,6 +283,14 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   - CSV download of each.
 - **Done when:** an owner can answer "what sold, who sold it, how was it paid" for any day or
   month without the CSV export.
+- **Status (2026-10-04):** `GET /reports/detail` (admins; one branch, or every branch they manage
+  when none is named; any period of up to 366 days in the business time zone). It returns the
+  summary (with money collected by mode), sales by item and by category (quantity, sales before
+  tax, tax, cost and profit, net of returns made in the period), bills and returns by cashier,
+  item and order discounts, and every register open in the period with its day-end figures
+  (opening cash, cash sales, top-ups, refunds, card, UPI, expected, counted, difference). The
+  Reports page has a "Detailed report" section with a date range, tabs and a CSV download per
+  tab. Checked in the browser. Tests: `report-detail.test.ts`.
 
 ### [ ] B6. Audit log
 

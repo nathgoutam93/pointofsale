@@ -929,6 +929,33 @@ const reportRangeSchema = z.object({
     .default({ cash: 0, card: 0, upi: 0, wallet: 0 })
 });
 
+/** Sales of one item or category in a period, net of what came back in it (amounts before tax). */
+const reportSalesRowSchema = z.object({
+  qty: z.number(),
+  sales: moneySchema,
+  tax: moneySchema,
+  cost: moneySchema,
+  profit: moneySchema
+});
+
+export const reportDetailSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  timezone: z.string(),
+  branchIds: z.array(z.string().uuid()),
+  summary: reportRangeSchema,
+  items: z.array(reportSalesRowSchema.extend({ itemId: z.string().uuid(), itemName: z.string(), category: z.string().nullable() })),
+  categories: z.array(reportSalesRowSchema.extend({ category: z.string().nullable() })),
+  /** Bills each user made in the period (with tax) and the credit notes they gave. */
+  cashiers: z.array(z.object({ userId: z.string(), name: z.string(), invoices: z.number().int(), sales: moneySchema, returns: moneySchema })),
+  /** Discounts given on the period's bills, before tax: on items, and on whole orders. */
+  discounts: z.object({ item: moneySchema, order: moneySchema }),
+  /** Each register open in the period, with its day-end (Z) figures. */
+  registers: z.array(
+    registerSessionSchema.merge(registerCashSchema).extend({ branchName: z.string() })
+  )
+});
+
 const saleCreateBodySchema = z.object({
   branchId: z.string().uuid(),
   customerId: z.string().uuid(),
@@ -2068,6 +2095,22 @@ export const appContract = c.router({
           ranges: z.array(reportRangeSchema)
         })
       }
+    },
+    /**
+     * Admins: everything an owner asks of a period, for one branch or (without branchId) every
+     * branch they manage: the summary, sales by item, category and cashier, discounts given, and
+     * the day-end (Z) figures of each register that was open in it. Days are in the business time
+     * zone; at most 366 of them.
+     */
+    detail: {
+      method: 'GET',
+      path: '/reports/detail',
+      query: z.object({
+        branchId: z.string().uuid().optional(),
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Use YYYY-MM-DD' }),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'Use YYYY-MM-DD' })
+      }),
+      responses: { 200: reportDetailSchema }
     }
   }
 });

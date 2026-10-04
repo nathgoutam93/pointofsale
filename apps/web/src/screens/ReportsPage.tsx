@@ -2,6 +2,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, authHeaders } from "../lib/api";
 import { inr, requireAdmin } from "./route-helpers";
+import { DetailReport } from "./reports/DetailReport";
 
 const ALL_BRANCHES_OPTION = "__all_branches__";
 
@@ -301,6 +302,8 @@ export function ReportsPage() {
             </table>
           </div>
         ) : null}
+
+        <DetailReport branchId={isAllBranchesSelected ? null : selectedBranchId} timeZone={summary?.timezone} />
       </div>
     </section>
   );
