@@ -103,6 +103,9 @@ describe('returns on a bill not paid in full', () => {
       { label: 'Taken off amount due', amount: 150 },
       { label: 'Refunded by Cash', amount: 50 }
     ]);
+    // In the business's time zone when given one: 20:00 UTC is 01:30 the next day in India.
+    const late = returnReceiptDocument({ ...base, createdAt: '2026-10-03T20:00:00.000Z', timeZone: 'Asia/Kolkata' });
+    expect(late.fields.filter((field) => field.label === 'Date' || field.label === 'Time').map((field) => field.value)).toEqual(['04-10-2026', '01:30 AM']);
     // A paid bill prints as before.
     expect(returnReceiptDocument(base)).toMatchObject({ title: 'REFUND', grandTotalLabel: 'REFUND', payments: [{ label: 'Refunded by Cash', amount: 200 }] });
   });

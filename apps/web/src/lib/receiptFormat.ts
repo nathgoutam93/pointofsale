@@ -1,7 +1,7 @@
 // Small formatting helpers for printed receipts. The layout itself is renderReceipt in
 // @pos/contracts (see lib/receipt.ts).
 
-// In this device's time zone.
+// In this device's time zone unless given one; receipts pass the business's (BusinessSettings.timezone).
 export { formatReceiptDate, formatReceiptTime } from "@pos/contracts";
 
 /** Escapes text for use inside HTML built as a string (e.g. the downloadable invoice). */

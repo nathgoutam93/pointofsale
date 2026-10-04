@@ -882,6 +882,8 @@ export function SalesPage() {
       payments: paymentBreakdown,
       paidTotal: invoicePaidTotal,
       creditedTotal: Number(currentInvoice.creditedTotal ?? 0),
+      // The business's time, as on emailed receipts, whatever this computer's clock is set to.
+      timeZone: businessSettings.data?.timezone,
     });
     return renderReceipt(doc, receiptTemplate);
   }, [
@@ -902,6 +904,7 @@ export function SalesPage() {
     invoiceFooterLines,
     receiptTemplate,
     paymentBreakdown,
+    businessSettings.data?.timezone,
   ]);
   const receiptStyle = receiptStyleFor(printableReceipt ?? { columns: 48 }, receiptTemplate, customReceiptCss);
 
@@ -1046,7 +1049,7 @@ export function SalesPage() {
                           {invoice.invoiceNo}
                         </p>
                         <p className="mt-0.5 text-xs text-slate-500">
-                          {formatReceiptDate(invoice.createdAt)} ·{" "}
+                          {formatReceiptDate(invoice.createdAt, businessSettings.data?.timezone)} ·{" "}
                           {formatSaleCreator(
                             invoice.createdBy,
                             invoice.createdByName,

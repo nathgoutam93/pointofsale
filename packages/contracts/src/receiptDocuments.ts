@@ -187,6 +187,8 @@ export function returnReceiptDocument(refund: {
   /** Of totalAmount, what came off the amount still owed (the rest was refunded). */
   dueAdjusted?: number;
   tax: { cgst: number; sgst: number; igst: number };
+  /** For the date and time; default: this device's. */
+  timeZone?: string;
 }): ReceiptDocument {
   const dueAdjusted = refund.dueAdjusted ?? 0;
   const refunded = Math.round((refund.totalAmount - dueAdjusted) * 100) / 100;
@@ -208,8 +210,8 @@ export function returnReceiptDocument(refund: {
     fields: [
       { label: 'Return', value: refund.returnNo },
       { label: 'Invoice', value: refund.invoiceNo },
-      { label: 'Date', value: formatReceiptDate(refund.createdAt) },
-      { label: 'Time', value: formatReceiptTime(refund.createdAt) },
+      { label: 'Date', value: formatReceiptDate(refund.createdAt, refund.timeZone) },
+      { label: 'Time', value: formatReceiptTime(refund.createdAt, refund.timeZone) },
       { key: 'customer', label: 'Customer', value: refund.customer },
     ],
     barcodeValue: null,
