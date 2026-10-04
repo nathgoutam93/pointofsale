@@ -93,6 +93,7 @@ export class ReceiptEmailService {
       ),
       orderDiscount: Number(invoice.orderDiscountAmount ?? 0),
       grandTotal: Number(invoice.grandTotal),
+      roundOff: Number(invoice.roundOff),
       payments: invoice.payments.map((payment) => ({
         mode: payment.mode,
         amount: Number(payment.amount),

@@ -67,7 +67,7 @@ export function PosPage() {
   const [isOrderOpen, setIsOrderOpen] = useState(false);
 
   const store = useStoreSettings(session.branchId);
-  const { taxCalculationMode, chargeTax, invoiceLogoSrc, customReceiptCss, printTemplate } = store;
+  const { taxCalculationMode, chargeTax, roundOffMode, invoiceLogoSrc, customReceiptCss, printTemplate } = store;
   const lineEditor = useLineEditor({ cart, setCart, chargeTax });
 
   const printableInvoice = useMemo(
@@ -162,7 +162,7 @@ export function PosPage() {
       cart.map((line) => ({ ...line, discounts: itemDiscountsFor(line) })),
       orderDiscounts,
       taxCalculationMode,
-      { chargeTax },
+      { chargeTax, roundOff: roundOffMode },
     );
     return {
       lines: totals.lines.map((entry) => ({
@@ -179,10 +179,11 @@ export function PosPage() {
       subTotal: totals.subTotal,
       taxTotal: totals.taxTotal,
       grandTotal: totals.grandTotal,
+      roundOff: totals.roundOff,
       orderDiscountTotal: totals.orderDiscountTotal,
       orderDiscountBase: totals.orderDiscountBase,
     };
-  }, [cart, orderDiscounts, taxCalculationMode, chargeTax]);
+  }, [cart, orderDiscounts, taxCalculationMode, chargeTax, roundOffMode]);
   const orderDiscountBase = computedCart.orderDiscountBase;
   const resolvedOrderDiscountAmount = computedCart.orderDiscountTotal;
 
@@ -622,6 +623,7 @@ export function PosPage() {
         orderDiscountAmount: Number(result.invoice.orderDiscountAmount ?? 0),
         taxTotal: Number(result.invoice.taxTotal),
         grandTotal: Number(result.invoice.grandTotal),
+        roundOff: Number(result.invoice.roundOff ?? 0),
         paidTotal: Number(result.invoice.paidTotal ?? 0),
         gst: invoiceGstOf(result.invoice),
         paymentLines: result.invoice.payments.map((line) => ({
@@ -740,6 +742,7 @@ export function PosPage() {
             <CartTotals
               totalTax={totalTax}
               orderDiscountAmount={resolvedOrderDiscountAmount}
+              roundOff={computedCart.roundOff}
               total={total}
               onEditOrderDiscount={() => orderDiscount.setOpen(true)}
             />

@@ -36,6 +36,7 @@ export class SettingsController {
       timezone?: string;
       hsnMinDigits?: 4 | 6;
       returnWindowDays?: number | null;
+      roundOffMode?: 'NONE' | 'NEAREST_1' | 'NEAREST_050';
     },
     @Headers() headers: RequestHeaders
   ) {

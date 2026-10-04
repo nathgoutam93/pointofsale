@@ -106,14 +106,16 @@ function amountsProblem(entry: FallbackOutbox['invoices'][number], totals: Retur
     if (!same(num(line.netAmount), num(line.taxableAmount) + num(line.taxAmount))) return `the amounts of "${str(line.itemName)}" don't add up`;
     if (!same(num(line.taxAmount), num(line.cgstAmount) + num(line.sgstAmount) + num(line.igstAmount))) return `the tax of "${str(line.itemName)}" doesn't add up`;
   }
-  // The bill's totals are exactly its own lines'.
+  // The bill's totals are exactly its own lines' (the total plus its round-off, at most 50 paise).
   const sum = (field: string) => round2(entry.lines.reduce((acc, line) => acc + num(line[field]), 0));
+  const roundOff = num(invoice.roundOff);
+  if (!(Math.abs(roundOff) <= 0.5)) return 'its total is rounded by more than 50 paise';
   const exact: Array<[unknown, number]> = [
     [invoice.taxTotal, sum('taxAmount')],
     [invoice.cgstTotal, sum('cgstAmount')],
     [invoice.sgstTotal, sum('sgstAmount')],
     [invoice.igstTotal, sum('igstAmount')],
-    [invoice.grandTotal, sum('netAmount')],
+    [invoice.grandTotal, round2(sum('netAmount') + roundOff)],
     [invoice.discountTotal, sum('discountAmount')]
   ];
   if (exact.some(([stored, total]) => !same(num(stored), total))) return "its totals don't match its lines";
@@ -125,7 +127,7 @@ function amountsProblem(entry: FallbackOutbox['invoices'][number], totals: Retur
     [invoice.cgstTotal, totals.cgstTotal],
     [invoice.sgstTotal, totals.sgstTotal],
     [invoice.igstTotal, totals.igstTotal],
-    [invoice.grandTotal, totals.grandTotal]
+    [num(invoice.grandTotal) - num(invoice.roundOff), totals.grandTotal]
   ];
   if (totalsPairs.some(([stored, worked]) => !close(num(stored), worked))) return "its totals don't match its lines";
   return null;

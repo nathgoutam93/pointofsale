@@ -220,13 +220,22 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   → ₹13 change). Tests: `checkout.test.ts`, `receiptDocuments.test.ts`. Also fixed a duplicate
   UPI button left from A1.
 
-### [ ] B2. Round-off to the rupee
+### [x] B2. Round-off to the rupee
 
 - **Why:** Indian bills round the grand total to the nearest rupee; ours don't.
 - **What:** a business setting (none, nearest ₹1, nearest ₹0.50), a `roundOff` amount on the
   invoice shown on the receipt, in `computeSaleTotals` so POS and API agree; GSTR-1 keeps the
   unrounded taxable value and tax.
 - **Done when:** a ₹486.60 bill shows round-off +0.40 and ₹487.00, and returns refund correctly.
+- **Status (2026-10-04):** Settings → "Round off bill totals" (`roundOffMode`: none, nearest
+  ₹1, nearest 50 paise; default none so nothing changes until an owner turns it on). The setting
+  feeds `computeSaleTotals` (`roundOffFor`, `roundedTotal`), so the POS shows the same total the
+  server charges. Bills store `roundOff` (migration `20261020150000_round_off`), and
+  `grandTotal` includes it. Lines, taxable values and GST are not rounded. GSTR-1's invoice
+  value is the rounded total. The cart, receipts (printed and emailed) and the sales register
+  CSV (new "Round off" column) show it. Returns refund the lines' value (₹486.60 for the ₹487
+  bill). The offline check allows a round-off of up to 50 paise. Checked in the real POS. Tests:
+  `round-off.test.ts`, `pricing.test.ts`, `exports.test.ts`.
 
 ### [ ] B3. Selling when the stock count is wrong
 

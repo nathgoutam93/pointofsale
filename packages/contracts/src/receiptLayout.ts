@@ -57,6 +57,8 @@ export type ReceiptDocument = {
   /** Before the order discount. null leaves the line out. */
   itemsTotal: number | null;
   orderDiscount: number;
+  /** What the total was rounded by; printed when not 0. */
+  roundOff?: number;
   /** Tax included in the total, by kind ("incl. CGST"). Always printed. */
   taxTotals: Array<{ label: string; amount: number }>;
   grandTotalLabel: string;
@@ -237,6 +239,7 @@ export function renderReceipt(doc: ReceiptDocument, template: ReceiptTemplate, c
   }
   if (doc.orderDiscount > 0) totals.push({ label: 'Order Discount', value: `- ${money(doc.orderDiscount)}` });
   doc.taxTotals.forEach((tax) => totals.push({ label: tax.label, value: money(tax.amount) }));
+  if (doc.roundOff) totals.push({ label: 'Round off', value: `${doc.roundOff < 0 ? '- ' : '+ '}${money(Math.abs(doc.roundOff))}` });
   if (totals.length > 0) {
     const labelWidth = Math.min(Math.max(...totals.map((total) => total.label.length)), Math.floor(width * 0.5));
     totals.forEach((total) => push(keyValue(total.label, total.value, width, labelWidth)));

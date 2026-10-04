@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DiscountScope, DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, TaxpayerType, UserRole, WalletTxnType } from '@prisma/client';
 import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, invoiceDue, mrpProblem, resolveDiscountAmounts } from '@pos/contracts';
-import type { DiscountInput } from '@pos/contracts';
+import type { DiscountInput, RoundOffMode } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import { isFallback } from '../common/mode';
 import type { PaymentInput, SessionUser, SaleLineInput, CreateSaleInput, ComputedSaleLine } from '../common/types';
@@ -154,9 +154,10 @@ export class SalesService {
     orderDiscounts: DiscountInput[] | undefined,
     taxCalculationMode: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT',
     chargeTax: boolean,
-    interState: boolean
+    interState: boolean,
+    roundOff: RoundOffMode
   ) {
-    const totals = computeSaleTotals(lines, orderDiscounts, taxCalculationMode, { chargeTax, interState });
+    const totals = computeSaleTotals(lines, orderDiscounts, taxCalculationMode, { chargeTax, interState, roundOff });
     const computedLines: ComputedSaleLine[] = totals.lines.map((entry) => ({
       ...entry.line,
       discountAmount: entry.discountAmount,
@@ -181,6 +182,7 @@ export class SalesService {
       cgstTotal: totals.cgstTotal,
       sgstTotal: totals.sgstTotal,
       igstTotal: totals.igstTotal,
+      roundOff: totals.roundOff,
       grandTotal: totals.grandTotal
     };
   }
@@ -312,13 +314,15 @@ export class SalesService {
       cgstTotal,
       sgstTotal,
       igstTotal,
+      roundOff,
       grandTotal
     } = this.calculateSaleTotals(
       normalizedLines,
       input.discounts ?? [],
       businessSettings.taxCalculationMode,
       chargeTax,
-      interState
+      interState,
+      businessSettings.roundOffMode
     );
     if (session.role !== UserRole.ADMIN) {
       this.assertWithinCashierDiscountLimit(
@@ -353,6 +357,7 @@ export class SalesService {
         cgstTotal,
         sgstTotal,
         igstTotal,
+        roundOff,
         grandTotal,
         paidTotal: 0,
         createdBy: session.userId,

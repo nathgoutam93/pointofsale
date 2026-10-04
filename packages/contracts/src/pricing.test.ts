@@ -10,6 +10,7 @@ import {
   returnLineAmounts,
   round2,
   round3,
+  roundOffFor,
   roundTo,
   splitGst,
   type GstAmounts,
@@ -300,5 +301,20 @@ describe('rounding', () => {
     expect(Object.is(round2(-0.001), 0)).toBe(true);
     expect(round3(2.0005)).toBe(2.001);
     expect(roundTo(123456789.125, 2)).toBe(123456789.13);
+  });
+});
+
+describe('round-off', () => {
+  it('rounds the total to the rupee or 50 paise, halves up, leaving lines and GST alone', () => {
+    expect(roundOffFor(486.6, 'NEAREST_1')).toBe(0.4);
+    expect(roundOffFor(486.5, 'NEAREST_1')).toBe(0.5);
+    expect(roundOffFor(486.49, 'NEAREST_1')).toBe(-0.49);
+    expect(roundOffFor(486.24, 'NEAREST_050')).toBe(-0.24);
+    expect(roundOffFor(486.25, 'NEAREST_050')).toBe(0.25);
+    expect(roundOffFor(486.6, 'NONE')).toBe(0);
+    const totals = computeSaleTotals([{ qty: 1, rate: 412.37, taxRate: 18, taxMode: 'EXCLUSIVE' }], [], 'AFTER_DISCOUNT', { roundOff: 'NEAREST_1' });
+    expect(totals.netTotal).toBe(486.6);
+    expect(totals).toMatchObject({ roundOff: 0.4, grandTotal: 487, taxTotal: 74.23 });
+    expect(totals.lines[0].net).toBe(486.6);
   });
 });

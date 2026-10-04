@@ -86,11 +86,13 @@ export {
   resolveDiscountAmounts,
   returnLineAmounts,
   round2,
+  roundOffFor,
+  roundedTotal,
   round3,
   roundTo,
   splitGst
 } from './pricing.js';
-export type { DiscountInput, GstAmounts, PricedLineInput, ResolvedDiscount, TaxCalculationMode, TaxMode } from './pricing.js';
+export type { DiscountInput, GstAmounts, PricedLineInput, ResolvedDiscount, RoundOffMode, TaxCalculationMode, TaxMode } from './pricing.js';
 export {
   chargesGst,
   COMPOSITION_CATEGORIES,
@@ -393,7 +395,9 @@ export const businessSettingsSchema = z.object({
   /** Shortest HSN code accepted on items: 4 (turnover up to ₹5 crore) or 6. */
   hsnMinDigits: z.number().int(),
   /** Days after a sale cashiers may still make a return (0: same day only); null for no limit. Admins aren't limited. */
-  returnWindowDays: z.number().int().nullable()
+  returnWindowDays: z.number().int().nullable(),
+  /** How each bill's total is rounded. */
+  roundOffMode: z.enum(['NONE', 'NEAREST_1', 'NEAREST_050']).default('NONE')
 });
 
 export const taxpayerTypeChangeSchema = z.object({
@@ -778,6 +782,8 @@ const saleInvoiceSchema = z.object({
   cgstTotal: moneySchema.default(0),
   sgstTotal: moneySchema.default(0),
   igstTotal: moneySchema.default(0),
+  /** What the total was rounded by (business setting); grandTotal includes it. */
+  roundOff: moneySchema.default(0),
   grandTotal: moneySchema,
   paidTotal: moneySchema,
   /** Taken off what was owed by returns made before the bill was paid in full (see invoiceDue). */
@@ -1378,7 +1384,8 @@ export const appContract = c.router({
         customerScope: customerScopeSchema.optional(),
         timezone: timeZoneSchema.optional(),
         hsnMinDigits: z.union([z.literal(4), z.literal(6)]).optional(),
-        returnWindowDays: z.number().int().min(0).max(3650).nullable().optional()
+        returnWindowDays: z.number().int().min(0).max(3650).nullable().optional(),
+        roundOffMode: z.enum(['NONE', 'NEAREST_1', 'NEAREST_050']).optional()
       }),
       responses: { 200: businessSettingsSchema }
     },

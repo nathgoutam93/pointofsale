@@ -46,6 +46,7 @@ export function buildInvoiceReceipt(postPayment: PostPaymentSummary, store: Stor
     items,
     orderDiscount: postPayment.orderDiscountAmount,
     grandTotal: postPayment.grandTotal,
+    roundOff: postPayment.roundOff ?? 0,
     payments: postPayment.paymentLines,
     paidTotal: postPayment.paidTotal,
     // The business's time, as on emailed receipts, whatever this computer's clock is set to.

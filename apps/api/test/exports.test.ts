@@ -107,14 +107,14 @@ describe('the sales register', () => {
     expect(res.headers.get('content-type')).toMatch(/^text\/csv/);
     const rows = (await res.text()).replace(/^﻿/, '').trim().split('\r\n');
     expect(rows[0]).toBe(
-      'Type,Date,Number,Against invoice,Branch,Customer,Phone,Buyer GSTIN,Place of supply,Taxable value,CGST,SGST,IGST,Total,Paid,Credited by returns,Owed,Refunded,Status,Payments'
+      'Type,Date,Number,Against invoice,Branch,Customer,Phone,Buyer GSTIN,Place of supply,Taxable value,CGST,SGST,IGST,Round off,Total,Paid,Credited by returns,Owed,Refunded,Status,Payments'
     );
     expect(rows).toHaveLength(3);
     // 236 sold, 100 paid; one returned (118): 118 off what was owed, nothing back.
     expect(rows[1]).toBe(
-      `Invoice,${today()},${invoice.invoiceNo},,${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,,200,18,18,0,236,100,118,18,,Part paid,CASH 100.00`
+      `Invoice,${today()},${invoice.invoiceNo},,${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,,200,18,18,0,0,236,100,118,18,,Part paid,CASH 100.00`
     );
-    expect(rows[2]).toBe(`Credit note,${today()},${ret.returnNo},${invoice.invoiceNo},${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,,-100,-9,-9,0,-118,,,,0,,`);
+    expect(rows[2]).toBe(`Credit note,${today()},${ret.returnNo},${invoice.invoiceNo},${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,,-100,-9,-9,0,0,-118,,,,0,,`);
 
     // Admins only; a period the right way round.
     const cashier = await t.cashierWithRegister(admin, branch.branch.id);

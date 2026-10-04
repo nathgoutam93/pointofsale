@@ -133,6 +133,8 @@ export function saleReceiptDocument(sale: {
   items: ReceiptDocumentItem[];
   orderDiscount: number;
   grandTotal: number;
+  /** What the total was rounded by (part of grandTotal). */
+  roundOff?: number;
   /** `tendered`: cash handed over when more than the amount (the rest was change). */
   payments: Array<{ mode: string; amount: number; tendered?: number | null }>;
   paidTotal: number;
@@ -160,8 +162,9 @@ export function saleReceiptDocument(sale: {
     fields,
     barcodeValue: sale.invoiceNo,
     items: sale.items,
-    itemsTotal: sale.grandTotal + sale.orderDiscount,
+    itemsTotal: round2(sale.grandTotal - (sale.roundOff ?? 0) + sale.orderDiscount),
     orderDiscount: sale.orderDiscount,
+    roundOff: sale.roundOff ?? 0,
     taxTotals: gstTaxAmounts(sale.gst),
     grandTotalLabel: 'TOTAL',
     grandTotal: sale.grandTotal,

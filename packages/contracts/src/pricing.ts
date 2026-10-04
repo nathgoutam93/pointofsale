@@ -4,6 +4,8 @@
  */
 
 export type TaxMode = 'INCLUSIVE' | 'EXCLUSIVE';
+/** How a bill's total is rounded: not at all, to the nearest rupee, or to the nearest 50 paise. */
+export type RoundOffMode = 'NONE' | 'NEAREST_1' | 'NEAREST_050';
 export type TaxCalculationMode = 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
 
 /** `value` with its decimal point moved `places` places, by its decimal digits rather than binary maths. */
@@ -262,6 +264,8 @@ export function computeSaleTotals<L extends PricedLineInput>(
     chargeTax?: boolean;
     /** True when the goods go to another state (IGST); otherwise the tax is CGST + SGST. */
     interState?: boolean;
+    /** Rounds the bill's total (see roundOffFor); lines, taxable values and GST stay as they are. */
+    roundOff?: RoundOffMode;
   } = {}
 ) {
   const pricedLines =
@@ -310,6 +314,22 @@ export function computeSaleTotals<L extends PricedLineInput>(
     cgstTotal: sum((line) => line.cgst),
     sgstTotal: sum((line) => line.sgst),
     igstTotal: sum((line) => line.igst),
-    grandTotal: sum((line) => line.net)
+    ...roundedTotal(sum((line) => line.net), options.roundOff ?? 'NONE')
   };
+}
+
+/**
+ * What a bill's total is rounded by: to the nearest rupee or 50 paise, halves up (₹486.50 is
+ * ₹487). Between −0.50 and +0.50 (−0.25 and +0.25 for 50 paise).
+ */
+export function roundOffFor(total: number, mode: RoundOffMode) {
+  const step = mode === 'NEAREST_1' ? 1 : mode === 'NEAREST_050' ? 0.5 : 0;
+  if (step === 0 || total <= 0) return 0;
+  return round2(Math.round(round2(total / step) + 1e-9) * step - total);
+}
+
+/** A bill's total before and after rounding: `grandTotal` = `netTotal` + `roundOff`. */
+export function roundedTotal(netTotal: number, mode: RoundOffMode) {
+  const roundOff = roundOffFor(netTotal, mode);
+  return { netTotal, roundOff, grandTotal: round2(netTotal + roundOff) };
 }

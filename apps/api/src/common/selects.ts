@@ -16,7 +16,8 @@ export const businessSettingsSelect = {
   customerScope: true,
   timezone: true,
   hsnMinDigits: true,
-  returnWindowDays: true
+  returnWindowDays: true,
+  roundOffMode: true
 } as const;
 
 export const branchSettingsSelect = {

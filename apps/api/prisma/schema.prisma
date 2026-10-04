@@ -79,6 +79,13 @@ enum TaxMode {
   EXCLUSIVE
 }
 
+/// How a bill's total is rounded: not at all, to the nearest rupee, or to the nearest 50 paise.
+enum RoundOffMode {
+  NONE
+  NEAREST_1
+  NEAREST_050
+}
+
 enum TaxCalculationMode {
   AFTER_DISCOUNT
   BEFORE_DISCOUNT
@@ -182,6 +189,8 @@ model BusinessSettings {
   /// Cashiers may take goods back up to this many days after the sale (calendar days in the
   /// business time zone; 0 is the same day only). Null: no limit. Admins are never limited.
   returnWindowDays          Int?
+  /// Rounds each bill's total (see SaleInvoice.roundOff).
+  roundOffMode              RoundOffMode       @default(NONE)
   /// Offline installs: hash of the recovery code that resets a forgotten admin password.
   /// Shown once when created; never stored or returned in plain text.
   recoveryCodeHash          String?
@@ -519,6 +528,9 @@ model SaleInvoice {
   cgstTotal              Decimal              @default(0) @db.Decimal(14, 2)
   sgstTotal              Decimal              @default(0) @db.Decimal(14, 2)
   igstTotal              Decimal              @default(0) @db.Decimal(14, 2)
+  /// What the total was rounded by (the business's round-off setting): grandTotal is the sum of
+  /// the lines' net amounts plus this. Lines, taxable values and GST are not rounded.
+  roundOff               Decimal              @default(0) @db.Decimal(14, 2)
   grandTotal             Decimal              @db.Decimal(14, 2)
   paidTotal              Decimal              @db.Decimal(14, 2)
   /// Taken off what was still owed by returns on this bill before it was paid in full: the

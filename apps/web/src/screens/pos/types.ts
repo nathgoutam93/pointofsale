@@ -38,6 +38,8 @@ export type PostPaymentSummary = {
   orderDiscountAmount: number;
   taxTotal: number;
   grandTotal: number;
+  /** What the total was rounded by (part of grandTotal). */
+  roundOff?: number;
   paidTotal: number;
   paymentLines: Array<{ mode: PaymentMode; amount: number; tendered?: number | null }>;
   lines: CartLine[];

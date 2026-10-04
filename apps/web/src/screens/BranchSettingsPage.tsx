@@ -54,6 +54,7 @@ type BusinessSettingsForm = {
   hsnMinDigits: 4 | 6;
   /** Days; empty for no limit. */
   returnWindowDays: string;
+  roundOffMode: "NONE" | "NEAREST_1" | "NEAREST_050";
 };
 
 type CashierForm = {
@@ -180,7 +181,8 @@ export function BranchSettingsPage() {
     customerScope: "SHARED",
     timezone: "Asia/Kolkata",
     hsnMinDigits: 4,
-    returnWindowDays: ""
+    returnWindowDays: "",
+    roundOffMode: "NONE"
   });
 
   useEffect(() => {
@@ -210,7 +212,8 @@ export function BranchSettingsPage() {
       customerScope: businessSettings.data.customerScope,
       timezone: businessSettings.data.timezone,
       hsnMinDigits: businessSettings.data.hsnMinDigits === 6 ? 6 : 4,
-      returnWindowDays: businessSettings.data.returnWindowDays === null ? "" : String(businessSettings.data.returnWindowDays)
+      returnWindowDays: businessSettings.data.returnWindowDays === null ? "" : String(businessSettings.data.returnWindowDays),
+      roundOffMode: businessSettings.data.roundOffMode ?? "NONE"
     });
   }, [businessSettings.data]);
 
@@ -273,7 +276,8 @@ export function BranchSettingsPage() {
           customerScope: businessForm.customerScope,
           timezone: businessForm.timezone,
           hsnMinDigits: businessForm.hsnMinDigits,
-          returnWindowDays
+          returnWindowDays,
+          roundOffMode: businessForm.roundOffMode
         },
         extraHeaders: authHeaders()
       });
@@ -673,6 +677,23 @@ export function BranchSettingsPage() {
                   <p className="mt-1 text-xs text-slate-500">
                     The most a cashier can take off a sale's list price, counting price changes and discounts together.
                     Admins have no limit.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Round off bill totals</label>
+                  <select
+                    className="field mt-1"
+                    value={businessForm.roundOffMode}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({ ...prev, roundOffMode: e.target.value as "NONE" | "NEAREST_1" | "NEAREST_050" }))
+                    }
+                  >
+                    <option value="NONE">Don't round</option>
+                    <option value="NEAREST_1">To the nearest ₹1</option>
+                    <option value="NEAREST_050">To the nearest 50 paise</option>
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    The bill shows a round-off line; item prices, taxable values and GST are not changed.
                   </p>
                 </div>
                 <div>

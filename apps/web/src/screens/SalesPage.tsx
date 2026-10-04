@@ -895,6 +895,7 @@ export function SalesPage() {
       items,
       orderDiscount: Number(currentInvoice.orderDiscountAmount ?? 0),
       grandTotal: invoiceGrandTotal,
+      roundOff: Number(currentInvoice.roundOff ?? 0),
       payments: paymentBreakdown,
       paidTotal: invoicePaidTotal,
       creditedTotal: Number(currentInvoice.creditedTotal ?? 0),
