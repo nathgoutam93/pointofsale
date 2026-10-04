@@ -38,9 +38,15 @@ main() {
   pnpm --filter @pos/api prisma:generate
   pnpm --filter @pos/api build
 
-  # Before the new API starts: it expects this version's tables.
+  # Before the new API starts: it expects this version's tables. Behind PgBouncer, migrations go
+  # straight to PostgreSQL: set MIGRATE_DATABASE_URL in the API's .env (see README, step 12).
   echo "==> Migrating"
-  (cd "$api" && node dist/tenancy/cli.js migrate)
+  migrate_url="$(sed -n 's/^MIGRATE_DATABASE_URL=//p' "$api/.env" | tail -n 1)"
+  if [ -n "$migrate_url" ]; then
+    (cd "$api" && DATABASE_URL="$migrate_url" node dist/tenancy/cli.js migrate)
+  else
+    (cd "$api" && node dist/tenancy/cli.js migrate)
+  fi
 
   echo "==> Restarting"
   sudo systemctl restart pos-api

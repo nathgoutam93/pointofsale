@@ -380,7 +380,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   On a hosted database the round trips shrink by the same factor. The concurrency tests (five
   tills, last unit) still pass.
 
-### [ ] C3. Database connections on the hosted server
+### [x] C3. Database connections on the hosted server
 
 - **Why:** one Prisma client per business, 3 connections each, up to 100 cached
   (`apps/api/src/tenancy/tenant-clients.ts`): up to 300 connections against PostgreSQL's
@@ -390,6 +390,20 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   cache size and pool sized to the server; don't disconnect a client while it has requests in
   flight.
 - **Done when:** a load test with 150 businesses selling at once runs without connection errors.
+- **Status (2026-10-04):** `TenantClients` now counts the requests using each business's client
+  (acquired by the sign-in check, released when the response closes). It drops only idle clients,
+  least recently used first. When the cache is full and every client is busy, a request for
+  another business waits up to 15 s for one to come free (then "server busy") instead of opening
+  more connections, so at most `TENANT_CLIENT_CACHE` × `TENANT_CONNECTION_LIMIT` are open. A
+  background disconnect that failed used to be an unhandled rejection that crashed the API under
+  load; it is now caught. The API warns at start when the settings can exceed PostgreSQL's default
+  100 connections. The README hosting steps now cover PgBouncer (transaction mode,
+  `pgbouncer=true`) and migrating straight to PostgreSQL (`MIGRATE_DATABASE_URL`, which
+  `deploy/deploy.sh` uses). Load test, scaled down: 30 businesses with a cache of only 10, 900
+  checkouts in 30-way bursts. All succeeded, stock was exact for every shop, nothing errored, and
+  connections stayed at 19. Before the change, the same test exhausted connections and crashed
+  the API. Tests: `tenant-clients.test.ts`. A 150-business run on the real server, ideally with
+  PgBouncer, is still worth doing before launch.
 
 ### [ ] C4. Uploads
 

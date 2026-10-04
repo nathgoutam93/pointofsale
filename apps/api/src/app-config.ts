@@ -9,7 +9,7 @@ import { CLIENT_VERSION_HEADER, FALLBACK_UNAVAILABLE, isOlderVersion, UPDATE_REQ
 import { isFallback, minClientVersion, posMode } from './common/mode';
 import { isFallbackWrite } from './fallback/outbox';
 import { uploadsDir } from './common/uploads';
-import { tenantStorage } from './tenancy/tenant-context';
+import { tenantStorage, type TenantStore } from './tenancy/tenant-context';
 import { CrashReportsService } from './crash/crash-reports.service';
 import { ServerErrorFilter } from './crash/server-error.filter';
 
@@ -81,7 +81,12 @@ export function configureApp(app: NestExpressApplication) {
   });
 
   // Every request gets its own business context; sign-in or the token check fills it in.
-  app.use((_req: unknown, _res: unknown, next: () => void) => tenantStorage.run({}, next));
+  // The business's database client is let go when the response is done (see TenantClients).
+  app.use((_req: unknown, res: { on(event: 'close', listener: () => void): void }, next: () => void) => {
+    const store: TenantStore = {};
+    res.on('close', () => store.release?.());
+    tenantStorage.run(store, next);
+  });
 
   if (posMode() === 'offline') {
     // A web page can point its own domain at 127.0.0.1 (DNS rebinding) and then call the
