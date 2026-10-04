@@ -15,6 +15,7 @@ import { SequenceService } from '../sequences/sequences.service';
 import { ItemsService } from '../items/items.service';
 import { StockService } from '../stock/stock.service';
 import { CustomersService } from '../customers/customers.service';
+import { ReceivablesService } from '../customers/receivables.service';
 import { RegistersService } from '../registers/registers.service';
 
 @Injectable()
@@ -26,6 +27,7 @@ export class SalesService {
     private readonly items: ItemsService,
     private readonly stock: StockService,
     private readonly customers: CustomersService,
+    private readonly receivables: ReceivablesService,
     private readonly registers: RegistersService
   ) {}
 
@@ -173,8 +175,13 @@ export class SalesService {
     };
   }
 
+  /** An unpaid (DRAFT) invoice: all of it is owed until paid, so it must fit the customer's credit limit. */
   async createSale(session: SessionUser, input: CreateSaleInput) {
-    return this.prisma.$transaction((tx) => this.createSaleInTx(tx, session, input));
+    return this.prisma.$transaction(async (tx) => {
+      const invoice = await this.createSaleInTx(tx, session, input);
+      await this.receivables.assertWithinCreditLimit(tx, session, invoice.customerId);
+      return invoice;
+    });
   }
 
   /** Creates a DRAFT invoice and deducts its stock, inside the caller's transaction. */
@@ -194,7 +201,7 @@ export class SalesService {
     const interState = !!seller.stateCode && !!placeOfSupplyStateCode && placeOfSupplyStateCode !== seller.stateCode;
     const customer = await tx.customer.findUnique({
       where: { id: input.customerId },
-      select: { id: true, branchId: true, name: true, phone: true, isWalkIn: true }
+      select: { id: true, branchId: true, name: true, phone: true, isWalkIn: true, gstin: true, address: true, paymentTermsDays: true }
     });
     if (!customer) {
       throw new NotFoundException('Customer not found');
@@ -320,6 +327,12 @@ export class SalesService {
         customerId: input.customerId,
         customerName: invoiceCustomerName,
         customerPhone: invoiceCustomerPhone,
+        // A registered buyer's details as they are now; later edits to the customer don't change the bill.
+        buyerGstin: customer.isWalkIn ? null : customer.gstin,
+        buyerAddress: customer.isWalkIn || !customer.gstin ? null : customer.address,
+        reference: input.reference?.trim() || null,
+        // Whatever is left unpaid falls due after the customer's payment terms.
+        dueDate: customer.isWalkIn ? null : this.receivables.dueDateFor(new Date(), customer.paymentTermsDays, businessSettings.timezone),
         status: InvoiceStatus.DRAFT,
         subTotal,
         discountTotal,
@@ -482,6 +495,7 @@ export class SalesService {
           if (customer?.isWalkIn) {
             throw new BadRequestException('Walk-in sales must be paid in full');
           }
+          await this.receivables.assertWithinCreditLimit(tx, session, input.customerId);
         }
         return result;
       });

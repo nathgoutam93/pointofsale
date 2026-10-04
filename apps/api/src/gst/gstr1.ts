@@ -3,9 +3,10 @@
  * portal accept, plus a preview and a list of problems. Pure functions over plain records,
  * so the rules can be tested without a database.
  *
- * Only B2C sales exist in this app (no customer GSTINs), so the sections are: B2CS (small,
- * net of returns), B2CL (inter-state invoices above the threshold), CDNUR (credit notes for
- * B2CL invoices), nil / exempt / non-GST, the HSN summary and the document summary.
+ * Sections: B2B (invoices to registered buyers, by their GSTIN) and CDNR (credit notes for
+ * them); for unregistered buyers B2CS (small, net of returns), B2CL (inter-state invoices above
+ * the threshold) and CDNUR (credit notes for B2CL invoices); nil / exempt / non-GST, the HSN
+ * summary (B2B and B2C tables) and the document summary.
  *
  * The JSON layout follows the GSTR-1 offline tool. Import the file into the current tool
  * before filing: the format changes from time to time (see GSTR1_JSON_VERSION).
@@ -45,6 +46,8 @@ export type Gstr1Invoice = {
   sellerGstin: string | null;
   sellerStateCode: string | null;
   placeOfSupplyStateCode: string | null;
+  /** A registered buyer's GSTIN: the invoice goes in B2B, its credit notes in CDNR. */
+  buyerGstin?: string | null;
   grandTotal: number;
   lines: Gstr1Line[];
 };
@@ -83,9 +86,14 @@ function isInterState(invoice: Gstr1Invoice, gstin: string) {
   return placeOfSupply(invoice, gstin) !== sellerState(invoice, gstin);
 }
 
+/** B2B: an invoice to a registered buyer. */
+export function isB2b(invoice: Gstr1Invoice) {
+  return !!invoice.buyerGstin;
+}
+
 /** B2CL: an inter-state invoice to an unregistered buyer above the threshold. */
 export function isB2cl(invoice: Gstr1Invoice, gstin: string) {
-  return isInterState(invoice, gstin) && invoice.grandTotal > B2CL_THRESHOLD;
+  return !isB2b(invoice) && isInterState(invoice, gstin) && invoice.grandTotal > B2CL_THRESHOLD;
 }
 
 type Amounts = { txval: number; iamt: number; camt: number; samt: number };
@@ -97,8 +105,11 @@ function addAmounts(into: Amounts, line: { taxable: number; igst: number; cgst: 
   into.samt = round2(into.samt + sign * line.sgst);
 }
 
-/** Items of one B2CL invoice or CDNUR note: its taxable lines grouped by rate. */
-function itemsByRate(lines: Array<{ rate: number; taxable: number; igst: number; cgst: number; sgst: number }>) {
+/**
+ * Items of one invoice or note, its taxable lines grouped by rate. B2CL and CDNUR are always
+ * inter-state (IGST only); B2B and CDNR carry CGST and SGST too.
+ */
+function itemsByRate(lines: Array<{ rate: number; taxable: number; igst: number; cgst: number; sgst: number }>, allTaxes = false) {
   const byRate = new Map<number, Amounts>();
   for (const line of lines) {
     const amounts = byRate.get(line.rate) ?? zeroAmounts();
@@ -109,7 +120,9 @@ function itemsByRate(lines: Array<{ rate: number; taxable: number; igst: number;
     .sort(([a], [b]) => a - b)
     .map(([rt, amounts], idx) => ({
       num: idx + 1,
-      itm_det: { rt, txval: amounts.txval, iamt: amounts.iamt, csamt: 0 }
+      itm_det: allTaxes
+        ? { rt, txval: amounts.txval, iamt: amounts.iamt, camt: amounts.camt, samt: amounts.samt, csamt: 0 }
+        : { rt, txval: amounts.txval, iamt: amounts.iamt, csamt: 0 }
     }));
 }
 
@@ -132,6 +145,10 @@ function documentSummary(docs: Array<{ number: string; series: string | null; ca
       const cancel = list.filter((doc) => doc.cancelled).length;
       return { series, from: sorted[0].number, to: sorted[sorted.length - 1].number, totnum: list.length, cancel, net_issue: list.length - cancel };
     });
+}
+
+function hsnJson({ num, hsn_sc, desc, uqc, qty, rt, txval, iamt, camt, samt, csamt }: { num: number; hsn_sc: string; desc: string; uqc: string; qty: number; rt: number; csamt: number } & Amounts) {
+  return { num, hsn_sc, desc, uqc, qty, rt, txval, iamt, camt, samt, csamt };
 }
 
 export function buildGstr1(input: {
@@ -182,13 +199,16 @@ export function buildGstr1(input: {
 
   // B2CS, B2CL and nil-rated sales.
   const b2cs = new Map<string, { sply_ty: 'INTRA' | 'INTER'; pos: string; rt: number } & Amounts>();
-  const nil = new Map<'INTRB2C' | 'INTRAB2C', { nil_amt: number; expt_amt: number; ngsup_amt: number }>();
+  type NilKey = 'INTRB2B' | 'INTRAB2B' | 'INTRB2C' | 'INTRAB2C';
+  const nil = new Map<NilKey, { nil_amt: number; expt_amt: number; ngsup_amt: number }>();
   const b2cl = new Map<string, Array<{ inum: string; idt: string; val: number; itms: ReturnType<typeof itemsByRate> }>>();
+  type B2bInvoice = { inum: string; idt: string; val: number; pos: string; rchrg: 'N'; inv_typ: 'R'; itms: ReturnType<typeof itemsByRate> };
+  const b2b = new Map<string, B2bInvoice[]>();
 
   const addLine = (invoice: Gstr1Invoice, line: Gstr1Line, amounts: { taxable: number; igst: number; cgst: number; sgst: number }, sign: 1 | -1) => {
     const inter = isInterState(invoice, gstin);
     if (line.supplyType !== 'TAXABLE') {
-      const key = inter ? 'INTRB2C' : 'INTRAB2C';
+      const key: NilKey = isB2b(invoice) ? (inter ? 'INTRB2B' : 'INTRAB2B') : inter ? 'INTRB2C' : 'INTRAB2C';
       const row = nil.get(key) ?? { nil_amt: 0, expt_amt: 0, ngsup_amt: 0 };
       const field = line.supplyType === 'NIL_RATED' ? 'nil_amt' : line.supplyType === 'EXEMPT' ? 'expt_amt' : 'ngsup_amt';
       row[field] = round2(row[field] + sign * amounts.taxable);
@@ -203,6 +223,25 @@ export function buildGstr1(input: {
   };
 
   for (const invoice of reported) {
+    if (isB2b(invoice)) {
+      const ctin = invoice.buyerGstin!;
+      const taxableLines = invoice.lines.filter((line) => line.supplyType === 'TAXABLE');
+      b2b.set(ctin, [
+        ...(b2b.get(ctin) ?? []),
+        {
+          inum: invoice.invoiceNo,
+          idt: gstDate(invoice.createdAt, timeZone),
+          val: round2(invoice.grandTotal),
+          pos: placeOfSupply(invoice, gstin),
+          rchrg: 'N',
+          inv_typ: 'R',
+          itms: itemsByRate(taxableLines.map((line) => ({ rate: line.taxRate, ...line })), true)
+        }
+      ]);
+      // Nil-rated lines of a B2B invoice go in the nil section, as supplies to registered persons.
+      for (const line of invoice.lines.filter((l) => l.supplyType !== 'TAXABLE')) addLine(invoice, line, line, 1);
+      continue;
+    }
     if (isB2cl(invoice, gstin)) {
       const pos = placeOfSupply(invoice, gstin);
       const taxableLines = invoice.lines.filter((line) => line.supplyType === 'TAXABLE');
@@ -222,10 +261,31 @@ export function buildGstr1(input: {
     for (const line of invoice.lines) addLine(invoice, line, line, 1);
   }
 
-  // Credit notes: for B2CL invoices, reported one by one (CDNUR); otherwise they reduce
-  // B2CS and nil figures of this period.
+  // Credit notes: for B2B invoices, reported one by one under the buyer (CDNR); for B2CL
+  // invoices, one by one (CDNUR); otherwise they reduce B2CS and nil figures of this period.
   const cdnur: Array<{ typ: 'B2CL'; ntty: 'C'; nt_num: string; nt_dt: string; pos: string; val: number; itms: ReturnType<typeof itemsByRate> }> = [];
+  type CdnrNote = { ntty: 'C'; nt_num: string; nt_dt: string; pos: string; rchrg: 'N'; inv_typ: 'R'; val: number; itms: ReturnType<typeof itemsByRate> };
+  const cdnr = new Map<string, CdnrNote[]>();
   for (const ret of reportedReturns) {
+    if (isB2b(ret.invoice)) {
+      const ctin = ret.invoice.buyerGstin!;
+      const taxableLines = ret.lines.filter((line) => line.saleLine.supplyType === 'TAXABLE');
+      cdnr.set(ctin, [
+        ...(cdnr.get(ctin) ?? []),
+        {
+          ntty: 'C',
+          nt_num: ret.returnNo,
+          nt_dt: gstDate(ret.createdAt, timeZone),
+          pos: placeOfSupply(ret.invoice, gstin),
+          rchrg: 'N',
+          inv_typ: 'R',
+          val: round2(ret.totalAmount),
+          itms: itemsByRate(taxableLines.map((line) => ({ rate: line.saleLine.taxRate, ...line })), true)
+        }
+      ]);
+      for (const line of ret.lines.filter((l) => l.saleLine.supplyType !== 'TAXABLE')) addLine(ret.invoice, line.saleLine, line, -1);
+      continue;
+    }
     if (isB2cl(ret.invoice, gstin)) {
       const taxableLines = ret.lines.filter((line) => line.saleLine.supplyType === 'TAXABLE');
       cdnur.push({
@@ -254,21 +314,29 @@ export function buildGstr1(input: {
     });
   }
 
-  // HSN summary: every reported line, less returns, by HSN, unit and rate.
-  const hsn = new Map<string, { hsn_sc: string; desc: string; uqc: string; rt: number; qty: number } & Amounts>();
-  const addHsn = (line: Gstr1Line, amounts: { qty: number; taxable: number; igst: number; cgst: number; sgst: number }, sign: 1 | -1) => {
+  // HSN summary: every reported line, less returns, by HSN, unit and rate; supplies to
+  // registered buyers (B2B) and to others (B2C) in separate tables.
+  type HsnRow = { typ: 'B2B' | 'B2C'; hsn_sc: string; desc: string; uqc: string; rt: number; qty: number } & Amounts;
+  const hsn = new Map<string, HsnRow>();
+  const addHsn = (invoice: Gstr1Invoice, line: Gstr1Line, amounts: { qty: number; taxable: number; igst: number; cgst: number; sgst: number }, sign: 1 | -1) => {
     if (!line.hsnCode || !line.uqc) return; // reported as an error above
-    const key = `${line.hsnCode}|${line.uqc}|${line.taxRate}`;
-    const row = hsn.get(key) ?? { hsn_sc: line.hsnCode, desc: line.itemName.slice(0, 30), uqc: line.uqc, rt: line.taxRate, qty: 0, ...zeroAmounts() };
+    const typ = isB2b(invoice) ? 'B2B' : 'B2C';
+    const key = `${typ}|${line.hsnCode}|${line.uqc}|${line.taxRate}`;
+    const row = hsn.get(key) ?? { typ, hsn_sc: line.hsnCode, desc: line.itemName.slice(0, 30), uqc: line.uqc, rt: line.taxRate, qty: 0, ...zeroAmounts() };
     row.qty = round3(row.qty + sign * amounts.qty);
     addAmounts(row, amounts, sign);
     hsn.set(key, row);
   };
-  for (const invoice of reported) for (const line of invoice.lines) addHsn(line, line, 1);
-  for (const ret of reportedReturns) for (const line of ret.lines) addHsn(line.saleLine, line, -1);
-  const hsnRows = [...hsn.values()]
-    .sort((a, b) => a.hsn_sc.localeCompare(b.hsn_sc) || a.uqc.localeCompare(b.uqc) || a.rt - b.rt)
-    .map((row, idx) => ({ num: idx + 1, ...row, csamt: 0 }));
+  for (const invoice of reported) for (const line of invoice.lines) addHsn(invoice, line, line, 1);
+  for (const ret of reportedReturns) for (const line of ret.lines) addHsn(ret.invoice, line.saleLine, line, -1);
+  const hsnTable = (typ: HsnRow['typ']) =>
+    [...hsn.values()]
+      .filter((row) => row.typ === typ)
+      .sort((a, b) => a.hsn_sc.localeCompare(b.hsn_sc) || a.uqc.localeCompare(b.uqc) || a.rt - b.rt)
+      .map((row, idx) => ({ num: idx + 1, ...row, csamt: 0 }));
+  const hsnB2b = hsnTable('B2B');
+  const hsnB2c = hsnTable('B2C');
+  const hsnRows = [...hsnB2b, ...hsnB2c];
 
   // Document summary: invoices (cancelled ones counted) and credit notes, per series.
   const regularInvoices = input.invoices.filter((inv) => inv.taxpayerType === 'REGULAR');
@@ -291,7 +359,7 @@ export function buildGstr1(input: {
       : [])
   ];
 
-  const nilRows = (['INTRB2C', 'INTRAB2C'] as const)
+  const nilRows = (['INTRB2B', 'INTRAB2B', 'INTRB2C', 'INTRAB2C'] as const)
     .filter((key) => nil.has(key))
     .map((key) => ({ sply_ty: key, ...nil.get(key)! }));
 
@@ -300,15 +368,21 @@ export function buildGstr1(input: {
     fp: input.fp,
     version: GSTR1_JSON_VERSION,
     hash: 'hash',
+    ...(b2b.size > 0 ? { b2b: [...b2b.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([ctin, inv]) => ({ ctin, inv })) } : {}),
     ...(b2cl.size > 0 ? { b2cl: [...b2cl.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([pos, inv]) => ({ pos, inv })) } : {}),
     ...(b2csRows.length > 0
       ? { b2cs: b2csRows.map((row) => ({ sply_ty: row.sply_ty, rt: row.rt, typ: 'OE', pos: row.pos, txval: row.txval, iamt: row.iamt, camt: row.camt, samt: row.samt, csamt: 0 })) }
       : {}),
+    ...(cdnr.size > 0 ? { cdnr: [...cdnr.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([ctin, nt]) => ({ ctin, nt })) } : {}),
     ...(cdnur.length > 0 ? { cdnur } : {}),
     ...(nilRows.length > 0 ? { nil: { inv: nilRows.map((row) => ({ sply_ty: row.sply_ty, expt_amt: row.expt_amt, nil_amt: row.nil_amt, ngsup_amt: row.ngsup_amt })) } } : {}),
-    // All sales here are B2C, so the HSN summary is the B2C table.
     ...(hsnRows.length > 0
-      ? { hsn: { hsn_b2c: hsnRows.map(({ num, hsn_sc, desc, uqc, qty, rt, txval, iamt, camt, samt, csamt }) => ({ num, hsn_sc, desc, uqc, qty, rt, txval, iamt, camt, samt, csamt })) } }
+      ? {
+          hsn: {
+            ...(hsnB2b.length > 0 ? { hsn_b2b: hsnB2b.map(hsnJson) } : {}),
+            ...(hsnB2c.length > 0 ? { hsn_b2c: hsnB2c.map(hsnJson) } : {})
+          }
+        }
       : {}),
     ...(docDetails.length > 0 ? { doc_issue: { doc_det: docDetails } } : {})
   };
@@ -320,6 +394,8 @@ export function buildGstr1(input: {
       invoices: reported.length,
       cancelledInvoices: regularInvoices.length - reported.length,
       creditNotes: reportedReturns.length,
+      b2b: [...b2b.entries()].sort(([a], [b]) => a.localeCompare(b)).flatMap(([ctin, invs]) => invs.map((inv) => ({ ctin, ...inv }))),
+      cdnr: [...cdnr.entries()].sort(([a], [b]) => a.localeCompare(b)).flatMap(([ctin, notes]) => notes.map((note) => ({ ctin, ...note }))),
       b2cs: b2csRows,
       b2cl: [...b2cl.entries()].flatMap(([pos, invs]) => invs.map((inv) => ({ pos, ...inv }))),
       cdnur,

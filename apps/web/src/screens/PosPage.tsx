@@ -51,6 +51,8 @@ export function PosPage() {
   const [walkInCustomerPhone, setWalkInCustomerPhone] = useState("");
   // The state goods are shipped to; null for a counter sale (the branch's own state).
   const [placeOfSupply, setPlaceOfSupply] = useState<string | null>(null);
+  // A registered buyer's order or reference number, printed on their bill.
+  const [reference, setReference] = useState("");
   const [message, setMessage] = useState("");
   const [postPayment, setPostPayment] = useState<PostPaymentSummary | null>(
     null,
@@ -381,6 +383,20 @@ export function PosPage() {
     },
   });
   const walletBalance = Number(customerWallet.data?.balance ?? 0);
+  // What they owe already, against their credit limit.
+  const customerAccount = useQuery({
+    queryKey: ["customer-account", customerId],
+    enabled: !!customerId && !selectedCustomer?.isWalkIn,
+    queryFn: async () => {
+      const res = await api.customers.account({
+        params: { id: customerId },
+        extraHeaders: authHeaders(),
+      });
+      if (res.status !== 200) throw new Error("Failed to load what the customer owes");
+      return res.body;
+    },
+  });
+  const account = !isWalkInSelected ? customerAccount.data ?? null : null;
   const branchStateCode = store.branchSettings.data?.stateCode ?? null;
   // Composition taxpayers can't sell to another state, and a branch without a state can't
   // name one, so the choice only counts for a regular branch with its state set.
@@ -421,6 +437,7 @@ export function PosPage() {
     setWalkInCustomerName("");
     setWalkInCustomerPhone("");
     setPlaceOfSupply(null);
+    setReference("");
     setCart([]);
     lineEditor.close();
     orderDiscount.reset();
@@ -444,6 +461,7 @@ export function PosPage() {
       walkInCustomerName: isWalkInSelected ? normalizedWalkInCustomerName : null,
       walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone : null,
       placeOfSupplyStateCode: placeOfSupply,
+      reference: reference.trim() || null,
       cart: cart.map((line) => ({ ...line })),
       orderDiscountMode: orderDiscount.mode,
       orderDiscountValue: orderDiscount.value,
@@ -502,6 +520,7 @@ export function PosPage() {
     setWalkInCustomerName(draft.walkInCustomerName ?? "");
     setWalkInCustomerPhone(draft.walkInCustomerPhone ?? "");
     setPlaceOfSupply(draft.placeOfSupplyStateCode ?? null);
+    setReference(draft.reference ?? "");
     setCart(draft.cart.map((line) => ({ ...line })));
     lineEditor.close();
     orderDiscount.restore(draft.orderDiscountValue, draft.orderDiscountMode);
@@ -536,6 +555,7 @@ export function PosPage() {
       walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone || null : null,
       // Only a shipped regular sale names one; otherwise the server uses the branch's state.
       placeOfSupplyStateCode: placeOfSupplyChoice ?? undefined,
+      reference: !isWalkInSelected && reference.trim() ? reference.trim() : undefined,
       lines: cart.map((line) => ({
         itemId: line.itemId,
         qty: line.qty,
@@ -597,6 +617,7 @@ export function PosPage() {
         createdAt: result.receipt?.createdAt ?? result.invoice.createdAt,
         customerName: result.invoice.customerName,
         customerPhone: result.invoice.customerPhone ?? "",
+        customerEmail: selectedCustomer && !selectedCustomer.isWalkIn ? selectedCustomer.email : null,
         subTotal: Number(result.invoice.subTotal),
         orderDiscountAmount: Number(result.invoice.orderDiscountAmount ?? 0),
         taxTotal: Number(result.invoice.taxTotal),
@@ -669,6 +690,7 @@ export function PosPage() {
       queryClient.invalidateQueries({
         queryKey: ["stock-module", session.branchId],
       });
+      queryClient.invalidateQueries({ queryKey: ["customer-account"] });
     },
   });
 
@@ -727,9 +749,12 @@ export function PosPage() {
               walkInName={walkInCustomerName}
               walkInPhone={walkInCustomerPhone}
               walletBalance={walletBalance}
+              account={account}
               branchStateCode={chargeTax ? branchStateCode : null}
               placeOfSupply={placeOfSupplyChoice}
               onPlaceOfSupplyChange={setPlaceOfSupply}
+              reference={reference}
+              onReferenceChange={setReference}
               busy={checkout.isPending}
               onWalkIn={() => {
                 setCustomerId("");
@@ -788,6 +813,8 @@ export function PosPage() {
           total={total}
           isWalkInSelected={isWalkInSelected}
           walletBalance={walletBalance}
+          account={account}
+          isAdmin={session.role === "ADMIN"}
           checkoutPending={checkout.isPending}
           onValidate={() => checkout.mutate({ payments: payment.lines })}
         />

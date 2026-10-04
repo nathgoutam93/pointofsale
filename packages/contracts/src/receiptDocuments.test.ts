@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatReceiptDate, formatReceiptTime, invoiceDue, invoiceReceiptItems, returnReceiptDocument, splitReturn } from './receiptDocuments.js';
+import { formatReceiptDate, formatReceiptTime, gstMetadata, invoiceDue, invoiceGstOf, invoiceReceiptItems, returnReceiptDocument, splitReturn } from './receiptDocuments.js';
 
 describe('receipt dates', () => {
   it('are written in the business time zone when given one', () => {
@@ -108,5 +108,19 @@ describe('returns on a bill not paid in full', () => {
     expect(late.fields.filter((field) => field.label === 'Date' || field.label === 'Time').map((field) => field.value)).toEqual(['04-10-2026', '01:30 AM']);
     // A paid bill prints as before.
     expect(returnReceiptDocument(base)).toMatchObject({ title: 'REFUND', grandTotalLabel: 'REFUND', payments: [{ label: 'Refunded by Cash', amount: 200 }] });
+  });
+});
+
+describe('a tax invoice to a registered buyer', () => {
+  it("carries the buyer's name, GSTIN, address and reference; others carry only the seller's GSTIN", () => {
+    const base = { documentType: 'TAX_INVOICE' as const, sellerGstin: '29ABCDE1234F1ZW', sellerStateCode: '29', placeOfSupplyStateCode: '29', customerName: 'Rao Traders' };
+    expect(gstMetadata(invoiceGstOf({ ...base, buyerGstin: '27AAACR5055K1Z5', buyerAddress: '12 MG Road\nPune 411001', reference: 'PO-7781' }))).toEqual([
+      { label: 'GSTIN', value: '29ABCDE1234F1ZW' },
+      { label: 'Buyer', value: 'Rao Traders', fullLine: true },
+      { label: 'Buyer GSTIN', value: '27AAACR5055K1Z5' },
+      { label: 'Address', value: '12 MG Road, Pune 411001', fullLine: true },
+      { label: 'Ref', value: 'PO-7781', fullLine: true }
+    ]);
+    expect(gstMetadata(invoiceGstOf(base))).toEqual([{ label: 'GSTIN', value: '29ABCDE1234F1ZW' }]);
   });
 });

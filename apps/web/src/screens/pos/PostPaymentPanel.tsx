@@ -42,7 +42,7 @@ export function PostPaymentPanel({
           {printing ? "Printing…" : paid ? "Print Full Receipt" : "Print Invoice"}
         </button>
 
-        <EmailReceipt key={postPayment.invoiceId} invoiceId={postPayment.invoiceId} />
+        <EmailReceipt key={postPayment.invoiceId} invoiceId={postPayment.invoiceId} defaultEmail={postPayment.customerEmail} />
 
         <button className="btn-ghost w-full text-sm print:hidden" onClick={onDownload}>
           Download the receipt (to share on WhatsApp)

@@ -24,6 +24,8 @@ export function buildGstr3b(gstr1: Gstr1Result) {
 
   // 3.1(a): taxable outward supplies (not zero rated, nil rated or exempt).
   const taxable = zero();
+  for (const inv of summary.b2b) for (const item of inv.itms) add(taxable, item.itm_det);
+  for (const note of summary.cdnr) for (const item of note.itms) add(taxable, item.itm_det, -1);
   for (const row of summary.b2cs) add(taxable, row);
   for (const inv of summary.b2cl) for (const item of inv.itms) add(taxable, item.itm_det);
   for (const note of summary.cdnur) for (const item of note.itms) add(taxable, item.itm_det, -1);
@@ -32,7 +34,8 @@ export function buildGstr3b(gstr1: Gstr1Result) {
   const nilExempt = round2(summary.nil.reduce((acc, row) => acc + row.nil_amt + row.expt_amt, 0));
   const nonGst = round2(summary.nil.reduce((acc, row) => acc + row.ngsup_amt, 0));
 
-  // 3.2: inter-state supplies to unregistered persons, by place of supply.
+  // 3.2: inter-state supplies to unregistered persons, by place of supply (B2B sales are to
+  // registered persons, so they don't count here).
   const interState = new Map<string, { txval: number; iamt: number }>();
   const addInter = (pos: string, txval: number, iamt: number) => {
     const row = interState.get(pos) ?? { txval: 0, iamt: 0 };

@@ -20,6 +20,13 @@ import { inr, money, requireManagementSession } from "./route-helpers";
 type PaymentMode = "CASH" | "CARD" | "WALLET";
 type PaymentFilter = "ALL" | "PENDING" | "SETTLED";
 
+/** Whether a bill with money owed is past its due date (calendar days in the business's time zone). */
+function isOverdue(invoice: { dueDate?: string | null }, due: number, timeZone?: string) {
+  if (!invoice.dueDate || due <= 0) return false;
+  const day = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(date);
+  return day(new Date(invoice.dueDate)) < day(new Date());
+}
+
 type SettledSummary = {
   invoiceId: string;
   invoiceNo: string;
@@ -935,7 +942,7 @@ export function SalesPage() {
                 </p>
               </div>
 
-              <EmailReceipt key={settledSummary.invoiceId} invoiceId={settledSummary.invoiceId} />
+              <EmailReceipt key={settledSummary.invoiceId} invoiceId={settledSummary.invoiceId} defaultEmail={selectedCustomer?.email} />
             </div>
 
             <div className="border-t border-slate-200 p-4">
@@ -1066,7 +1073,12 @@ export function SalesPage() {
                         </span>
                       </p>
                       {pending > 0 && invoice.status !== "CANCELLED" ? (
-                        <p className="font-medium text-amber-700 tabular-nums">Due {inr(pending)}</p>
+                        <p className="font-medium text-amber-700 tabular-nums">
+                          Due {inr(pending)}
+                          {isOverdue(invoice, pending, businessSettings.data?.timezone) ? (
+                            <span className="ml-1.5 badge bg-rose-50 text-rose-700 ring-1 ring-rose-200 ring-inset">Overdue</span>
+                          ) : null}
+                        </p>
                       ) : (
                         <p className="tabular-nums">Paid {inr(Number(invoice.paidTotal))}</p>
                       )}
@@ -1169,6 +1181,12 @@ export function SalesPage() {
               <div>
                 <dt className="eyebrow">Customer</dt>
                 <dd className="mt-1 truncate font-medium text-slate-900">{currentCustomerName}</dd>
+                {currentInvoice?.buyerGstin ? (
+                  <dd className="mt-0.5 font-mono text-xs text-slate-600" title="Registered buyer: this bill goes in GSTR-1 B2B">
+                    GSTIN {currentInvoice.buyerGstin}
+                  </dd>
+                ) : null}
+                {currentInvoice?.reference ? <dd className="mt-0.5 text-xs text-slate-600">Ref {currentInvoice.reference}</dd> : null}
               </div>
               <div>
                 <dt className="eyebrow">Sold by</dt>
@@ -1190,6 +1208,14 @@ export function SalesPage() {
                 <dd className={`mt-1 font-semibold tabular-nums ${pendingAmount > 0 ? "text-amber-700" : "text-slate-900"}`}>
                   {inr(pendingAmount)}
                 </dd>
+                {currentInvoice?.dueDate && pendingAmount > 0 && currentInvoice.status !== "CANCELLED" ? (
+                  <dd
+                    className={`mt-0.5 text-xs ${isOverdue(currentInvoice, pendingAmount, businessSettings.data?.timezone) ? "font-semibold text-rose-700" : "text-slate-600"}`}
+                  >
+                    {isOverdue(currentInvoice, pendingAmount, businessSettings.data?.timezone) ? "Overdue: was due " : "Due by "}
+                    {formatReceiptDate(currentInvoice.dueDate, businessSettings.data?.timezone)}
+                  </dd>
+                ) : null}
               </div>
             </dl>
 
@@ -1288,7 +1314,7 @@ export function SalesPage() {
             <ReceiptView receipt={printableReceipt} logoSrc={receiptLogoSrc} className="card w-full p-5" />
             {currentInvoice ? (
               <div className="card p-4 print:hidden">
-                <EmailReceipt key={currentInvoice.id} invoiceId={currentInvoice.id} />
+                <EmailReceipt key={currentInvoice.id} invoiceId={currentInvoice.id} defaultEmail={selectedCustomer?.email} />
               </div>
             ) : null}
           </div>

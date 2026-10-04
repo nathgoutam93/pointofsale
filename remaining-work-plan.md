@@ -193,7 +193,7 @@ managed hosting is selling.
   - So far only a printer that saves PDFs has been used.
 - **Done when:** each works on at least two printer brands.
 
-## [ ] 10. B2B GST customers (registered buyers)
+## [x] 10. B2B GST customers (registered buyers)
 
 - **Why:** a customer has only a name and phone, so every sale is filed as a sale to an
   unregistered buyer (B2C). A shop selling to a registered business can't put the buyer's GSTIN
@@ -213,8 +213,41 @@ managed hosting is selling.
   - Fallback counter: offline sales to registered buyers sync with the buyer details.
 - **Done when:** a sale to a customer with a GSTIN prints their details, is listed under B2B in
   GSTR-1 (and its return under CDNR), and imports into the GST offline tool.
+- **Status (2026-10-04):** built.
+  - **Customer:** `gstin`, `address` and `email` (schema.prisma; migration
+    `20261015100000_b2b_customers`). The GSTIN is validated by the contract (`gstinSchema`), and
+    the buyer's state is its first two digits, so there's no separate state field.
+  - **Sale:** at checkout the invoice records `buyerGstin` and `buyerAddress` from the customer as
+    they are then, and an optional `reference` (the buyer's order number).
+  - **Place of supply, a correction to the plan above:** it stays the branch's state for a counter
+    sale, even when the buyer is in another state. Goods handed over at the counter are supplied
+    where they are delivered (IGST Act s.10(1)(d)), so CGST and SGST apply. It is the buyer's state
+    only when the goods are shipped there. The POS shows the buyer's state and offers "ship to" it.
+  - **Receipt:** printed and emailed tax invoices carry Buyer, Buyer GSTIN, Address and Ref
+    (`gstMetadata` in `receiptDocuments.ts`).
+  - **GSTR-1 (`gstr1.ts`):**
+    - B2B (by `ctin`) and CDNR sections.
+    - Nil rows `INTRB2B` and `INTRAB2B`.
+    - Separate `hsn_b2b` and `hsn_b2c` tables.
+    - B2CS and B2CL now leave registered buyers out.
+  - **GSTR-3B:** 3.1 includes B2B, and 3.2 still lists unregistered buyers only.
+  - **Screens:**
+    - Customers: GSTIN, address and email.
+    - POS: a registered-buyer note, a reference field and the "ship to" hint. The customer search
+      also matches a GSTIN.
+    - Sales: shows the buyer's GSTIN and reference.
+    - "Email the receipt": offers the customer's email.
+    - GST Returns: B2B and CDNR tables.
+  - **Fallback counter:** offline sales carry the same fields.
+  - **Tests:**
+    - `b2b-customers.test.ts`, the builder tests in `gstr1-builder.test.ts`, and a receipt test in
+      contracts.
+    - In a browser: a customer created with a GSTIN, then a POS sale shipped to their state; the
+      receipt and GSTR-1 checked.
+  - **Not checked yet:** importing a file with B2B and CDNR into the current GST offline tool. Do
+    it before filing.
 
-## [ ] 11. Receivables: credit limits, due dates, statements
+## [x] 11. Receivables: credit limits, due dates, statements
 
 - **Why:** credit sales, part payments, the amount due per bill and per customer, and returns
   against the due already work; what's missing is control and follow-up.
@@ -230,6 +263,30 @@ managed hosting is selling.
     customer price lists.
 - **Done when:** a customer over their limit is warned or stopped, overdue bills show, and a
   statement matches the bills and payments.
+- **Status (2026-10-04):** built.
+  - **Customer:** `creditLimit` (none when empty) and `paymentTermsDays`; only admins set them.
+    **Sale:** `dueDate`, the start of the day the terms run out (business time zone), set at
+    checkout; none without terms. Migration `20261015110000_receivables`.
+  - **What is owed** is grandTotal − paidTotal − creditedTotal on unpaid and part-paid bills, at
+    every branch (the customer owes the business). A bill is overdue once its due date is before
+    today.
+  - **Checkout (`ReceivablesService.assertWithinCreditLimit`):** a credit or part-paid sale that
+    takes a customer past their limit is refused for cashiers (400, `CREDIT_LIMIT_EXCEEDED`); admins
+    may go past it. The customer's row is locked, so two tills can't both use the last of the room.
+    The POS shows "Owes ₹X of ₹Y limit" and the overdue amount, and the payment dialog says how much
+    more to take (a cashier can't validate; an admin is warned).
+  - **API:** `GET /customers/:id/account`, `GET /customers/:id/statement?from&to`,
+    `POST /customers/:id/statement/email` (online, 30 an hour per user) and
+    `GET /customers/ageing?branchId`.
+  - **Statement:** bills as debits; payments as credits, only what they took off the bill (the
+    extra that went into the wallet is noted, not counted); returns as credits of what they took off
+    what was owed (refunds aren't on the account). Opening balance, running balance, closing
+    balance, and what is owed now by age.
+  - **Screens:** Customers: credit fields for admins, credit limit and available room, overdue
+    amount, a Statement panel (period, print, email) and an "Owed" (ageing) view; the list marks
+    overdue customers. Sales: an Overdue badge and the due date.
+  - **Tests:** `receivables.test.ts`; in a browser: limit set, a cashier stopped and then within it
+    after a part payment, overdue marks, statement printed and emailed, ageing.
 
 ## [x] 12. Smaller follow-ups
 
@@ -289,7 +346,7 @@ managed hosting is selling.
   `managed`, Settings said "our hosted service"; with `POS_HOSTING` removed and the app
   relaunched, the saved value and the card turned to self-hosted. Not checked in Electron: a
   fallback counter while the server is down.
-  - [ ] On `pos.hackd.in`: add `POS_HOSTING=managed` to `/opt/pos/apps/api/.env` with the deploy
+  - [x] On `pos.hackd.in`: add `POS_HOSTING=managed` to `/opt/pos/apps/api/.env` with the deploy
         of this change, then check `curl https://pos.hackd.in/meta` says `"hosting":"managed"`.
 
 ## [~] 14. Managed hosting: subscriptions and payments
@@ -465,3 +522,5 @@ managed hosting is selling.
 - 2026-10-03: Decided: closed source, self-hosters get built images with a licence key. Item 15 rewritten for that; item 16 added (move the update feed, then make the repository private, before the first real release). Product fixes come before selling.
 - 2026-10-03: Server deployed with `POS_HOSTING=managed` (no `BILLING_GATEWAY`). Version 0.1.2 prepared to ship the Server card and Billing screens to installed apps.
 - 2026-10-03: Item 12 done (receipt builder, transfer destinations, POS email check, and the fallback counter's pictures, sync clashes, uncounted cash and background server check); offline credit, returns and customers moved to item 17.
+- 2026-10-04: Item 10 done: registered (B2B) buyers on customers, bills, receipts and GSTR-1 (B2B, CDNR).
+- 2026-10-04: Item 11 done: credit limits (cashiers stopped, admins warned), payment terms and due dates, overdue marks, statements (printed and emailed) and ageing.

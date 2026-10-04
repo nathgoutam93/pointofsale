@@ -32,6 +32,8 @@ export type PostPaymentSummary = {
   createdAt: string;
   customerName: string;
   customerPhone: string;
+  /** The customer's saved email, offered by "Email the receipt". */
+  customerEmail?: string | null;
   subTotal: number;
   orderDiscountAmount: number;
   taxTotal: number;
@@ -58,6 +60,8 @@ export type LocalSaleDraft = {
   walkInCustomerPhone?: string | null;
   /** Set when the goods are shipped to another state. */
   placeOfSupplyStateCode?: string | null;
+  /** The buyer's order or reference number. */
+  reference?: string | null;
   cart: CartLine[];
   orderDiscountMode: "AMOUNT" | "PERCENT";
   orderDiscountValue: string;

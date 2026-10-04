@@ -9,9 +9,9 @@ import { OnlineOnlyBadge } from "./OnlineOnly";
  * Emails a sale's receipt to the customer. The server builds it from the invoice with the
  * branch's receipt layout. Online only: an offline install has no way to send email.
  */
-export function EmailReceipt({ invoiceId }: { invoiceId: string }) {
+export function EmailReceipt({ invoiceId, defaultEmail }: { invoiceId: string; /** The customer's saved email. */ defaultEmail?: string | null }) {
   const offline = useIsOffline();
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(defaultEmail ?? "");
   const send = useMutation({
     mutationFn: async (to: string) => {
       const res = await api.sales.emailReceipt({ params: { id: invoiceId }, body: { email: to }, extraHeaders: authHeaders() });

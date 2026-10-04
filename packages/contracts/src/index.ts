@@ -416,12 +416,94 @@ export const userSchema = z.object({
   createdAt: z.string().datetime()
 });
 
+/** A customer's credit: the most they may owe, and the days a credit bill has before it is due. Admins only. */
+const customerCreditFields = {
+  creditLimit: moneySchema.min(0).nullable().optional(),
+  paymentTermsDays: z.number().int().min(0).max(365).nullable().optional()
+};
+
+/** Answered (400, with this code) when a cashier's credit sale would take a customer past their credit limit. */
+export const CREDIT_LIMIT_EXCEEDED = 'CREDIT_LIMIT_EXCEEDED';
+
+/** What a customer owes, against their limit (see /customers/:id/account). */
+export const customerAccountSchema = z.object({
+  customerId: z.string().uuid(),
+  creditLimit: z.number().nullable(),
+  paymentTermsDays: z.number().int().nullable(),
+  /** Owed across all their unpaid bills. */
+  outstanding: z.number(),
+  /** Room left under the limit (never below 0); null with no limit. */
+  available: z.number().nullable(),
+  /** Owed on bills past their due date. */
+  overdue: z.number(),
+  overdueBills: z.number().int(),
+  oldestDueDate: z.string().datetime().nullable()
+});
+export type CustomerAccount = z.infer<typeof customerAccountSchema>;
+
+/** Owed amounts by the age of the bill (days since it was made, in the business's time zone). */
+const ageingBucketsSchema = z.object({
+  days0to30: z.number(),
+  days31to60: z.number(),
+  days61to90: z.number(),
+  over90: z.number(),
+  total: z.number()
+});
+
+export const customerStatementSchema = z.object({
+  customer: z.object({
+    id: z.string().uuid(),
+    code: z.string(),
+    name: z.string(),
+    phone: z.string().nullable(),
+    gstin: z.string().nullable(),
+    address: z.string().nullable(),
+    email: z.string().nullable(),
+    creditLimit: z.number().nullable()
+  }),
+  from: z.string(),
+  to: z.string(),
+  timezone: z.string(),
+  /** Owed before `from`. */
+  openingBalance: z.number(),
+  /** Bills (debit), payments and returns taken off what was owed (credit), oldest first. */
+  entries: z.array(
+    z.object({
+      date: z.string().datetime(),
+      kind: z.enum(['BILL', 'PAYMENT', 'RETURN']),
+      reference: z.string(),
+      detail: z.string().nullable(),
+      debit: z.number(),
+      credit: z.number(),
+      balance: z.number()
+    })
+  ),
+  totals: z.object({ debit: z.number(), credit: z.number() }),
+  closingBalance: z.number(),
+  /** What is owed now, by age. */
+  ageing: ageingBucketsSchema,
+  overdue: z.number()
+});
+
+/** A registered buyer's details; null (or empty) clears one. */
+const customerBuyerFields = {
+  gstin: z.preprocess((value) => (value === '' ? null : value), gstinSchema.nullable()).optional(),
+  address: z.preprocess((value) => (typeof value === 'string' && !value.trim() ? null : value), z.string().trim().max(300).nullable()).optional(),
+  email: z.preprocess((value) => (typeof value === 'string' && !value.trim() ? null : value), z.string().trim().email('Enter a valid email address').nullable()).optional()
+};
+
 export const customerSchema = z.object({
   id: z.string().uuid(),
   branchId: z.string().uuid(),
   code: z.string(),
   name: z.string(),
   phone: z.string().nullable(),
+  /** A registered buyer's GSTIN; their state is its first two digits. */
+  gstin: z.string().nullable().default(null),
+  address: z.string().nullable().default(null),
+  email: z.string().nullable().default(null),
+  creditLimit: moneySchema.nullable().default(null),
+  paymentTermsDays: z.number().int().nullable().default(null),
   isWalkIn: z.boolean(),
   createdAt: z.string().datetime()
 });
@@ -649,6 +731,12 @@ const saleInvoiceSchema = z.object({
   customerId: z.string().uuid(),
   customerName: z.string(),
   customerPhone: z.string().nullable(),
+  /** A registered buyer's GSTIN and billing address, as at the sale. */
+  buyerGstin: z.string().nullable().default(null),
+  buyerAddress: z.string().nullable().default(null),
+  reference: z.string().nullable().default(null),
+  /** When what is owed is due (the customer's payment terms); null with no terms. */
+  dueDate: z.string().datetime().nullable().default(null),
   subTotal: moneySchema,
   discountTotal: moneySchema,
   orderDiscountAmount: moneySchema.default(0),
@@ -779,7 +867,9 @@ const saleCreateBodySchema = z.object({
   lines: z.array(saleLineInput).min(1),
   discounts: z.array(discountInputSchema).default([]),
   /** Where the goods go, when shipped to another state. Defaults to the branch's state (sold over the counter). */
-  placeOfSupplyStateCode: gstStateCodeSchema.optional()
+  placeOfSupplyStateCode: gstStateCodeSchema.optional(),
+  /** The buyer's order or reference number, printed on the bill. */
+  reference: z.string().trim().max(40).optional()
 });
 
 const paymentInputSchema = z.object({ mode: paymentModeSchema, amount: moneySchema.positive(), reference: z.string().optional() });
@@ -985,6 +1075,9 @@ export const appContract = c.router({
             invoices: z.number(),
             cancelledInvoices: z.number(),
             creditNotes: z.number(),
+            /** Invoices to registered buyers, and credit notes for them, by the buyer's GSTIN (ctin). */
+            b2b: z.array(z.object({ ctin: z.string(), inum: z.string(), idt: z.string(), pos: z.string(), val: z.number() }).passthrough()).default([]),
+            cdnr: z.array(z.object({ ctin: z.string(), nt_num: z.string(), nt_dt: z.string(), pos: z.string(), val: z.number() }).passthrough()).default([]),
             b2cs: z.array(z.object({ sply_ty: z.string(), pos: z.string(), rt: z.number(), txval: z.number(), iamt: z.number(), camt: z.number(), samt: z.number() })),
             b2cl: z.array(z.object({ pos: z.string(), inum: z.string(), idt: z.string(), val: z.number() }).passthrough()),
             cdnur: z.array(z.object({ nt_num: z.string(), nt_dt: z.string(), pos: z.string(), val: z.number() }).passthrough()),
@@ -1283,7 +1376,13 @@ export const appContract = c.router({
     create: {
       method: 'POST',
       path: '/customers',
-      body: z.object({ branchId: z.string().uuid(), name: requiredText, phone: z.string().optional() }),
+      body: z.object({
+        branchId: z.string().uuid(),
+        name: requiredText,
+        phone: z.string().optional(),
+        ...customerBuyerFields,
+        ...customerCreditFields
+      }),
       responses: { 201: customerSchema }
     },
     update: {
@@ -1291,7 +1390,7 @@ export const appContract = c.router({
       path: '/customers/:id',
       /** The branch it's done at; defaults to the open register's. Admins may name any branch they manage. */
       query: z.object({ branchId: z.string().uuid().optional() }),
-      body: z.object({ name: requiredText.optional(), phone: z.string().nullable().optional() }),
+      body: z.object({ name: requiredText.optional(), phone: z.string().nullable().optional(), ...customerBuyerFields, ...customerCreditFields }),
       responses: { 200: customerSchema }
     },
     getWalkIn: {
@@ -1305,6 +1404,50 @@ export const appContract = c.router({
       /** The branch it's done at; defaults to the open register's. Admins may name any branch they manage. */
       query: z.object({ branchId: z.string().uuid().optional() }),
       responses: { 200: walletSchema }
+    },
+    /** What a customer owes against their credit limit, and how much is overdue. */
+    account: {
+      method: 'GET',
+      path: '/customers/:id/account',
+      query: z.object({ branchId: z.string().uuid().optional() }),
+      responses: { 200: customerAccountSchema }
+    },
+    /** Bills, payments and returns over a period (dates in the business's time zone), with balances. */
+    statement: {
+      method: 'GET',
+      path: '/customers/:id/statement',
+      query: z.object({ branchId: z.string().uuid().optional(), from: calendarDateSchema, to: calendarDateSchema }),
+      responses: { 200: customerStatementSchema }
+    },
+    /** Online: the statement by email. */
+    emailStatement: {
+      method: 'POST',
+      path: '/customers/:id/statement/email',
+      query: z.object({ branchId: z.string().uuid().optional() }),
+      body: z.object({ from: calendarDateSchema, to: calendarDateSchema, email: z.string().trim().email() }),
+      responses: { 202: z.object({ sent: z.literal(true) }) }
+    },
+    /** Everyone who owes at a branch, by the age of what they owe. */
+    ageing: {
+      method: 'GET',
+      path: '/customers/ageing',
+      query: z.object({ branchId: z.string().uuid() }),
+      responses: {
+        200: z.object({
+          timezone: z.string(),
+          rows: z.array(
+            ageingBucketsSchema.extend({
+              customerId: z.string().uuid(),
+              code: z.string(),
+              name: z.string(),
+              phone: z.string().nullable(),
+              creditLimit: z.number().nullable(),
+              overdue: z.number()
+            })
+          ),
+          totals: ageingBucketsSchema.extend({ overdue: z.number() })
+        })
+      }
     },
     topupWallet: {
       method: 'POST',

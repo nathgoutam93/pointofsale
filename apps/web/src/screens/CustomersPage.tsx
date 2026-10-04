@@ -2,7 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { invoiceDue } from "@pos/contracts";
-import { api, authHeaders } from "../lib/api";
+import { api, apiErrorMessage, authHeaders } from "../lib/api";
+import { BuyerFields, buyerBody, buyerFrom, buyerProblem, emptyBuyer, type BuyerDetails } from "../components/BuyerFields";
+import { CreditFields, creditBody, creditFrom, creditProblem, emptyCredit, type CreditDetails } from "../components/CreditFields";
+import { AgeingPanel } from "./customers/AgeingPanel";
+import { StatementPanel } from "./customers/StatementPanel";
+import { gstStateLabel } from "@pos/contracts";
 import { BranchPicker } from "../components/BranchPicker";
 import { useManagedBranch } from "../lib/branch";
 import { can } from "../lib/session";
@@ -23,6 +28,16 @@ export function CustomersPage() {
     const [isEditingCustomer, setIsEditingCustomer] = useState(false);
     const [editName, setEditName] = useState("");
     const [editPhone, setEditPhone] = useState("");
+    // GSTIN, address and email, when creating and when editing.
+    const [buyer, setBuyer] = useState<BuyerDetails>(emptyBuyer);
+    const [editBuyer, setEditBuyer] = useState<BuyerDetails>(emptyBuyer);
+    // Credit limit and payment terms: admins only.
+    const isAdmin = session.role === "ADMIN";
+    const [credit, setCredit] = useState<CreditDetails>(emptyCredit);
+    const [editCredit, setEditCredit] = useState<CreditDetails>(emptyCredit);
+    // The right-hand side: a customer, or what everyone owes.
+    const [showAgeing, setShowAgeing] = useState(false);
+    const [showStatement, setShowStatement] = useState(false);
     const [walletTopupAmount, setWalletTopupAmount] = useState("");
 
     const customers = useQuery({
@@ -44,16 +59,21 @@ export function CustomersPage() {
                     branchId: branchId,
                     name: name.trim(),
                     phone: phone.trim() || undefined,
+                    ...buyerBody(buyer),
+                    ...(isAdmin ? creditBody(credit) : {}),
                 },
                 extraHeaders: authHeaders(),
             });
-            if (res.status !== 201) throw new Error("Failed to create customer");
+            if (res.status !== 201) throw new Error(apiErrorMessage(res.body, "Failed to create customer"));
             return res.body;
         },
         onSuccess: (created) => {
             setName("");
             setPhone("");
+            setBuyer(emptyBuyer);
+            setCredit(emptyCredit);
             setShowCreateForm(false);
+            setShowAgeing(false);
             setSelectedCustomerId(created.id);
             queryClient.invalidateQueries({
                 queryKey: ["customers-module", branchId],
@@ -72,20 +92,26 @@ export function CustomersPage() {
                 body: {
                     name: editName.trim(),
                     phone: editPhone.trim() || null,
+                    ...buyerBody(editBuyer),
+                    ...(isAdmin ? creditBody(editCredit) : {}),
                 },
                 extraHeaders: authHeaders(),
             });
-            if (res.status !== 200) throw new Error("Failed to update customer");
+            if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to update customer"));
             return res.body;
         },
         onSuccess: (updated) => {
             setSelectedCustomerId(updated.id);
             setEditName(updated.name);
             setEditPhone(updated.phone ?? "");
+            setEditBuyer(buyerFrom(updated));
+            setEditCredit(creditFrom(updated));
             setIsEditingCustomer(false);
             queryClient.invalidateQueries({
                 queryKey: ["customers-module", branchId],
             });
+            queryClient.invalidateQueries({ queryKey: ["customer-account", updated.id] });
+            queryClient.invalidateQueries({ queryKey: ["customers-ageing", branchId] });
         },
     });
 
@@ -149,8 +175,50 @@ export function CustomersPage() {
         setIsEditingCustomer(false);
         setEditName(selectedCustomer.name);
         setEditPhone(selectedCustomer.phone ?? "");
+        setEditBuyer(buyerFrom(selectedCustomer));
+        setEditCredit(creditFrom(selectedCustomer));
         setWalletTopupAmount("");
+        setShowStatement(false);
     }, [selectedCustomer]);
+
+    // What they owe (at every branch), against their credit limit.
+    const account = useQuery({
+        queryKey: ["customer-account", selectedCustomer?.id, branchId],
+        enabled: !!selectedCustomer?.id && !selectedCustomer.isWalkIn,
+        queryFn: async () => {
+            const res = await api.customers.account({
+                params: { id: selectedCustomer!.id },
+                query: { branchId },
+                extraHeaders: authHeaders(),
+            });
+            if (res.status !== 200) throw new Error("Failed to load what the customer owes");
+            return res.body;
+        },
+    });
+
+    // What each customer owes, and how much of it is overdue, for the list.
+    const ageing = useQuery({
+        queryKey: ["customers-ageing", branchId],
+        enabled: !!branchId,
+        queryFn: async () => {
+            const res = await api.customers.ageing({ query: { branchId }, extraHeaders: authHeaders() });
+            if (res.status !== 200) throw new Error("Failed to load what customers owe");
+            return res.body;
+        },
+    });
+    const owedByCustomerId = useMemo(
+        () => new Map((ageing.data?.rows ?? []).map((row) => [row.customerId, row])),
+        [ageing.data],
+    );
+
+    const businessSettings = useQuery({
+        queryKey: ["business-settings"],
+        queryFn: async () => {
+            const res = await api.business.get({ extraHeaders: authHeaders() });
+            if (res.status !== 200) throw new Error("Failed to load business settings");
+            return res.body;
+        },
+    });
 
     const customerWallet = useQuery({
         queryKey: ["customers-module-wallet", selectedCustomer?.id],
@@ -221,16 +289,27 @@ export function CustomersPage() {
         if (!selectedCustomer) return false;
         return (
             editName.trim() !== selectedCustomer.name ||
-            editPhone.trim() !== (selectedCustomer.phone ?? "")
+            editPhone.trim() !== (selectedCustomer.phone ?? "") ||
+            JSON.stringify(buyerBody(editBuyer)) !== JSON.stringify(buyerBody(buyerFrom(selectedCustomer))) ||
+            JSON.stringify(creditBody(editCredit)) !== JSON.stringify(creditBody(creditFrom(selectedCustomer)))
         );
-    }, [editName, editPhone, selectedCustomer]);
+    }, [editName, editPhone, editBuyer, editCredit, selectedCustomer]);
 
     return (
-        <section className="grid grid-cols-1 xl:h-[calc(100vh-48px)] xl:grid-cols-[360px_1fr]">
-            <div className="flex h-full max-h-[75vh] flex-col overflow-hidden border-r border-slate-200 bg-white xl:max-h-none">
+        <section className="grid grid-cols-1 xl:h-[calc(100vh-48px)] xl:grid-cols-[360px_1fr] print:block print:h-auto">
+            <div className="flex h-full max-h-[75vh] flex-col overflow-hidden border-r border-slate-200 bg-white xl:max-h-none print:hidden">
                 <div className="shrink-0 border-b border-slate-200 p-4">
                     <div className="flex items-center justify-between">
                         <h2 className="page-title">Customers</h2>
+                        <div className="flex gap-2">
+                        <button
+                            className={showAgeing ? "btn-primary" : "btn-secondary"}
+                            onClick={() => setShowAgeing((prev) => !prev)}
+                            type="button"
+                            title="What every customer owes, by age"
+                        >
+                            Owed
+                        </button>
                         <button
                             className={showCreateForm ? "btn-secondary" : "btn-primary"}
                             onClick={() => setShowCreateForm((prev) => !prev)}
@@ -238,6 +317,7 @@ export function CustomersPage() {
                         >
                             {showCreateForm ? "Cancel" : "New Customer"}
                         </button>
+                        </div>
                     </div>
                     <BranchPicker
                         className="mt-3"
@@ -269,13 +349,18 @@ export function CustomersPage() {
                                 value={phone}
                                 onChange={(e) => setPhone(e.target.value)}
                             />
+                            <BuyerFields value={buyer} onChange={setBuyer} />
+                            {isAdmin ? <CreditFields value={credit} onChange={setCredit} /> : null}
                             <button
                                 className="btn-primary"
-                                disabled={createCustomer.isPending || !name.trim()}
+                                disabled={createCustomer.isPending || !name.trim() || !!buyerProblem(buyer) || !!creditProblem(credit)}
                                 type="submit"
                             >
                                 {createCustomer.isPending ? "Creating..." : "Create Customer"}
                             </button>
+                            {createCustomer.isError ? (
+                                <p className="text-xs text-rose-700">{(createCustomer.error as Error).message}</p>
+                            ) : null}
                         </form>
                     ) : null}
 
@@ -290,13 +375,15 @@ export function CustomersPage() {
                 <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
                     {filteredCustomers.map((customer) => {
                         const selected = selectedCustomer?.id === customer.id;
-                        const pendingSummary = pendingByCustomerId.get(customer.id);
-                        const pendingTotal = pendingSummary?.total ?? 0;
+                        const owed = owedByCustomerId.get(customer.id);
                         return (
                             <button
                                 className={`list-row ${selected ? "is-active" : ""}`}
                                 key={customer.id}
-                                onClick={() => setSelectedCustomerId(customer.id)}
+                                onClick={() => {
+                                    setSelectedCustomerId(customer.id);
+                                    setShowAgeing(false);
+                                }}
                                 type="button"
                             >
                                 <div className="flex items-start justify-between gap-2">
@@ -312,9 +399,14 @@ export function CustomersPage() {
                                         {customer.code}
                                     </span>
                                 </div>
-                                {sales.isLoading ? null : pendingTotal > 0 ? (
+                                {owed ? (
                                     <p className="mt-1.5 text-xs font-medium text-amber-700 tabular-nums">
-                                        Due {inr(pendingTotal)}
+                                        Due {inr(owed.total)}
+                                        {owed.overdue > 0 ? (
+                                            <span className="ml-2 badge bg-rose-50 text-rose-700 ring-1 ring-rose-200 ring-inset">
+                                                {inr(owed.overdue)} overdue
+                                            </span>
+                                        ) : null}
                                     </p>
                                 ) : null}
                             </button>
@@ -336,8 +428,18 @@ export function CustomersPage() {
                 </div>
             </div>
 
-            <div className="overflow-y-auto bg-slate-100 p-6">
-                {!selectedCustomer ? (
+            <div className="overflow-y-auto bg-slate-100 p-6 print:overflow-visible print:bg-white print:p-0">
+                {showAgeing ? (
+                    <div className="mx-auto max-w-5xl">
+                        <AgeingPanel
+                            branchId={branchId}
+                            onOpen={(id) => {
+                                setSelectedCustomerId(id);
+                                setShowAgeing(false);
+                            }}
+                        />
+                    </div>
+                ) : !selectedCustomer ? (
                     <div className="card grid place-items-center p-12 text-center">
                         <p className="text-sm font-medium text-slate-600">No customer selected</p>
                         <p className="mt-1 text-xs text-slate-500">
@@ -346,7 +448,7 @@ export function CustomersPage() {
                     </div>
                 ) : (
                     <div className="mx-auto max-w-5xl space-y-6">
-                        <div className="card">
+                        <div className="card print:hidden">
                             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 p-5">
                                 <div className="flex min-w-0 items-center gap-4">
                                     <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-brand-100 text-base font-semibold text-brand-700">
@@ -372,6 +474,19 @@ export function CustomersPage() {
                                                         onChange={(e) => setEditPhone(e.target.value)}
                                                     />
                                                 </div>
+                                                <div className="sm:col-span-2">
+                                                    <label className="field-label">GST and billing</label>
+                                                    <BuyerFields value={editBuyer} onChange={setEditBuyer} />
+                                                </div>
+                                                {isAdmin ? (
+                                                    <div className="sm:col-span-2">
+                                                        <label className="field-label">Credit</label>
+                                                        <CreditFields value={editCredit} onChange={setEditCredit} />
+                                                    </div>
+                                                ) : null}
+                                                {updateCustomer.isError ? (
+                                                    <p className="text-xs text-rose-700 sm:col-span-2">{(updateCustomer.error as Error).message}</p>
+                                                ) : null}
                                             </div>
                                         ) : (
                                             <>
@@ -381,7 +496,18 @@ export function CustomersPage() {
                                                 <p className="mt-0.5 text-sm text-slate-500">
                                                     <span>{selectedCustomer.code}</span> ·{" "}
                                                     {selectedCustomer.phone ?? "No phone"}
+                                                    {selectedCustomer.email ? ` · ${selectedCustomer.email}` : ""}
                                                 </p>
+                                                {selectedCustomer.gstin ? (
+                                                    <p className="mt-1 text-sm text-slate-600">
+                                                        <span className="badge bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 ring-inset">Registered buyer</span>{" "}
+                                                        GSTIN <span className="font-mono font-semibold text-slate-800">{selectedCustomer.gstin}</span> ·{" "}
+                                                        {gstStateLabel(selectedCustomer.gstin.slice(0, 2))}
+                                                    </p>
+                                                ) : null}
+                                                {selectedCustomer.address ? (
+                                                    <p className="mt-0.5 whitespace-pre-line text-sm text-slate-500">{selectedCustomer.address}</p>
+                                                ) : null}
                                             </>
                                         )}
                                     </div>
@@ -396,6 +522,8 @@ export function CustomersPage() {
                                                 setIsEditingCustomer(false);
                                                 setEditName(selectedCustomer.name);
                                                 setEditPhone(selectedCustomer.phone ?? "");
+                                                setEditBuyer(buyerFrom(selectedCustomer));
+                                                setEditCredit(creditFrom(selectedCustomer));
                                             }}
                                             type="button"
                                         >
@@ -406,7 +534,9 @@ export function CustomersPage() {
                                             disabled={
                                                 updateCustomer.isPending ||
                                                 !editName.trim() ||
-                                                !hasCustomerEdits
+                                                !hasCustomerEdits ||
+                                                !!buyerProblem(editBuyer) ||
+                                                !!creditProblem(editCredit)
                                             }
                                             onClick={() => updateCustomer.mutate()}
                                             type="button"
@@ -447,9 +577,14 @@ export function CustomersPage() {
                                 </div>
                                 <div className="p-5">
                                     <dt className="eyebrow">Amount due</dt>
-                                    <dd className={`mt-1 text-xl font-semibold tabular-nums ${pendingInvoiceSummary.total > 0 ? "text-amber-700" : "text-slate-900"}`}>
-                                        {sales.isLoading ? "…" : inr(pendingInvoiceSummary.total)}
+                                    <dd className={`mt-1 text-xl font-semibold tabular-nums ${(account.data?.outstanding ?? 0) > 0 ? "text-amber-700" : "text-slate-900"}`}>
+                                        {account.isLoading ? "…" : inr(account.data?.outstanding ?? 0)}
                                     </dd>
+                                    {account.data && account.data.overdue > 0 ? (
+                                        <dd className="mt-0.5 text-xs font-medium text-rose-700 tabular-nums">
+                                            {inr(account.data.overdue)} overdue ({account.data.overdueBills} {account.data.overdueBills === 1 ? "bill" : "bills"})
+                                        </dd>
+                                    ) : null}
                                 </div>
                                 <div className="p-5">
                                     <dt className="eyebrow">Wallet balance</dt>
@@ -464,11 +599,46 @@ export function CustomersPage() {
                                     </dd>
                                 </div>
                             </dl>
+                            {!selectedCustomer.isWalkIn ? (
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-5 py-3 text-sm">
+                                    <p className="text-slate-600">
+                                        {account.data?.creditLimit != null ? (
+                                            <>
+                                                Credit limit <span className="font-semibold text-slate-900 tabular-nums">{inr(account.data.creditLimit)}</span>
+                                                {" · "}
+                                                <span className={account.data.available === 0 ? "font-semibold text-rose-700" : ""}>
+                                                    {inr(account.data.available ?? 0)} available
+                                                </span>
+                                            </>
+                                        ) : (
+                                            "No credit limit"
+                                        )}
+                                        {" · "}
+                                        {selectedCustomer.paymentTermsDays != null
+                                            ? `Pay within ${selectedCustomer.paymentTermsDays} ${selectedCustomer.paymentTermsDays === 1 ? "day" : "days"}`
+                                            : "No payment terms"}
+                                    </p>
+                                    <button className="btn-secondary" type="button" onClick={() => setShowStatement((prev) => !prev)}>
+                                        {showStatement ? "Hide statement" : "Statement"}
+                                    </button>
+                                </div>
+                            ) : null}
                         </div>
+
+                        {showStatement && !selectedCustomer.isWalkIn ? (
+                            <StatementPanel
+                                key={selectedCustomer.id}
+                                customerId={selectedCustomer.id}
+                                branchId={branchId}
+                                defaultEmail={selectedCustomer.email}
+                                timeZone={businessSettings.data?.timezone}
+                                storeName={businessSettings.data?.name ?? ""}
+                            />
+                        ) : null}
 
                         {!selectedCustomer.isWalkIn && can(session, "TOP_UP_WALLETS") ? (
                             <form
-                                className="card max-w-md p-5"
+                                className="card max-w-md p-5 print:hidden"
                                 onSubmit={(e) => {
                                     e.preventDefault();
                                     if (!selectedCustomer) return;

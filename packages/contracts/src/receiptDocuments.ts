@@ -22,6 +22,10 @@ export type InvoiceGst = {
   sellerGstin: string | null;
   sellerStateCode: string | null;
   placeOfSupplyStateCode: string | null;
+  /** A registered buyer: their name, GSTIN and billing address, as at the sale. */
+  buyer?: { name: string; gstin: string; address: string | null } | null;
+  /** The buyer's order or reference number. */
+  reference?: string | null;
   cgstTotal: number;
   sgstTotal: number;
   igstTotal: number;
@@ -34,7 +38,10 @@ export function gstDocumentTitle(gst: InvoiceGst) {
   return gst.documentType === 'BILL_OF_SUPPLY' ? 'BILL OF SUPPLY' : 'TAX INVOICE';
 }
 
-/** GSTIN, and the place of supply when the goods went to another state. */
+/**
+ * GSTIN, the place of supply when the goods went to another state, and for a registered buyer
+ * their name, GSTIN and address (a tax invoice to a registered person must carry them).
+ */
 export function gstMetadata(gst: InvoiceGst): ReceiptField[] {
   const interState =
     !!gst.placeOfSupplyStateCode && !!gst.sellerStateCode && gst.placeOfSupplyStateCode !== gst.sellerStateCode;
@@ -43,6 +50,14 @@ export function gstMetadata(gst: InvoiceGst): ReceiptField[] {
     ...(interState
       ? [{ label: 'Place of Supply', value: gstStateLabel(gst.placeOfSupplyStateCode!), fullLine: true }]
       : []),
+    ...(gst.buyer
+      ? [
+          { label: 'Buyer', value: gst.buyer.name, fullLine: true },
+          { label: 'Buyer GSTIN', value: gst.buyer.gstin },
+          ...(gst.buyer.address ? [{ label: 'Address', value: gst.buyer.address.replace(/\s*\n\s*/g, ', '), fullLine: true }] : []),
+        ]
+      : []),
+    ...(gst.reference ? [{ label: 'Ref', value: gst.reference, fullLine: true }] : []),
   ];
 }
 
@@ -70,6 +85,10 @@ export function invoiceGstOf(invoice: {
   sellerGstin?: string | null;
   sellerStateCode?: string | null;
   placeOfSupplyStateCode?: string | null;
+  customerName?: string | null;
+  buyerGstin?: string | null;
+  buyerAddress?: string | null;
+  reference?: string | null;
   cgstTotal?: number | string | null;
   sgstTotal?: number | string | null;
   igstTotal?: number | string | null;
@@ -79,6 +98,10 @@ export function invoiceGstOf(invoice: {
     sellerGstin: invoice.sellerGstin ?? null,
     sellerStateCode: invoice.sellerStateCode ?? null,
     placeOfSupplyStateCode: invoice.placeOfSupplyStateCode ?? null,
+    buyer: invoice.buyerGstin
+      ? { name: invoice.customerName ?? '', gstin: invoice.buyerGstin, address: invoice.buyerAddress ?? null }
+      : null,
+    reference: invoice.reference ?? null,
     cgstTotal: Number(invoice.cgstTotal ?? 0),
     sgstTotal: Number(invoice.sgstTotal ?? 0),
     igstTotal: Number(invoice.igstTotal ?? 0),

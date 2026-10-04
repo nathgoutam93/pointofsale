@@ -5,6 +5,16 @@ import { toNumber } from '../common/numbers';
 import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 
+/** A registered buyer's details (see Customer in schema.prisma); null clears one. */
+export type BuyerFields = { gstin?: string | null; address?: string | null; email?: string | null };
+/** A customer's credit (see Customer in schema.prisma); null clears one. Only admins set these. */
+export type CreditFields = { creditLimit?: number | null; paymentTermsDays?: number | null };
+
+/** A customer as the API answers it: the credit limit as a number. */
+export function customerView<T extends { creditLimit: Prisma.Decimal | null }>(customer: T) {
+  return { ...customer, creditLimit: customer.creditLimit === null ? null : toNumber(customer.creditLimit) };
+}
+
 @Injectable()
 export class CustomersService {
   constructor(
@@ -92,10 +102,10 @@ export class CustomersService {
       scope === CustomerScope.SHARED
         ? { OR: [{ isWalkIn: false }, { isWalkIn: true, branchId }] }
         : { branchId };
-    return this.prisma.customer.findMany({ where, orderBy: { createdAt: 'desc' } });
+    return (await this.prisma.customer.findMany({ where, orderBy: { createdAt: 'desc' } })).map(customerView);
   }
 
-  async createCustomer(branchId: string, name: string, phone?: string) {
+  async createCustomer(branchId: string, name: string, phone?: string, buyer: BuyerFields & CreditFields = {}) {
     const normalizedPhone = phone?.trim() || null;
     return this.prisma.$transaction(async (tx) => {
       const scope = await this.settings.getCustomerScope(tx);
@@ -106,7 +116,12 @@ export class CustomersService {
           branchId,
           code: `CUST-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`,
           name,
-          phone: normalizedPhone
+          phone: normalizedPhone,
+          gstin: buyer.gstin ?? null,
+          address: buyer.address ?? null,
+          email: buyer.email ?? null,
+          creditLimit: buyer.creditLimit ?? null,
+          paymentTermsDays: buyer.paymentTermsDays ?? null
         }
       });
 
@@ -118,11 +133,11 @@ export class CustomersService {
         }
       });
 
-      return customer;
+      return customerView(customer);
     });
   }
 
-  async updateCustomer(branchId: string, customerId: string, input: { name?: string; phone?: string | null }) {
+  async updateCustomer(branchId: string, customerId: string, input: { name?: string; phone?: string | null } & BuyerFields & CreditFields) {
     const scope = await this.settings.getCustomerScope();
     const customer = await this.prisma.customer.findUnique({
       where: { id: customerId },
@@ -135,7 +150,13 @@ export class CustomersService {
       throw new BadRequestException('Walk-in customer cannot be edited');
     }
 
-    const updates: { name?: string; phone?: string | null } = {};
+    const updates: { name?: string; phone?: string | null } & BuyerFields & CreditFields = {};
+    // Validated (and empty values made null) by the contract.
+    if (input.gstin !== undefined) updates.gstin = input.gstin;
+    if (input.address !== undefined) updates.address = input.address;
+    if (input.email !== undefined) updates.email = input.email;
+    if (input.creditLimit !== undefined) updates.creditLimit = input.creditLimit;
+    if (input.paymentTermsDays !== undefined) updates.paymentTermsDays = input.paymentTermsDays;
     if (input.name !== undefined) {
       updates.name = input.name.trim();
     }
@@ -151,14 +172,14 @@ export class CustomersService {
     }
     await this.assertPhoneFree(updates.phone, customer.branchId, scope, customer.id);
 
-    return this.prisma.customer.update({
+    return customerView(await this.prisma.customer.update({
       where: { id: customerId },
       data: updates
-    });
+    }));
   }
 
   async getWalkIn(branchId: string) {
-    return this.ensureWalkInCustomer(branchId);
+    return customerView(await this.ensureWalkInCustomer(branchId));
   }
 
   /** The customer's wallet, if this branch may use the customer (see customerUsableAt). */

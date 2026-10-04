@@ -2,10 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, authHeaders } from "../../lib/api";
 
-type PickerCustomer = { id: string; name: string | null; phone: string | null; code: string };
+type PickerCustomer = { id: string; name: string | null; phone: string | null; code: string; gstin?: string | null };
 
 /**
- * Finds a customer by name or phone, or creates one when nothing matches. Its search and
+ * Finds a customer by name, phone or GSTIN, or creates one when nothing matches. Its search and
  * form start empty each time it opens.
  */
 export function CustomerPickerModal({
@@ -31,7 +31,8 @@ export function CustomerPickerModal({
     return customers.filter((c) => {
       const name = (c.name ?? "").toLowerCase();
       const phone = (c.phone ?? "").toLowerCase();
-      return name.includes(q) || phone.includes(q);
+      const gstin = (c.gstin ?? "").toLowerCase();
+      return name.includes(q) || phone.includes(q) || (!!gstin && gstin.includes(q));
     });
   }, [customers, searchQuery]);
 
@@ -67,12 +68,12 @@ export function CustomerPickerModal({
           </button>
         </div>
 
-        <label className="field-label">Search by name or phone</label>
+        <label className="field-label">Search by name, phone or GSTIN</label>
         <input
           className="field mt-1"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Enter customer name or phone"
+          placeholder="Enter customer name, phone or GSTIN"
         />
 
         <div className="mt-3 max-h-64 space-y-2 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-2">
