@@ -877,9 +877,9 @@ const reportRangeSchema = z.object({
   label: z.string(),
   startDate: z.string().datetime().nullable(),
   endDate: z.string().datetime().nullable(),
-  /** Settled invoices in the range. */
+  /** Invoices made in the range, paid or not (not cancelled ones). */
   invoiceCount: z.number().int().nonnegative(),
-  /** Settled sales including tax. */
+  /** Sales made in the range including tax, paid or not. A closed range's figures don't change later. */
   grossSales: moneySchema,
   taxCollected: moneySchema,
   /** Refunds including tax, and their pre-tax part. */
@@ -891,8 +891,12 @@ const reportRangeSchema = z.object({
   costOfGoodsSold: moneySchema,
   /** netSales - costOfGoodsSold. */
   grossProfit: moneySchema,
-  /** Still owed on unpaid or part-paid (credit) invoices created in the range; not in sales. */
-  unpaidSales: moneySchema
+  /** Still owed on unpaid or part-paid (credit) invoices created in the range (part of the sales above). */
+  unpaidSales: moneySchema,
+  /** Money taken in the range by how it was paid, whenever its bill was made. Wallet payments spend money taken earlier. */
+  collections: z
+    .object({ cash: moneySchema, card: moneySchema, upi: moneySchema, wallet: moneySchema })
+    .default({ cash: 0, card: 0, upi: 0, wallet: 0 })
 });
 
 const saleCreateBodySchema = z.object({

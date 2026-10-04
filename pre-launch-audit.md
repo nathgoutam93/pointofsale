@@ -156,7 +156,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   total, stock, payment mode and amount, price, refund, return stock) and `verify-outbox.test.ts`.
   Not checked against the server's item prices or MRP, which may have changed since the copy.
 
-### [ ] A8. Reports don't rewrite past periods
+### [x] A8. Reports don't rewrite past periods
 
 - **Why:** `ReportsService` (`apps/api/src/reports/reports.service.ts`) counts only SETTLED
   bills but dates them by `createdAt`. A credit sale paid later appears in the period it was
@@ -166,6 +166,12 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   report collections (payments by date and mode) as a separate figure.
 - **Done when:** a closed period's sales figure doesn't change when a credit bill from it is
   paid.
+- **Status (2026-10-04):** sales, cost of goods sold and returns count every bill that isn't
+  cancelled, in the period it (or the return) was made. "Still owed" shows how much of those sales
+  is unpaid. New `collections` per period (cash, card, UPI, wallet) is money taken in the period
+  for bills of any date. It is shown on the Reports page under "Money collected", including for
+  all branches. Tests: `reports.test.ts`, which pays a credit bill later and checks the sales
+  don't move.
 
 ### [ ] A9. Smaller fixes
 

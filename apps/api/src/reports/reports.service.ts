@@ -16,10 +16,13 @@ export class ReportsService {
   ) {}
 
   /**
-   * Sales figures for one date range. Only SETTLED invoices count as sales (unpaid credit
-   * sales are reported separately); amounts are split into tax and net so profit is worked
-   * out on net sales, and cost of goods sold uses the cost recorded on each sale line.
-   * Adding stock (opening, adjustments in) is not an expense: it only becomes cost when sold.
+   * Sales figures for one date range. A sale counts in the range it was made in, paid or not
+   * (cancelled bills never count), so a closed period's figures don't change when a credit
+   * bill from it is paid later; what is still owed on them is shown too, and the money taken
+   * in the range (by payment mode, whenever the bill was made) separately. Amounts are split
+   * into tax and net so profit is worked out on net sales, and cost of goods sold uses the cost
+   * recorded on each sale line. Adding stock (opening, adjustments in) is not an expense: it
+   * only becomes cost when sold.
    */
   private async computeReportRange(
     branchId: string,
@@ -30,22 +33,21 @@ export class ReportsService {
         ? Prisma.sql`AND ${column} >= ${range.startDate} AND ${column} < ${range.endDate}`
         : Prisma.empty;
 
-    const [sales, cogs, unpaid, returns] = await Promise.all([
+    const [sales, cogs, unpaid, returns, collected] = await Promise.all([
       this.prisma.$queryRaw<Array<{ gross: Prisma.Decimal | null; tax: Prisma.Decimal | null; count: bigint }>>`
         SELECT SUM(i."grandTotal") AS gross, SUM(i."taxTotal") AS tax, COUNT(*) AS count
         FROM "SaleInvoice" i
-        WHERE i."branchId" = ${branchId} AND i."status" = 'SETTLED' ${inRange(Prisma.sql`i."createdAt"`)}`,
+        WHERE i."branchId" = ${branchId} AND i."status" <> 'CANCELLED' ${inRange(Prisma.sql`i."createdAt"`)}`,
       this.prisma.$queryRaw<Array<{ cost: Prisma.Decimal | null }>>`
         SELECT SUM(l."qty" * COALESCE(l."unitCost", 0)) AS cost
         FROM "SaleInvoiceLine" l JOIN "SaleInvoice" i ON i."id" = l."invoiceId"
-        WHERE i."branchId" = ${branchId} AND i."status" = 'SETTLED' ${inRange(Prisma.sql`i."createdAt"`)}`,
+        WHERE i."branchId" = ${branchId} AND i."status" <> 'CANCELLED' ${inRange(Prisma.sql`i."createdAt"`)}`,
       this.prisma.$queryRaw<Array<{ due: Prisma.Decimal | null }>>`
         SELECT SUM(i."grandTotal" - i."paidTotal" - i."creditedTotal") AS due
         FROM "SaleInvoice" i
         WHERE i."branchId" = ${branchId} AND i."status" IN ('DRAFT', 'PARTIALLY_SETTLED') ${inRange(Prisma.sql`i."createdAt"`)}`,
-      // A return's net (pre-tax) part uses its sale line's own taxable/net ratio. Only returns
-      // on paid bills: an unpaid bill isn't in the sales above yet (its returns come off what is
-      // owed), and both count once it is paid.
+      // A return's net (pre-tax) part uses its sale line's own taxable/net ratio; it counts in the
+      // range the return was made in.
       this.prisma.$queryRaw<Array<{ gross: Prisma.Decimal | null; net: Prisma.Decimal | null; cost: Prisma.Decimal | null }>>`
         SELECT SUM(rl."amount") AS gross,
                SUM(CASE WHEN sl."netAmount" > 0 THEN rl."amount" * sl."taxableAmount" / sl."netAmount" ELSE 0 END) AS net,
@@ -54,8 +56,15 @@ export class ReportsService {
         JOIN "ReturnInvoice" r ON r."id" = rl."returnInvoiceId"
         JOIN "SaleInvoiceLine" sl ON sl."id" = rl."saleLineId"
         JOIN "SaleInvoice" i ON i."id" = sl."invoiceId"
-        WHERE i."branchId" = ${branchId} AND i."status" = 'SETTLED' ${inRange(Prisma.sql`r."createdAt"`)}`
+        WHERE i."branchId" = ${branchId} AND i."status" <> 'CANCELLED' ${inRange(Prisma.sql`r."createdAt"`)}`,
+      // Money taken in the range, by how it was paid, on this branch's bills.
+      this.prisma.$queryRaw<Array<{ mode: string; amount: Prisma.Decimal | null }>>`
+        SELECT p."mode"::text AS mode, SUM(p."amount") AS amount
+        FROM "Payment" p JOIN "SaleInvoice" i ON i."id" = p."invoiceId"
+        WHERE i."branchId" = ${branchId} ${inRange(Prisma.sql`p."createdAt"`)}
+        GROUP BY p."mode"`
     ]);
+    const collectedBy = (mode: string) => round2(toNumber(collected.find((row) => row.mode === mode)?.amount ?? 0));
 
     const grossSales = round2(toNumber(sales[0]?.gross ?? 0));
     const taxCollected = round2(toNumber(sales[0]?.tax ?? 0));
@@ -76,7 +85,13 @@ export class ReportsService {
       netSales,
       costOfGoodsSold,
       grossProfit: round2(netSales - costOfGoodsSold),
-      unpaidSales: round2(toNumber(unpaid[0]?.due ?? 0))
+      unpaidSales: round2(toNumber(unpaid[0]?.due ?? 0)),
+      collections: {
+        cash: collectedBy('CASH'),
+        card: collectedBy('CARD'),
+        upi: collectedBy('UPI'),
+        wallet: collectedBy('WALLET')
+      }
     };
   }
 
