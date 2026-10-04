@@ -25,6 +25,7 @@ import { CountersSection } from "./settings/CountersSection";
 import { CashierPermissions } from "./settings/CashierPermissions";
 import { TaxpayerTypeSection } from "./settings/TaxpayerTypeSection";
 import { BillingSection } from "./settings/BillingSection";
+import { DataExportSection } from "./settings/DataExportSection";
 
 type SettingsForm = {
   name: string;
@@ -64,7 +65,7 @@ type CreateBranchForm = {
   code: string;
 };
 
-type SettingsTab = "business" | "branches" | "receipts" | "cashiers" | "printer" | "backups" | "billing";
+type SettingsTab = "business" | "branches" | "receipts" | "cashiers" | "printer" | "backups" | "billing" | "data";
 
 const emptyCashierForm = (branchId: string): CashierForm => ({ username: "", password: "", branchIds: [branchId], permissions: [] });
 
@@ -553,7 +554,8 @@ export function BranchSettingsPage() {
             { id: "cashiers" as const, label: "Cashiers & Access" },
             ...(receiptPrinter ? [{ id: "printer" as const, label: "Printer" }] : []),
             ...(localBackups ? [{ id: "backups" as const, label: "Backups" }] : []),
-            ...(hosting === "managed" ? [{ id: "billing" as const, label: "Billing" }] : [])
+            ...(hosting === "managed" ? [{ id: "billing" as const, label: "Billing" }] : []),
+            { id: "data" as const, label: "Your data" }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1018,6 +1020,11 @@ export function BranchSettingsPage() {
       ) : null}
 
       {activeTab === "billing" && hosting === "managed" ? <BillingSection /> : null}
+      {activeTab === "data" ? (
+        <div className="p-6">
+          <DataExportSection branches={availableBranches} timeZone={businessSettings.data?.timezone} />
+        </div>
+      ) : null}
 
       {activeTab === "printer" && receiptPrinter ? (
         <PrinterSection printing={receiptPrinter} branchId={initialBranchId} />

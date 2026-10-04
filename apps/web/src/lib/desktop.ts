@@ -31,7 +31,7 @@ export type ModeChoice = { mode: 'offline' } | { mode: 'online'; apiBaseUrl: str
 export type BackupEntry = {
   file: string;
   createdAt: string;
-  reason: 'daily' | 'manual' | 'before-update' | 'before-restore' | 'before-move';
+  reason: 'daily' | 'manual' | 'before-update' | 'before-restore' | 'before-move' | 'export';
   bytes: number;
 };
 
