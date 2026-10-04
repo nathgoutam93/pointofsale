@@ -573,7 +573,7 @@ export function PosPage() {
 
   const checkout = useMutation({
     mutationFn: async (payload: {
-      payments: Array<{ mode: PaymentMode; amount: number }>;
+      payments: Array<{ mode: PaymentMode; amount: number; tendered?: number }>;
     }) => {
       const body = { ...buildSaleBody(), payments: payload.payments };
       const fingerprint = JSON.stringify(body);
@@ -627,6 +627,7 @@ export function PosPage() {
         paymentLines: result.invoice.payments.map((line) => ({
           mode: line.mode,
           amount: Number(line.amount),
+          tendered: line.tendered === null || line.tendered === undefined ? null : Number(line.tendered),
         })),
         lines: result.invoice.lines.map((line) => {
           const snapshot = cartSnapshotByKey.get(

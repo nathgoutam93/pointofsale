@@ -93,7 +93,11 @@ export class ReceiptEmailService {
       ),
       orderDiscount: Number(invoice.orderDiscountAmount ?? 0),
       grandTotal: Number(invoice.grandTotal),
-      payments: invoice.payments.map((payment) => ({ mode: payment.mode, amount: Number(payment.amount) })),
+      payments: invoice.payments.map((payment) => ({
+        mode: payment.mode,
+        amount: Number(payment.amount),
+        tendered: payment.tendered === null ? null : Number(payment.tendered)
+      })),
       paidTotal: Number(invoice.paidTotal),
       creditedTotal: Number(invoice.creditedTotal),
       timeZone: business?.timezone ?? undefined

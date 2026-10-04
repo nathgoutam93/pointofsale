@@ -202,7 +202,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 
 ## B. Retail features a shop needs on day one
 
-### [ ] B1. Cash tendered and change
+### [x] B1. Cash tendered and change
 
 - **Why:** a walk-in can't pay more than the bill (`settleSaleInTx`, `usePayment.ts`), so ₹500
   for ₹487 is refused and the cashier works out change by hand. For named customers any extra
@@ -211,6 +211,14 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   applied (the drawer keeps the bill amount). For named customers, ask: change or wallet.
 - **Done when:** ₹500 for ₹487 shows ₹13 change, the receipt prints tendered and change, and the
   drawer's expected cash is right.
+- **Status (2026-10-04):** a cash payment can carry `tendered` (migration
+  `20261020140000_cash_tendered`). Only the amount applied goes on the bill and in the drawer.
+  The payment dialog records cash beyond what is due as tendered and shows "Change to give". A
+  registered customer's extra cash goes back as change by default, or into their wallet with
+  "Add to wallet". The done screen says "Give back ₹X change", and receipts (printed, reprinted,
+  emailed) print "Cash tendered" and "Change". Checked in the real POS in Chromium (₹500 for ₹487
+  → ₹13 change). Tests: `checkout.test.ts`, `receiptDocuments.test.ts`. Also fixed a duplicate
+  UPI button left from A1.
 
 ### [ ] B2. Round-off to the rupee
 

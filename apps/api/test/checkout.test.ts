@@ -54,6 +54,24 @@ describe('checkout', () => {
   });
 });
 
+describe('cash tendered', () => {
+  it('records what was handed over; only the bill amount goes in the drawer', async () => {
+    const register = await t.ok('GET', '/registers/current', ctx.token);
+    const res = await checkout(checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(itemId)], [{ mode: 'CASH', amount: 100, tendered: 500 }]));
+    expect(res.status).toBe(200);
+    expect(res.body.invoice.status).toBe('SETTLED');
+    expect(res.body.invoice.payments[0]).toMatchObject({ mode: 'CASH', tendered: '500' });
+    expect((await t.ok('GET', '/registers/current', ctx.token)).expectedCash).toBe(register.expectedCash + 100);
+
+    // Not less than the payment, and only for cash.
+    expect((await checkout(checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(itemId)], [{ mode: 'CASH', amount: 100, tendered: 50 }]))).status).toBe(400);
+    expect((await checkout(checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(itemId)], [{ mode: 'CARD', amount: 100, tendered: 200 }]))).status).toBe(400);
+    // Exact cash keeps no tendered amount.
+    const exact = await checkout(checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(itemId)], [{ mode: 'CASH', amount: 100, tendered: 100 }]));
+    expect(exact.body.invoice.payments[0].tendered).toBeNull();
+  });
+});
+
 describe('cancelling an unpaid draft', () => {
   it('cancels it and puts the stock back; nothing else can be cancelled', async () => {
     const draft = await t.ok('POST', '/sales', ctx.token, { branchId: ctx.branch.id, customerId, lines: [line(itemId, { qty: 2 })] });

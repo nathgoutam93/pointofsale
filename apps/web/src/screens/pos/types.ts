@@ -39,7 +39,7 @@ export type PostPaymentSummary = {
   taxTotal: number;
   grandTotal: number;
   paidTotal: number;
-  paymentLines: Array<{ mode: PaymentMode; amount: number }>;
+  paymentLines: Array<{ mode: PaymentMode; amount: number; tendered?: number | null }>;
   lines: CartLine[];
   /** The invoice's GST facts as recorded at the sale (document type, GSTIN, tax split). */
   gst: InvoiceGst;

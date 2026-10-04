@@ -61,7 +61,7 @@ type SettledSummary = {
     netAmount: number;
     hsnCode?: string | null;
   }>;
-  payments: Array<{ mode: PaymentMode; amount: number }>;
+  payments: Array<{ mode: PaymentMode; amount: number; tendered?: number | null }>;
   gst: InvoiceGst;
   /** The receipt's lines, built as emailed receipts build them. */
   receiptItems: ReceiptDocumentItem[];
@@ -364,7 +364,6 @@ export function SalesPage() {
       return [
         { key: "CASH", label: "Cash" },
         { key: "CARD", label: "Card" },
-      { key: "UPI", label: "UPI" },
         { key: "UPI", label: "UPI" },
       ];
     }
@@ -663,6 +662,7 @@ export function SalesPage() {
         payments: result.invoice.payments.map((line) => ({
           mode: line.mode,
           amount: Number(line.amount),
+          tendered: line.tendered === null || line.tendered === undefined ? null : Number(line.tendered),
         })),
       });
       setPaymentModalOpen(false);
@@ -848,6 +848,7 @@ export function SalesPage() {
     selectedInvoiceDetails.data?.payments.map((line) => ({
       mode: line.mode as PaymentMode,
       amount: Number(line.amount),
+      tendered: line.tendered === null || line.tendered === undefined ? null : Number(line.tendered),
     })) ??
     [];
 

@@ -82,7 +82,7 @@ export class SalesController {
       }>;
       discounts?: Array<{ type: 'PERCENTAGE' | 'FIXED'; value: number }>;
       idempotencyKey: string;
-      payments: Array<{ mode: PaymentMode; amount: number; reference?: string }>;
+      payments: Array<{ mode: PaymentMode; amount: number; tendered?: number; reference?: string }>;
     },
     @Headers() headers: RequestHeaders
   ) {
@@ -106,7 +106,7 @@ export class SalesController {
   @HttpCode(200)
   settleSale(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(appContract.sales.settle.body)) body: { payments: Array<{ mode: PaymentMode; amount: number; reference?: string }> },
+    @Body(new ZodValidationPipe(appContract.sales.settle.body)) body: { payments: Array<{ mode: PaymentMode; amount: number; tendered?: number; reference?: string }> },
     @Headers() headers: RequestHeaders
   ) {
     return this.sales.settleSale(requireOpenRegisterSession(headers), id, body.payments);

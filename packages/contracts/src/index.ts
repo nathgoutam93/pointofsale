@@ -752,6 +752,8 @@ const paymentSchema = z.object({
   invoiceId: z.string().uuid(),
   mode: paymentModeSchema,
   amount: moneySchema,
+  /** Cash handed over, when more than the amount; the rest was given back as change. */
+  tendered: moneySchema.nullable().optional(),
   reference: z.string().nullable(),
   createdAt: z.string().datetime()
 });
@@ -915,7 +917,18 @@ const saleCreateBodySchema = z.object({
   reference: z.string().trim().max(40).optional()
 });
 
-const paymentInputSchema = z.object({ mode: paymentModeSchema, amount: moneySchema.positive(), reference: z.string().optional() });
+const paymentInputSchema = z
+  .object({
+    mode: paymentModeSchema,
+    amount: moneySchema.positive(),
+    /** Cash only: what the customer handed over, when more than `amount` (the rest is change). */
+    tendered: moneySchema.positive().optional(),
+    reference: z.string().optional()
+  })
+  .refine((payment) => payment.tendered === undefined || (payment.mode === 'CASH' && payment.tendered >= payment.amount), {
+    message: 'Cash tendered is for cash payments, and at least the amount paid',
+    path: ['tendered']
+  });
 
 /** A GSTIN and a month (from = to) or quarter, as YYYY-MM. */
 const gstPeriodQuerySchema = z.object({

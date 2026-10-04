@@ -600,6 +600,9 @@ export class SalesService {
     if (payments.length === 0 || payments.some((p) => !Number.isFinite(p.amount) || p.amount <= 0)) {
       throw new BadRequestException('Each payment amount must be greater than zero');
     }
+    if (payments.some((p) => p.tendered !== undefined && (p.mode !== PaymentMode.CASH || !(round2(p.tendered) >= round2(p.amount))))) {
+      throw new BadRequestException('Cash tendered is for cash payments, and at least the amount paid');
+    }
     // Lock the invoice so two settle requests for it run one after the other.
     await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
     const invoice = await tx.saleInvoice.findUnique({
@@ -674,6 +677,7 @@ export class SalesService {
         invoiceId: invoice.id,
         mode: p.mode,
         amount: p.amount,
+        tendered: p.tendered !== undefined && round2(p.tendered) > round2(p.amount) ? round2(p.tendered) : null,
         reference: p.reference,
         registerSessionId: session.registerId
       }))

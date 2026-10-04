@@ -133,7 +133,8 @@ export function saleReceiptDocument(sale: {
   items: ReceiptDocumentItem[];
   orderDiscount: number;
   grandTotal: number;
-  payments: Array<{ mode: string; amount: number }>;
+  /** `tendered`: cash handed over when more than the amount (the rest was change). */
+  payments: Array<{ mode: string; amount: number; tendered?: number | null }>;
   paidTotal: number;
   /** Taken off the amount due by returns made before the bill was paid. */
   creditedTotal?: number;
@@ -165,7 +166,16 @@ export function saleReceiptDocument(sale: {
     grandTotalLabel: 'TOTAL',
     grandTotal: sale.grandTotal,
     payments: [
-      ...sale.payments.map((payment) => ({ label: `Paid by ${payment.mode}`, amount: payment.amount })),
+      ...sale.payments.flatMap((payment) => [
+        { label: `Paid by ${payment.mode}`, amount: payment.amount },
+        // Cash handed over and the change given back.
+        ...(payment.tendered && payment.tendered > payment.amount
+          ? [
+              { label: 'Cash tendered', amount: payment.tendered },
+              { label: 'Change', amount: round2(payment.tendered - payment.amount) },
+            ]
+          : []),
+      ]),
       ...(credited > 0 ? [{ label: 'Less returns', amount: credited }] : []),
     ],
     due: invoiceDue({ grandTotal: sale.grandTotal, paidTotal: sale.paidTotal, creditedTotal: credited }),

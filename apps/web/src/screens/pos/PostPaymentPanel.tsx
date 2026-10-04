@@ -19,6 +19,10 @@ export function PostPaymentPanel({
   onNewOrder: () => void;
 }) {
   const paid = postPayment.paymentLines.length > 0;
+  const change = postPayment.paymentLines.reduce(
+    (sum, line) => sum + (line.tendered && line.tendered > line.amount ? line.tendered - line.amount : 0),
+    0,
+  );
   return (
     <>
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
@@ -35,6 +39,11 @@ export function PostPaymentPanel({
           <p className="mt-1 text-xs text-slate-500">
             {paid ? "This sale is settled." : "Saved on full credit. Settle it from Sales."}
           </p>
+          {change > 0 ? (
+            <p className="mt-3 rounded-md bg-white px-3 py-2 text-lg font-semibold text-emerald-800 tabular-nums">
+              Give back {inr(change)} change
+            </p>
+          ) : null}
         </div>
 
         <button className="btn-secondary h-11 w-full print:hidden" onClick={onPrint} disabled={printing}>

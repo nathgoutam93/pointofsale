@@ -618,6 +618,9 @@ model Payment {
   invoice           SaleInvoice      @relation(fields: [invoiceId], references: [id])
   mode              PaymentMode
   amount            Decimal          @db.Decimal(14, 2)
+  /// Cash payments: what the customer handed over, when more than `amount`; the difference was
+  /// given back as change. Only `amount` goes on the bill and in the drawer.
+  tendered          Decimal?         @db.Decimal(14, 2)
   reference         String?
   /// The register the payment was taken on; null for payments made before this was recorded.
   registerSessionId String?

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatReceiptDate, formatReceiptTime, gstMetadata, invoiceDue, invoiceGstOf, invoiceReceiptItems, returnReceiptDocument, splitReturn } from './receiptDocuments.js';
+import { formatReceiptDate, formatReceiptTime, gstMetadata, invoiceDue, invoiceGstOf, invoiceReceiptItems, returnReceiptDocument, saleReceiptDocument, splitReturn } from './receiptDocuments.js';
 
 describe('receipt dates', () => {
   it('are written in the business time zone when given one', () => {
@@ -122,5 +122,32 @@ describe('a tax invoice to a registered buyer', () => {
       { label: 'Ref', value: 'PO-7781', fullLine: true }
     ]);
     expect(gstMetadata(invoiceGstOf(base))).toEqual([{ label: 'GSTIN', value: '29ABCDE1234F1ZW' }]);
+  });
+});
+
+describe('saleReceiptDocument', () => {
+  it('prints the cash handed over and the change', () => {
+    const doc = saleReceiptDocument({
+      branding: { storeName: 'Shop', headerLines: [], footerLines: [] } as never,
+      invoiceNo: 'MAI/1/26/00001',
+      createdAt: '2026-10-03T10:00:00.000Z',
+      cashier: 'asha',
+      customer: 'Walk In Customer',
+      gst: { documentType: 'TAX_INVOICE', sellerGstin: null, sellerStateCode: null, placeOfSupplyStateCode: null, cgstTotal: 0, sgstTotal: 0, igstTotal: 0 },
+      items: [],
+      orderDiscount: 0,
+      grandTotal: 487,
+      payments: [
+        { mode: 'UPI', amount: 100 },
+        { mode: 'CASH', amount: 387, tendered: 500 }
+      ],
+      paidTotal: 487
+    });
+    expect(doc.payments).toEqual([
+      { label: 'Paid by UPI', amount: 100 },
+      { label: 'Paid by CASH', amount: 387 },
+      { label: 'Cash tendered', amount: 500 },
+      { label: 'Change', amount: 113 }
+    ]);
   });
 });
