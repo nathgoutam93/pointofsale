@@ -30,7 +30,7 @@ describe('cashier permissions', () => {
       items: () => t.call('POST', '/items', cashier.token, { code: `P${Date.now()}`, name: 'Cashier item', uom: 'PCS', sellPrice: 10, taxRate: 0 }),
       purchases: () => t.call('POST', '/purchases', cashier.token, { branchId: a.branch.id, supplierName: 'Acme', lines: [{ itemId, qty: 1, unitCost: 5 }] }),
       transfers: () => t.call('POST', '/stock-transfers', cashier.token, { fromBranchId: a.branch.id, toBranchId: b.branch.id, lines: [{ itemId, qty: 1 }] }),
-      wallet: () => t.call('POST', `/customers/${customerId}/wallet/topup`, cashier.token, { amount: 50 }),
+      wallet: () => t.call('POST', `/customers/${customerId}/wallet/topup`, cashier.token, { amount: 50, mode: 'CASH' }),
       cancel: () => t.call('POST', `/sales/${unpaid.id}/cancel`, cashier.token)
     };
     for (const [name, attempt] of Object.entries(attempts)) {

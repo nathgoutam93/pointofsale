@@ -89,6 +89,9 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
             <dl className="mt-4 space-y-2 text-sm">
               <div className="flex justify-between"><dt className="text-slate-500">Opening balance</dt><dd className="tabular-nums">{inr(current.data.openingBalance)}</dd></div>
               <div className="flex justify-between"><dt className="text-slate-500">Cash taken</dt><dd className="tabular-nums">+ {inr(current.data.cashSales)}</dd></div>
+              {current.data.cashTopups > 0 ? (
+                <div className="flex justify-between"><dt className="text-slate-500">Cash wallet top-ups</dt><dd className="tabular-nums">+ {inr(current.data.cashTopups)}</dd></div>
+              ) : null}
               <div className="flex justify-between"><dt className="text-slate-500">Cash refunded</dt><dd className="tabular-nums">− {inr(current.data.cashRefunds)}</dd></div>
               <div className="flex justify-between border-t border-slate-100 pt-2 font-semibold"><dt>Expected in drawer</dt><dd className="tabular-nums">{inr(expected)}</dd></div>
             </dl>

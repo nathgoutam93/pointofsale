@@ -1,6 +1,6 @@
 import { isFallback, isOffline } from '../common/mode';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PaymentMode, Prisma } from '@prisma/client';
+import { PaymentMode, Prisma, WalletTxnType } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { signToken } from '../auth/token';
 import type { SessionUser } from '../common/types';
@@ -9,6 +9,7 @@ import { requireSessionBranchId, requireSessionRegisterId } from '../common/sess
 import { branchSummarySelect, registerSelect } from '../common/selects';
 import { SettingsService } from '../settings/settings.service';
 import { lockBranchRegisters } from '../common/counters';
+import { assertRegisterOpen } from '../common/register-open';
 import { BranchesService } from '../branches/branches.service';
 
 @Injectable()
@@ -37,15 +38,21 @@ export class RegistersService {
   }
 
   /**
-   * Cash that should be in a register's drawer: the opening balance plus cash payments
-   * taken on it, minus cash refunds given from it. Card, UPI and wallet don't touch the
-   * drawer; card and UPI takings are reported for checking against their settlements.
+   * Cash that should be in a register's drawer: the opening balance plus cash payments and
+   * cash wallet top-ups taken on it, minus cash refunds given from it. Card, UPI and wallet
+   * don't touch the drawer; card and UPI takings (payments and top-ups) are reported for
+   * checking against their settlements.
    */
   async registerCash(client: Prisma.TransactionClient | PrismaService, registerId: string, openingBalance: number) {
-    const [takenByMode, cashOut] = await Promise.all([
+    const [takenByMode, topupsByMode, cashOut] = await Promise.all([
       client.payment.groupBy({
         by: ['mode'],
         where: { registerSessionId: registerId },
+        _sum: { amount: true }
+      }),
+      client.walletTxn.groupBy({
+        by: ['paymentMode'],
+        where: { registerSessionId: registerId, type: WalletTxnType.TOPUP },
         _sum: { amount: true }
       }),
       client.returnInvoice.aggregate({
@@ -53,31 +60,25 @@ export class RegistersService {
         _sum: { refundAmount: true }
       })
     ]);
-    const taken = (mode: PaymentMode) => round2(toNumber(takenByMode.find((row) => row.mode === mode)?._sum.amount));
+    const topups = (mode: PaymentMode) => round2(toNumber(topupsByMode.find((row) => row.paymentMode === mode)?._sum.amount));
+    const taken = (mode: PaymentMode) =>
+      round2(toNumber(takenByMode.find((row) => row.mode === mode)?._sum.amount) + (mode === PaymentMode.CASH ? 0 : topups(mode)));
     const cashSales = taken(PaymentMode.CASH);
+    const cashTopups = topups(PaymentMode.CASH);
     const cashRefunds = round2(toNumber(cashOut._sum.refundAmount));
     return {
       cashSales,
+      cashTopups,
       cashRefunds,
-      expectedCash: round2(openingBalance + cashSales - cashRefunds),
+      expectedCash: round2(openingBalance + cashSales + cashTopups - cashRefunds),
       cardSales: taken(PaymentMode.CARD),
       upiSales: taken(PaymentMode.UPI)
     };
   }
 
-  /**
-   * Money moving through a register must land before it closes: share-lock the register
-   * row (close takes it exclusively) and check it is still open.
-   */
-  /** Fails unless the session's register is still open; returns the counter it runs on. */
-  async assertRegisterOpen(tx: Prisma.TransactionClient, session: SessionUser) {
-    const registerId = requireSessionRegisterId(session);
-    const rows = await tx.$queryRaw<Array<{ closedAt: Date | null; counterId: string }>>`
-      SELECT "closedAt", "counterId" FROM "RegisterSession" WHERE id = ${registerId} FOR SHARE`;
-    if (rows.length === 0 || rows[0].closedAt !== null) {
-      throw new BadRequestException('Register is closed. Open a register to continue.');
-    }
-    return { counterId: rows[0].counterId };
+  /** Fails unless the session's register is still open; returns the counter it runs on (see assertRegisterOpen). */
+  assertRegisterOpen(tx: Prisma.TransactionClient, session: SessionUser) {
+    return assertRegisterOpen(tx, session);
   }
 
   /**
@@ -261,6 +262,7 @@ export class RegistersService {
       return {
         ...this.toRegisterDto(updated),
         cashSales: cash.cashSales,
+        cashTopups: cash.cashTopups,
         cashRefunds: cash.cashRefunds,
         cardSales: cash.cardSales,
         upiSales: cash.upiSales

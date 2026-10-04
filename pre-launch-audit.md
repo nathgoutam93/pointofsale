@@ -34,7 +34,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   the close dialog) shows card and UPI taken apart from cash (`registerCash`, `register.test.ts`).
   Left for later: a UTR/reference field in the payment dialog, UPI QR, refunds to UPI.
 
-### [ ] A2. Wallet top-ups leave a money trail
+### [x] A2. Wallet top-ups leave a money trail
 
 - **Why:** `CustomersService.topupWallet` (`apps/api/src/customers/customers.service.ts`) only
   raises the balance: no payment mode, no register, no user (`WalletTxn` has no user field).
@@ -47,6 +47,13 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   - Manual corrections go through the existing `ADJUSTMENT` type, admins only, with a reason.
 - **Done when:** every wallet credit names a user, a register and how it was paid, and a cash
   top-up shows up in the drawer's expected cash.
+- **Status (2026-10-04):** top-ups need an open register (at its branch) and a mode (cash, card,
+  UPI); `WalletTxn` records `createdBy`/`createdByName`, `paymentMode`, `registerSessionId` and
+  `reason` (migration `20261020110000_wallet_txn_trail`), including the entries sales and returns
+  make. Cash top-ups count in the drawer's expected cash (`cashTopups`), card and UPI ones in the
+  card and UPI takings. Admins correct balances with `POST /customers/:id/wallet/adjust` (reason
+  required, never below 0), shown on the Customers page. Refused while working offline. Tests:
+  `wallet.test.ts`. Left for later: a printed top-up receipt.
 
 ### [ ] A3. Controls on returns and cash refunds
 

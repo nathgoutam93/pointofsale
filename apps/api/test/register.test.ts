@@ -12,7 +12,7 @@ describe('register balance', () => {
     const ctx = await t.branchWithRegister(admin, 500);
     const item = await t.item(ctx.token, ctx.branch.id, { taxRate: 18, stock: 1000 });
     const customer = await t.ok('POST', '/customers', ctx.token, { branchId: ctx.branch.id, name: 'Register customer' });
-    await t.ok('POST', `/customers/${customer.id}/wallet/topup`, ctx.token, { amount: 500 });
+    await t.ok('POST', `/customers/${customer.id}/wallet/topup`, ctx.token, { amount: 500, mode: 'CASH' });
     const la = (qty: number) => line(item.id, { qty, taxRate: 18 });
     const co = (customerId: string, qty: number, payments: unknown[]) =>
       t.ok('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, customerId, [la(qty)], payments));
@@ -26,13 +26,14 @@ describe('register balance', () => {
 
     expect(await t.ok('GET', '/registers/current', ctx.token)).toMatchObject({
       cashSales: 572,
+      cashTopups: 500, // the wallet top-up above, in cash
       cashRefunds: 118,
-      expectedCash: 954,
+      expectedCash: 1454,
       cardSales: 118,
       upiSales: 200
     });
-    const closed = await t.ok('POST', '/registers/close', ctx.token, { closingBalance: 936 });
-    expect(closed.register).toMatchObject({ expectedCash: 954, closingBalance: 936, cashDifference: -18, cardSales: 118, upiSales: 200 });
+    const closed = await t.ok('POST', '/registers/close', ctx.token, { closingBalance: 1436 });
+    expect(closed.register).toMatchObject({ expectedCash: 1454, closingBalance: 1436, cashDifference: -18, cardSales: 118, upiSales: 200 });
     expect((await t.call('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, ctx.walkIn.id, [la(1)], [{ mode: 'CASH', amount: 118 }]))).status).toBe(401);
   });
 

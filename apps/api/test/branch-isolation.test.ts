@@ -31,7 +31,7 @@ describe('branch isolation', () => {
 
     await t.ok('PATCH', '/business/settings', admin, { customerScope: 'BRANCH' });
     expect((await t.call('GET', `/customers/${customer.id}/wallet`, cashierB.token)).status).toBe(404);
-    expect((await t.call('POST', `/customers/${customer.id}/wallet/topup`, b.token, { amount: 5000 })).status).toBe(404);
+    expect((await t.call('POST', `/customers/${customer.id}/wallet/topup`, b.token, { amount: 5000, mode: 'CASH' })).status).toBe(404);
     const wallet = await t.ok('GET', `/customers/${customer.id}/wallet`, a.token);
     expect(wallet.balance).toBe(0);
     // An admin names the branch the customer belongs to.

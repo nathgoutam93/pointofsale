@@ -39,6 +39,11 @@ export function CustomersPage() {
     const [showAgeing, setShowAgeing] = useState(false);
     const [showStatement, setShowStatement] = useState(false);
     const [walletTopupAmount, setWalletTopupAmount] = useState("");
+    const [walletTopupMode, setWalletTopupMode] = useState<"CASH" | "CARD" | "UPI">("CASH");
+    const [walletAdjustAmount, setWalletAdjustAmount] = useState("");
+    const [walletAdjustReason, setWalletAdjustReason] = useState("");
+    // Top-ups are money taken at the counter: only on an open register, at its branch.
+    const canTakeTopup = !!session.registerId && session.branchId === branchId;
 
     const customers = useQuery({
         queryKey: ["customers-module", branchId],
@@ -116,8 +121,8 @@ export function CustomersPage() {
     });
 
     const addWalletCredit = useMutation({
-        mutationFn: async (variables: { customerId: string; amount: number }) => {
-            const { customerId, amount } = variables;
+        mutationFn: async (variables: { customerId: string; amount: number; mode: "CASH" | "CARD" | "UPI" }) => {
+            const { customerId, amount, mode } = variables;
             if (!customerId) {
                 throw new Error("No customer selected");
             }
@@ -131,14 +136,35 @@ export function CustomersPage() {
             const res = await api.customers.topupWallet({
                 params: { id: customerId },
                 query: { branchId },
-                body: { amount },
+                body: { amount, mode },
                 extraHeaders: authHeaders(),
             });
-            if (res.status !== 200) throw new Error("Failed to add wallet credit");
+            if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to add wallet credit"));
             return res.body;
         },
         onSuccess: (_txn, variables) => {
             setWalletTopupAmount("");
+            queryClient.invalidateQueries({
+                queryKey: ["customers-module-wallet", variables.customerId],
+            });
+        },
+    });
+
+    // Admins only: correct a balance up or down, with the reason. No money changes hands.
+    const adjustWallet = useMutation({
+        mutationFn: async (variables: { customerId: string; amount: number; reason: string }) => {
+            const res = await api.customers.adjustWallet({
+                params: { id: variables.customerId },
+                query: { branchId },
+                body: { amount: variables.amount, reason: variables.reason },
+                extraHeaders: authHeaders(),
+            });
+            if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to adjust the wallet"));
+            return res.body;
+        },
+        onSuccess: (_txn, variables) => {
+            setWalletAdjustAmount("");
+            setWalletAdjustReason("");
             queryClient.invalidateQueries({
                 queryKey: ["customers-module-wallet", variables.customerId],
             });
@@ -645,14 +671,30 @@ export function CustomersPage() {
                                     addWalletCredit.mutate({
                                         customerId: selectedCustomer.id,
                                         amount: Number(walletTopupAmount),
+                                        mode: walletTopupMode,
                                     });
                                 }}
                             >
                                 <h3 className="text-sm font-semibold text-slate-900">Add wallet credit</h3>
                                 <p className="mt-0.5 text-xs text-slate-500">
-                                    Credit can be used as a payment method at checkout.
+                                    Money taken now, on your open register. Credit can be used as a payment method at checkout.
                                 </p>
+                                {!canTakeTopup ? (
+                                    <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                        Open a register at this branch to take a top-up.
+                                    </p>
+                                ) : null}
                                 <div className="mt-3 flex gap-2">
+                                    <select
+                                        className="field w-28 shrink-0"
+                                        value={walletTopupMode}
+                                        onChange={(e) => setWalletTopupMode(e.target.value as "CASH" | "CARD" | "UPI")}
+                                        aria-label="Paid by"
+                                    >
+                                        <option value="CASH">Cash</option>
+                                        <option value="CARD">Card</option>
+                                        <option value="UPI">UPI</option>
+                                    </select>
                                     <input
                                         className="field"
                                         inputMode="decimal"
@@ -664,6 +706,7 @@ export function CustomersPage() {
                                     <button
                                         className="btn-primary shrink-0"
                                         disabled={
+                                            !canTakeTopup ||
                                             addWalletCredit.isPending ||
                                             !walletTopupAmount.trim() ||
                                             !Number.isFinite(Number(walletTopupAmount)) ||
@@ -678,6 +721,57 @@ export function CustomersPage() {
                                     <p className="mt-2 text-xs text-rose-700">
                                         {(addWalletCredit.error as Error).message}
                                     </p>
+                                ) : null}
+                            </form>
+                        ) : null}
+
+                        {!selectedCustomer.isWalkIn && isAdmin ? (
+                            <form
+                                className="card max-w-md p-5 print:hidden"
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    if (!selectedCustomer) return;
+                                    adjustWallet.mutate({
+                                        customerId: selectedCustomer.id,
+                                        amount: Number(walletAdjustAmount),
+                                        reason: walletAdjustReason.trim(),
+                                    });
+                                }}
+                            >
+                                <h3 className="text-sm font-semibold text-slate-900">Correct wallet balance</h3>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                    Admins only. No money changes hands: use a negative amount to take credit off.
+                                </p>
+                                <div className="mt-3 grid gap-2">
+                                    <input
+                                        className="field"
+                                        inputMode="decimal"
+                                        placeholder="Amount, e.g. 50 or -50"
+                                        value={walletAdjustAmount}
+                                        onChange={(e) => setWalletAdjustAmount(e.target.value)}
+                                    />
+                                    <input
+                                        className="field"
+                                        placeholder="Reason"
+                                        maxLength={200}
+                                        value={walletAdjustReason}
+                                        onChange={(e) => setWalletAdjustReason(e.target.value)}
+                                    />
+                                    <button
+                                        className="btn-secondary"
+                                        disabled={
+                                            adjustWallet.isPending ||
+                                            !Number.isFinite(Number(walletAdjustAmount)) ||
+                                            Number(walletAdjustAmount) === 0 ||
+                                            walletAdjustReason.trim().length < 3
+                                        }
+                                        type="submit"
+                                    >
+                                        {adjustWallet.isPending ? "Saving..." : "Correct balance"}
+                                    </button>
+                                </div>
+                                {adjustWallet.isError ? (
+                                    <p className="mt-2 text-xs text-rose-700">{(adjustWallet.error as Error).message}</p>
                                 ) : null}
                             </form>
                         ) : null}

@@ -326,11 +326,13 @@ export const registerSessionSchema = z.object({
 });
 
 /**
- * Running cash for a register: cash payments taken on it and cash refunds given from it, and
- * the card and UPI payments taken on it (not in the drawer; for checking against settlements).
+ * Running cash for a register: cash payments and cash wallet top-ups taken on it and cash
+ * refunds given from it, and the card and UPI payments and top-ups taken on it (not in the
+ * drawer; for checking against settlements).
  */
 const registerCashSchema = z.object({
   cashSales: moneySchema,
+  cashTopups: moneySchema,
   cashRefunds: moneySchema,
   expectedCash: moneySchema,
   cardSales: moneySchema,
@@ -533,8 +535,18 @@ export const walletTxnSchema = z.object({
   amount: moneySchema,
   referenceType: z.string().nullable(),
   referenceId: z.string().nullable(),
+  /** Who made it; null on older entries. */
+  createdByName: z.string().nullable().optional(),
+  /** A top-up at the counter: how it was paid and the register it was taken on. */
+  paymentMode: paymentModeSchema.nullable().optional(),
+  registerSessionId: z.string().uuid().nullable().optional(),
+  /** Why an admin adjusted the balance. */
+  reason: z.string().nullable().optional(),
   createdAt: z.string().datetime()
 });
+
+/** How a wallet top-up is paid at the counter. */
+export const walletTopupModeSchema = z.enum(['CASH', 'CARD', 'UPI']);
 
 export const itemSchema = z.object({
   id: z.string().uuid(),
@@ -1494,9 +1506,24 @@ export const appContract = c.router({
     topupWallet: {
       method: 'POST',
       path: '/customers/:id/wallet/topup',
-      /** The branch it's done at; defaults to the open register's. Admins may name any branch they manage. */
+      /**
+       * Money taken at the counter for the customer's wallet, so it needs an open register and
+       * is done at its branch (`branchId`, if given, must be that branch). Cash goes in the
+       * drawer's expected cash.
+       */
       query: z.object({ branchId: z.string().uuid().optional() }),
-      body: z.object({ amount: moneySchema.positive(), reference: z.string().optional() }),
+      body: z.object({ amount: moneySchema.positive(), mode: walletTopupModeSchema, reference: z.string().trim().max(100).optional() }),
+      responses: { 200: walletTxnSchema }
+    },
+    /** Admins only: corrects a wallet balance up (positive) or down (negative), with a reason. No money changes hands. */
+    adjustWallet: {
+      method: 'POST',
+      path: '/customers/:id/wallet/adjust',
+      query: z.object({ branchId: z.string().uuid().optional() }),
+      body: z.object({
+        amount: moneySchema.refine((value) => value !== 0, 'Amount must not be 0'),
+        reason: z.string().trim().min(3, 'Say why the balance is being changed').max(200)
+      }),
       responses: { 200: walletTxnSchema }
     }
   },

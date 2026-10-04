@@ -21,7 +21,7 @@ const settle = (id: string, payments: unknown[]) => t.call('POST', `/sales/${id}
 
 describe('settling a sale', () => {
   it('adds up every wallet line and never lets the wallet pay more than is due', async () => {
-    await t.ok('POST', `/customers/${customerId}/wallet/topup`, ctx.token, { amount: 5 });
+    await t.ok('POST', `/customers/${customerId}/wallet/topup`, ctx.token, { amount: 5, mode: 'CASH' });
     const sale = await draft();
     expect((await settle(sale.id, [{ mode: 'WALLET', amount: 1 }, { mode: 'WALLET', amount: 1000 }])).status).toBe(400);
     expect((await settle(sale.id, [{ mode: 'WALLET', amount: 3 }, { mode: 'WALLET', amount: 3 }, { mode: 'CASH', amount: 194 }])).status).toBe(400);
@@ -39,7 +39,7 @@ describe('settling a sale', () => {
   });
 
   it('allows part payment, then the rest', async () => {
-    await t.ok('POST', `/customers/${customerId}/wallet/topup`, ctx.token, { amount: 150 });
+    await t.ok('POST', `/customers/${customerId}/wallet/topup`, ctx.token, { amount: 150, mode: 'CASH' });
     const sale = await draft();
     expect((await settle(sale.id, [{ mode: 'CASH', amount: 50 }])).body.invoice.status).toBe('PARTIALLY_SETTLED');
     expect((await settle(sale.id, [{ mode: 'WALLET', amount: 150 }])).body.invoice.status).toBe('SETTLED');

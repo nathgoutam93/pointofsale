@@ -14,7 +14,7 @@ import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 import { ItemsService } from '../items/items.service';
 import { StockService } from '../stock/stock.service';
-import { CustomersService } from '../customers/customers.service';
+import { CustomersService, walletTxnAuthor } from '../customers/customers.service';
 import { ReceivablesService } from '../customers/receivables.service';
 import { RegistersService } from '../registers/registers.service';
 
@@ -630,7 +630,8 @@ export class SalesService {
           type: WalletTxnType.DEBIT_SALE,
           amount: walletTotal,
           referenceType: 'SALE',
-          referenceId: invoice.id
+          referenceId: invoice.id,
+          ...(await walletTxnAuthor(tx, session))
         }
       });
     }
@@ -681,7 +682,8 @@ export class SalesService {
           type: WalletTxnType.TOPUP,
           amount: excess,
           referenceType: 'SALE',
-          referenceId: invoice.id
+          referenceId: invoice.id,
+          ...(await walletTxnAuthor(tx, session))
         }
       });
     }

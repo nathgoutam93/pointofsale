@@ -8,7 +8,7 @@ import { assertQtyRespectsLeastCount } from '../common/quantities';
 import { requireSessionBranchId } from '../common/session';
 import { SequenceService } from '../sequences/sequences.service';
 import { StockService } from '../stock/stock.service';
-import { CustomersService } from '../customers/customers.service';
+import { CustomersService, walletTxnAuthor } from '../customers/customers.service';
 import { RegistersService } from '../registers/registers.service';
 import { isFallback } from '../common/mode';
 
@@ -222,7 +222,8 @@ export class ReturnsService {
             type: WalletTxnType.REFUND_RETURN,
             amount: refundAmount,
             referenceType: 'RETURN',
-            referenceId: returnInvoice.id
+            referenceId: returnInvoice.id,
+            ...(await walletTxnAuthor(tx, session))
           }
         });
       }

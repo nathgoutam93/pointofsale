@@ -21,6 +21,8 @@ describe('request validation', () => {
     ['negative wallet top-up', 'POST', () => `/customers/${customerId}/wallet/topup`, () => ({ amount: -5000 })],
     ['zero wallet top-up', 'POST', () => `/customers/${customerId}/wallet/topup`, () => ({ amount: 0 })],
     ['missing amount', 'POST', () => `/customers/${customerId}/wallet/topup`, () => ({})],
+    ['top-up without how it was paid', 'POST', () => `/customers/${customerId}/wallet/topup`, () => ({ amount: 50 })],
+    ['top-up paid from the wallet', 'POST', () => `/customers/${customerId}/wallet/topup`, () => ({ amount: 50, mode: 'WALLET' })],
     ['qty 0', 'POST', () => '/sales', () => sale([line(itemId, { qty: 0 })])],
     ['negative rate', 'POST', () => '/sales', () => sale([line(itemId, { rate: -1 })])],
     ['tax rate 150', 'POST', () => '/sales', () => sale([line(itemId, { taxRate: 150 })])],

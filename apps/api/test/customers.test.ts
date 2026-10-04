@@ -19,7 +19,7 @@ describe('customer scope', () => {
     await addOpeningStock(t.db, y.branch.id, item.id, 50);
     const phone = `9${Date.now().toString().slice(-9)}`;
     const asha = await t.ok('POST', '/customers', x.token, { branchId: x.branch.id, name: 'Asha', phone });
-    await t.ok('POST', `/customers/${asha.id}/wallet/topup`, x.token, { amount: 300 });
+    await t.ok('POST', `/customers/${asha.id}/wallet/topup`, x.token, { amount: 300, mode: 'CASH' });
     const sellAtY = (payments: unknown[]) => t.call('POST', '/sales/checkout', y.token, checkoutBody(y.branch.id, asha.id, [line(item.id)], payments));
 
     // Shared
@@ -52,7 +52,7 @@ describe('walk-in customers', () => {
     expect((await t.call('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(item.id)], [{ mode: 'WALLET', amount: 100 }]))).status).toBe(400);
     expect(Number((await t.db.walletAccount.findUniqueOrThrow({ where: { customerId: ctx.walkIn.id } })).balance)).toBe(500);
     await t.db.walletAccount.update({ where: { customerId: ctx.walkIn.id }, data: { balance: 0 } });
-    expect((await t.call('POST', `/customers/${ctx.walkIn.id}/wallet/topup`, ctx.token, { amount: 500 })).status).toBe(400);
+    expect((await t.call('POST', `/customers/${ctx.walkIn.id}/wallet/topup`, ctx.token, { amount: 500, mode: 'CASH' })).status).toBe(400);
     expect((await t.call('GET', `/customers/${ctx.walkIn.id}/wallet`, ctx.token)).status).toBe(400);
     expect((await ret('CASH')).status).toBe(201);
     expect(Number((await t.db.walletAccount.findUniqueOrThrow({ where: { customerId: ctx.walkIn.id } })).balance)).toBe(0);

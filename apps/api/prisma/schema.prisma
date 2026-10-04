@@ -323,6 +323,7 @@ model RegisterSession {
   createdAt      DateTime        @default(now())
   payments       Payment[]
   returns        ReturnInvoice[]
+  walletTxns     WalletTxn[]
 
   @@index([userId, closedAt])
   @@index([branchId, closedAt])
@@ -368,14 +369,27 @@ model WalletAccount {
 }
 
 model WalletTxn {
-  id              String        @id @default(uuid())
-  walletAccountId String
-  walletAccount   WalletAccount @relation(fields: [walletAccountId], references: [id])
-  type            WalletTxnType
-  amount          Decimal       @db.Decimal(14, 2)
-  referenceType   String?
-  referenceId     String?
-  createdAt       DateTime      @default(now())
+  id                String           @id @default(uuid())
+  walletAccountId   String
+  walletAccount     WalletAccount    @relation(fields: [walletAccountId], references: [id])
+  type              WalletTxnType
+  /// Positive, except an ADJUSTMENT that takes money off (negative).
+  amount            Decimal          @db.Decimal(14, 2)
+  referenceType     String?
+  referenceId       String?
+  /// Who made it; null on entries made before this was recorded.
+  createdBy         String?
+  createdByName     String?
+  /// A top-up paid at the counter: how it was paid (CASH, CARD or UPI) and the register it was
+  /// taken on. Cash top-ups count in that register's expected cash. Null for other entries.
+  paymentMode       PaymentMode?
+  registerSessionId String?
+  registerSession   RegisterSession? @relation(fields: [registerSessionId], references: [id])
+  /// Why an admin adjusted the balance (ADJUSTMENT).
+  reason            String?
+  createdAt         DateTime         @default(now())
+
+  @@index([registerSessionId])
 }
 
 model Item {

@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CustomerScope, Prisma, WalletTxnType } from '@prisma/client';
+import { CustomerScope, PaymentMode, Prisma, WalletTxnType } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
-import { toNumber } from '../common/numbers';
+import { round2, toNumber } from '../common/numbers';
+import type { SessionUser } from '../common/types';
+import { assertRegisterOpen } from '../common/register-open';
 import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 import { isFallback } from '../common/mode';
@@ -15,6 +17,13 @@ export type CreditFields = { creditLimit?: number | null; paymentTermsDays?: num
 /** A customer as the API answers it: the credit limit as a number. */
 export function customerView<T extends { creditLimit: Prisma.Decimal | null }>(customer: T) {
   return { ...customer, creditLimit: customer.creditLimit === null ? null : toNumber(customer.creditLimit) };
+}
+
+/** Who is making a wallet entry, as recorded on it (createdBy, createdByName). */
+export async function walletTxnAuthor(tx: Prisma.TransactionClient, session: SessionUser) {
+  const user = await tx.user.findUnique({ where: { id: session.userId }, select: { username: true } });
+  if (!user) throw new NotFoundException('User not found');
+  return { createdBy: session.userId, createdByName: user.username };
 }
 
 @Injectable()
@@ -207,24 +216,77 @@ export class CustomersService {
     return { customerId, branchId: wallet.branchId, balance: toNumber(wallet.balance) };
   }
 
-  async topupWallet(branchId: string, customerId: string, amount: number, reference?: string) {
+  /**
+   * Money taken at the counter for a customer's wallet, on the session's open register: it is
+   * recorded with who took it and how it was paid, and cash counts in the drawer's expected cash.
+   */
+  async topupWallet(
+    session: SessionUser,
+    branchId: string,
+    customerId: string,
+    input: { amount: number; mode: 'CASH' | 'CARD' | 'UPI'; reference?: string }
+  ) {
+    if (isFallback()) {
+      throw new BadRequestException("While working offline, wallets can't be topped up: they need the server.");
+    }
+    if (input.mode !== PaymentMode.CASH && input.mode !== PaymentMode.CARD && input.mode !== PaymentMode.UPI) {
+      throw new BadRequestException('A top-up is paid in cash, by card or by UPI');
+    }
     return this.prisma.$transaction(async (tx) => {
+      await assertRegisterOpen(tx, session);
       const wallet = await this.findUsableWallet(branchId, customerId, tx);
 
       await tx.walletAccount.update({
         where: { id: wallet.id },
-        data: { balance: { increment: amount } }
+        data: { balance: { increment: input.amount } }
       });
 
-      return tx.walletTxn.create({
+      const txn = await tx.walletTxn.create({
         data: {
           walletAccountId: wallet.id,
           type: WalletTxnType.TOPUP,
-          amount,
+          amount: input.amount,
           referenceType: 'TOPUP',
-          referenceId: reference
+          referenceId: input.reference?.trim() || null,
+          paymentMode: input.mode,
+          registerSessionId: session.registerId,
+          ...(await walletTxnAuthor(tx, session))
         }
       });
+      return { ...txn, amount: toNumber(txn.amount) };
+    });
+  }
+
+  /**
+   * An admin's correction to a wallet balance, up or down, with the reason. No money changes
+   * hands, so no register is involved; the balance can't go below 0.
+   */
+  async adjustWallet(session: SessionUser, branchId: string, customerId: string, amount: number, reason: string) {
+    if (isFallback()) {
+      throw new BadRequestException("While working offline, wallets can't be changed: they need the server.");
+    }
+    const change = round2(amount);
+    if (change === 0) throw new BadRequestException('Amount must not be 0');
+    return this.prisma.$transaction(async (tx) => {
+      const wallet = await this.findUsableWallet(branchId, customerId, tx);
+      const updated = await tx.walletAccount.updateMany({
+        where: { id: wallet.id, ...(change < 0 ? { balance: { gte: -change } } : {}) },
+        data: { balance: { increment: change } }
+      });
+      if (updated.count === 0) {
+        throw new BadRequestException(`The wallet has only ${toNumber(wallet.balance).toFixed(2)}; it can't go below 0`);
+      }
+      const txn = await tx.walletTxn.create({
+        data: {
+          walletAccountId: wallet.id,
+          type: WalletTxnType.ADJUSTMENT,
+          amount: change,
+          referenceType: 'ADJUSTMENT',
+          reason: reason.trim(),
+          ...(await walletTxnAuthor(tx, session))
+        }
+      });
+      return { ...txn, amount: toNumber(txn.amount) };
     });
   }
 }
