@@ -20,6 +20,8 @@ enum CashierPermission {
   SEND_TRANSFERS
   TOP_UP_WALLETS
   CANCEL_SALES
+  /// Take goods back and refund them (credit notes).
+  MAKE_RETURNS
 }
 
 enum PaymentMode {
@@ -177,6 +179,9 @@ model BusinessSettings {
   timezone                  String             @default("Asia/Kolkata")
   /// Shortest HSN code accepted on items: 4 (turnover up to ₹5 crore) or 6.
   hsnMinDigits              Int                @default(4)
+  /// Cashiers may take goods back up to this many days after the sale (calendar days in the
+  /// business time zone; 0 is the same day only). Null: no limit. Admins are never limited.
+  returnWindowDays          Int?
   /// Offline installs: hash of the recovery code that resets a forgotten admin password.
   /// Shown once when created; never stored or returned in plain text.
   recoveryCodeHash          String?
@@ -645,6 +650,11 @@ model ReturnInvoice {
   dueAdjusted       Decimal             @default(0) @db.Decimal(14, 2)
   refundAmount      Decimal             @default(0) @db.Decimal(14, 2)
   refundMode        PaymentMode
+  /// Why the goods came back, as the person making the return entered it.
+  reason            String?
+  /// Who made the return; null on returns made before this was recorded.
+  createdBy         String?
+  createdByName     String?
   /// The register the refund was given from; null for returns made before this was recorded.
   registerSessionId String?
   registerSession   RegisterSession?    @relation(fields: [registerSessionId], references: [id])

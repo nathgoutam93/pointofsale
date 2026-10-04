@@ -35,7 +35,7 @@ beforeAll(async () => {
   await sell([line(phone.id, { rate: 1000, taxRate: 18 })], 1180, { placeOfSupplyStateCode: '27' });
   await sell([line(phone.id, { qty: 150, rate: 1000, taxRate: 18 })], 177000, { placeOfSupplyStateCode: '27' });
   // One phone from the counter sale comes back.
-  await t.ok('POST', `/sales/${counter.id}/return`, ctx.token, { refundMode: 'CASH', lines: [{ saleLineId: counter.lines[0].id, qty: 1 }] });
+  await t.ok('POST', `/sales/${counter.id}/return`, ctx.token, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: counter.lines[0].id, qty: 1 }] });
 });
 afterAll(async () => { await t.close(); });
 

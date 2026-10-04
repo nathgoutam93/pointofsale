@@ -45,7 +45,7 @@ describe('walk-in customers', () => {
     const item = await t.item(ctx.token, ctx.branch.id);
     const sale = await t.ok('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(item.id)], [{ mode: 'CASH', amount: 100 }]));
     const ret = (refundMode: string) =>
-      t.call('POST', `/sales/${sale.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: sale.invoice.lines[0].id, qty: 1 }], refundMode });
+      t.call('POST', `/sales/${sale.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: sale.invoice.lines[0].id, qty: 1 }], refundMode, reason: 'Test return' });
     expect((await ret('WALLET')).status).toBe(400);
     // A balance left in the walk-in wallet from before stays frozen: it can't pay for a sale.
     await t.db.walletAccount.update({ where: { customerId: ctx.walkIn.id }, data: { balance: 500 } });

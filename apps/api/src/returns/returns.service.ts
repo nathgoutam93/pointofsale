@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, WalletTxnType } from '@prisma/client';
+import { DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, UserRole, WalletTxnType } from '@prisma/client';
 import { invoiceDue, returnLineAmounts, splitReturn, type GstAmounts } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
@@ -11,6 +11,7 @@ import { StockService } from '../stock/stock.service';
 import { CustomersService, walletTxnAuthor } from '../customers/customers.service';
 import { RegistersService } from '../registers/registers.service';
 import { isFallback } from '../common/mode';
+import { localDate } from '../reports/zoned-dates';
 
 type StoredGstAmounts = {
   taxableAmount: Prisma.Decimal | number;
@@ -27,6 +28,15 @@ function gstAmountsOf(row: StoredGstAmounts): GstAmounts {
     sgst: toNumber(row.sgstAmount),
     igst: toNumber(row.igstAmount)
   };
+}
+
+/** Calendar days from `from` to `to` in `timeZone` (0 on the same day). */
+function calendarDaysBetween(from: Date, to: Date, timeZone: string) {
+  const dayNumber = (at: Date) => {
+    const { year, month, day } = localDate(at, timeZone);
+    return Date.UTC(year, month - 1, day) / 86_400_000;
+  };
+  return dayNumber(to) - dayNumber(from);
 }
 
 function sumGstAmounts(rows: GstAmounts[]): GstAmounts {
@@ -54,13 +64,19 @@ export class ReturnsService {
   async createReturn(
     session: SessionUser,
     saleInvoiceId: string,
-    input: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET' }
+    input: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET'; reason: string }
   ) {
     const sessionBranchId = requireSessionBranchId(session);
     return this.prisma.$transaction(async (tx) => {
       if (input.refundMode !== PaymentMode.CASH && input.refundMode !== PaymentMode.WALLET) {
         throw new BadRequestException('Return refund mode must be CASH or WALLET');
       }
+      const reason = input.reason?.trim() ?? '';
+      if (reason.length < 3) {
+        throw new BadRequestException('Say why the goods came back');
+      }
+      const author = await tx.user.findUnique({ where: { id: session.userId }, select: { username: true } });
+      if (!author) throw new NotFoundException('User not found');
 
       // Lock the invoice so two returns against it can't both pass the quantity checks.
       await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${saleInvoiceId} FOR UPDATE`;
@@ -77,6 +93,19 @@ export class ReturnsService {
       if (invoice.branchId !== sessionBranchId) throw new BadRequestException('Branch mismatch');
       if (invoice.status === InvoiceStatus.CANCELLED) {
         throw new BadRequestException(`Invoice ${invoice.invoiceNo} is cancelled`);
+      }
+      // Past the business's return window only an admin may take goods back.
+      if (session.role !== UserRole.ADMIN) {
+        const business = await tx.businessSettings.findUnique({ where: { id: 'default' }, select: { returnWindowDays: true, timezone: true } });
+        const windowDays = business?.returnWindowDays;
+        if (windowDays !== null && windowDays !== undefined) {
+          const age = calendarDaysBetween(invoice.createdAt, new Date(), business?.timezone ?? 'Asia/Kolkata');
+          if (age > windowDays) {
+            throw new BadRequestException(
+              `${invoice.invoiceNo} is ${age} days old; cashiers can take goods back within ${windowDays === 0 ? 'the same day' : `${windowDays} ${windowDays === 1 ? 'day' : 'days'}`}. Ask an admin.`
+            );
+          }
+        }
       }
 
       // Add up repeated lines so the same sale line can't be counted twice.
@@ -193,6 +222,9 @@ export class ReturnsService {
           dueAdjusted,
           refundAmount,
           refundMode: input.refundMode,
+          reason,
+          createdBy: session.userId,
+          createdByName: author.username,
           registerSessionId: session.registerId,
           lines: { create: returnLineCreates }
         }
@@ -257,6 +289,8 @@ export class ReturnsService {
       dueAdjusted: row.dueAdjusted,
       refundAmount: row.refundAmount,
       refundMode: row.refundMode,
+      reason: row.reason,
+      createdByName: row.createdByName,
       createdAt: row.createdAt,
       saleInvoiceNo: row.saleInvoice.invoiceNo,
       customerName: row.saleInvoice.customer.name,
@@ -307,6 +341,8 @@ export class ReturnsService {
       dueAdjusted: returnInvoice.dueAdjusted,
       refundAmount: returnInvoice.refundAmount,
       refundMode: returnInvoice.refundMode,
+      reason: returnInvoice.reason,
+      createdByName: returnInvoice.createdByName,
       createdAt: returnInvoice.createdAt,
       saleInvoiceNo: returnInvoice.saleInvoice.invoiceNo,
       customerName: returnInvoice.saleInvoice.customer.name,

@@ -269,11 +269,11 @@ describe('fallback counter, working offline', () => {
 
     // Returns: of a paid bill that came with the copy (cash back), and of the new customer's
     // credit bill (68 off what they owe, 50 back). Never into the wallet offline.
-    expect((await local('POST', `/sales/${copiedSale.id}/return`, { refundMode: 'WALLET', lines: [{ saleLineId: copiedSale.lines[0].id, qty: 1 }] })).status).toBe(400);
-    const copiedReturn = await local('POST', `/sales/${copiedSale.id}/return`, { refundMode: 'CASH', lines: [{ saleLineId: copiedSale.lines[0].id, qty: 1 }] });
+    expect((await local('POST', `/sales/${copiedSale.id}/return`, { refundMode: 'WALLET', reason: 'Test return', lines: [{ saleLineId: copiedSale.lines[0].id, qty: 1 }] })).status).toBe(400);
+    const copiedReturn = await local('POST', `/sales/${copiedSale.id}/return`, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: copiedSale.lines[0].id, qty: 1 }] });
     expect(copiedReturn.status).toBe(201);
     expect(copiedReturn.body.returnNo).toMatch(new RegExp(`^${branchCode}R/${counterNumber}/\\d{2}/00001$`));
-    const shopReturn = await local('POST', `/sales/${shopSale.body.invoice.id}/return`, { refundMode: 'CASH', lines: [{ saleLineId: shopSale.body.invoice.lines[0].id, qty: 1 }] });
+    const shopReturn = await local('POST', `/sales/${shopSale.body.invoice.id}/return`, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: shopSale.body.invoice.lines[0].id, qty: 1 }] });
     expect(shopReturn.body).toMatchObject({ dueAdjusted: '68', refundAmount: '50' });
 
     const outbox = await call(base, 'GET', '/fallback/outbox', { headers: { 'x-pos-fallback-secret': secret } });

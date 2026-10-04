@@ -14,12 +14,15 @@ export class ReturnsController {
   ) {}
 
   @Post('/sales/:id/return')
-  createReturn(
+  async createReturn(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(appContract.sales.returns.body)) body: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET' },
+    @Body(new ZodValidationPipe(appContract.sales.returns.body))
+    body: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET'; reason: string },
     @Headers() headers: RequestHeaders
   ) {
-    return this.returns.createReturn(requireOpenRegisterSession(headers), id, body);
+    const session = requireOpenRegisterSession(headers);
+    await this.access.requirePermission(session, 'MAKE_RETURNS');
+    return this.returns.createReturn(session, id, body);
   }
 
   @Get('/returns')

@@ -140,7 +140,7 @@ const roleSchema = z.enum(['ADMIN', 'CASHIER']);
  * What an admin may let a cashier do, beyond selling (Settings → Cashiers & Access). Admins can
  * always do all of it.
  */
-export const CASHIER_PERMISSIONS = ['MANAGE_STOCK', 'MANAGE_ITEMS', 'RECORD_PURCHASES', 'SEND_TRANSFERS', 'TOP_UP_WALLETS', 'CANCEL_SALES'] as const;
+export const CASHIER_PERMISSIONS = ['MANAGE_STOCK', 'MANAGE_ITEMS', 'RECORD_PURCHASES', 'SEND_TRANSFERS', 'TOP_UP_WALLETS', 'CANCEL_SALES', 'MAKE_RETURNS'] as const;
 export const cashierPermissionSchema = z.enum(CASHIER_PERMISSIONS);
 export type CashierPermission = z.infer<typeof cashierPermissionSchema>;
 export const CASHIER_PERMISSION_LABELS: Record<CashierPermission, { label: string; detail: string }> = {
@@ -149,7 +149,8 @@ export const CASHIER_PERMISSION_LABELS: Record<CashierPermission, { label: strin
   RECORD_PURCHASES: { label: 'Record purchases', detail: 'Goods received from suppliers' },
   SEND_TRANSFERS: { label: 'Send transfers', detail: 'Send stock to another branch, or call a transfer back' },
   TOP_UP_WALLETS: { label: 'Top up wallets', detail: "Add credit to a customer's wallet" },
-  CANCEL_SALES: { label: 'Cancel unpaid bills', detail: 'Cancel a bill nothing has been paid on' }
+  CANCEL_SALES: { label: 'Cancel unpaid bills', detail: 'Cancel a bill nothing has been paid on' },
+  MAKE_RETURNS: { label: 'Make returns', detail: 'Take goods back and refund them, within the return window' }
 };
 
 /** Whether a signed-in user may do `permission`: admins always, cashiers when given it. */
@@ -385,7 +386,9 @@ export const businessSettingsSchema = z.object({
   taxpayerType: taxpayerTypeSchema,
   compositionCategory: compositionCategorySchema.nullable(),
   /** Shortest HSN code accepted on items: 4 (turnover up to ₹5 crore) or 6. */
-  hsnMinDigits: z.number().int()
+  hsnMinDigits: z.number().int(),
+  /** Days after a sale cashiers may still make a return (0: same day only); null for no limit. Admins aren't limited. */
+  returnWindowDays: z.number().int().nullable()
 });
 
 export const taxpayerTypeChangeSchema = z.object({
@@ -836,6 +839,9 @@ const returnSchema = z.object({
   dueAdjusted: moneySchema.default(0),
   refundAmount: moneySchema.default(0),
   refundMode: returnRefundModeSchema,
+  /** Why the goods came back; who made the return. Null on older returns. */
+  reason: z.string().nullable().optional(),
+  createdByName: z.string().nullable().optional(),
   createdAt: z.string().datetime()
 });
 
@@ -1345,7 +1351,8 @@ export const appContract = c.router({
         cashierMaxDiscountPercent: z.number().min(0).max(100).optional(),
         customerScope: customerScopeSchema.optional(),
         timezone: timeZoneSchema.optional(),
-        hsnMinDigits: z.union([z.literal(4), z.literal(6)]).optional()
+        hsnMinDigits: z.union([z.literal(4), z.literal(6)]).optional(),
+        returnWindowDays: z.number().int().min(0).max(3650).nullable().optional()
       }),
       responses: { 200: businessSettingsSchema }
     },
@@ -1941,7 +1948,9 @@ export const appContract = c.router({
           .array(z.object({ saleLineId: z.string().uuid(), qty: z.number().positive() }))
           .min(1)
           .superRefine(uniqueBy((line) => line.saleLineId, 'Sale line is listed more than once')),
-        refundMode: returnRefundModeSchema
+        refundMode: returnRefundModeSchema,
+        /** Why the goods came back (damaged, wrong size...). */
+        reason: z.string().trim().min(3, 'Say why the goods came back').max(200)
       }),
       responses: { 201: returnSchema }
     }

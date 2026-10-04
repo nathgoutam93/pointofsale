@@ -38,7 +38,7 @@ describe('sales summary', () => {
     await t.ok('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, customer.id, [la(1)], []));
     const draft = await t.ok('POST', '/sales', ctx.token, { branchId: ctx.branch.id, customerId: customer.id, lines: [la(5)] });
     await t.ok('POST', `/sales/${draft.id}/cancel`, ctx.token);
-    await t.ok('POST', `/sales/${s1.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: s1.invoice.lines[0].id, qty: 1 }], refundMode: 'CASH' });
+    await t.ok('POST', `/sales/${s1.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: s1.invoice.lines[0].id, qty: 1 }], refundMode: 'CASH', reason: 'Test return' });
 
     expect(await overall(ctx.token, ctx.branch.id)).toMatchObject({
       invoiceCount: 2,

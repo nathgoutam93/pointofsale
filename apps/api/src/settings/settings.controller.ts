@@ -35,6 +35,7 @@ export class SettingsController {
       customerScope?: 'SHARED' | 'BRANCH';
       timezone?: string;
       hsnMinDigits?: 4 | 6;
+      returnWindowDays?: number | null;
     },
     @Headers() headers: RequestHeaders
   ) {

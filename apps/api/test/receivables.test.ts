@@ -21,7 +21,7 @@ beforeAll(async () => {
   admin = await t.login();
   timeZone = (await t.ok('GET', '/business/settings', admin)).timezone;
   ctx = await t.branchWithRegister(admin);
-  cashier = await t.cashierWithRegister(admin, ctx.branch.id);
+  cashier = await t.cashierWithRegister(admin, ctx.branch.id, ['MAKE_RETURNS']);
   itemId = (await t.item(ctx.token, ctx.branch.id, { sellPrice: 500, stock: 100 })).id;
 });
 afterAll(async () => {
@@ -114,7 +114,7 @@ describe('overdue bills, ageing and statements', () => {
   it('list bills, payments and returns with running balances', async () => {
     const first = await t.db.saleInvoice.findFirstOrThrow({ where: { customerId, grandTotal: 2000 }, include: { lines: true } });
     // One piece comes back (500 off what is owed), then 1600 is paid: 1500 settles it, 100 goes to the wallet.
-    const ret = await t.ok('POST', `/sales/${first.id}/return`, cashier.token, { refundMode: 'CASH', lines: [{ saleLineId: first.lines[0].id, qty: 1 }] });
+    const ret = await t.ok('POST', `/sales/${first.id}/return`, cashier.token, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: first.lines[0].id, qty: 1 }] });
     await t.ok('POST', `/sales/${first.id}/settle`, cashier.token, { payments: [{ mode: 'CASH', amount: 1600 }] });
 
     const statement = await t.ok('GET', `/customers/${customerId}/statement?from=${today()}&to=${today()}`, cashier.token);

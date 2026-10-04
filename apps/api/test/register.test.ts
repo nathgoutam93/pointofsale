@@ -21,8 +21,8 @@ describe('register balance', () => {
     await co(ctx.walkIn.id, 2, [{ mode: 'UPI', amount: 200 }, { mode: 'CASH', amount: 36 }]); // split UPI and cash
     await co(customer.id, 2, [{ mode: 'CASH', amount: 300 }]); // overpays; all 300 is in the drawer
     const s4 = await co(customer.id, 1, [{ mode: 'WALLET', amount: 118 }]);
-    await t.ok('POST', `/sales/${s1.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: s1.invoice.lines[0].id, qty: 1 }], refundMode: 'CASH' });
-    await t.ok('POST', `/sales/${s4.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: s4.invoice.lines[0].id, qty: 1 }], refundMode: 'WALLET' });
+    await t.ok('POST', `/sales/${s1.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: s1.invoice.lines[0].id, qty: 1 }], refundMode: 'CASH', reason: 'Test return' });
+    await t.ok('POST', `/sales/${s4.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: s4.invoice.lines[0].id, qty: 1 }], refundMode: 'WALLET', reason: 'Test return' });
 
     expect(await t.ok('GET', '/registers/current', ctx.token)).toMatchObject({
       cashSales: 572,

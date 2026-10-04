@@ -55,7 +55,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   required, never below 0), shown on the Customers page. Refused while working offline. Tests:
   `wallet.test.ts`. Left for later: a printed top-up receipt.
 
-### [ ] A3. Controls on returns and cash refunds
+### [x] A3. Controls on returns and cash refunds
 
 - **Why:** any cashier with an open register can return any bill of the branch, of any age, and
   hand out cash (`apps/api/src/returns/returns.controller.ts`, `POST /sales/:id/return`). No
@@ -70,6 +70,13 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   - Offline (fallback) returns follow the same rules.
 - **Done when:** a cashier without the permission, or past the window, can't make a return, and
   every credit note shows who made it and why.
+- **Status (2026-10-04):** `MAKE_RETURNS` cashier permission (existing cashiers were given it by
+  migration `20261020120100_return_permission_for_cashiers`, so nothing changes for them until an
+  admin takes it away; new cashiers start without it). Each return needs a reason and records
+  `createdBy`/`createdByName`, shown on the Returns page. Settings has a return window
+  (`returnWindowDays`, calendar days in the business time zone, empty for no limit); past it
+  only admins. The fallback counter's local API applies the same rules from its copy. Tests:
+  `return-controls.test.ts`. Left for later: an admin's password at the counter for large refunds.
 
 ### [ ] A4. Credit sales can't be cancelled like abandoned bills
 

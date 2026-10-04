@@ -58,7 +58,7 @@ describe('wallet top-ups', () => {
       lines: [{ itemId: item.id, qty: 1, rate: 100, taxRate: 0 }],
       payments: [{ mode: 'WALLET', amount: 100 }]
     });
-    await t.ok('POST', `/sales/${sale.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: sale.invoice.lines[0].id, qty: 1 }], refundMode: 'WALLET' });
+    await t.ok('POST', `/sales/${sale.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: sale.invoice.lines[0].id, qty: 1 }], refundMode: 'WALLET', reason: 'Test return' });
     const wallet = await t.db.walletAccount.findUniqueOrThrow({ where: { customerId: customer.id }, include: { txns: true } });
     expect(wallet.txns).toHaveLength(3);
     expect(wallet.txns.every((txn) => txn.createdBy && txn.createdByName)).toBe(true);

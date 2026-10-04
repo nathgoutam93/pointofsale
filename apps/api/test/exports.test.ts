@@ -100,7 +100,7 @@ describe('the sales register', () => {
       branch.token,
       checkoutBody(branch.branch.id, customer.id, [line(item.id, { qty: 2, rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], [{ mode: 'CASH', amount: 100 }])
     );
-    const ret = await t.ok('POST', `/sales/${invoice.id}/return`, branch.token, { refundMode: 'CASH', lines: [{ saleLineId: invoice.lines[0].id, qty: 1 }] });
+    const ret = await t.ok('POST', `/sales/${invoice.id}/return`, branch.token, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: invoice.lines[0].id, qty: 1 }] });
 
     const res = await download(`/exports/sales.csv?branchId=${branch.branch.id}&from=${today()}&to=${today()}`, admin);
     expect(res.status).toBe(200);

@@ -7,6 +7,7 @@ import { branchReceiptTemplate, rateFromAmounts, receiptStyleFor, renderReceipt,
 import { ReceiptView } from "../components/ReceiptView";
 import { ReceiptPrintStyles } from "./pos/ReceiptPrintStyles";
 import { IconPrinter } from "../components/icons";
+import { can } from "../lib/session";
 import { inr, money, requireOperationalSession } from "./route-helpers";
 
 type ReturnRefundMode = "CASH" | "WALLET";
@@ -49,6 +50,9 @@ export function ReturnsPage() {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState("");
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [refundMode, setRefundMode] = useState<ReturnRefundMode>("CASH");
+  const [reason, setReason] = useState("");
+  // Cashiers need an admin's permission to take goods back.
+  const mayReturn = can(session, "MAKE_RETURNS");
   const [lineQtyMap, setLineQtyMap] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const receiptPrinting = useReceiptPrinting();
@@ -366,7 +370,7 @@ export function ReturnsPage() {
 
       const res = await api.sales.returns({
         params: { id: selectedInvoiceId },
-        body: { lines, refundMode },
+        body: { lines, refundMode, reason: reason.trim() },
         extraHeaders: authHeaders(),
       });
 
@@ -384,6 +388,7 @@ export function ReturnsPage() {
       setSelectedInvoiceId("");
       setInvoiceSearch("");
       setLineQtyMap({});
+      setReason("");
       queryClient.invalidateQueries({ queryKey: ["returns-list", session.branchId] });
       queryClient.invalidateQueries({ queryKey: ["return-detail", result.id] });
       queryClient.invalidateQueries({ queryKey: ["sales-module", session.branchId] });
@@ -404,8 +409,11 @@ export function ReturnsPage() {
           <button
             type="button"
             className="btn-primary text-xs"
+            disabled={!mayReturn}
+            title={mayReturn ? undefined : "Ask an admin to allow you to make returns"}
             onClick={() => {
               setCreateMode(true);
+              setReason("");
               setSelectedInvoiceId("");
               setInvoiceSearch("");
               setLineQtyMap({});
@@ -620,9 +628,20 @@ export function ReturnsPage() {
               </div>
             ) : null}
 
+            <label className="mt-4 block max-w-md">
+              <span className="field-label">Reason</span>
+              <input
+                className="field"
+                maxLength={200}
+                placeholder="Why the goods came back (damaged, wrong size...)"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </label>
+
             <button
               className="btn-primary mt-4"
-              disabled={createReturn.isPending || !selectedInvoiceId || returnLines.length === 0}
+              disabled={createReturn.isPending || !selectedInvoiceId || returnLines.length === 0 || reason.trim().length < 3}
               onClick={() => createReturn.mutate()}
             >
               {createReturn.isPending ? "Processing Return..." : "Create Return"}
@@ -691,6 +710,17 @@ export function ReturnsPage() {
                       </dd>
                     ) : null}
                   </div>
+                  {returnDetail.data.reason || returnDetail.data.createdByName ? (
+                    <div className="col-span-2 md:col-span-4">
+                      <dt className="eyebrow">Reason</dt>
+                      <dd className="mt-1 text-slate-900">
+                        {returnDetail.data.reason ?? "Not recorded"}
+                        {returnDetail.data.createdByName ? (
+                          <span className="text-slate-500"> · by {returnDetail.data.createdByName}</span>
+                        ) : null}
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
 
                 <div className="mt-4 overflow-x-auto">

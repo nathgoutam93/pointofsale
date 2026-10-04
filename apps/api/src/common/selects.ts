@@ -15,7 +15,8 @@ export const businessSettingsSelect = {
   cashierMaxDiscountPercent: true,
   customerScope: true,
   timezone: true,
-  hsnMinDigits: true
+  hsnMinDigits: true,
+  returnWindowDays: true
 } as const;
 
 export const branchSettingsSelect = {

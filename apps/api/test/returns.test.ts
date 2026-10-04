@@ -23,7 +23,7 @@ const money = (row: Record<string, unknown>) =>
     ['totalAmount', 'dueAdjusted', 'refundAmount', 'paidTotal', 'creditedTotal', 'grandTotal'].filter((key) => key in row).map((key) => [key, Number(row[key])])
   );
 const ret = (invoice: { id: string }, lines: unknown[], refundMode = 'CASH') =>
-  t.call('POST', `/sales/${invoice.id}/return`, ctx.token, { lines, refundMode });
+  t.call('POST', `/sales/${invoice.id}/return`, ctx.token, { lines, refundMode, reason: 'Test return' });
 
 describe('returns', () => {
   it('refuses a cancelled invoice, leaving stock alone', async () => {

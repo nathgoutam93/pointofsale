@@ -18,7 +18,7 @@ async function sale(qty: number, extra: Record<string, unknown> = {}) {
   return (await t.ok('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, ctx.walkIn.id, lines, [{ mode: 'CASH', amount: 100 * qty }], extra))).invoice;
 }
 const ret = (invoice: { id: string; lines: Array<{ id: string }> }, qty: number) =>
-  t.ok('POST', `/sales/${invoice.id}/return`, ctx.token, { refundMode: 'CASH', lines: [{ saleLineId: invoice.lines[0].id, qty }] });
+  t.ok('POST', `/sales/${invoice.id}/return`, ctx.token, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: invoice.lines[0].id, qty }] });
 
 beforeAll(async () => {
   t = await startApp();

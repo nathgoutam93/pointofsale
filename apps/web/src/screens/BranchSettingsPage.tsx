@@ -52,6 +52,8 @@ type BusinessSettingsForm = {
   customerScope: "SHARED" | "BRANCH";
   timezone: string;
   hsnMinDigits: 4 | 6;
+  /** Days; empty for no limit. */
+  returnWindowDays: string;
 };
 
 type CashierForm = {
@@ -177,7 +179,8 @@ export function BranchSettingsPage() {
     cashierMaxDiscountPercent: "10",
     customerScope: "SHARED",
     timezone: "Asia/Kolkata",
-    hsnMinDigits: 4
+    hsnMinDigits: 4,
+    returnWindowDays: ""
   });
 
   useEffect(() => {
@@ -206,7 +209,8 @@ export function BranchSettingsPage() {
       cashierMaxDiscountPercent: String(businessSettings.data.cashierMaxDiscountPercent),
       customerScope: businessSettings.data.customerScope,
       timezone: businessSettings.data.timezone,
-      hsnMinDigits: businessSettings.data.hsnMinDigits === 6 ? 6 : 4
+      hsnMinDigits: businessSettings.data.hsnMinDigits === 6 ? 6 : 4,
+      returnWindowDays: businessSettings.data.returnWindowDays === null ? "" : String(businessSettings.data.returnWindowDays)
     });
   }, [businessSettings.data]);
 
@@ -254,6 +258,11 @@ export function BranchSettingsPage() {
       ) {
         throw new Error("Cashier discount limit must be between 0 and 100.");
       }
+      const returnWindowText = businessForm.returnWindowDays.trim();
+      const returnWindowDays = returnWindowText === "" ? null : Number(returnWindowText);
+      if (returnWindowDays !== null && (!Number.isInteger(returnWindowDays) || returnWindowDays < 0 || returnWindowDays > 3650)) {
+        throw new Error("Return window must be a whole number of days, or empty for no limit.");
+      }
       const res = await api.business.update({
         body: {
           name: trimmedName,
@@ -263,7 +272,8 @@ export function BranchSettingsPage() {
           cashierMaxDiscountPercent,
           customerScope: businessForm.customerScope,
           timezone: businessForm.timezone,
-          hsnMinDigits: businessForm.hsnMinDigits
+          hsnMinDigits: businessForm.hsnMinDigits,
+          returnWindowDays
         },
         extraHeaders: authHeaders()
       });
@@ -663,6 +673,20 @@ export function BranchSettingsPage() {
                   <p className="mt-1 text-xs text-slate-500">
                     The most a cashier can take off a sale's list price, counting price changes and discounts together.
                     Admins have no limit.
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-600">Return window for cashiers (days)</label>
+                  <input
+                    className="field mt-1"
+                    inputMode="numeric"
+                    placeholder="No limit"
+                    value={businessForm.returnWindowDays}
+                    onChange={(e) => setBusinessForm((prev) => ({ ...prev, returnWindowDays: e.target.value }))}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    How many days after a sale a cashier can still take its goods back (0: the same day only). Empty for no
+                    limit. Admins can always make a return.
                   </p>
                 </div>
                 <div>

@@ -68,6 +68,7 @@ export class SettingsService {
     customerScope?: CustomerScope;
     timezone?: string;
     hsnMinDigits?: number;
+    returnWindowDays?: number | null;
   }) {
     await this.ensureBusinessSettings();
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -82,7 +83,8 @@ export class SettingsService {
           cashierMaxDiscountPercent: input.cashierMaxDiscountPercent,
           customerScope: input.customerScope,
           timezone: input.timezone,
-          hsnMinDigits: input.hsnMinDigits
+          hsnMinDigits: input.hsnMinDigits,
+          returnWindowDays: input.returnWindowDays
         },
         select: businessSettingsSelect
       });
