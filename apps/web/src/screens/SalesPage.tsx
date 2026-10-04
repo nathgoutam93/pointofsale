@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { invoiceDue, invoiceReceiptItems, sanitizeReceiptCss, type ReceiptDocumentItem } from "@pos/contracts";
@@ -212,17 +212,42 @@ export function SalesPage() {
   // On this computer's paper, when its printer takes other paper than the branch's.
   const receiptTemplate = usePrintTemplate(branchTemplate);
 
-  const sales = useQuery({
-    queryKey: ["sales-module", branchId],
-    queryFn: async () => {
+  // Bills a page at a time (newest first), filtered on the server, so a branch with years of
+  // bills opens as fast as a new one. The search waits for typing to pause.
+  const [serverSearch, setServerSearch] = useState(searchQuery.trim());
+  useEffect(() => {
+    const timer = setTimeout(() => setServerSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+  const SALES_PAGE = 100;
+  const salesPages = useInfiniteQuery({
+    queryKey: ["sales-module", branchId, serverSearch, statusFilter, paymentFilter, linkedCustomerId],
+    initialPageParam: null as { before: string; beforeId: string } | null,
+    queryFn: async ({ pageParam }) => {
       const res = await api.sales.list({
-        query: { branchId: branchId },
+        query: {
+          branchId,
+          limit: SALES_PAGE,
+          ...(serverSearch ? { search: serverSearch } : {}),
+          ...(statusFilter !== "ALL" ? { status: statusFilter as "DRAFT" | "SETTLED" | "PARTIALLY_SETTLED" | "CANCELLED" } : {}),
+          ...(paymentFilter !== "ALL" ? { owed: paymentFilter === "PENDING" ? "true" : "false" } : {}),
+          ...(linkedCustomerId ? { customerId: linkedCustomerId } : {}),
+          ...(pageParam ?? {}),
+        },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load sales");
       return res.body;
     },
+    getNextPageParam: (lastPage) => {
+      const last = lastPage[lastPage.length - 1];
+      return lastPage.length === SALES_PAGE && last ? { before: last.createdAt, beforeId: last.id } : undefined;
+    },
   });
+  const sales = useMemo(
+    () => ({ data: salesPages.data?.pages.flat(), error: salesPages.error }),
+    [salesPages.data, salesPages.error],
+  );
 
   const items = useQuery({
     queryKey: ["items-sales"],
@@ -737,13 +762,8 @@ export function SalesPage() {
     walletOverused,
   ]);
 
-  const statusOptions = useMemo(() => {
-    const statuses = new Set<string>();
-    for (const invoice of sales.data ?? []) {
-      if (invoice.status) statuses.add(invoice.status);
-    }
-    return ["ALL", ...Array.from(statuses).sort((a, b) => a.localeCompare(b))];
-  }, [sales.data]);
+  // Every status, not just those on the loaded page: the filter runs on the server.
+  const statusOptions = ["ALL", "CANCELLED", "DRAFT", "PARTIALLY_SETTLED", "SETTLED"];
 
   const filteredSales = useMemo(() => {
     let list = sales.data ?? [];
@@ -1041,7 +1061,8 @@ export function SalesPage() {
                   </div>
                 ) : null}
                 <p className="text-xs text-slate-500">
-                  Showing {filteredSales.length} of {(sales.data ?? []).length}
+                  Showing {filteredSales.length}
+                  {salesPages.hasNextPage ? " (newest first)" : ""}
                 </p>
               </div>
             </div>
@@ -1096,10 +1117,20 @@ export function SalesPage() {
                   </button>
                 );
               })}
-              {filteredSales.length === 0 ? (
+              {filteredSales.length === 0 && !salesPages.isLoading ? (
                 <div className="rounded-md border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
                   No invoices match the current filters.
                 </div>
+              ) : null}
+              {salesPages.hasNextPage ? (
+                <button
+                  type="button"
+                  className="btn-secondary w-full"
+                  disabled={salesPages.isFetchingNextPage}
+                  onClick={() => void salesPages.fetchNextPage()}
+                >
+                  {salesPages.isFetchingNextPage ? "Loading…" : "Load older bills"}
+                </button>
               ) : null}
             </div>
           </>

@@ -12,6 +12,7 @@ import { CustomersService, walletTxnAuthor } from '../customers/customers.servic
 import { RegistersService } from '../registers/registers.service';
 import { isFallback } from '../common/mode';
 import { localDate } from '../reports/zoned-dates';
+import { afterCursor, newestFirst, type PageQuery } from '../common/paging';
 import { AuditService } from '../common/audit.service';
 
 type StoredGstAmounts = {
@@ -278,9 +279,28 @@ export class ReturnsService {
     });
   }
 
-  async listReturns(branchId: string) {
+  /** A page of the branch's returns, newest first. */
+  async listReturns(branchId: string, filters: PageQuery & { search?: string } = { limit: 100 }) {
+    const search = filters.search?.trim();
     const returns = await this.prisma.returnInvoice.findMany({
-      where: { saleInvoice: { branchId } },
+      where: {
+        saleInvoice: { branchId },
+        ...afterCursor(filters),
+        ...(search
+          ? {
+              AND: [
+                {
+                  OR: [
+                    { returnNo: { contains: search, mode: 'insensitive' as const } },
+                    { saleInvoice: { invoiceNo: { contains: search, mode: 'insensitive' as const } } },
+                    { saleInvoice: { customerName: { contains: search, mode: 'insensitive' as const } } }
+                  ]
+                }
+              ]
+            }
+          : {})
+      },
+      take: filters.limit,
       include: {
         saleInvoice: {
           select: {
@@ -292,7 +312,7 @@ export class ReturnsService {
         },
         lines: { select: { id: true } }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: newestFirst
     });
 
     return returns.map((row) => ({

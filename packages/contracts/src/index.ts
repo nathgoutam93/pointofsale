@@ -981,6 +981,18 @@ export const reportDetailSchema = z.object({
   )
 });
 
+/**
+ * A page of a list, newest first: up to `limit` rows made before the row (`before`, `beforeId`)
+ * the last page ended with. Without `before`, the newest.
+ */
+const pageQuerySchema = z.object({
+  before: z.string().datetime().optional(),
+  beforeId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100)
+});
+/** Query strings arrive as text; z.coerce.boolean() would read "false" as true. */
+const queryBooleanSchema = z.enum(['true', 'false']).transform((value) => value === 'true');
+
 const saleCreateBodySchema = z.object({
   branchId: z.string().uuid(),
   customerId: z.string().uuid(),
@@ -1929,7 +1941,8 @@ export const appContract = c.router({
     ledger: {
       method: 'GET',
       path: '/stock/ledger',
-      query: z.object({ branchId: z.string().uuid(), itemId: z.string().uuid().optional() }),
+      /** A page of the movements, newest first. */
+      query: pageQuerySchema.extend({ branchId: z.string().uuid(), itemId: z.string().uuid().optional() }),
       responses: { 200: z.array(stockLedgerSchema) }
     }
   },
@@ -2050,7 +2063,16 @@ export const appContract = c.router({
     list: {
       method: 'GET',
       path: '/sales',
-      query: z.object({ branchId: z.string().uuid() }),
+      /** A page of the branch's bills, newest first, matching the filters. */
+      query: pageQuerySchema.extend({
+        branchId: z.string().uuid(),
+        /** In the bill number, customer's name or phone, or who made it. */
+        search: z.string().trim().max(100).optional(),
+        status: invoiceStatusSchema.optional(),
+        /** true: only bills with money still owed; false: only those without. */
+        owed: queryBooleanSchema.optional(),
+        customerId: z.string().uuid().optional()
+      }),
       responses: { 200: z.array(saleInvoiceSchema) }
     },
     getById: {
@@ -2100,8 +2122,12 @@ export const appContract = c.router({
     list: {
       method: 'GET',
       path: '/returns',
-      /** Default: the open register's branch. Admins may name any branch they manage. */
-      query: z.object({ branchId: z.string().uuid().optional() }),
+      /** A page of the branch's returns, newest first. Default: the open register's branch; admins may name any branch they manage. */
+      query: pageQuerySchema.extend({
+        branchId: z.string().uuid().optional(),
+        /** In the return or bill number, or the customer's name. */
+        search: z.string().trim().max(100).optional()
+      }),
       responses: { 200: z.array(returnListItemSchema) }
     },
     getById: {

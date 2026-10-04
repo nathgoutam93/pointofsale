@@ -3,6 +3,7 @@ import { Prisma, StockTxnType } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { toNumber, round3 } from '../common/numbers';
 import { assertQtyRespectsLeastCount } from '../common/quantities';
+import { afterCursor, newestFirst, type PageQuery } from '../common/paging';
 import { SettingsService } from '../settings/settings.service';
 import { ItemsService } from '../items/items.service';
 
@@ -78,12 +79,14 @@ export class StockService {
     return rows.map((row) => ({ itemId: row.itemId, onHand: toNumber(row.qty) }));
   }
 
-  async getLedger(branchId: string, itemId?: string) {
+  /** A page of the movements, newest first. */
+  async getLedger(branchId: string, itemId?: string, page: PageQuery = { limit: 100 }) {
     await this.settings.ensureBranchExists(branchId);
     const normalizedItemId = itemId ? await this.items.resolveItemId(itemId) : undefined;
     return this.prisma.stockLedger.findMany({
-      where: { branchId, ...(normalizedItemId ? { itemId: normalizedItemId } : {}) },
-      orderBy: { createdAt: 'desc' }
+      where: { branchId, ...(normalizedItemId ? { itemId: normalizedItemId } : {}), ...afterCursor(page) },
+      orderBy: newestFirst,
+      take: page.limit
     });
   }
 

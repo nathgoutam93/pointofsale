@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { invoiceDue, returnLineAmounts, round2, round3, sanitizeReceiptCss, splitReturn } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders, uploadSrc } from "../lib/api";
@@ -55,14 +55,25 @@ export function ReturnsPage() {
   const [message, setMessage] = useState("");
   const receiptPrinting = useReceiptPrinting();
 
-  const returnsList = useQuery({
+  // Returns a page at a time, newest first.
+  const RETURNS_PAGE = 100;
+  const returnPages = useInfiniteQuery({
     queryKey: ["returns-list", session.branchId],
-    queryFn: async () => {
-      const res = await api.returns.list({ extraHeaders: authHeaders() });
+    initialPageParam: null as { before: string; beforeId: string } | null,
+    queryFn: async ({ pageParam }) => {
+      const res = await api.returns.list({ query: { limit: RETURNS_PAGE, ...(pageParam ?? {}) }, extraHeaders: authHeaders() });
       if (res.status !== 200) throw new Error("Failed to load returns");
       return res.body;
     },
+    getNextPageParam: (lastPage) => {
+      const last = lastPage[lastPage.length - 1];
+      return lastPage.length === RETURNS_PAGE && last ? { before: last.createdAt, beforeId: last.id } : undefined;
+    },
   });
+  const returnsList = useMemo(
+    () => ({ data: returnPages.data?.pages.flat(), isLoading: returnPages.isLoading }),
+    [returnPages.data, returnPages.isLoading],
+  );
 
   const returnDetail = useQuery({
     queryKey: ["return-detail", selectedReturnId],
@@ -77,12 +88,18 @@ export function ReturnsPage() {
     },
   });
 
+  // The bills matching what is typed, found on the server (the search waits for typing to pause).
+  const [billSearch, setBillSearch] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setBillSearch(invoiceSearch.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [invoiceSearch]);
   const sales = useQuery({
-    queryKey: ["sales-module", session.branchId],
-    enabled: createMode,
+    queryKey: ["sales-module", session.branchId, "return-search", billSearch],
+    enabled: createMode && billSearch.length > 0,
     queryFn: async () => {
       const res = await api.sales.list({
-        query: { branchId: session.branchId },
+        query: { branchId: session.branchId!, search: billSearch, limit: 20 },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to load sales");
@@ -454,6 +471,16 @@ export function ReturnsPage() {
               </div>
             </button>
           ))}
+          {returnPages.hasNextPage ? (
+            <button
+              type="button"
+              className="btn-secondary w-full"
+              disabled={returnPages.isFetchingNextPage}
+              onClick={() => void returnPages.fetchNextPage()}
+            >
+              {returnPages.isFetchingNextPage ? "Loading…" : "Load older returns"}
+            </button>
+          ) : null}
         </div>
         </div>
       </aside>

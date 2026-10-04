@@ -263,11 +263,13 @@ export function CustomersPage() {
         },
     });
 
+    // The selected customer's bills with money still owed (at this branch).
     const sales = useQuery({
-        queryKey: ["customers-module-sales", branchId],
+        queryKey: ["customers-module-sales", branchId, selectedCustomer?.id],
+        enabled: !!selectedCustomer && !selectedCustomer.isWalkIn,
         queryFn: async () => {
             const res = await api.sales.list({
-                query: { branchId: branchId },
+                query: { branchId: branchId, customerId: selectedCustomer!.id, owed: "true", limit: 500 },
                 extraHeaders: authHeaders(),
             });
             if (res.status !== 200) throw new Error("Failed to fetch sales");
@@ -288,28 +290,10 @@ export function CustomersPage() {
         });
     }, [search, visibleCustomers]);
 
-    const pendingByCustomerId = useMemo(() => {
-        const summary = new Map<string, { count: number; total: number }>();
-        for (const invoice of sales.data ?? []) {
-            if (!invoice.customerId) continue;
-            const pending = invoiceDue(invoice);
-            if (pending <= 0) continue;
-
-            const current = summary.get(invoice.customerId) ?? { count: 0, total: 0 };
-            summary.set(invoice.customerId, {
-                count: current.count + 1,
-                total: current.total + pending,
-            });
-        }
-        return summary;
-    }, [sales.data]);
-
     const pendingInvoiceSummary = useMemo(() => {
-        if (!selectedCustomer) {
-            return { count: 0, total: 0 };
-        }
-        return pendingByCustomerId.get(selectedCustomer.id) ?? { count: 0, total: 0 };
-    }, [pendingByCustomerId, selectedCustomer]);
+        const bills = sales.data ?? [];
+        return { count: bills.length, total: bills.reduce((sum, invoice) => sum + invoiceDue(invoice), 0) };
+    }, [sales.data]);
 
     const hasCustomerEdits = useMemo(() => {
         if (!selectedCustomer) return false;

@@ -412,6 +412,7 @@ model WalletTxn {
   createdAt         DateTime         @default(now())
 
   @@index([registerSessionId])
+  @@index([walletAccountId, createdAt])
 }
 
 model Item {
@@ -586,6 +587,10 @@ model SaleInvoice {
   receipts               Receipt[]
   returns                ReturnInvoice[]
   createdAt              DateTime             @default(now())
+
+  @@index([branchId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([sellerGstin, createdAt])
 }
 
 model SaleInvoiceLine {
@@ -620,6 +625,9 @@ model SaleInvoiceLine {
   supplyType           GstSupplyType        @default(TAXABLE)
   discountAllocations  DiscountAllocation[]
   returnLines          ReturnInvoiceLine[]
+
+  @@index([invoiceId])
+  @@index([itemId])
 }
 
 model Discount {
@@ -663,6 +671,8 @@ model Payment {
   createdAt         DateTime         @default(now())
 
   @@index([registerSessionId])
+  @@index([invoiceId])
+  @@index([createdAt])
 }
 
 model Receipt {
@@ -672,6 +682,8 @@ model Receipt {
   invoice   SaleInvoice @relation(fields: [invoiceId], references: [id])
   amount    Decimal     @db.Decimal(14, 2)
   createdAt DateTime    @default(now())
+
+  @@index([invoiceId])
 }
 
 model ReturnInvoice {
@@ -706,6 +718,8 @@ model ReturnInvoice {
   createdAt         DateTime            @default(now())
 
   @@index([registerSessionId])
+  @@index([saleInvoiceId])
+  @@index([createdAt])
 }
 
 model ReturnInvoiceLine {
@@ -722,6 +736,9 @@ model ReturnInvoiceLine {
   cgstAmount      Decimal         @default(0) @db.Decimal(14, 2)
   sgstAmount      Decimal         @default(0) @db.Decimal(14, 2)
   igstAmount      Decimal         @default(0) @db.Decimal(14, 2)
+
+  @@index([returnInvoiceId])
+  @@index([saleLineId])
 }
 
 /// Goods received from a supplier at a branch (a GRN). Adds stock and moves the item's

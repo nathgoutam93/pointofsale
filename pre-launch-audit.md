@@ -341,7 +341,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 
 ## C. Code health and scale
 
-### [ ] C1. Paging on every list
+### [x] C1. Paging on every list
 
 - **Why:** `listSales`, `listReturns`, the stock ledger, items and customers return every row;
   the Sales and POS screens load them all; "Overall" in reports scans the whole table. A shop
@@ -350,6 +350,18 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   items and customers, paging in the Sales, Returns, Stock and Customers screens; an index on
   `SaleInvoice (branchId, createdAt)`.
 - **Done when:** the Sales screen opens fast on a branch with 200,000 bills (seeded).
+- **Status (2026-10-04):** `GET /sales`, `/returns` and `/stock/ledger` return a page at a time,
+  newest first (`limit`, and a `before` + `beforeId` cursor so rows made in the same millisecond
+  are neither skipped nor repeated; `common/paging.ts`). Sales filter on the server by search,
+  status, money owed and customer; returns by search. The Sales, Returns and Stock screens load a
+  page and offer "Load older". The return screen searches bills on the server, and the Customers
+  page fetches only the selected customer's unpaid bills. Migration
+  `20261020200000_list_indexes` adds the missing indexes (bills by branch and date, by customer
+  and by GSTIN; lines, payments, receipts and returns by bill; wallet entries). Measured with
+  200,000 seeded bills: first page 33 ms, search 170 ms, report summary 155 ms, Sales screen
+  shown in 0.7 s. Tests: `list-paging.test.ts`. Items and customers still load in full: the POS
+  needs every item for scanning and offline use, and both lists grow slowly. Server search for
+  them can come later if a shop has tens of thousands.
 
 ### [ ] C2. Fewer queries inside checkout
 

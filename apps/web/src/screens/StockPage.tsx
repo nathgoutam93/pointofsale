@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, apiErrorMessage, authHeaders } from "../lib/api";
 import { BranchPicker } from "../components/BranchPicker";
@@ -94,19 +94,30 @@ export function StockPage() {
     },
   });
 
-  const ledger = useQuery({
+  // An item's movements a page at a time, newest first.
+  const LEDGER_PAGE = 200;
+  const ledgerPages = useInfiniteQuery({
     queryKey: ["stock-ledger", branchId, selectedItemId],
     enabled: Boolean(selectedItemId),
-    queryFn: async () => {
+    initialPageParam: null as { before: string; beforeId: string } | null,
+    queryFn: async ({ pageParam }) => {
       if (!selectedItemId) return [];
       const res = await api.stock.ledger({
-        query: { branchId: branchId, itemId: selectedItemId },
+        query: { branchId: branchId, itemId: selectedItemId, limit: LEDGER_PAGE, ...(pageParam ?? {}) },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to fetch stock history");
       return res.body;
     },
+    getNextPageParam: (lastPage) => {
+      const last = lastPage[lastPage.length - 1];
+      return lastPage.length === LEDGER_PAGE && last ? { before: last.createdAt, beforeId: last.id } : undefined;
+    },
   });
+  const ledger = useMemo(
+    () => ({ data: ledgerPages.data?.pages.flat(), isLoading: ledgerPages.isLoading }),
+    [ledgerPages.data, ledgerPages.isLoading],
+  );
 
   const onHandByItem = useMemo(() => {
     const map = new Map<string, number>();
@@ -413,7 +424,8 @@ export function StockPage() {
                     : openOpeningCreateModal()
                 }
                 className="btn-primary"
-                disabled={!selectedItem}
+                // With older movements not loaded, whether there is an opening count isn't known yet.
+                disabled={!selectedItem || (!openingEntry && ledgerPages.hasNextPage)}
               >
                 {openingEntry ? "Edit Opening Stock" : "Add Opening Stock"}
               </button>
@@ -578,6 +590,16 @@ export function StockPage() {
                     ))}
                   </tbody>
                 </table>
+                {ledgerPages.hasNextPage ? (
+                  <button
+                    type="button"
+                    className="btn-secondary mt-3"
+                    disabled={ledgerPages.isFetchingNextPage}
+                    onClick={() => void ledgerPages.fetchNextPage()}
+                  >
+                    {ledgerPages.isFetchingNextPage ? "Loading…" : "Load older movements"}
+                  </button>
+                ) : null}
               </div>
             )}
           </div>

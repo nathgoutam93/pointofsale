@@ -27,11 +27,12 @@ export class ReturnsController {
 
   @Get('/returns')
   async listReturns(
-    @Query(new ZodValidationPipe(appContract.returns.list.query)) { branchId }: { branchId?: string },
+    @Query(new ZodValidationPipe(appContract.returns.list.query))
+    query: { branchId?: string; search?: string; before?: string; beforeId?: string; limit: number },
     @Headers() headers: RequestHeaders
   ) {
     const session = getSession(headers);
-    return this.returns.listReturns(await this.access.requireBranch(session, branchId ?? session.branchId ?? ''));
+    return this.returns.listReturns(await this.access.requireBranch(session, query.branchId ?? session.branchId ?? ''), query);
   }
 
   @Get('/returns/:id')

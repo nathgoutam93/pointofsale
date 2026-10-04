@@ -78,10 +78,11 @@ export class StockController {
 
   @Get('/stock/ledger')
   async stockLedger(
-    @Query(new ZodValidationPipe(appContract.stock.ledger.query)) { branchId, itemId }: { branchId: string; itemId?: string },
+    @Query(new ZodValidationPipe(appContract.stock.ledger.query))
+    query: { branchId: string; itemId?: string; before?: string; beforeId?: string; limit: number },
     @Headers() headers: RequestHeaders
   ) {
-    await this.access.requireBranch(getSession(headers), branchId);
-    return this.stock.getLedger(branchId, itemId);
+    await this.access.requireBranch(getSession(headers), query.branchId);
+    return this.stock.getLedger(query.branchId, query.itemId, query);
   }
 }

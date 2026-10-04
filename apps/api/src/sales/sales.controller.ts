@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Headers, Param, ParseUUIDPipe, Post, Q
 import { OnlineOnlyGuard } from '../common/mode';
 import { FailureLimiter } from '../common/rate-limit';
 import { ReceiptEmailService } from './receipt-email.service';
-import { PaymentMode } from '@prisma/client';
+import { InvoiceStatus, PaymentMode } from '@prisma/client';
 import { appContract } from '@pos/contracts';
 import { UserRole } from '@prisma/client';
 import { AccessService } from '../common/access.service';
@@ -114,10 +114,11 @@ export class SalesController {
 
   @Get('/sales')
   async listSales(
-    @Query(new ZodValidationPipe(appContract.sales.list.query)) { branchId }: { branchId: string },
+    @Query(new ZodValidationPipe(appContract.sales.list.query))
+    query: { branchId: string; search?: string; status?: InvoiceStatus; owed?: boolean; customerId?: string; before?: string; beforeId?: string; limit: number },
     @Headers() headers: RequestHeaders
   ) {
-    return this.sales.listSales(await this.access.requireBranch(getSession(headers), branchId));
+    return this.sales.listSales(await this.access.requireBranch(getSession(headers), query.branchId), query);
   }
 
   @Get('/sales/:id')

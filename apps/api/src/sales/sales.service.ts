@@ -18,6 +18,7 @@ import { CustomersService, walletTxnAuthor } from '../customers/customers.servic
 import { ReceivablesService } from '../customers/receivables.service';
 import { RegistersService } from '../registers/registers.service';
 import { localDate } from '../reports/zoned-dates';
+import { afterCursor, newestFirst, type PageQuery } from '../common/paging';
 import { AuditService } from '../common/audit.service';
 
 @Injectable()
@@ -766,15 +767,49 @@ export class SalesService {
     return invoice?.branchId ?? null;
   }
 
-  async listSales(branchId: string) {
-    const invoices = await this.prisma.saleInvoice.findMany({
-      where: { branchId },
-      orderBy: { createdAt: 'desc' },
+  /** A page of the branch's bills, newest first, matching the filters. */
+  async listSales(
+    branchId: string,
+    filters: PageQuery & { search?: string; status?: InvoiceStatus; owed?: boolean; customerId?: string } = { limit: 100 }
+  ) {
+    const search = filters.search?.trim();
+    const owedIds =
+      filters.owed === undefined
+        ? undefined
+        : (
+            await this.prisma.$queryRaw<Array<{ id: string }>>`
+              SELECT "id" FROM "SaleInvoice"
+              WHERE "branchId" = ${branchId} AND "status" <> 'CANCELLED'
+                AND "grandTotal" - "paidTotal" - "creditedTotal" > 0.005`
+          ).map((row) => row.id);
+    return this.prisma.saleInvoice.findMany({
+      where: {
+        branchId,
+        ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.customerId ? { customerId: filters.customerId } : {}),
+        ...(owedIds ? (filters.owed ? { id: { in: owedIds } } : { id: { notIn: owedIds } }) : {}),
+        ...(search
+          ? {
+              AND: [
+                {
+                  OR: [
+                    { invoiceNo: { contains: search, mode: 'insensitive' as const } },
+                    { customerName: { contains: search, mode: 'insensitive' as const } },
+                    { customerPhone: { contains: search } },
+                    { createdByName: { contains: search, mode: 'insensitive' as const } }
+                  ]
+                },
+                afterCursor(filters)
+              ]
+            }
+          : afterCursor(filters))
+      },
+      orderBy: newestFirst,
+      take: filters.limit,
       include: {
         discounts: true
       }
     });
-    return invoices;
   }
 
   async getSaleById(branchId: string, id: string) {
