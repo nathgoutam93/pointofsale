@@ -43,8 +43,11 @@ export const MIGRATION_TABLES = [
   'StockTransferLine'
 ] as const;
 
-/** Tables that describe this installation rather than the business, so they never move. */
-export const MIGRATION_EXCLUDED_MODELS = ['LocalInstance'] as const;
+/**
+ * Tables that describe this installation rather than the business, so they never move: the
+ * local instance, and what a fallback counter's copy keeps about itself (always empty otherwise).
+ */
+export const MIGRATION_EXCLUDED_MODELS = ['LocalInstance', 'FallbackBalance', 'FallbackCopiedDocument'] as const;
 
 export type MigrationTable = (typeof MIGRATION_TABLES)[number];
 

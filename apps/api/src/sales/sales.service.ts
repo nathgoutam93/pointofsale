@@ -476,17 +476,12 @@ export class SalesService {
           input.payments.length === 0
             ? { invoice: created, receipt: null }
             : await this.settleSaleInTx(tx, session, created.id, input.payments);
-        // Working offline (fallback counter): no credit, wallet or change into a wallet, which
-        // need the server's balances.
+        // Working offline (fallback counter): no wallet payments or change into a wallet, which
+        // need the server's balances. Credit is fine, within the limit as the copy has it.
         if (isFallback()) {
           const paid = input.payments.reduce((sum, payment) => sum + payment.amount, 0);
-          const walkIn = (await tx.customer.findUnique({ where: { id: input.customerId }, select: { isWalkIn: true } }))?.isWalkIn;
-          if (
-            input.payments.some((payment) => payment.mode === PaymentMode.WALLET) ||
-            result.invoice.status !== InvoiceStatus.SETTLED ||
-            (!walkIn && paid > toNumber(result.invoice.grandTotal) + 0.005)
-          ) {
-            throw new BadRequestException('While working offline, take the exact amount in cash or card. Credit and wallet need the server.');
+          if (input.payments.some((payment) => payment.mode === PaymentMode.WALLET) || paid > toNumber(result.invoice.grandTotal) + 0.005) {
+            throw new BadRequestException("While working offline, the wallet can't be used: take cash or card, no more than the bill, or sell on credit.");
           }
         }
         // Nobody to collect the rest from, so walk-in sales must be paid in full.
@@ -614,6 +609,9 @@ export class SalesService {
     }
     if (walletTotal > pending) {
       throw new BadRequestException('Wallet payment can\'t be more than the amount due');
+    }
+    if (isFallback() && (walletTotal > 0 || excess > 0)) {
+      throw new BadRequestException("While working offline, the wallet can't be used: take cash or card, no more than is due.");
     }
     if (walletTotal > 0) {
       const wallet = await tx.walletAccount.findUnique({ where: { customerId: invoice.customerId } });

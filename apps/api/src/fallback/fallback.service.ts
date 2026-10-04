@@ -17,6 +17,13 @@ import { TenancyService } from '../tenancy/tenancy.service';
 import { BranchesService } from '../branches/branches.service';
 import { toNumber } from '../common/numbers';
 import { RegistersService } from '../registers/registers.service';
+import { SequenceService } from '../sequences/sequences.service';
+
+/** How far back the copy carries the counter's own paid bills, so their goods can be returned offline. */
+export const FALLBACK_RETURNABLE_DAYS = 7;
+
+/** Customers made offline have codes like OFF-1A2B3C4D until the server gives them one of its own. */
+export const OFFLINE_CUSTOMER_CODE = /^OFF-[0-9A-F]{8}$/;
 
 /** A fallback computer's key: fb1.<business id>.<counter id>.<secret>. Only the secret's hash is kept. */
 const KEY_PATTERN = /^fb1\.([0-9a-f-]{36})\.([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$/;
@@ -44,6 +51,14 @@ export type FallbackOutbox = {
   }>;
   sequences: Array<{ kind: string; series: string; fiscalYear: number; lastSeq: number }>;
   receiptSeq: number;
+  /** Customers added offline (code OFF-…). Missing from an older app's outbox. */
+  customers?: Array<Record<string, unknown>>;
+  /** Returns given offline, with their lines and stock movements. Missing from an older app's outbox. */
+  returns?: Array<{
+    ret: Record<string, unknown>;
+    lines: Array<Record<string, unknown>>;
+    ledger: Array<Record<string, unknown>>;
+  }>;
 };
 
 type FallbackCounter = { id: string; branchId: string; number: number; name: string; branchCode: string };
@@ -61,7 +76,8 @@ export class FallbackService {
     private readonly prisma: PrismaService,
     private readonly tenancy: TenancyService,
     private readonly branches: BranchesService,
-    private readonly registers: RegistersService
+    private readonly registers: RegistersService,
+    private readonly sequences: SequenceService
   ) {}
 
   /** Makes `counterId` the branch's fallback counter on `deviceId`; answers the computer's key. */
@@ -115,22 +131,48 @@ export class FallbackService {
   /**
    * The local copy for the counter's computer, in the local backup format (its restore tool
    * loads it): settings, the branch, its counters and staff, customers, items, prices, stock,
-   * the counter's invoice series and its open register. No sales history. Returns the file.
+   * the counter's invoice and return series and its open register. No sales history, except the
+   * counter's own paid bills of the last few days (with their returns), so their goods can be
+   * returned offline; those are listed in FallbackCopiedDocument. FallbackBalance has what each
+   * customer owed, for credit limits offline. Returns the file.
    */
   async snapshot(counter: FallbackCounter) {
     const settings = await this.prisma.businessSettings.findUnique({ where: { id: 'default' }, select: { customerScope: true, logoUrl: true } });
     const branch = await this.prisma.branch.findUniqueOrThrow({ where: { id: counter.branchId }, select: { logoUrl: true } });
     const branchId = lit(counter.branchId);
     const staff = `SELECT "userId" FROM "UserBranchAccess" WHERE "branchId" = ${branchId}`;
+    const invoiceSeries = lit(documentSeries(counter.branchCode, counter.number, DocumentKind.INVOICE));
+    const returnSeries = lit(documentSeries(counter.branchCode, counter.number, DocumentKind.RETURN));
+    // The counter's own bills, paid in full, of the last few days: nothing about them can change
+    // online except another return, which the server checks for when the offline ones come back.
+    const ownBills = `SELECT "id" FROM "SaleInvoice" WHERE "branchId" = ${branchId} AND "documentSeries" = ${invoiceSeries}
+      AND "status" = 'SETTLED' AND "createdAt" > now() - interval '${FALLBACK_RETURNABLE_DAYS} days'`;
+    const ownReturns = `SELECT "id" FROM "ReturnInvoice" WHERE "saleInvoiceId" IN (${ownBills})`;
+    const customerScope = settings?.customerScope === CustomerScope.BRANCH ? `"branchId" = ${branchId}` : undefined;
     const only = [
       { name: 'BusinessSettings' },
       { name: 'TaxpayerTypeChange' },
       { name: 'Branch' },
       { name: 'Counter', where: `"branchId" = ${branchId}` },
-      { name: 'DocumentSequence', where: `"kind" = 'INVOICE' AND "series" = ${lit(documentSeries(counter.branchCode, counter.number, DocumentKind.INVOICE))}` },
+      {
+        name: 'DocumentSequence',
+        where: `("kind" = 'INVOICE' AND "series" = ${invoiceSeries}) OR ("kind" = 'RETURN' AND "series" = ${returnSeries})`
+      },
       { name: 'User', where: `"id" IN (${staff})` },
       { name: 'UserBranchAccess', where: `"userId" IN (${staff})` },
-      { name: 'Customer', where: settings?.customerScope === CustomerScope.BRANCH ? `"branchId" = ${branchId}` : undefined },
+      { name: 'Customer', where: customerScope },
+      {
+        name: 'FallbackBalance',
+        from: `SELECT "customerId", SUM(GREATEST("grandTotal" - "paidTotal" - "creditedTotal", 0))::numeric(14, 2) AS "owed"
+          FROM "SaleInvoice" WHERE "status" IN ('DRAFT', 'PARTIALLY_SETTLED')
+          ${customerScope ? `AND "customerId" IN (SELECT "id" FROM "Customer" WHERE ${customerScope})` : ''}
+          GROUP BY "customerId" HAVING SUM(GREATEST("grandTotal" - "paidTotal" - "creditedTotal", 0)) > 0`
+      },
+      { name: 'SaleInvoice', where: `"id" IN (${ownBills})` },
+      { name: 'SaleInvoiceLine', where: `"invoiceId" IN (${ownBills})` },
+      { name: 'ReturnInvoice', where: `"id" IN (${ownReturns})` },
+      { name: 'ReturnInvoiceLine', where: `"returnInvoiceId" IN (${ownReturns})` },
+      { name: 'FallbackCopiedDocument', from: `${ownBills} UNION ALL ${ownReturns}` },
       { name: 'Item' },
       { name: 'ItemSaleUom' },
       { name: 'ItemBranchPrice', where: `"branchId" = ${branchId}` },
@@ -170,7 +212,11 @@ export class FallbackService {
       );
     }
     const invoiceSeries = documentSeries(counter.branchCode, counter.number, DocumentKind.INVOICE);
+    const returnSeries = documentSeries(counter.branchCode, counter.number, DocumentKind.RETURN);
+    const customers = outbox.customers ?? [];
+    const returns = outbox.returns ?? [];
     const registerIds = new Set(outbox.registers.map((row) => String(row.id)));
+    const outboxInvoiceIds = new Set(outbox.invoices.map((entry) => String(entry.invoice.id)));
     const fail = (what: string) => {
       throw new ForbiddenException(`Offline sales from this computer can't include ${what}`);
     };
@@ -191,8 +237,22 @@ export class FallbackService {
         if (row.branchId !== counter.branchId || row.referenceId !== entry.invoice.id || row.referenceType !== 'SALE') fail('other stock movements');
       }
     }
+    for (const customer of customers) {
+      if (customer.branchId !== counter.branchId || customer.isWalkIn !== false || !OFFLINE_CUSTOMER_CODE.test(String(customer.code))) {
+        fail('a customer not added offline at this branch');
+      }
+    }
+    for (const entry of returns) {
+      if (entry.ret.documentSeries !== returnSeries) fail("another counter's return");
+      if (!registerIds.has(String(entry.ret.registerSessionId))) fail("a return on another counter's register");
+      for (const row of entry.lines) if (row.returnInvoiceId !== entry.ret.id) fail('a line of another return');
+      for (const row of entry.ledger) {
+        if (row.branchId !== counter.branchId || row.referenceId !== entry.ret.id || row.referenceType !== 'RETURN') fail('other stock movements');
+      }
+    }
     for (const sequence of outbox.sequences) {
-      if (sequence.kind !== 'INVOICE' || sequence.series !== invoiceSeries) fail("another series' numbers");
+      const ok = (sequence.kind === 'INVOICE' && sequence.series === invoiceSeries) || (sequence.kind === 'RETURN' && sequence.series === returnSeries);
+      if (!ok) fail("another series' numbers");
     }
 
     const rows = (name: string, list: Array<Record<string, unknown>>) => ({ name, list });
@@ -208,7 +268,14 @@ export class FallbackService {
       return await this.prisma.$transaction(
         async (tx) => {
           await lockBranchRegisters(tx, counter.branchId);
-          const conflicts = await this.conflicts(tx, outbox);
+          // A return offline is of a bill made offline, or of one of the counter's own that came with the copy.
+          const returnedBills = [...new Set(returns.map((entry) => String(entry.ret.saleInvoiceId)))].filter((id) => !outboxInvoiceIds.has(id));
+          const serverBills = await tx.saleInvoice.findMany({ where: { id: { in: returnedBills } }, select: { id: true, documentSeries: true } });
+          if (serverBills.length !== returnedBills.length || serverBills.some((bill) => bill.documentSeries !== invoiceSeries)) {
+            fail("a return of another counter's bill");
+          }
+          const { invoices: placed, created } = await this.placeCustomers(tx, counter, customers, outbox.invoices);
+          const conflicts = await this.conflicts(tx, { ...outbox, invoices: placed, returns }, new Set(created.map((row) => String(row.id))));
           if (conflicts.length) {
             throw new ConflictException({
               statusCode: 409,
@@ -244,15 +311,37 @@ export class FallbackService {
               JSON.stringify(outbox.registers)
             );
           }
-          const all = (pick: (entry: FallbackOutbox['invoices'][number]) => Array<Record<string, unknown>>) => outbox.invoices.flatMap(pick);
-          // An older copy's bills have no creditedTotal (nothing is returned offline anyway).
-          const invoices = await insert(tx, rows('SaleInvoice', outbox.invoices.map((entry) => ({ creditedTotal: 0, ...entry.invoice }))));
+          // Customers added offline get the server's next customer code, and a wallet.
+          for (const row of created) {
+            const seq = await this.sequences.nextSequence(counter.branchId, 'customer', tx);
+            await tx.customer.create({
+              data: {
+                id: String(row.id),
+                branchId: counter.branchId,
+                code: `CUST-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`,
+                name: String(row.name),
+                phone: (row.phone as string | null) ?? null,
+                gstin: (row.gstin as string | null) ?? null,
+                address: (row.address as string | null) ?? null,
+                email: (row.email as string | null) ?? null,
+                creditLimit: (row.creditLimit as string | number | null) ?? null,
+                paymentTermsDays: (row.paymentTermsDays as number | null) ?? null,
+                createdAt: new Date(String(row.createdAt))
+              }
+            });
+            await tx.walletAccount.create({ data: { customerId: String(row.id), branchId: counter.branchId, balance: 0 } });
+          }
+          const all = (pick: (entry: FallbackOutbox['invoices'][number]) => Array<Record<string, unknown>>) => placed.flatMap(pick);
+          // An older copy's bills have no creditedTotal.
+          const invoices = await insert(tx, rows('SaleInvoice', placed.map((entry) => ({ creditedTotal: 0, ...entry.invoice }))));
           await insert(tx, rows('SaleInvoiceLine', all((entry) => entry.lines)));
           await insert(tx, rows('Discount', all((entry) => entry.discounts)));
           await insert(tx, rows('DiscountAllocation', all((entry) => entry.allocations)));
           await insert(tx, rows('Payment', all((entry) => entry.payments)));
           await insert(tx, rows('Receipt', all((entry) => entry.receipts)));
-          const ledger = all((entry) => entry.ledger);
+          const addedReturns = await insert(tx, rows('ReturnInvoice', returns.map((entry) => entry.ret)));
+          await insert(tx, rows('ReturnInvoiceLine', returns.flatMap((entry) => entry.lines)));
+          const ledger = [...all((entry) => entry.ledger), ...returns.flatMap((entry) => entry.ledger)];
           if (ledger.length) {
             // Stock moves only for movements not already recorded.
             await tx.$executeRawUnsafe(
@@ -274,7 +363,7 @@ export class FallbackService {
           }
           await tx.$executeRaw`
             UPDATE "Counter" SET "fallbackReceiptSeq" = GREATEST("fallbackReceiptSeq", ${outbox.receiptSeq}) WHERE "id" = ${counter.id}`;
-          return { invoices, registers: outbox.registers.length };
+          return { invoices, registers: outbox.registers.length, customers: created.length, returns: addedReturns };
         },
         { timeout: 120_000, maxWait: 30_000 }
       );
@@ -290,11 +379,51 @@ export class FallbackService {
   }
 
   /**
-   * What would stop the offline sales going in as they are: an invoice or receipt number the
-   * server has already used for something else, or an item, customer or staff member they point
-   * at that the server no longer has. Rows already added (a retry) are not clashes.
+   * Customers added offline: one the server already has (a retry) stays as it is; one whose phone
+   * number the server already has is that customer, and their offline bills are moved to them;
+   * the rest are to be added. Answers the bills with their customers settled, and who to add.
    */
-  private async conflicts(tx: Prisma.TransactionClient, outbox: FallbackOutbox): Promise<SyncConflict[]> {
+  private async placeCustomers(
+    tx: Prisma.TransactionClient,
+    counter: FallbackCounter,
+    customers: Array<Record<string, unknown>>,
+    invoices: FallbackOutbox['invoices']
+  ) {
+    if (customers.length === 0) return { invoices, created: [] as Array<Record<string, unknown>> };
+    const known = new Set((await tx.customer.findMany({ where: { id: { in: customers.map((row) => String(row.id)) } }, select: { id: true } })).map((row) => row.id));
+    const scope = (await tx.businessSettings.findUnique({ where: { id: 'default' }, select: { customerScope: true } }))?.customerScope;
+    const sameAs = new Map<string, string>();
+    const created: Array<Record<string, unknown>> = [];
+    for (const row of customers.filter((customer) => !known.has(String(customer.id)))) {
+      const phone = typeof row.phone === 'string' && row.phone ? row.phone : null;
+      const existing = phone
+        ? await tx.customer.findFirst({
+            where: { phone, isWalkIn: false, ...(scope === CustomerScope.BRANCH ? { branchId: counter.branchId } : {}) },
+            select: { id: true }
+          })
+        : null;
+      if (existing) sameAs.set(String(row.id), existing.id);
+      else created.push(row);
+    }
+    return {
+      invoices: invoices.map((entry) =>
+        sameAs.has(String(entry.invoice.customerId)) ? { ...entry, invoice: { ...entry.invoice, customerId: sameAs.get(String(entry.invoice.customerId)) } } : entry
+      ),
+      created
+    };
+  }
+
+  /**
+   * What would stop the offline sales going in as they are: an invoice, receipt or return number
+   * the server has already used for something else; an item, customer or staff member they point
+   * at that the server no longer has; or goods returned offline that were also returned online.
+   * Rows already added (a retry) are not clashes.
+   */
+  private async conflicts(
+    tx: Prisma.TransactionClient,
+    outbox: FallbackOutbox & { returns: NonNullable<FallbackOutbox['returns']> },
+    addedCustomers: Set<string>
+  ): Promise<SyncConflict[]> {
     const timezone = (await tx.businessSettings.findUnique({ where: { id: 'default' }, select: { timezone: true } }))?.timezone ?? 'Asia/Kolkata';
     const when = (date: Date) => date.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: timezone });
     const conflicts: SyncConflict[] = [];
@@ -346,10 +475,58 @@ export class FallbackService {
         problem: `Its item "${String(row.itemName)}" is no longer on the server.`
       });
     }
-    const missingCustomers = await missing('customer', invoices.map((row) => String(row.customerId)));
+    const missingCustomers = await missing('customer', invoices.map((row) => String(row.customerId)).filter((id) => !addedCustomers.has(id)));
     for (const row of invoices.filter((invoice) => missingCustomers.has(String(invoice.customerId)))) {
       conflicts.push({ document: `Invoice ${String(row.invoiceNo)}`, problem: `Its customer "${String(row.customerName)}" is no longer on the server.` });
     }
+    const returns = outbox.returns.map((entry) => entry.ret);
+    const takenReturns = await tx.returnInvoice.findMany({
+      where: { returnNo: { in: returns.map((row) => String(row.returnNo)) }, id: { notIn: ids(returns) } },
+      select: { returnNo: true, createdAt: true }
+    });
+    for (const taken of takenReturns) {
+      conflicts.push({ document: `Return ${taken.returnNo}`, problem: `This number was also used online (${when(taken.createdAt)}), for another return.` });
+    }
+    // Returns of bills the server already had (the copy's): not more than was sold, nor more
+    // money back than was paid, counting what was returned online meanwhile.
+    const already = new Set((await tx.returnInvoice.findMany({ where: { id: { in: ids(returns) } }, select: { id: true } })).map((row) => row.id));
+    const offline = outbox.returns.filter((entry) => !already.has(String(entry.ret.id)) && !invoiceNoOf.has(String(entry.ret.saleInvoiceId)));
+    const billIds = [...new Set(offline.map((entry) => String(entry.ret.saleInvoiceId)))];
+    if (billIds.length) {
+      const bills = await tx.saleInvoice.findMany({
+        where: { id: { in: billIds } },
+        select: {
+          id: true,
+          invoiceNo: true,
+          grandTotal: true,
+          paidTotal: true,
+          lines: { select: { id: true, itemName: true, qty: true, returnLines: { select: { qty: true } } } },
+          returns: { select: { refundAmount: true } }
+        }
+      });
+      for (const bill of bills) {
+        const mine = offline.filter((entry) => entry.ret.saleInvoiceId === bill.id);
+        const returnNos = mine.map((entry) => String(entry.ret.returnNo)).join(', ');
+        if (mine.some((entry) => Number(entry.ret.dueAdjusted ?? 0) > 0)) {
+          conflicts.push({ document: `Return ${returnNos}`, problem: `It lowers what is owed on ${bill.invoiceNo}, which can't be done offline.` });
+        }
+        for (const line of bill.lines) {
+          const online = line.returnLines.reduce((sum, row) => sum + toNumber(row.qty), 0);
+          const offlineQty = mine.flatMap((entry) => entry.lines).filter((row) => row.saleLineId === line.id).reduce((sum, row) => sum + Number(row.qty ?? 0), 0);
+          if (offlineQty > 0 && online + offlineQty > toNumber(line.qty) + 1e-9) {
+            conflicts.push({
+              document: `Return ${returnNos}`,
+              problem: `More "${line.itemName}" would be returned on ${bill.invoiceNo} than was sold: some were also returned online.`
+            });
+          }
+        }
+        const refunded = bill.returns.reduce((sum, row) => sum + toNumber(row.refundAmount), 0) + mine.reduce((sum, entry) => sum + Number(entry.ret.refundAmount ?? 0), 0);
+        if (refunded > Math.min(toNumber(bill.paidTotal), toNumber(bill.grandTotal)) + 0.005) {
+          conflicts.push({ document: `Return ${returnNos}`, problem: `More money would be handed back on ${bill.invoiceNo} than was paid for it.` });
+        }
+      }
+    }
+
     const missingUsers = await missing('user', outbox.registers.map((row) => String(row.userId)));
     for (const row of outbox.registers.filter((register) => missingUsers.has(String(register.userId)))) {
       conflicts.push({

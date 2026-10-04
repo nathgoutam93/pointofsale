@@ -317,6 +317,6 @@ export class FallbackCounter {
       throw new Error(await failure(res, "The server didn't take the offline sales"));
     }
     this.conflicts = null;
-    return (await res.json()) as { invoices: number; registers: number };
+    return (await res.json()) as { invoices: number; registers: number; customers?: number; returns?: number };
   }
 }
