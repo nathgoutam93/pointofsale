@@ -1,17 +1,12 @@
-import { exclusiveBase, lineTax } from "@pos/contracts";
+import { exclusiveBase, lineTax, round2, round3 } from "@pos/contracts";
 import type { CartLine } from "./types";
 
 export type TaxCalculationMode = "AFTER_DISCOUNT" | "BEFORE_DISCOUNT";
 
 // Pure helpers for cart lines: rounding, quantities and per-line amounts.
 
-export function round2(value: number) {
-  return Math.round(value * 100) / 100;
-}
-
-export function round3(value: number) {
-  return Math.round(value * 1000) / 1000;
-}
+// The app's one rounding (roundTo in @pos/contracts).
+export { round2, round3 };
 
 export function normalizeLeastCount(value: number | string | null | undefined) {
   const parsed = Number(value);

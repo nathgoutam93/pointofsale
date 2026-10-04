@@ -1,4 +1,4 @@
-import { COMPOSITION_RATES, splitGst, type CompositionCategory } from '@pos/contracts';
+import { COMPOSITION_RATES, round2, splitGst, type CompositionCategory } from '@pos/contracts';
 import type { Gstr1Invoice, Gstr1Problem, Gstr1Return } from './gstr1';
 
 /**
@@ -18,7 +18,6 @@ export function compositionTurnoverLimit(category: CompositionCategory) {
   return category === 'SERVICES' ? 5_000_000 : 15_000_000;
 }
 
-const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 const rupees = (value: number) => `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
 export type CompositionRow = {

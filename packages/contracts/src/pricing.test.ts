@@ -8,12 +8,14 @@ import {
   lineTax,
   resolveDiscountAmounts,
   returnLineAmounts,
+  round2,
+  round3,
+  roundTo,
   splitGst,
   type GstAmounts,
   type PricedLineInput
 } from './pricing.js';
 
-const round2 = (v: number) => Math.round(v * 100) / 100;
 const sum = (values: number[]) => round2(values.reduce((a, b) => a + b, 0));
 
 describe('lineTax', () => {
@@ -285,5 +287,18 @@ describe('MRP', () => {
     expect(mrpProblem(100, 117.99, 'EXCLUSIVE', 18)).toBe('118.00 with GST is above the MRP of 117.99');
     expect(mrpProblem(119, 118, 'INCLUSIVE', 18)).toBe('119.00 is above the MRP of 118.00');
     expect(mrpProblem(1000, 0, 'EXCLUSIVE', 18)).toBeNull(); // no MRP printed
+  });
+});
+
+describe('rounding', () => {
+  it('rounds half away from zero on the number as written', () => {
+    expect(round2(1.005)).toBe(1.01); // Math.round(1.005 * 100) / 100 gives 1
+    expect(round2(-1.005)).toBe(-1.01);
+    expect(round2(0.1 + 0.2)).toBe(0.3);
+    expect(round2(1234.005)).toBe(1234.01);
+    expect(round2(1e-7)).toBe(0);
+    expect(Object.is(round2(-0.001), 0)).toBe(true);
+    expect(round3(2.0005)).toBe(2.001);
+    expect(roundTo(123456789.125, 2)).toBe(123456789.13);
   });
 });

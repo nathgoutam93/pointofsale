@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, StockTxnType } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
-import { toNumber, round2, round3 } from '../common/numbers';
+import { toNumber, round3 } from '../common/numbers';
 import { assertQtyRespectsLeastCount } from '../common/quantities';
 import { SettingsService } from '../settings/settings.service';
 import { ItemsService } from '../items/items.service';
@@ -142,13 +142,13 @@ export class StockService {
         throw new NotFoundException('Opening stock does not exist for this item');
       }
 
-      const currentOnHand = await this.getOnHandForItem(branchId, normalizedItemId, tx);
-      const openingQty = toNumber(opening.qtyIn);
-      const newOnHand = round2(currentOnHand - openingQty + qty);
-
-      if (newOnHand < 0) {
-        throw new BadRequestException('Opening qty cannot be less than already consumed stock');
+      // The opening count can be corrected only until stock has moved: after that, rewriting it
+      // would change history, so the difference goes in as a stock adjustment with its reason.
+      const moved = await tx.stockLedger.count({ where: { branchId, itemId: normalizedItemId, id: { not: opening.id } } });
+      if (moved > 0) {
+        throw new BadRequestException('Stock of this item has moved since the opening count. Correct it with a stock adjustment instead.');
       }
+      const openingQty = toNumber(opening.qtyIn);
 
       const updated = await tx.stockLedger.update({
         where: { id: opening.id },

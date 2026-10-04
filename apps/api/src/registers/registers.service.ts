@@ -9,6 +9,7 @@ import { requireSessionBranchId, requireSessionRegisterId } from '../common/sess
 import { branchSummarySelect, registerSelect } from '../common/selects';
 import { SettingsService } from '../settings/settings.service';
 import { lockBranchRegisters } from '../common/counters';
+import { requireAdmin } from '../common/request-session';
 import { assertRegisterOpen } from '../common/register-open';
 import { BranchesService } from '../branches/branches.service';
 
@@ -238,11 +239,36 @@ export class RegistersService {
     }
     const registerId = requireSessionRegisterId(session);
     const branchId = requireSessionBranchId(session);
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.closeOpenRegister({ id: registerId, userId: session.userId, branchId }, closingBalance);
+    return {
+      token: signToken({ userId: session.userId, role: session.role }),
+      register: result
+    };
+  }
+
+  /**
+   * An admin closes a register someone else left open, at a branch they manage. The cash may be
+   * counted (closingBalance) or not (null: the expected cash is still worked out). Its user's
+   * session ends with it.
+   */
+  async closeRegisterFor(session: SessionUser, registerId: string, closingBalance: number | null) {
+    requireAdmin(session);
+    if (closingBalance !== null && (!Number.isFinite(closingBalance) || closingBalance < 0)) {
+      throw new BadRequestException('Closing balance must be 0 or more');
+    }
+    const register = await this.prisma.registerSession.findUnique({ where: { id: registerId }, select: { branchId: true } });
+    if (!register) throw new NotFoundException('Open register not found');
+    await this.branches.ensureUserHasBranchAccess(session.userId, register.branchId);
+    return this.closeOpenRegister({ id: registerId }, closingBalance);
+  }
+
+  /** Closes the open register matching `where`, recording the cash expected and, when counted, the difference. */
+  private async closeOpenRegister(where: { id: string; userId?: string; branchId?: string }, closingBalance: number | null) {
+    return this.prisma.$transaction(async (tx) => {
       // Lock the register so a sale or refund can't land between counting and closing.
-      await tx.$queryRaw`SELECT id FROM "RegisterSession" WHERE id = ${registerId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "RegisterSession" WHERE id = ${where.id} FOR UPDATE`;
       const register = await tx.registerSession.findFirst({
-        where: { id: registerId, userId: session.userId, branchId, closedAt: null },
+        where: { ...where, closedAt: null },
         select: { id: true, openingBalance: true }
       });
       if (!register) {
@@ -254,7 +280,7 @@ export class RegistersService {
         data: {
           closingBalance,
           expectedCash: cash.expectedCash,
-          cashDifference: round2(closingBalance - cash.expectedCash),
+          cashDifference: closingBalance === null ? null : round2(closingBalance - cash.expectedCash),
           closedAt: new Date()
         },
         select: registerSelect
@@ -268,10 +294,5 @@ export class RegistersService {
         upiSales: cash.upiSales
       };
     });
-
-    return {
-      token: signToken({ userId: session.userId, role: session.role }),
-      register: result
-    };
   }
 }

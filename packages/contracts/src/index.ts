@@ -85,6 +85,9 @@ export {
   priceWithTax,
   resolveDiscountAmounts,
   returnLineAmounts,
+  round2,
+  round3,
+  roundTo,
   splitGst
 } from './pricing.js';
 export type { DiscountInput, GstAmounts, PricedLineInput, ResolvedDiscount, TaxCalculationMode, TaxMode } from './pricing.js';
@@ -1677,6 +1680,18 @@ export const appContract = c.router({
           token: z.string(),
           register: registerSessionSchema.merge(registerCashSchema.omit({ expectedCash: true }))
         })
+      }
+    },
+    /**
+     * Admins: close a register someone else left open (a cashier who went home), at a branch they
+     * manage. `closingBalance` is the cash counted, or null when nobody counted it.
+     */
+    closeOther: {
+      method: 'POST',
+      path: '/registers/:id/close',
+      body: z.object({ closingBalance: moneySchema.nonnegative().nullable() }),
+      responses: {
+        200: registerSessionSchema.merge(registerCashSchema.omit({ expectedCash: true }))
       }
     }
   },

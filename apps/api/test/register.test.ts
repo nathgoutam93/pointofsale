@@ -37,6 +37,26 @@ describe('register balance', () => {
     expect((await t.call('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, ctx.walkIn.id, [la(1)], [{ mode: 'CASH', amount: 118 }]))).status).toBe(401);
   });
 
+  it('lets an admin close a register a cashier left open, counted or not', async () => {
+    const ctx = await t.branchWithRegister(admin, 0);
+    const item = await t.item(ctx.token, ctx.branch.id, { stock: 100 });
+    const cashier = await t.cashierWithRegister(admin, ctx.branch.id);
+    await t.ok('POST', '/sales/checkout', cashier.token, checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(item.id)], [{ mode: 'CASH', amount: 100 }]));
+
+    // Not by another cashier, nor at a branch the admin can't manage.
+    const other = await t.cashierWithRegister(admin, ctx.branch.id);
+    expect((await t.call('POST', `/registers/${cashier.registerId}/close`, other.token, { closingBalance: 100 })).status).toBe(400);
+
+    const closed = await t.ok('POST', `/registers/${cashier.registerId}/close`, admin, { closingBalance: null });
+    expect(closed).toMatchObject({ expectedCash: 100, closingBalance: null, cashDifference: null, cashSales: 100 });
+    // The cashier's sign-in on it has ended, and it can't be closed twice.
+    expect((await t.call('GET', '/registers/current', cashier.token)).status).toBe(401);
+    expect((await t.call('POST', `/registers/${cashier.registerId}/close`, admin, { closingBalance: 0 })).status).toBe(404);
+
+    const counted = await t.ok('POST', `/registers/${other.registerId}/close`, admin, { closingBalance: 5 });
+    expect(counted).toMatchObject({ expectedCash: 0, closingBalance: 5, cashDifference: 5 });
+  });
+
   it('never records a payment on a register after it closes', async () => {
     const ctx = await t.branchWithRegister(admin, 100);
     const item = await t.item(ctx.token, ctx.branch.id, { stock: 1000 });

@@ -1,4 +1,4 @@
-import { computeSaleTotals, exclusiveBase, type DiscountInput, type TaxCalculationMode, type TaxMode } from '@pos/contracts';
+import { computeSaleTotals, exclusiveBase, round2, round3, type DiscountInput, type TaxCalculationMode, type TaxMode } from '@pos/contracts';
 import type { FallbackOutbox, SyncConflict } from './fallback.service';
 
 /**
@@ -40,8 +40,6 @@ const num = (value: unknown) => {
   return Number.isFinite(n) ? n : NaN;
 };
 const str = (value: unknown) => (value === null || value === undefined ? '' : String(value));
-const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
-const round3 = (value: number) => Math.round((value + Number.EPSILON) * 1000) / 1000;
 /** Money agrees to the paisa (rounding aside). */
 const same = (a: number, b: number) => Math.abs(round2(a) - round2(b)) < 0.011;
 /**

@@ -1,3 +1,4 @@
+import { round2 } from '@pos/contracts';
 import type { buildGstr1 } from './gstr1';
 
 /**
@@ -8,7 +9,6 @@ import type { buildGstr1 } from './gstr1';
  */
 type Gstr1Result = ReturnType<typeof buildGstr1>;
 
-const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 type TaxRow = { txval: number; iamt: number; camt: number; samt: number; csamt: number };
 const zero = (): TaxRow => ({ txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 });

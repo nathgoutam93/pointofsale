@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { invoiceDue, returnLineAmounts, sanitizeReceiptCss, splitReturn } from "@pos/contracts";
+import { invoiceDue, returnLineAmounts, round2, round3, sanitizeReceiptCss, splitReturn } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders, uploadSrc } from "../lib/api";
 import { usePrintTemplate, useReceiptPrinting } from "../lib/printing";
 import { branchReceiptTemplate, rateFromAmounts, receiptStyleFor, renderReceipt, returnReceiptDocument } from "../lib/receipt";
@@ -11,8 +11,6 @@ import { can } from "../lib/session";
 import { inr, money, requireOperationalSession } from "./route-helpers";
 
 type ReturnRefundMode = "CASH" | "WALLET";
-const round2 = (value: number) => Math.round(value * 100) / 100;
-const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
 const normalizeLeastCount = (value: number | string | null | undefined) => {
   const parsed = Number(value);

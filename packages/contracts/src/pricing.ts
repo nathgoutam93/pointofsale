@@ -6,7 +6,27 @@
 export type TaxMode = 'INCLUSIVE' | 'EXCLUSIVE';
 export type TaxCalculationMode = 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
 
-export const round2 = (value: number) => Math.round(value * 100) / 100;
+/** `value` with its decimal point moved `places` places, by its decimal digits rather than binary maths. */
+function shiftDecimal(value: number, places: number) {
+  const [mantissa, exponent = '0'] = String(value).split('e');
+  return Number(`${mantissa}e${Number(exponent) + places}`);
+}
+
+/**
+ * Rounds half away from zero at `decimals` places, on the number as it is written: 1.005 is
+ * 1.01 (`Math.round(1.005 * 100)` gives 100, since 1.005 × 100 is 100.49999… in binary).
+ * Every amount in the app is rounded with this, so the POS, the API and GST returns agree.
+ */
+export function roundTo(value: number, decimals: number) {
+  if (!Number.isFinite(value)) return value;
+  const sign = value < 0 ? -1 : 1;
+  return sign * shiftDecimal(Math.round(shiftDecimal(Math.abs(value), decimals)), -decimals) + 0;
+}
+
+/** Money: to the paisa. */
+export const round2 = (value: number) => roundTo(value, 2);
+/** Quantities: to three places. */
+export const round3 = (value: number) => roundTo(value, 3);
 
 /**
  * What the customer pays for one unit at `price` before any discount: with GST added for a

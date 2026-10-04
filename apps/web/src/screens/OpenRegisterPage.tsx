@@ -61,6 +61,31 @@ export function OpenRegisterPage() {
     updateSession({ branches });
   }, [branches]);
 
+  // Admins can close a register someone else left open (counted or not).
+  const closeOther = useMutation({
+    mutationFn: async ({ registerId, closingBalance }: { registerId: string; closingBalance: number | null }) => {
+      const res = await api.registers.closeOther({ params: { id: registerId }, body: { closingBalance }, extraHeaders: authHeaders() });
+      if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to close the register"));
+      return res.body;
+    },
+    onSuccess: () => {
+      void registerSummaryQuery.refetch();
+    },
+  });
+  const closeFor = (registerId: string, counterName: string, openedBy: string) => {
+    const counted = window.prompt(
+      `Close ${counterName}, opened by ${openedBy}? Their sign-in on it ends.\n\nCash counted in the drawer (leave empty if nobody counted it):`,
+    );
+    if (counted === null) return;
+    const text = counted.trim();
+    const closingBalance = text === "" ? null : Number(text);
+    if (closingBalance !== null && (!Number.isFinite(closingBalance) || closingBalance < 0)) {
+      window.alert("Enter the cash counted as 0 or more, or leave it empty.");
+      return;
+    }
+    closeOther.mutate({ registerId, closingBalance });
+  };
+
   const registerSummaryQuery = useQuery({
     queryKey: ["register-summaries"],
     queryFn: async () => {
@@ -203,8 +228,8 @@ export function OpenRegisterPage() {
               const fallbackElsewhere = !current && elsewhere(counter);
               const inUse = Boolean(current) || fallbackElsewhere;
               return (
+                <div key={counter.id} className="flex flex-col gap-1">
                 <button
-                  key={counter.id}
                   type="button"
                   disabled={inUse}
                   onClick={() => {
@@ -262,6 +287,17 @@ export function OpenRegisterPage() {
                     )}
                   </div>
                 </button>
+                {current && session.role === "ADMIN" && current.openedBy !== session.username ? (
+                  <button
+                    type="button"
+                    className="self-end text-xs font-medium text-rose-700 hover:underline disabled:opacity-50"
+                    disabled={closeOther.isPending}
+                    onClick={() => closeFor(current.id, counter.name, current.openedBy)}
+                  >
+                    Close it for {current.openedBy}
+                  </button>
+                ) : null}
+                </div>
               );
             })}
           </div>
@@ -304,6 +340,9 @@ export function OpenRegisterPage() {
           ) : null}
         </form>
 
+        {closeOther.error ? (
+          <p className="mt-3 text-sm text-rose-700">{(closeOther.error as Error).message}</p>
+        ) : null}
         {registerSummaryQuery.error ? (
           <p className="mt-3 max-w-md rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
             {(registerSummaryQuery.error as Error).message}

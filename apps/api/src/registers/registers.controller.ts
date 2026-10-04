@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Headers, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Headers, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { appContract, DEVICE_HEADER } from '@pos/contracts';
 import { AllowWhenUnpaid } from '../common/instance-status.guard';
 import { getSession, requireOpenRegisterSession, RequestHeaders } from '../common/request-session';
@@ -39,5 +39,17 @@ export class RegistersController {
     @Headers() headers: RequestHeaders
   ) {
     return this.registers.closeRegister(requireOpenRegisterSession(headers), body.closingBalance);
+  }
+
+  /** Admins: close a register someone left open. Also allowed once a subscription has ended. */
+  @Post('/registers/:id/close')
+  @AllowWhenUnpaid()
+  @HttpCode(200)
+  closeOtherRegister(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(appContract.registers.closeOther.body)) body: { closingBalance: number | null },
+    @Headers() headers: RequestHeaders
+  ) {
+    return this.registers.closeRegisterFor(getSession(headers), id, body.closingBalance);
   }
 }

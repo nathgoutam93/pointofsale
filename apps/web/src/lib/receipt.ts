@@ -3,6 +3,7 @@ import {
   RECEIPT_PAPERS,
   renderReceipt,
   resolveReceiptTemplate,
+  round2,
   type ReceiptBranding,
   type ReceiptDocument,
   type ReceiptDocumentItem,
@@ -131,8 +132,8 @@ export { lineClass as receiptLineClass };
 export function sampleReceiptDocument(branding: ReceiptBranding, options: { title?: string; gstin?: string | null } = {}): ReceiptDocument {
   const now = new Date().toISOString();
   const item = (name: string, hsn: string, qty: number, unit: string, rate: number, taxRate: number, discount: number): ReceiptDocumentItem => {
-    const amount = Math.round(qty * rate * 100) / 100;
-    const taxable = Math.round((amount - discount) * 100) / 100;
+    const amount = round2(qty * rate);
+    const taxable = round2(amount - discount);
     const taxAmount = Math.round(taxable * taxRate) / 100;
     return { name, hsn, qty, qtyLabel: `${qty} ${unit}`, rate, amount, taxRate, taxAmount, discount, total: taxable + taxAmount, taxable };
   };
@@ -141,9 +142,9 @@ export function sampleReceiptDocument(branding: ReceiptBranding, options: { titl
     item("Dish Wash Liquid 500 ml", "3402", 1, "PCS", 85, 18, 0),
     item("Notebook, 200 pages", "4820", 3, "PCS", 40, 12, 0),
   ];
-  const grandTotal = Math.round(items.reduce((sum, line) => sum + line.total, 0) * 100) / 100;
-  const tax = Math.round(items.reduce((sum, line) => sum + line.taxAmount, 0) * 100) / 100;
-  const half = Math.round((tax / 2) * 100) / 100;
+  const grandTotal = round2(items.reduce((sum, line) => sum + line.total, 0));
+  const tax = round2(items.reduce((sum, line) => sum + line.taxAmount, 0));
+  const half = round2(tax / 2);
   return {
     title: options.title ?? "TAX INVOICE",
     storeName: branding.storeName,
@@ -163,7 +164,7 @@ export function sampleReceiptDocument(branding: ReceiptBranding, options: { titl
     orderDiscount: 0,
     taxTotals: [
       { label: "incl. CGST", amount: half },
-      { label: "incl. SGST", amount: Math.round((tax - half) * 100) / 100 },
+      { label: "incl. SGST", amount: round2(tax - half) },
     ],
     grandTotalLabel: "TOTAL",
     grandTotal,

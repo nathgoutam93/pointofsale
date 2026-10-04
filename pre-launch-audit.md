@@ -173,17 +173,30 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   all branches. Tests: `reports.test.ts`, which pays a credit bill later and checks the sales
   don't move.
 
-### [ ] A9. Smaller fixes
+### [~] A9. Smaller fixes
 
-- [ ] Opening stock edits rewrite the ledger row in place, and round quantity to 2 places
+- [x] Opening stock edits rewrite the ledger row in place, and round quantity to 2 places
       (`StockService.updateStockOpening`, `round2(currentOnHand - openingQty + qty)`). Record
       the change as an adjustment instead, and use `round3`.
-- [ ] An admin can close another user's register (a cashier who left without closing).
+      **Done:** the opening count can be corrected only until the item's stock has moved at that
+      branch; after that the API asks for a stock adjustment (which has a reason). The 2-place
+      rounding is gone. Test: `stock.test.ts`.
+- [x] An admin can close another user's register (a cashier who left without closing).
+      **Done:** `POST /registers/:id/close` (admins, branches they manage), counted or not
+      (`closingBalance: null` keeps the expected cash and leaves the count empty); the user's
+      sign-in on it ends. "Close it for …" on the Open Register screen. Test: `register.test.ts`.
 - [ ] Returns at another branch of the business (when customers are shared), into that branch's
       stock and drawer.
-- [ ] One rounding helper: `round2` exists in `contracts/pricing.ts`, `api/common/numbers.ts`
+      **Needs a decision:** a credit note belongs to the original invoice's GSTIN, and branches in
+      other states have other GSTINs. Decide whether returns are allowed only between branches
+      under the same GSTIN (simplest), and which branch's series numbers the credit note.
+- [x] One rounding helper: `round2` exists in `contracts/pricing.ts`, `api/common/numbers.ts`
       and `gst/gstr1.ts` with different behaviour (`round2(1.005)` is `1`). Use one,
       paisa-exact (integer paise or a decimal library), everywhere.
+      **Done:** `roundTo` / `round2` / `round3` in `packages/contracts/src/pricing.ts` round half
+      away from zero on the number as written (by shifting its decimal digits, so `1.005` is
+      `1.01`). The API, GST returns, offline verification, POS cart, receipts and Returns page
+      all use it. Test: `pricing.test.ts`.
 
 ---
 

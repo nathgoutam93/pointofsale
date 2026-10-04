@@ -31,6 +31,19 @@ describe('stock', () => {
     expect((await sale([box])).status).toBe(201);
   });
 
+  it('corrects the opening count only until stock moves; then by an adjustment', async () => {
+    const item = await t.item(ctx.token, ctx.branch.id, { stock: 0 });
+    await t.ok('POST', '/stock/opening', ctx.token, { branchId: ctx.branch.id, itemId: item.id, qty: 10 });
+    const fix = (qty: number) => t.call('PATCH', '/stock/opening', ctx.token, { branchId: ctx.branch.id, itemId: item.id, qty });
+    expect((await fix(12)).status).toBe(200);
+    expect(await t.onHand(ctx.token, ctx.branch.id, item.id)).toBe(12);
+    expect((await sale([line(item.id)])).status).toBe(201);
+    const late = await fix(20);
+    expect(late.status).toBe(400);
+    expect(late.body.message).toMatch(/Correct it with a stock adjustment/);
+    expect(await t.onHand(ctx.token, ctx.branch.id, item.id)).toBe(11);
+  });
+
   it('never lets concurrent stock-outs go below zero', async () => {
     const item = await t.item(ctx.token, ctx.branch.id, { stock: 3 });
     const results = await Promise.all(

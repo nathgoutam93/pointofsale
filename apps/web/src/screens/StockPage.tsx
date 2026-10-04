@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { api, authHeaders } from "../lib/api";
+import { api, apiErrorMessage, authHeaders } from "../lib/api";
 import { BranchPicker } from "../components/BranchPicker";
 import { useManagedBranch } from "../lib/branch";
 import { can } from "../lib/session";
@@ -223,7 +223,7 @@ export function StockPage() {
         },
         extraHeaders: authHeaders(),
       });
-      if (res.status !== 200) throw new Error("Failed to update opening");
+      if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Failed to update opening"));
       return res.body;
     },
     onSuccess: () => {

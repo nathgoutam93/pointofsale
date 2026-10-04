@@ -1,3 +1,4 @@
+import { round2 } from './pricing.js';
 import { gstStateLabel, type GstDocumentType } from './gst.js';
 import type { ReceiptDocument, ReceiptDocumentItem, ReceiptField } from './receiptLayout.js';
 
@@ -179,13 +180,13 @@ export function rateFromAmounts(taxable: number, tax: number) {
   if (taxable <= 0 || tax <= 0) return 0;
   const rate = (tax / taxable) * 100;
   const nearest = COMMON_GST_RATES.reduce((best, known) => (Math.abs(known - rate) < Math.abs(best - rate) ? known : best));
-  return Math.abs(nearest - rate) < 0.5 ? nearest : Math.round(rate * 100) / 100;
+  return Math.abs(nearest - rate) < 0.5 ? nearest : round2(rate);
 }
 
 /** What is still owed on a bill: its total less payments and returns taken off it. */
 export function invoiceDue(invoice: { grandTotal: number | string; paidTotal: number | string; creditedTotal?: number | string | null }) {
   const due = Number(invoice.grandTotal) - Number(invoice.paidTotal) - Number(invoice.creditedTotal ?? 0);
-  return Math.max(0, Math.round(due * 100) / 100);
+  return Math.max(0, round2(due));
 }
 
 /**
@@ -193,8 +194,8 @@ export function invoiceDue(invoice: { grandTotal: number | string; paidTotal: nu
  * a bill not yet paid in full is first brought down, and only the rest is refunded.
  */
 export function splitReturn(amount: number, due: number) {
-  const dueAdjusted = Math.round(Math.min(amount, Math.max(0, due)) * 100) / 100;
-  return { dueAdjusted, refundAmount: Math.round((amount - dueAdjusted) * 100) / 100 };
+  const dueAdjusted = round2(Math.min(amount, Math.max(0, due)));
+  return { dueAdjusted, refundAmount: round2(amount - dueAdjusted) };
 }
 
 /** A return: what was refunded and how. */
@@ -214,7 +215,7 @@ export function returnReceiptDocument(refund: {
   timeZone?: string;
 }): ReceiptDocument {
   const dueAdjusted = refund.dueAdjusted ?? 0;
-  const refunded = Math.round((refund.totalAmount - dueAdjusted) * 100) / 100;
+  const refunded = round2(refund.totalAmount - dueAdjusted);
   const taxTotals = [
     ...(refund.tax.igst > 0 ? [{ label: 'incl. IGST', amount: refund.tax.igst }] : []),
     ...(refund.tax.cgst > 0 || refund.tax.sgst > 0
