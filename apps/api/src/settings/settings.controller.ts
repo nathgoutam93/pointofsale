@@ -37,6 +37,7 @@ export class SettingsController {
       hsnMinDigits?: 4 | 6;
       returnWindowDays?: number | null;
       roundOffMode?: 'NONE' | 'NEAREST_1' | 'NEAREST_050';
+      allowNegativeStock?: boolean;
     },
     @Headers() headers: RequestHeaders
   ) {

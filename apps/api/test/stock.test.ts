@@ -10,7 +10,10 @@ beforeAll(async () => {
   admin = await t.login();
   ctx = await t.branchWithRegister(admin);
 });
-afterAll(async () => { await t.close(); });
+afterAll(async () => {
+  await t.call('PATCH', '/business/settings', admin, { allowNegativeStock: false });
+  await t.close();
+});
 
 const sale = (lines: unknown[]) => t.call('POST', '/sales', ctx.token, { branchId: ctx.branch.id, customerId: ctx.walkIn.id, lines });
 
@@ -42,6 +45,32 @@ describe('stock', () => {
     expect(late.status).toBe(400);
     expect(late.body.message).toMatch(/Correct it with a stock adjustment/);
     expect(await t.onHand(ctx.token, ctx.branch.id, item.id)).toBe(11);
+  });
+
+  it('sells past the stock count only when the business allows it, for admins and cashiers allowed to', async () => {
+    const item = await t.item(ctx.token, ctx.branch.id, { stock: 1 });
+    const twoAs = (token: string) =>
+      t.call('POST', '/sales', token, { branchId: ctx.branch.id, customerId: ctx.walkIn.id, lines: [line(item.id, { qty: 2 })] });
+    const cashier = await t.cashierWithRegister(admin, ctx.branch.id);
+    const allowed = await t.cashierWithRegister(admin, ctx.branch.id, ['SELL_PAST_STOCK']);
+
+    // Off (the default): nobody.
+    expect((await twoAs(ctx.token)).status).toBe(400);
+    expect((await twoAs(allowed.token)).status).toBe(400);
+
+    await t.ok('PATCH', '/business/settings', admin, { allowNegativeStock: true });
+    const refused = await twoAs(cashier.token);
+    expect(refused.status).toBe(400);
+    expect(refused.body.message).toMatch(/Ask an admin to sell it past the stock count/);
+    expect((await twoAs(ctx.token)).status).toBe(201);
+    expect(await t.onHand(ctx.token, ctx.branch.id, item.id)).toBe(-1);
+    expect((await twoAs(allowed.token)).status).toBe(201);
+    expect(await t.onHand(ctx.token, ctx.branch.id, item.id)).toBe(-3);
+
+    // Counted and corrected with an adjustment.
+    await t.ok('POST', '/stock/adjustment', ctx.token, { branchId: ctx.branch.id, itemId: item.id, qty: 10, direction: 'IN', reason: 'Counted: 7 on the shelf' });
+    expect(await t.onHand(ctx.token, ctx.branch.id, item.id)).toBe(7);
+    await t.ok('PATCH', '/business/settings', admin, { allowNegativeStock: false });
   });
 
   it('never lets concurrent stock-outs go below zero', async () => {

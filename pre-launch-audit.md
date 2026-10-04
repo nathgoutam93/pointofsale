@@ -237,13 +237,19 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   bill). The offline check allows a round-off of up to 50 paise. Checked in the real POS. Tests:
   `round-off.test.ts`, `pricing.test.ts`, `exports.test.ts`.
 
-### [ ] B3. Selling when the stock count is wrong
+### [x] B3. Selling when the stock count is wrong
 
 - **Why:** a sale is refused if stock would go below zero (`createSaleInTx`). Shop stock records
   are rarely exact, so goods on the counter can't be billed.
 - **What:** a business setting: block (today), or warn and allow (admins always, cashiers if
   allowed), with negative stock listed on the Stock page for correction.
 - **Done when:** with "allow" on, a sale past stock goes through and the item shows as negative.
+- **Status (2026-10-04):** Settings → "Allow selling past the stock count" (`allowNegativeStock`,
+  off by default, migration `20261020160000_sell_past_stock`). When on, admins can sell past
+  stock, and so can cashiers given the new `SELL_PAST_STOCK` permission. Other cashiers are told
+  to ask an admin. The POS already marks a cart line that is over stock. The Stock page labels
+  items "below zero" and can filter to them. The count is corrected with a stock adjustment.
+  Tests: `stock.test.ts`.
 
 ### [ ] B4. Barcodes
 

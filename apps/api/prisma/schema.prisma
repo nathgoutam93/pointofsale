@@ -22,6 +22,8 @@ enum CashierPermission {
   CANCEL_SALES
   /// Take goods back and refund them (credit notes).
   MAKE_RETURNS
+  /// Sell more than the stock count shows, when the business allows it (allowNegativeStock).
+  SELL_PAST_STOCK
 }
 
 enum PaymentMode {
@@ -191,6 +193,9 @@ model BusinessSettings {
   returnWindowDays          Int?
   /// Rounds each bill's total (see SaleInvoice.roundOff).
   roundOffMode              RoundOffMode       @default(NONE)
+  /// When the stock count is wrong: let admins (and cashiers given SELL_PAST_STOCK) sell more
+  /// than it shows, taking it below 0. Off: a sale can't go past stock.
+  allowNegativeStock        Boolean            @default(false)
   /// Offline installs: hash of the recovery code that resets a forgotten admin password.
   /// Shown once when created; never stored or returned in plain text.
   recoveryCodeHash          String?

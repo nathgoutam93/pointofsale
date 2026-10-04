@@ -70,6 +70,7 @@ export class SettingsService {
     hsnMinDigits?: number;
     returnWindowDays?: number | null;
     roundOffMode?: 'NONE' | 'NEAREST_1' | 'NEAREST_050';
+    allowNegativeStock?: boolean;
   }) {
     await this.ensureBusinessSettings();
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -86,7 +87,8 @@ export class SettingsService {
           timezone: input.timezone,
           hsnMinDigits: input.hsnMinDigits,
           returnWindowDays: input.returnWindowDays,
-          roundOffMode: input.roundOffMode
+          roundOffMode: input.roundOffMode,
+          allowNegativeStock: input.allowNegativeStock
         },
         select: businessSettingsSelect
       });

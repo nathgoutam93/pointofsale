@@ -229,7 +229,7 @@ export class SalesService {
       customer.isWalkIn && walkInCustomerPhone ? walkInCustomerPhone : customer.phone;
     const createdByUser = await tx.user.findUnique({
       where: { id: session.userId },
-      select: { username: true }
+      select: { username: true, role: true, permissions: true }
     });
     if (!createdByUser) {
       throw new NotFoundException('User not found');
@@ -289,10 +289,18 @@ export class SalesService {
       qtyByItem.set(line.itemId, { name: line.itemName, qty: round3((entry?.qty ?? 0) + line.qty) });
     }
     await this.stock.lockItemStock(tx, input.branchId, Array.from(qtyByItem.keys()));
+    // When the count is wrong the goods are still on the counter: a business can let admins, and
+    // cashiers it allows, sell past it (stock goes below 0 until someone corrects the count).
+    const maySellPastStock =
+      businessSettings.allowNegativeStock &&
+      (createdByUser.role === UserRole.ADMIN || createdByUser.permissions.includes('SELL_PAST_STOCK'));
     for (const [itemId, { name, qty }] of qtyByItem) {
       const onHand = await this.stock.getOnHandForItem(input.branchId, itemId, tx);
-      if (onHand + 1e-9 < qty) {
-        throw new BadRequestException(`Insufficient stock for ${name}: ${round3(onHand)} on hand, ${qty} needed`);
+      if (onHand + 1e-9 < qty && !maySellPastStock) {
+        throw new BadRequestException(
+          `Insufficient stock for ${name}: ${round3(onHand)} on hand, ${qty} needed` +
+            (businessSettings.allowNegativeStock ? '. Ask an admin to sell it past the stock count.' : '')
+        );
       }
     }
 

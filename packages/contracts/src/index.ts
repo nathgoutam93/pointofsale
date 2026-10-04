@@ -147,7 +147,7 @@ const roleSchema = z.enum(['ADMIN', 'CASHIER']);
  * What an admin may let a cashier do, beyond selling (Settings → Cashiers & Access). Admins can
  * always do all of it.
  */
-export const CASHIER_PERMISSIONS = ['MANAGE_STOCK', 'MANAGE_ITEMS', 'RECORD_PURCHASES', 'SEND_TRANSFERS', 'TOP_UP_WALLETS', 'CANCEL_SALES', 'MAKE_RETURNS'] as const;
+export const CASHIER_PERMISSIONS = ['MANAGE_STOCK', 'MANAGE_ITEMS', 'RECORD_PURCHASES', 'SEND_TRANSFERS', 'TOP_UP_WALLETS', 'CANCEL_SALES', 'MAKE_RETURNS', 'SELL_PAST_STOCK'] as const;
 export const cashierPermissionSchema = z.enum(CASHIER_PERMISSIONS);
 export type CashierPermission = z.infer<typeof cashierPermissionSchema>;
 export const CASHIER_PERMISSION_LABELS: Record<CashierPermission, { label: string; detail: string }> = {
@@ -157,7 +157,8 @@ export const CASHIER_PERMISSION_LABELS: Record<CashierPermission, { label: strin
   SEND_TRANSFERS: { label: 'Send transfers', detail: 'Send stock to another branch, or call a transfer back' },
   TOP_UP_WALLETS: { label: 'Top up wallets', detail: "Add credit to a customer's wallet" },
   CANCEL_SALES: { label: 'Cancel unpaid bills', detail: 'Cancel a bill nothing has been paid on, on the day it was made' },
-  MAKE_RETURNS: { label: 'Make returns', detail: 'Take goods back and refund them, within the return window' }
+  MAKE_RETURNS: { label: 'Make returns', detail: 'Take goods back and refund them, within the return window' },
+  SELL_PAST_STOCK: { label: 'Sell past stock', detail: 'Sell more than the stock count shows, when the business allows it' }
 };
 
 /** Whether a signed-in user may do `permission`: admins always, cashiers when given it. */
@@ -397,7 +398,9 @@ export const businessSettingsSchema = z.object({
   /** Days after a sale cashiers may still make a return (0: same day only); null for no limit. Admins aren't limited. */
   returnWindowDays: z.number().int().nullable(),
   /** How each bill's total is rounded. */
-  roundOffMode: z.enum(['NONE', 'NEAREST_1', 'NEAREST_050']).default('NONE')
+  roundOffMode: z.enum(['NONE', 'NEAREST_1', 'NEAREST_050']).default('NONE'),
+  /** Admins (and cashiers allowed to) may sell more than the stock count shows. */
+  allowNegativeStock: z.boolean().default(false)
 });
 
 export const taxpayerTypeChangeSchema = z.object({
@@ -1385,7 +1388,8 @@ export const appContract = c.router({
         timezone: timeZoneSchema.optional(),
         hsnMinDigits: z.union([z.literal(4), z.literal(6)]).optional(),
         returnWindowDays: z.number().int().min(0).max(3650).nullable().optional(),
-        roundOffMode: z.enum(['NONE', 'NEAREST_1', 'NEAREST_050']).optional()
+        roundOffMode: z.enum(['NONE', 'NEAREST_1', 'NEAREST_050']).optional(),
+        allowNegativeStock: z.boolean().optional()
       }),
       responses: { 200: businessSettingsSchema }
     },

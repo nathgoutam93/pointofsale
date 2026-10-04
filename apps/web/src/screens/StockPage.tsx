@@ -56,6 +56,8 @@ export function StockPage() {
   const [modalType, setModalType] = useState<StockModalType>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [stockSort, setStockSort] = useState<"desc" | "asc">("desc");
+  // Items sold past their stock count (when the business allows it): to count and correct.
+  const [belowZeroOnly, setBelowZeroOnly] = useState(false);
   const [openingModalMode, setOpeningModalMode] = useState<"create" | "edit">(
     "create",
   );
@@ -126,6 +128,7 @@ export function StockPage() {
       : data;
 
     return filtered
+      .filter((item) => !belowZeroOnly || (onHandByItem.get(item.id) ?? 0) < 0)
       .slice()
       .sort((a, b) => {
         const aOnHand = onHandByItem.get(a.id) ?? 0;
@@ -135,7 +138,11 @@ export function StockPage() {
         }
         return stockSort === "desc" ? bOnHand - aOnHand : aOnHand - bOnHand;
       });
-  }, [items.data, onHandByItem, searchTerm, stockSort]);
+  }, [items.data, onHandByItem, searchTerm, stockSort, belowZeroOnly]);
+  const belowZeroCount = useMemo(
+    () => (onHand.data ?? []).filter((row) => row.onHand < 0).length,
+    [onHand.data],
+  );
 
   const selectedItem = useMemo(
     () => items.data?.find((item) => item.id === selectedItemId) ?? null,
@@ -325,6 +332,12 @@ export function StockPage() {
                 <option value="asc">Low to High</option>
               </select>
             </label>
+            {belowZeroCount > 0 ? (
+              <label className="flex items-center gap-2 rounded-md bg-rose-50 px-2 py-1.5 text-xs font-medium text-rose-700">
+                <input type="checkbox" checked={belowZeroOnly} onChange={(event) => setBelowZeroOnly(event.target.checked)} />
+                {belowZeroCount} {belowZeroCount === 1 ? "item is" : "items are"} below zero: count and correct
+              </label>
+            ) : null}
           </div>
           </div>
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
@@ -344,7 +357,7 @@ export function StockPage() {
                       <p className="text-xs text-slate-500">{item.code}</p>
                     </div>
                     <span className={`badge tabular-nums ${itemOnHand <= 0 ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-700"}`}>
-                      {itemOnHand} on hand
+                      {itemOnHand < 0 ? `${itemOnHand} · below zero` : `${itemOnHand} on hand`}
                     </span>
                   </div>
                   <p className="mt-1.5 text-xs text-slate-500">

@@ -55,6 +55,7 @@ type BusinessSettingsForm = {
   /** Days; empty for no limit. */
   returnWindowDays: string;
   roundOffMode: "NONE" | "NEAREST_1" | "NEAREST_050";
+  allowNegativeStock: boolean;
 };
 
 type CashierForm = {
@@ -182,7 +183,8 @@ export function BranchSettingsPage() {
     timezone: "Asia/Kolkata",
     hsnMinDigits: 4,
     returnWindowDays: "",
-    roundOffMode: "NONE"
+    roundOffMode: "NONE",
+    allowNegativeStock: false
   });
 
   useEffect(() => {
@@ -213,7 +215,8 @@ export function BranchSettingsPage() {
       timezone: businessSettings.data.timezone,
       hsnMinDigits: businessSettings.data.hsnMinDigits === 6 ? 6 : 4,
       returnWindowDays: businessSettings.data.returnWindowDays === null ? "" : String(businessSettings.data.returnWindowDays),
-      roundOffMode: businessSettings.data.roundOffMode ?? "NONE"
+      roundOffMode: businessSettings.data.roundOffMode ?? "NONE",
+      allowNegativeStock: businessSettings.data.allowNegativeStock ?? false
     });
   }, [businessSettings.data]);
 
@@ -277,7 +280,8 @@ export function BranchSettingsPage() {
           timezone: businessForm.timezone,
           hsnMinDigits: businessForm.hsnMinDigits,
           returnWindowDays,
-          roundOffMode: businessForm.roundOffMode
+          roundOffMode: businessForm.roundOffMode,
+          allowNegativeStock: businessForm.allowNegativeStock
         },
         extraHeaders: authHeaders()
       });
@@ -694,6 +698,20 @@ export function BranchSettingsPage() {
                   </select>
                   <p className="mt-1 text-xs text-slate-500">
                     The bill shows a round-off line; item prices, taxable values and GST are not changed.
+                  </p>
+                </div>
+                <div>
+                  <label className="flex items-center gap-2 text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={businessForm.allowNegativeStock}
+                      onChange={(e) => setBusinessForm((prev) => ({ ...prev, allowNegativeStock: e.target.checked }))}
+                    />
+                    Allow selling past the stock count
+                  </label>
+                  <p className="mt-1 text-xs text-slate-500">
+                    For when the count is wrong but the goods are on the counter. Admins can then sell past it, and
+                    cashiers given "Sell past stock". Stock goes below zero until it is counted (Stock shows which items).
                   </p>
                 </div>
                 <div>
