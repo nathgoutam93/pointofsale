@@ -6,8 +6,8 @@ export type PaymentLine = { mode: PaymentMode; amount: number };
 
 /**
  * The payment dialog's state: the method and amount being typed, the payment lines added
- * so far, and whether they can settle the sale. Walk-ins pay exactly the total in cash or
- * card; a customer can also pay from their wallet, part-pay (the rest goes on credit) or
+ * so far, and whether they can settle the sale. Walk-ins pay exactly the total in cash, card
+ * or UPI; a customer can also pay from their wallet, part-pay (the rest goes on credit) or
  * overpay (the excess goes to their wallet).
  */
 export function usePayment({
@@ -30,11 +30,14 @@ export function usePayment({
       return [
         { key: "CASH", label: "Cash" },
         { key: "CARD", label: "Card" },
+      { key: "UPI", label: "UPI" },
+        { key: "UPI", label: "UPI" },
       ];
     }
     return [
       { key: "CASH", label: "Cash" },
       { key: "CARD", label: "Card" },
+      { key: "UPI", label: "UPI" },
       { key: "WALLET", label: "Customer Wallet" },
       { key: "CREDIT", label: "Credit" },
     ];

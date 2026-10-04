@@ -16,7 +16,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 
 ## A. Business logic: money, tax and fraud
 
-### [ ] A1. UPI as a payment mode
+### [x] A1. UPI as a payment mode
 
 - **Why:** `PaymentMode` is `CASH | CARD | WALLET` (`apps/api/prisma/schema.prisma`). UPI is
   the main way Indian retail customers pay; today it is rung up as Card, so card settlement and
@@ -29,6 +29,10 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   - Optional later: show a UPI QR (payee VPA in Branch Settings, amount filled in).
 - **Done when:** a sale can be paid by UPI (alone or split with cash), it prints as UPI, and the
   register close and reports show UPI separately from card.
+- **Status (2026-10-04):** `UPI` payment mode (migration `20261020100000_upi_payment_mode`) on
+  checkout and settling, POS and Sales screens; receipts print "Paid by UPI"; the register (and
+  the close dialog) shows card and UPI taken apart from cash (`registerCash`, `register.test.ts`).
+  Left for later: a UTR/reference field in the payment dialog, UPI QR, refunds to UPI.
 
 ### [ ] A2. Wallet top-ups leave a money trail
 

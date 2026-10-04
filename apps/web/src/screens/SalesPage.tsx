@@ -17,7 +17,7 @@ import { useManagedBranch } from "../lib/branch";
 import { can } from "../lib/session";
 import { inr, money, requireManagementSession } from "./route-helpers";
 
-type PaymentMode = "CASH" | "CARD" | "WALLET";
+type PaymentMode = "CASH" | "CARD" | "UPI" | "WALLET";
 type PaymentFilter = "ALL" | "PENDING" | "SETTLED";
 
 /** Whether a bill with money owed is past its due date (calendar days in the business's time zone). */
@@ -364,11 +364,14 @@ export function SalesPage() {
       return [
         { key: "CASH", label: "Cash" },
         { key: "CARD", label: "Card" },
+      { key: "UPI", label: "UPI" },
+        { key: "UPI", label: "UPI" },
       ];
     }
     return [
       { key: "CASH", label: "Cash" },
       { key: "CARD", label: "Card" },
+      { key: "UPI", label: "UPI" },
       { key: "WALLET", label: "Customer Wallet" },
     ];
   }, [isRegisteredCustomer]);

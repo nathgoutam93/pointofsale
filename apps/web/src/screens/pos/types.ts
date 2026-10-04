@@ -39,13 +39,13 @@ export type PostPaymentSummary = {
   taxTotal: number;
   grandTotal: number;
   paidTotal: number;
-  paymentLines: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
+  paymentLines: Array<{ mode: PaymentMode; amount: number }>;
   lines: CartLine[];
   /** The invoice's GST facts as recorded at the sale (document type, GSTIN, tax split). */
   gst: InvoiceGst;
 };
 
-export type PaymentMode = "CASH" | "CARD" | "WALLET";
+export type PaymentMode = "CASH" | "CARD" | "UPI" | "WALLET";
 export type PaymentMethod = PaymentMode | "CREDIT";
 
 export type LeaveChoice = "save" | "discard" | "stay";

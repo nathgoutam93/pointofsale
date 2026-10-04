@@ -156,7 +156,7 @@ export const CASHIER_PERMISSION_LABELS: Record<CashierPermission, { label: strin
 export function hasPermission(user: { role: 'ADMIN' | 'CASHIER'; permissions?: readonly string[] | null }, permission: CashierPermission) {
   return user.role === 'ADMIN' || !!user.permissions?.includes(permission);
 }
-const paymentModeSchema = z.enum(['CASH', 'CARD', 'WALLET']);
+const paymentModeSchema = z.enum(['CASH', 'CARD', 'UPI', 'WALLET']);
 const returnRefundModeSchema = z.enum(['CASH', 'WALLET']);
 const invoiceStatusSchema = z.enum(['DRAFT', 'SETTLED', 'PARTIALLY_SETTLED', 'CANCELLED']);
 const stockTxnTypeSchema = z.enum([
@@ -325,11 +325,16 @@ export const registerSessionSchema = z.object({
   closedAt: z.string().datetime().nullable()
 });
 
-/** Running cash for a register: cash payments taken on it and cash refunds given from it. */
+/**
+ * Running cash for a register: cash payments taken on it and cash refunds given from it, and
+ * the card and UPI payments taken on it (not in the drawer; for checking against settlements).
+ */
 const registerCashSchema = z.object({
   cashSales: moneySchema,
   cashRefunds: moneySchema,
-  expectedCash: moneySchema
+  expectedCash: moneySchema,
+  cardSales: moneySchema,
+  upiSales: moneySchema
 });
 
 /** A branch's active counters, each with its open register (if any) and its last closed one. */

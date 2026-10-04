@@ -35,7 +35,7 @@ import { useLocalDrafts } from "./pos/useLocalDrafts";
 import { useOrderDiscount } from "./pos/useOrderDiscount";
 import { usePayment } from "./pos/usePayment";
 import { useStoreSettings } from "./pos/useStoreSettings";
-import type { CartLine, LocalSaleDraft, PostPaymentSummary } from "./pos/types";
+import type { CartLine, LocalSaleDraft, PaymentMode, PostPaymentSummary } from "./pos/types";
 import { invoiceGstOf } from "../lib/gstReceipt";
 
 export function PosPage() {
@@ -573,7 +573,7 @@ export function PosPage() {
 
   const checkout = useMutation({
     mutationFn: async (payload: {
-      payments: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
+      payments: Array<{ mode: PaymentMode; amount: number }>;
     }) => {
       const body = { ...buildSaleBody(), payments: payload.payments };
       const fingerprint = JSON.stringify(body);
