@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, StockTxnType } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
@@ -8,11 +8,16 @@ import { BranchesService } from '../branches/branches.service';
 import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 import { StockService } from '../stock/stock.service';
+import { addDays } from '../suppliers/supplier-ledger';
+import { SuppliersService } from '../suppliers/suppliers.service';
 import { chargesGst, splitGst } from '@pos/contracts';
+import { purchaseReturnInclude, purchaseReturnView } from './purchase-returns.service';
 
 export type CreatePurchaseInput = {
   branchId: string;
-  supplierName: string;
+  /** The supplier; or a name, for the supplier found or added by it. */
+  supplierId?: string;
+  supplierName?: string;
   supplierGstin?: string;
   supplierInvoiceNo?: string;
   supplierInvoiceDate?: string;
@@ -40,7 +45,8 @@ export class PurchasesService {
     private readonly settings: SettingsService,
     private readonly branches: BranchesService,
     private readonly sequences: SequenceService,
-    private readonly stock: StockService
+    private readonly stock: StockService,
+    private readonly suppliers: SuppliersService
   ) {}
 
   /** Records goods received at a branch: adds the stock and updates each item's cost. The caller checks who may. */
@@ -55,9 +61,10 @@ export class PurchasesService {
         where: { id: { in: itemIds } },
         select: { id: true, name: true, leastCount: true, costPrice: true, taxRate: true }
       });
+      const supplier = await this.suppliers.resolveForPurchase(tx, input);
       // GST: only a registered supplier charges it; from the same state as CGST + SGST, from
       // another as IGST. It counts as input tax credit when bought under a GSTIN by a regular taxpayer.
-      const supplierGstin = input.supplierGstin?.trim().toUpperCase() || null;
+      const supplierGstin = input.supplierGstin?.trim().toUpperCase() || supplier.gstin;
       const buyer = await this.settings.gstRegistrationFor(input.branchId, tx);
       const buyerState = buyer.stateCode ?? buyer.gstin?.slice(0, 2) ?? null;
       const interState = !!supplierGstin && !!buyerState && supplierGstin.slice(0, 2) !== buyerState;
@@ -83,11 +90,16 @@ export class PurchasesService {
       const seq = await this.sequences.nextSequence(input.branchId, 'purchase', tx);
       const purchaseNo = `${seq.prefix}-${seq.branchCode}-${String(seq.seq).padStart(6, '0')}`;
 
+      // Due the supplier's payment terms after their invoice's date (else today); at once without terms.
+      const today = await this.suppliers.today(tx);
+      const billDate = input.supplierInvoiceDate || today;
+      if (input.supplierInvoiceDate && input.supplierInvoiceDate > today) throw new BadRequestException("The supplier's invoice date is in the future");
       const purchase = await tx.purchase.create({
         data: {
           purchaseNo,
           branchId: input.branchId,
-          supplierName: input.supplierName.trim(),
+          supplierId: supplier.id,
+          supplierName: supplier.name,
           supplierGstin,
           supplierInvoiceNo: input.supplierInvoiceNo?.trim() || null,
           supplierInvoiceDate: input.supplierInvoiceDate || null,
@@ -98,6 +110,8 @@ export class PurchasesService {
           sgstTotal: sum((line) => line.sgst),
           igstTotal: sum((line) => line.igst),
           taxTotal: sum((line) => line.cgst + line.sgst + line.igst),
+          grandTotal: sum((line) => line.amount + line.cgst + line.sgst + line.igst),
+          dueDate: addDays(billDate, supplier.paymentTermsDays ?? 0),
           itcEligible,
           createdBy: session.userId,
           createdByName: user.username,
@@ -142,15 +156,29 @@ export class PurchasesService {
     });
   }
 
-  /** A branch's purchases, newest first (the latest 200). */
-  async listPurchases(session: SessionUser, branchId: string) {
+  /** A branch's purchases, newest first (the latest 200), from one supplier when given. */
+  async listPurchases(session: SessionUser, branchId: string, supplierId?: string) {
     await this.settings.ensureBranchExists(branchId);
     await this.branches.ensureUserHasBranchAccess(session.userId, branchId);
     return this.prisma.purchase.findMany({
-      where: { branchId },
+      where: { branchId, ...(supplierId ? { supplierId } : {}) },
       include: purchaseInclude,
       orderBy: { createdAt: 'desc' },
       take: 200
     });
+  }
+
+  /** A purchase with how much of each line has gone back, and its returns. */
+  async getPurchase(id: string) {
+    const purchase = await this.prisma.purchase.findUnique({
+      where: { id },
+      include: { ...purchaseInclude, lines: { include: { ...purchaseInclude.lines.include, returnLines: { select: { qty: true } } } }, returns: { include: purchaseReturnInclude, orderBy: { createdAt: 'asc' } } }
+    });
+    if (!purchase) throw new NotFoundException('Purchase not found');
+    return {
+      ...purchase,
+      lines: purchase.lines.map(({ returnLines, ...line }) => ({ ...line, returnedQty: round3(returnLines.reduce((sum, entry) => sum + toNumber(entry.qty), 0)) })),
+      returns: purchase.returns.map(purchaseReturnView)
+    };
   }
 }

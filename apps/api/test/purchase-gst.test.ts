@@ -47,7 +47,7 @@ describe('purchase GST', () => {
     expect(Number((await t.db.item.findUniqueOrThrow({ where: { id: item.id } })).costPrice)).toBe(100);
 
     const gstr3b = await t.ok('GET', `/gst/gstr3b?gstin=${OURS}&from=${month}&to=${month}`, admin);
-    expect(gstr3b.table4).toEqual({ itcAvailable: { iamt: 60, camt: 90, samt: 90, csamt: 0 }, purchases: 2 });
+    expect(gstr3b.table4).toEqual({ itcAvailable: { iamt: 60, camt: 90, samt: 90, csamt: 0 }, purchases: 2, purchaseReturns: 0 });
     expect(gstr3b.problems.some((problem: { message: string }) => /comes from 2 purchases/.test(problem.message))).toBe(true);
   });
 });

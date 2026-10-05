@@ -2,7 +2,8 @@ import { c } from './contract/shared.js';
 import { branchesRoutes, businessRoutes, countersRoutes, registersRoutes } from './contract/business.js';
 import { accountsRoutes, authRoutes, businessesRoutes, metaRoutes, setupRoutes, usersRoutes } from './contract/auth.js';
 import { customersRoutes } from './contract/customers.js';
-import { itemsRoutes, purchasesRoutes, stockRoutes, transfersRoutes } from './contract/inventory.js';
+import { itemsRoutes, stockRoutes, transfersRoutes } from './contract/inventory.js';
+import { purchasesRoutes, suppliersRoutes } from './contract/purchases.js';
 import { receiptsRoutes, returnsRoutes, salesRoutes } from './contract/sales.js';
 import { auditRoutes, billingRoutes, gstRoutes, reportsRoutes } from './contract/reports.js';
 
@@ -133,7 +134,8 @@ export {
   cashierPermissionSchema,
   hasPermission,
   isValidTimeZone,
-  moneySchema
+  moneySchema,
+  supplierPaymentModeSchema
 } from './contract/shared.js';
 export type { CashierPermission } from './contract/shared.js';
 export {
@@ -174,6 +176,8 @@ export {
 } from './contract/customers.js';
 export type { CustomerAccount } from './contract/customers.js';
 export { itemSchema, itemWithSaleUomsSchema } from './contract/inventory.js';
+export { purchaseReturnSchema, supplierAccountSchema, supplierPaymentSchema, supplierSchema } from './contract/purchases.js';
+export type { SupplierAccount } from './contract/purchases.js';
 export { auditEventSchema, reportDetailSchema, salesExportQuerySchema } from './contract/reports.js';
 
 export const appContract = c.router({
@@ -194,6 +198,8 @@ export const appContract = c.router({
   items: itemsRoutes,
   stock: stockRoutes,
   purchases: purchasesRoutes,
+  /** Suppliers: their details, what is owed to them, and payments to them. */
+  suppliers: suppliersRoutes,
   transfers: transfersRoutes,
   sales: salesRoutes,
   receipts: receiptsRoutes,

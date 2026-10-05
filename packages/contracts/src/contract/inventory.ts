@@ -1,10 +1,8 @@
-// Items, stock, purchases and transfers between branches.
+// Items, stock and transfers between branches.
 import { z } from 'zod';
 import {
   branchSchema,
   c,
-  calendarDateSchema,
-  gstinSchema,
   gstSupplyTypeSchema,
   gstUqcSchema,
   hsnCodeSchema,
@@ -91,47 +89,6 @@ const itemBranchPriceSchema = z.object({
   sellPrice: moneySchema,
   mrp: moneySchema,
   updatedAt: z.string().datetime()
-});
-
-const purchaseLineInputSchema = z.object({
-  itemId: z.string().uuid(),
-  /** In the item's base unit. */
-  qty: z.number().positive(),
-  /** Per base unit, before tax. */
-  unitCost: moneySchema.nonnegative(),
-  /** GST the supplier charged; defaults to the item's rate (0 from a supplier without a GSTIN). */
-  taxRate: taxRateSchema.optional()
-});
-
-const purchaseSchema = z.object({
-  id: z.string().uuid(),
-  purchaseNo: z.string(),
-  branchId: z.string().uuid(),
-  supplierName: z.string(),
-  supplierGstin: z.string().nullable(),
-  supplierInvoiceNo: z.string().nullable(),
-  supplierInvoiceDate: z.string().nullable(),
-  note: z.string().nullable(),
-  totalCost: moneySchema,
-  /** GST charged by the supplier, by kind, and whether it counts as input tax credit. */
-  buyerGstin: z.string().nullable().optional(),
-  taxTotal: moneySchema.default(0),
-  cgstTotal: moneySchema.default(0),
-  sgstTotal: moneySchema.default(0),
-  igstTotal: moneySchema.default(0),
-  itcEligible: z.boolean().default(false),
-  createdByName: z.string(),
-  createdAt: z.string().datetime(),
-  lines: z.array(
-    purchaseLineInputSchema.extend({
-      id: z.string().uuid(),
-      amount: moneySchema,
-      cgstAmount: moneySchema.default(0),
-      sgstAmount: moneySchema.default(0),
-      igstAmount: moneySchema.default(0),
-      item: z.object({ code: z.string(), name: z.string(), uom: z.string() })
-    })
-  )
 });
 
 const stockTransferSchema = z.object({
@@ -313,34 +270,6 @@ export const stockRoutes = c.router({
     /** A page of the movements, newest first. */
     query: pageQuerySchema.extend({ branchId: z.string().uuid(), itemId: z.string().uuid().optional() }),
     responses: { 200: z.array(stockLedgerSchema) }
-  }
-});
-
-export const purchasesRoutes = c.router({
-  /** Admin: goods received from a supplier at a branch. */
-  create: {
-    method: 'POST',
-    path: '/purchases',
-    body: z.object({
-      branchId: z.string().uuid(),
-      supplierName: requiredText,
-      supplierGstin: gstinSchema.optional(),
-      supplierInvoiceNo: z.string().trim().max(32).optional(),
-      supplierInvoiceDate: calendarDateSchema.optional(),
-      note: z.string().trim().max(500).optional(),
-      lines: z
-        .array(purchaseLineInputSchema)
-        .min(1)
-        .max(500)
-        .superRefine(uniqueBy((entry) => entry.itemId, 'Item is listed more than once'))
-    }),
-    responses: { 201: purchaseSchema }
-  },
-  list: {
-    method: 'GET',
-    path: '/purchases',
-    query: z.object({ branchId: z.string().uuid() }),
-    responses: { 200: z.array(purchaseSchema) }
   }
 });
 

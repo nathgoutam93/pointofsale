@@ -6,18 +6,21 @@ import { BranchPicker } from "../components/BranchPicker";
 import { useManagedBranch } from "../lib/branch";
 import { inr, requireManagementSession } from "./route-helpers";
 import { ItemPicker } from "./stock/ItemPicker";
+import { PurchaseDetail } from "./purchases/PurchaseDetail";
+import { emptySupplierChoice, NEW_SUPPLIER, SupplierPicker, useChosenGstin, type SupplierChoice } from "./purchases/SupplierPicker";
 
 type DraftLine = { itemId: string; code: string; name: string; uom: string; qty: string; unitCost: string; taxRate: string };
 
-const emptySupplier = { supplierName: "", supplierGstin: "", supplierInvoiceNo: "", supplierInvoiceDate: "", note: "" };
+const emptySupplier = { supplierInvoiceNo: "", supplierInvoiceDate: "", note: "" };
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString("en-IN", { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 /**
- * Goods received from suppliers at this branch. Saving adds the stock and moves each item's
- * cost to the weighted average of the stock held and the new purchase.
+ * Goods received from suppliers at this branch. Saving adds the stock, moves each item's cost
+ * to the weighted average of the stock held and the new purchase, and adds the total with GST
+ * to what the supplier is owed. Goods can be sent back from a purchase's details.
  */
 export function PurchasesPage() {
   requireManagementSession();
@@ -25,6 +28,8 @@ export function PurchasesPage() {
   const branchId = managedBranch ?? "";
   const queryClient = useQueryClient();
   const [supplier, setSupplier] = useState(emptySupplier);
+  const [supplierChoice, setSupplierChoice] = useState<SupplierChoice>(emptySupplierChoice);
+  const chosenGstin = useChosenGstin(supplierChoice);
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
@@ -51,7 +56,7 @@ export function PurchasesPage() {
   const lineIds = useMemo(() => new Set(lines.map((line) => line.itemId)), [lines]);
   const total = lines.reduce((sum, line) => sum + (Number(line.qty) || 0) * (Number(line.unitCost) || 0), 0);
   // GST is charged only by a registered supplier (with a GSTIN).
-  const supplierCharges = supplier.supplierGstin.trim().length > 0;
+  const supplierCharges = chosenGstin.length > 0;
   const taxTotal = supplierCharges
     ? lines.reduce((sum, line) => sum + Math.round((Number(line.qty) || 0) * (Number(line.unitCost) || 0) * (Number(line.taxRate) || 0)) / 100, 0)
     : 0;
@@ -61,8 +66,9 @@ export function PurchasesPage() {
       const res = await api.purchases.create({
         body: {
           branchId: branchId,
-          supplierName: supplier.supplierName.trim(),
-          supplierGstin: supplier.supplierGstin.trim() || undefined,
+          ...(supplierChoice.supplierId === NEW_SUPPLIER
+            ? { supplierName: supplierChoice.newName.trim(), supplierGstin: supplierChoice.newGstin.trim().toUpperCase() || undefined }
+            : { supplierId: supplierChoice.supplierId }),
           supplierInvoiceNo: supplier.supplierInvoiceNo.trim() || undefined,
           supplierInvoiceDate: supplier.supplierInvoiceDate || undefined,
           note: supplier.note.trim() || undefined,
@@ -75,6 +81,7 @@ export function PurchasesPage() {
     },
     onSuccess: (purchase) => {
       setSupplier(emptySupplier);
+      setSupplierChoice(emptySupplierChoice);
       setLines([]);
       setError("");
       setSaved(`${purchase.purchaseNo} saved. Stock and item costs are updated.`);
@@ -82,6 +89,7 @@ export function PurchasesPage() {
       void queryClient.invalidateQueries({ queryKey: ["stock-module", branchId] });
       void queryClient.invalidateQueries({ queryKey: ["stock-ledger", branchId] });
       void queryClient.invalidateQueries({ queryKey: ["items-stock-list"] });
+      void queryClient.invalidateQueries({ queryKey: ["suppliers"] });
     },
     onError: (e) => {
       setSaved("");
@@ -91,7 +99,8 @@ export function PurchasesPage() {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!supplier.supplierName.trim()) return setError("Enter the supplier's name");
+    if (!supplierChoice.supplierId) return setError("Choose the supplier");
+    if (supplierChoice.supplierId === NEW_SUPPLIER && !supplierChoice.newName.trim()) return setError("Enter the new supplier's name");
     if (lines.length === 0) return setError("Add at least one item");
     const bad = lines.find((line) => !(Number(line.qty) > 0) || !(Number(line.unitCost) >= 0) || line.unitCost.trim() === "");
     if (bad) return setError(`Enter a quantity and cost for ${bad.name}`);
@@ -114,24 +123,7 @@ export function PurchasesPage() {
           <BranchPicker value={branchId} onChange={setManagedBranch} />
         </div>
         <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4">
-          <label className="block text-sm text-slate-600">
-            Supplier name
-            <input
-              className="field mt-1"
-              value={supplier.supplierName}
-              onChange={(e) => setSupplier((s) => ({ ...s, supplierName: e.target.value }))}
-              required
-            />
-          </label>
-          <label className="block text-sm text-slate-600">
-            Supplier GSTIN <span className="text-slate-400">(optional)</span>
-            <input
-              className="field mt-1 uppercase"
-              value={supplier.supplierGstin}
-              maxLength={15}
-              onChange={(e) => setSupplier((s) => ({ ...s, supplierGstin: e.target.value }))}
-            />
-          </label>
+          <SupplierPicker value={supplierChoice} onChange={setSupplierChoice} />
           <label className="block text-sm text-slate-600">
             Supplier invoice no. <span className="text-slate-400">(optional)</span>
             <input
@@ -313,41 +305,14 @@ export function PurchasesPage() {
                         + {inr(purchase.taxTotal)} GST{purchase.itcEligible ? " (ITC)" : ""}
                       </span>
                     ) : null}
+                    {purchase.dueDate && !purchase.settledBeforeAccounts ? (
+                      <span className="block text-right text-xs font-normal text-slate-500">due {purchase.dueDate}</span>
+                    ) : null}
                   </span>
                 </button>
                 {openId === purchase.id && (
                   <div className="bg-slate-50 px-5 pb-4">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="eyebrow border-b border-slate-200 text-left">
-                          <th className="py-2">Item</th>
-                          <th className="py-2">Qty</th>
-                          <th className="py-2">Unit cost</th>
-                          <th className="py-2 text-right">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {purchase.lines.map((line) => (
-                          <tr key={line.id} className="border-b border-slate-100">
-                            <td className="py-2 pr-3">
-                              {line.item.name} <span className="text-xs text-slate-500">{line.item.code}</span>
-                            </td>
-                            <td className="py-2 pr-3 tabular-nums">
-                              {Number(line.qty)} {line.item.uom}
-                            </td>
-                            <td className="py-2 pr-3 tabular-nums">{inr(line.unitCost)}</td>
-                            <td className="py-2 text-right tabular-nums">{inr(line.amount)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {purchase.supplierGstin || purchase.note ? (
-                      <p className="mt-2 text-xs text-slate-500">
-                        {purchase.supplierGstin ? `GSTIN ${purchase.supplierGstin}` : ""}
-                        {purchase.supplierGstin && purchase.note ? " · " : ""}
-                        {purchase.note ?? ""}
-                      </p>
-                    ) : null}
+                    <PurchaseDetail purchaseId={purchase.id} branchId={branchId} />
                   </div>
                 )}
               </li>

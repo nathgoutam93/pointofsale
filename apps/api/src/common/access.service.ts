@@ -35,6 +35,16 @@ export class AccessService {
     return branchId;
   }
 
+  /** Admins always; cashiers when an admin gave them any of `permissions`. */
+  async requireAnyPermission(session: SessionUser, permissions: CashierPermission[]) {
+    if (session.role === UserRole.ADMIN) return;
+    const user = await this.prisma.user.findUnique({ where: { id: session.userId }, select: { permissions: true } });
+    if (!permissions.some((permission) => user?.permissions.includes(permission))) {
+      const labels = permissions.map((permission) => CASHIER_PERMISSION_LABELS[permission].label.toLowerCase());
+      throw new ForbiddenException(`You aren't allowed to ${labels.join(' or ')}. Ask an admin.`);
+    }
+  }
+
   /** Admins always; cashiers when an admin gave them `permission`. */
   async requirePermission(session: SessionUser, permission: CashierPermission) {
     if (session.role === UserRole.ADMIN) return;

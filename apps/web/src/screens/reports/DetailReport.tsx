@@ -79,7 +79,7 @@ export function DetailReport({ branchId, timeZone }: { branchId: string | null; 
       money: [2, 3],
     },
     registers: {
-      header: ["Branch", "Counter", "Opened by", "Opened", "Closed", "Opening cash", "Cash sales", "Cash top-ups", "Cash refunds", "Card", "UPI", "Expected cash", "Counted", "Difference"],
+      header: ["Branch", "Counter", "Opened by", "Opened", "Closed", "Opening cash", "Cash sales", "Cash top-ups", "Cash refunds", "Paid to suppliers", "Card", "UPI", "Expected cash", "Counted", "Difference"],
       rows: (data?.registers ?? []).map((row) => [
         row.branchName,
         row.counterName,
@@ -90,13 +90,14 @@ export function DetailReport({ branchId, timeZone }: { branchId: string | null; 
         row.cashSales,
         row.cashTopups,
         row.cashRefunds,
+        row.cashPaidOut,
         row.cardSales,
         row.upiSales,
         row.expectedCash,
         row.closingBalance,
         row.cashDifference,
       ]),
-      money: [5, 6, 7, 8, 9, 10, 11, 12, 13],
+      money: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
     },
   };
   const current = tables[tab];

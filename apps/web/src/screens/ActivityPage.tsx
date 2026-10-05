@@ -22,6 +22,10 @@ const ACTIONS: Record<string, string> = {
   BRANCH_SETTINGS_CHANGED: "Branch settings",
   TAXPAYER_TYPE_CHANGED: "GST registration",
   REGISTER_CLOSED_FOR: "Register closed for someone",
+  SUPPLIER_ADDED: "Supplier added",
+  SUPPLIER_UPDATED: "Supplier changed",
+  SUPPLIER_PAID: "Supplier paid",
+  PURCHASE_RETURNED: "Goods sent back to supplier",
 };
 
 /** Admins: who changed what (prices, cancellations, returns, staff, settings), newest first. */

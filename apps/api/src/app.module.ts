@@ -46,7 +46,10 @@ import { ImportService } from './tenancy/import.service';
 import { TenancyService } from './tenancy/tenancy.service';
 import { TenantClients } from './tenancy/tenant-clients';
 import { PurchasesController } from './purchases/purchases.controller';
+import { PurchaseReturnsService } from './purchases/purchase-returns.service';
 import { PurchasesService } from './purchases/purchases.service';
+import { SuppliersController } from './suppliers/suppliers.controller';
+import { SuppliersService } from './suppliers/suppliers.service';
 import { RegistersController } from './registers/registers.controller';
 import { RegistersService } from './registers/registers.service';
 import { ReportsController } from './reports/reports.controller';
@@ -87,6 +90,7 @@ import { UsersService } from './users/users.service';
     ItemsController,
     StockController,
     PurchasesController,
+    SuppliersController,
     TransfersController,
     SalesController,
     ReturnsController,
@@ -113,6 +117,8 @@ import { UsersService } from './users/users.service';
     ItemsService,
     StockService,
     PurchasesService,
+    PurchaseReturnsService,
+    SuppliersService,
     TransfersService,
     CustomersService,
     ExportsService,

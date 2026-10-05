@@ -38,8 +38,12 @@ export const MIGRATION_TABLES = [
   'Receipt',
   'ReturnInvoice',
   'ReturnInvoiceLine',
+  'Supplier',
+  'SupplierPayment',
   'Purchase',
   'PurchaseLine',
+  'PurchaseReturn',
+  'PurchaseReturnLine',
   'StockTransfer',
   'StockTransferLine',
   'AuditEvent'

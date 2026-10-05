@@ -1,5 +1,5 @@
 import { createRootRoute, createRoute, createRouter, redirect } from '@tanstack/react-router';
-import { getSession } from './lib/session';
+import { can, getSession } from './lib/session';
 import { AppLayout } from './screens/AppLayout';
 import { LoginPage } from './screens/LoginPage';
 import { OpenRegisterPage } from './screens/OpenRegisterPage';
@@ -10,6 +10,7 @@ import { ItemsPage } from './screens/ItemsPage';
 import { CustomersPage } from './screens/CustomersPage';
 import { StockPage } from './screens/StockPage';
 import { PurchasesPage } from './screens/PurchasesPage';
+import { SuppliersPage } from './screens/SuppliersPage';
 import { TransfersPage } from './screens/TransfersPage';
 import { ReportsPage } from './screens/ReportsPage';
 import { ActivityPage } from './screens/ActivityPage';
@@ -218,6 +219,17 @@ const purchasesRoute = createRoute({
   component: PurchasesPage
 });
 
+const suppliersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/suppliers',
+  beforeLoad: () => {
+    const session = requireManagementSession();
+    if (!can(session, 'RECORD_PURCHASES') && !can(session, 'PAY_SUPPLIERS')) throw redirect({ to: '/pos' });
+    return session;
+  },
+  component: SuppliersPage
+});
+
 const transfersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/transfers',
@@ -273,6 +285,7 @@ const routeTree = rootRoute.addChildren([
   customersRoute,
   stockRoute,
   purchasesRoute,
+  suppliersRoute,
   transfersRoute,
   reportsRoute,
   activityRoute,

@@ -61,6 +61,12 @@ export const IconTruck = (p: IconProps) => (
     <circle cx="17" cy="18" r="2" />
   </Icon>
 );
+export const IconFactory = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />
+    <path d="M17 18h1M12 18h1M7 18h1" />
+  </Icon>
+);
 export const IconTransfer = (p: IconProps) => (
   <Icon {...p}>
     <path d="M4 8h14l-4-4M20 16H6l4 4" />

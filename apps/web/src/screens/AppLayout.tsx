@@ -17,6 +17,7 @@ import {
   IconTag,
   IconTransfer,
   IconTruck,
+  IconFactory,
   IconUsers, IconHistory } from "../components/icons";
 import { OnlineOnlyBadge } from "../components/OnlineOnly";
 import { MoveOnlineNotice } from "../components/MoveOnline";
@@ -42,7 +43,8 @@ type NavItem = {
   needsRegister?: "always" | "cashiers";
   adminOnly?: boolean;
   /** Shown to admins, and to cashiers allowed this. */
-  permission?: CashierPermission;
+  /** Shown to cashiers with this permission (any of them, for a list). */
+  permission?: CashierPermission | CashierPermission[];
   /** Needs an online business; an offline one sees it marked "Online only". */
   onlineOnly?: boolean;
 };
@@ -63,6 +65,7 @@ const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
       { to: "/items", label: "Items", icon: IconTag },
       { to: "/stock", label: "Inventory", icon: IconBoxes, needsRegister: "cashiers" },
       { to: "/purchases", label: "Purchases", icon: IconTruck, needsRegister: "cashiers", permission: "RECORD_PURCHASES" },
+      { to: "/suppliers", label: "Suppliers", icon: IconFactory, needsRegister: "cashiers", permission: ["RECORD_PURCHASES", "PAY_SUPPLIERS"] },
       { to: "/transfers", label: "Transfers", icon: IconTransfer, needsRegister: "cashiers", onlineOnly: true },
     ],
   },
@@ -194,7 +197,7 @@ export function AppLayout() {
         <nav className="flex-1 overflow-y-auto px-2 py-3">
           {NAV_SECTIONS.map((section) => {
             const items = section.items.filter(
-              (item) => (!item.adminOnly || session?.role === "ADMIN") && (!item.permission || can(session, item.permission)),
+              (item) => (!item.adminOnly || session?.role === "ADMIN") && (!item.permission || [item.permission].flat().some((permission) => can(session, permission))),
             );
             if (items.length === 0) return null;
             return (

@@ -42,12 +42,12 @@ export class RegistersService {
 
   /**
    * Cash that should be in a register's drawer: the opening balance plus cash payments and
-   * cash wallet top-ups taken on it, minus cash refunds given from it. Card, UPI and wallet
+   * cash wallet top-ups taken on it, minus cash refunds given and cash paid to suppliers from it. Card, UPI and wallet
    * don't touch the drawer; card and UPI takings (payments and top-ups) are reported for
    * checking against their settlements.
    */
   async registerCash(client: Prisma.TransactionClient | PrismaService, registerId: string, openingBalance: number) {
-    const [takenByMode, topupsByMode, cashOut] = await Promise.all([
+    const [takenByMode, topupsByMode, cashOut, paidOut] = await Promise.all([
       client.payment.groupBy({
         by: ['mode'],
         where: { registerSessionId: registerId },
@@ -61,7 +61,8 @@ export class RegistersService {
       client.returnInvoice.aggregate({
         where: { registerSessionId: registerId, refundMode: PaymentMode.CASH },
         _sum: { refundAmount: true }
-      })
+      }),
+      client.supplierPayment.aggregate({ where: { registerSessionId: registerId }, _sum: { amount: true } })
     ]);
     const topups = (mode: PaymentMode) => round2(toNumber(topupsByMode.find((row) => row.paymentMode === mode)?._sum.amount));
     const taken = (mode: PaymentMode) =>
@@ -69,11 +70,13 @@ export class RegistersService {
     const cashSales = taken(PaymentMode.CASH);
     const cashTopups = topups(PaymentMode.CASH);
     const cashRefunds = round2(toNumber(cashOut._sum.refundAmount));
+    const cashPaidOut = round2(toNumber(paidOut._sum.amount));
     return {
       cashSales,
       cashTopups,
       cashRefunds,
-      expectedCash: round2(openingBalance + cashSales + cashTopups - cashRefunds),
+      cashPaidOut,
+      expectedCash: round2(openingBalance + cashSales + cashTopups - cashRefunds - cashPaidOut),
       cardSales: taken(PaymentMode.CARD),
       upiSales: taken(PaymentMode.UPI)
     };
@@ -301,6 +304,7 @@ export class RegistersService {
         cashSales: cash.cashSales,
         cashTopups: cash.cashTopups,
         cashRefunds: cash.cashRefunds,
+        cashPaidOut: cash.cashPaidOut,
         cardSales: cash.cardSales,
         upiSales: cash.upiSales
       };

@@ -247,10 +247,10 @@ describe('GSTR-3B builder', () => {
       { pos: '33', txval: 500, iamt: 90 }
     ]);
     // No purchases recorded: no input tax credit, and a note to fill it in.
-    expect(table4).toEqual({ itcAvailable: { iamt: 0, camt: 0, samt: 0, csamt: 0 }, purchases: 0 });
+    expect(table4).toEqual({ itcAvailable: { iamt: 0, camt: 0, samt: 0, csamt: 0 }, purchases: 0, purchaseReturns: 0 });
     expect(problems.map((p) => p.message).join(' ')).toMatch(/input tax credit \(Table 4\) is 0/);
     // With purchases: their tax, by kind.
     const withItc = buildGstr3b(build([intra], []), { purchases: 3, igst: 18, cgst: 4.5, sgst: 4.5 });
-    expect(withItc.table4).toEqual({ itcAvailable: { iamt: 18, camt: 4.5, samt: 4.5, csamt: 0 }, purchases: 3 });
+    expect(withItc.table4).toEqual({ itcAvailable: { iamt: 18, camt: 4.5, samt: 4.5, csamt: 0 }, purchases: 3, purchaseReturns: 0 });
   });
 });

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InvoiceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
-import { toNumber } from '../common/numbers';
+import { round2, toNumber } from '../common/numbers';
 import { financialYearStart } from '@pos/contracts';
 import { localDate, startOfLocalDay } from '../reports/zoned-dates';
 import { SettingsService } from '../settings/settings.service';
@@ -185,8 +185,23 @@ export class GstService {
       itcEligible: true,
       OR: [{ supplierInvoiceDate: { gte: firstDay, lt: afterLastDay } }, { supplierInvoiceDate: null, createdAt: received }]
     };
-    const totals = await this.prisma.purchase.aggregate({ where, _count: true, _sum: { igstTotal: true, cgstTotal: true, sgstTotal: true } });
-    return { purchases: totals._count, igst: num(totals._sum.igstTotal), cgst: num(totals._sum.cgstTotal), sgst: num(totals._sum.sgstTotal) };
+    // Goods sent back in the period take their GST off again (the supplier's credit note).
+    const [totals, returned] = await Promise.all([
+      this.prisma.purchase.aggregate({ where, _count: true, _sum: { igstTotal: true, cgstTotal: true, sgstTotal: true } }),
+      this.prisma.purchaseReturn.aggregate({
+        where: { itcReversed: true, purchase: { buyerGstin: gstin }, createdAt: received },
+        _count: true,
+        _sum: { igstTotal: true, cgstTotal: true, sgstTotal: true }
+      })
+    ]);
+    const net = (bought: unknown, sentBack: unknown) => round2(num(bought) - num(sentBack));
+    return {
+      purchases: totals._count,
+      purchaseReturns: returned._count,
+      igst: net(totals._sum.igstTotal, returned._sum.igstTotal),
+      cgst: net(totals._sum.cgstTotal, returned._sum.cgstTotal),
+      sgst: net(totals._sum.sgstTotal, returned._sum.sgstTotal)
+    };
   }
 
   /** CMP-08: a composition taxpayer's quarter. */

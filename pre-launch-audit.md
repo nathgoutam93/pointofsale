@@ -320,7 +320,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   page. Tests: `audit.test.ts`. Entries made on a fallback counter while offline stay on that
   computer.
 
-### [~] B7. Purchases: input tax and suppliers
+### [x] B7. Purchases: input tax and suppliers
 
 - **Why:** purchases record goods received but not their GST, so GSTR-3B's input tax credit is
   missing; there are no supplier accounts, payables or purchase returns.
@@ -334,8 +334,31 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   `20261020190000_purchase_gst`. Item cost stays before tax. GSTR-3B Table 4(A)(5) adds up the
   period's credit by the supplier invoice date (else the day received), with a note to check it
   against GSTR-2B. The Purchases page has a GST % column and shows the tax. Tests:
-  `purchase-gst.test.ts`, `gstr1-builder.test.ts`. **Still to do:** supplier accounts, amounts
-  owed to suppliers and payments to them, and purchase returns (debit notes).
+  `purchase-gst.test.ts`, `gstr1-builder.test.ts`.
+- **Status (2026-10-05):** suppliers done (migration `20261020220000_suppliers`).
+  - *Suppliers:* name (unique, any case), GSTIN, phone, email, address, payment terms, in use or
+    not. A purchase picks one (or names a new one, added with it); its GSTIN is used for the GST.
+    Purchases recorded before this are linked to suppliers made from their names and count as
+    paid, so no debts are invented.
+  - *What is owed:* each purchase owes its total with GST, due the supplier's payment terms after
+    their invoice date. Payments (cash, UPI, bank transfer, cheque, with a reference) and goods
+    sent back come off it; returns come off their own purchase, payments pay the oldest bills
+    first, and bills past their due date are overdue. The Suppliers page shows each supplier's
+    balance and overdue amount, the unpaid bills and the account with a running balance.
+  - *Cash from the drawer:* only from the user's open register at that branch; it lowers the
+    cash expected at close ("Paid to suppliers" in the close dialog and the registers report).
+    Paying suppliers is a permission of its own (`PAY_SUPPLIERS`); suppliers are seen by those
+    who record purchases or pay suppliers.
+  - *Purchase returns (debit notes, PRT-... numbers):* from a purchase's details, at most what
+    was bought less what went back, and only goods in stock. Each line's value and GST are
+    prorated from the purchase line like sales returns, so returning a line in steps adds up to
+    it exactly. They leave stock (`PURCHASE_RETURN` movements) and, when the purchase's GST was
+    claimed, take it off GSTR-3B Table 4(A)(5) in the month sent back (as GSTR-2B nets the
+    supplier's credit note).
+  - Audit entries for suppliers added or changed, payments and returns.
+  - Tests: `suppliers.test.ts` (accounts, oldest-first payments, overdue, drawer cash,
+    permissions, returns, GSTR-3B) and a browser test (`e2e/suppliers.spec.ts`: buy from a new
+    supplier, pay part, send goods back).
 
 ### [~] B8. Decide on scope: batches and expiry, offers
 
@@ -490,3 +513,4 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 - 2026-10-04: List written from the codebase audit.
 - 2026-10-04: C5 done; a partial return no longer refunds a paisa more or less than the price.
 - 2026-10-05: C6 done; closing the register no longer crashes the screen behind it.
+- 2026-10-05: A9 decided (returns only at the selling branch), A5 removed, B7 done (suppliers, payables, purchase returns).

@@ -135,7 +135,9 @@ export const gstRoutes = c.router({
         table32: z.object({ unregistered: z.array(z.object({ pos: z.string(), txval: z.number(), iamt: z.number() })) }),
         table4: z.object({
           itcAvailable: z.object({ iamt: z.number(), camt: z.number(), samt: z.number(), csamt: z.number() }),
-          purchases: z.number().int()
+          purchases: z.number().int(),
+          /** Goods sent back to suppliers in the period, whose GST is taken off. */
+          purchaseReturns: z.number().int().default(0)
         }),
         problems: z.array(z.object({ severity: z.enum(['error', 'warning']), message: z.string() }))
       })

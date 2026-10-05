@@ -18,10 +18,15 @@ function add(into: TaxRow, row: { txval: number; iamt?: number; camt?: number; s
   into.samt = round2(into.samt + sign * (row.samt ?? 0));
 }
 
-/** Input tax credit from the period's purchases (see Purchase.itcEligible), by kind. */
-export type PurchaseItc = { purchases: number; igst: number; cgst: number; sgst: number };
+/**
+ * Input tax credit from the period's purchases (see Purchase.itcEligible), by kind, net of the
+ * GST on goods sent back to suppliers in the period (PurchaseReturn.itcReversed), as GSTR-2B
+ * nets the suppliers' credit notes. `purchaseReturns` counts those returns.
+ */
+export type PurchaseItc = { purchases: number; purchaseReturns?: number; igst: number; cgst: number; sgst: number };
 
 export function buildGstr3b(gstr1: Gstr1Result, itc: PurchaseItc = { purchases: 0, igst: 0, cgst: 0, sgst: 0 }) {
+  const purchaseReturns = itc.purchaseReturns ?? 0;
   const { summary } = gstr1;
 
   // 3.1(a): taxable outward supplies (not zero rated, nil rated or exempt).
@@ -69,10 +74,11 @@ export function buildGstr3b(gstr1: Gstr1Result, itc: PurchaseItc = { purchases: 
         .map(([pos, row]) => ({ pos, ...row }))
     },
     table4: {
-      /** 4(A)(5) All other ITC: GST on the period's purchases from registered suppliers. */
+      /** 4(A)(5) All other ITC: GST on the period's purchases from registered suppliers, less goods sent back. */
       itcAvailable: { iamt: round2(itc.igst), camt: round2(itc.cgst), samt: round2(itc.sgst), csamt: 0 },
-      /** How many purchases it comes from. */
-      purchases: itc.purchases
+      /** How many purchases and purchase returns it comes from. */
+      purchases: itc.purchases,
+      purchaseReturns
     },
     // Item details (HSN, units) matter for GSTR-1, not 3B, so only warnings carry over.
     problems: [
@@ -81,7 +87,7 @@ export function buildGstr3b(gstr1: Gstr1Result, itc: PurchaseItc = { purchases: 
         severity: 'warning' as const,
         message:
           itc.purchases > 0
-            ? `Input tax credit (Table 4) comes from ${itc.purchases} ${itc.purchases === 1 ? 'purchase' : 'purchases'} recorded here. Check it against GSTR-2B before filing, and add purchases not recorded here.`
+            ? `Input tax credit (Table 4) comes from ${itc.purchases} ${itc.purchases === 1 ? 'purchase' : 'purchases'} recorded here${purchaseReturns > 0 ? `, less the GST on ${purchaseReturns} ${purchaseReturns === 1 ? 'return' : 'returns'} to suppliers` : ''}. Check it against GSTR-2B before filing, and add purchases not recorded here.`
             : 'No purchases with GST are recorded for this period, so input tax credit (Table 4) is 0. Fill it in from your purchase records if you have any.'
       }
     ]

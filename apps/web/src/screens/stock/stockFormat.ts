@@ -11,6 +11,7 @@ export const MOVEMENT_LABELS: Record<string, string> = {
   TRANSFER_OUT: "Sent to branch",
   TRANSFER_IN: "Received from branch",
   TRANSFER_CANCEL: "Transfer cancelled",
+  PURCHASE_RETURN: "Sent back to supplier",
 };
 
 export function formatDateTime(value: string) {
