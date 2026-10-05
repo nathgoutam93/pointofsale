@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { AuditService } from '../common/audit.service';
 import { CashierPermission, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { hashPassword, newPasswordFields, validateNewPassword } from '../auth/password';
@@ -38,7 +39,8 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
-    private readonly branches: BranchesService
+    private readonly branches: BranchesService,
+    private readonly audit: AuditService
   ) {}
 
   async listUsers(branchId: string) {
@@ -52,6 +54,7 @@ export class UsersService {
   }
 
   async createUser(
+    session: SessionUser,
     branchId: string,
     input: { username: string; password: string; role?: UserRole; branchIds?: string[]; permissions?: CashierPermission[] }
   ) {
@@ -80,6 +83,14 @@ export class UsersService {
       },
       select: userSelect
     });
+    await this.audit.record(session, {
+      action: 'USER_CREATED',
+      entityType: 'User',
+      entityId: created.id,
+      branchId,
+      summary: `Added cashier ${created.username}${(input.permissions ?? []).length ? ` allowed to: ${(input.permissions ?? []).join(', ')}` : ''}`,
+      details: { permissions: input.permissions ?? [], branchIds: uniqueBranchIds }
+    });
     return toUser(created);
   }
 
@@ -100,6 +111,7 @@ export class UsersService {
       update: {},
       create: { userId, branchId }
     });
+    await this.audit.record(session, { action: 'BRANCH_ACCESS_GRANTED', entityType: 'User', entityId: userId, branchId, summary: 'Gave a cashier access to this branch' });
   }
 
   async revokeUserBranchAccess(session: SessionUser, userId: string, branchId: string) {
@@ -122,6 +134,7 @@ export class UsersService {
     await this.prisma.userBranchAccess.delete({
       where: { userId_branchId: { userId, branchId } }
     });
+    await this.audit.record(session, { action: 'BRANCH_ACCESS_REVOKED', entityType: 'User', entityId: userId, branchId, summary: "Took away a cashier's access to this branch" });
   }
 
   async updateUser(
@@ -167,6 +180,18 @@ export class UsersService {
       },
       select: userSelect
     });
+    const changes = AuditService.changes(user, updated, ['username', 'isActive', 'permissions']);
+    if (input.password !== undefined) changes.password = ['(hidden)', user.id === session.userId ? 'changed by themselves' : 'reset by an admin'];
+    if (Object.keys(changes).length > 0) {
+      await this.audit.record(session, {
+        action: changes.permissions ? 'USER_PERMISSIONS_CHANGED' : 'USER_UPDATED',
+        entityType: 'User',
+        entityId: userId,
+        branchId: user.branchId,
+        summary: `Changed ${updated.username}: ${Object.keys(changes).join(', ')}`,
+        details: { changes } as Prisma.InputJsonValue
+      });
+    }
     return toUser(updated);
   }
 }

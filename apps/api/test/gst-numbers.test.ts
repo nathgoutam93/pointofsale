@@ -24,13 +24,13 @@ async function shop(code?: string) {
     (await t.ok('POST', '/sales/checkout', token, checkoutBody(branch.id, walkIn.id, [line(item.id)], [{ mode: 'CASH', amount: 100 }]))).invoice;
   const sell = () => sellAs(opened.token);
   const refund = (token: string, invoice: { id: string; lines: Array<{ id: string }> }) =>
-    t.ok('POST', `/sales/${invoice.id}/return`, token, { refundMode: 'CASH', lines: [{ saleLineId: invoice.lines[0].id, qty: 1 }] });
+    t.ok('POST', `/sales/${invoice.id}/return`, token, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: invoice.lines[0].id, qty: 1 }] });
   return { branch, token: opened.token, counter, sell, sellAs, refund };
 }
 
 async function cashierAt(branchId: string) {
   const username = `till-${randomUUID().slice(0, 8)}`;
-  await t.ok('POST', '/users', admin, { branchId, username, password: 'cashier-pass-1' });
+  await t.ok('POST', '/users', admin, { branchId, username, password: 'cashier-pass-1', permissions: ['MAKE_RETURNS'] });
   return t.login(username, 'cashier-pass-1');
 }
 

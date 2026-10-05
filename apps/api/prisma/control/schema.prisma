@@ -19,6 +19,10 @@ enum BusinessStatus {
   ACTIVE
   SUSPENDED
   FAILED
+  /// The owner asked for it to be deleted: locked, erased at deleteAfter unless they cancel.
+  DELETING
+  /// Erased: its data is gone; the row stays for the platform's own billing records.
+  DELETED
 }
 
 enum MembershipRole {
@@ -26,33 +30,39 @@ enum MembershipRole {
 }
 
 model Business {
-  id            String         @id @default(uuid())
+  id                   String            @id @default(uuid())
   /// Short code staff type when signing in, e.g. K7Q2MX.
-  code          String         @unique
-  name          String
+  code                 String            @unique
+  name                 String
   /// The PostgreSQL schema holding this business's data, e.g. b_3f2a….
-  schemaName    String         @unique
+  schemaName           String            @unique
   /// Which database server holds the schema; "default" is DATABASE_URL. Lets businesses move
   /// to another server later without changing anything else.
-  dbServer      String         @default("default")
-  status        BusinessStatus @default(PROVISIONING)
+  dbServer             String            @default("default")
+  status               BusinessStatus    @default(PROVISIONING)
   /// The last migration applied to the business's schema.
-  schemaVersion String?
+  schemaVersion        String?
   /// Set when the business came from an offline install (moved online). A retried upload with
   /// the same id returns this business instead of creating a second one.
-  importId      String?        @unique
+  importId             String?           @unique
   /// Managed hosting: the plan whose limits apply (PLANS in @pos/contracts), the end of the free
   /// trial and the end of the time paid for. Self-hosted servers ignore all three.
-  plan          String         @default("growth")
-  trialEndsAt   DateTime?
-  paidUntil     DateTime?
+  plan                 String            @default("growth")
+  trialEndsAt          DateTime?
+  paidUntil            DateTime?
   /// The last billing reminder emailed (its kind and the date it was about), so each goes once.
-  billingNotice String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  memberships   Membership[]
-  checkouts     BillingCheckout[]
-  invoices      BillingInvoice[]
+  billingNotice        String?
+  /// Deletion: who asked (an owner account), the status to go back to if they cancel, when it
+  /// will be erased, and when it was.
+  deletionRequestedBy  String?
+  statusBeforeDeletion BusinessStatus?
+  deleteAfter          DateTime?
+  erasedAt             DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  memberships          Membership[]
+  checkouts            BillingCheckout[]
+  invoices             BillingInvoice[]
 }
 
 /// A business owner's sign-in (email and password), separate from the staff users inside a
@@ -67,6 +77,7 @@ model Account {
   createdAt         DateTime        @default(now())
   memberships       Membership[]
   passwordResets    PasswordReset[]
+  deletionCodes     DeletionCode[]
 }
 
 /// A code emailed to an owner who forgot their password. Only its hash is kept; it works once,
@@ -82,6 +93,22 @@ model PasswordReset {
   account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId])
+}
+
+/// A code emailed to an owner to confirm deleting one of their businesses (with their password).
+/// Only its hash is kept; it works once, for 15 minutes, with a few tries.
+model DeletionCode {
+  id         String    @id @default(uuid())
+  accountId  String
+  businessId String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+  account    Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, businessId])
 }
 
 model Membership {
@@ -155,27 +182,27 @@ model BillingEvent {
 /// Our tax invoice for a payment, numbered per financial year. Buyer details are copied from
 /// the business when it is issued.
 model BillingInvoice {
-  id          String          @id @default(uuid())
-  number      String          @unique
-  businessId  String
-  checkoutId  String          @unique
-  issuedAt    DateTime        @default(now())
-  buyerName   String
-  buyerGstin  String?
+  id         String          @id @default(uuid())
+  number     String          @unique
+  businessId String
+  checkoutId String          @unique
+  issuedAt   DateTime        @default(now())
+  buyerName  String
+  buyerGstin String?
   /// Two-digit GST state code of the buyer (place of supply); null when unknown.
-  buyerState  String?
-  plan        String
-  period      String
-  periodFrom  DateTime
-  periodTo    DateTime
+  buyerState String?
+  plan       String
+  period     String
+  periodFrom DateTime
+  periodTo   DateTime
   /// Paise: before GST, the tax split, and what was paid.
-  amount      Int
-  cgst        Int
-  sgst        Int
-  igst        Int
-  total       Int
-  business    Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  checkout    BillingCheckout @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
+  amount     Int
+  cgst       Int
+  sgst       Int
+  igst       Int
+  total      Int
+  business   Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  checkout   BillingCheckout @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
 }

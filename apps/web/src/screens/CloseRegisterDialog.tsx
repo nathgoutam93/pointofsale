@@ -15,9 +15,14 @@ function differenceLabel(difference: number) {
   return difference > 0 ? `Over by ${inr(difference)}` : `Short by ${inr(-difference)}`;
 }
 
+/** This computer no longer has a register open. */
+function forgetRegister() {
+  updateSession({ branchId: null, registerId: null, counterId: null, counterName: null });
+}
+
 /**
  * Close the register by counting the drawer: shows what should be there (opening balance
- * + cash taken − cash refunded), the difference as the cashier types the count, and the
+ * + cash taken and put in − cash refunded, paid out and taken out), the difference as the cashier types the count, and the
  * saved result before leaving.
  */
 export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
@@ -40,7 +45,9 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
       return res.body;
     },
     onSuccess: (data) => {
-      updateSession({ branchId: null, registerId: null, counterId: null, counterName: null });
+      // The session keeps the register until the cashier leaves the summary: the page behind
+      // this dialog needs an open register to render, and would fail if it re-rendered now.
+      window.addEventListener("pagehide", forgetRegister, { once: true });
       setClosed(data.register);
     },
   });
@@ -52,8 +59,13 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
 
   return (
     <div className="modal-backdrop z-50">
-      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl">
-        <h2 className="text-lg font-semibold">Close Register</h2>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="close-register-title"
+        className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl"
+      >
+        <h2 id="close-register-title" className="text-lg font-semibold">Close Register</h2>
         {current.data?.counterName ? (
           <p className="mt-0.5 text-sm text-slate-500">
             {current.data.counterName} · opened by {current.data.openedBy}
@@ -74,6 +86,7 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
             <button
               className="btn-primary mt-5 w-full"
               onClick={() => {
+                forgetRegister();
                 window.location.href = "/open-register";
               }}
             >
@@ -89,9 +102,31 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
             <dl className="mt-4 space-y-2 text-sm">
               <div className="flex justify-between"><dt className="text-slate-500">Opening balance</dt><dd className="tabular-nums">{inr(current.data.openingBalance)}</dd></div>
               <div className="flex justify-between"><dt className="text-slate-500">Cash taken</dt><dd className="tabular-nums">+ {inr(current.data.cashSales)}</dd></div>
+              {current.data.cashTopups > 0 ? (
+                <div className="flex justify-between"><dt className="text-slate-500">Cash wallet top-ups</dt><dd className="tabular-nums">+ {inr(current.data.cashTopups)}</dd></div>
+              ) : null}
               <div className="flex justify-between"><dt className="text-slate-500">Cash refunded</dt><dd className="tabular-nums">− {inr(current.data.cashRefunds)}</dd></div>
+              {current.data.cashPaidOut > 0 ? (
+                <div className="flex justify-between"><dt className="text-slate-500">Paid to suppliers</dt><dd className="tabular-nums">− {inr(current.data.cashPaidOut)}</dd></div>
+              ) : null}
+              {current.data.cashIn > 0 ? (
+                <div className="flex justify-between"><dt className="text-slate-500">Cash put in</dt><dd className="tabular-nums">+ {inr(current.data.cashIn)}</dd></div>
+              ) : null}
+              {current.data.cashExpenses > 0 ? (
+                <div className="flex justify-between"><dt className="text-slate-500">Expenses paid</dt><dd className="tabular-nums">− {inr(current.data.cashExpenses)}</dd></div>
+              ) : null}
+              {current.data.cashOut > 0 ? (
+                <div className="flex justify-between"><dt className="text-slate-500">Cash taken out</dt><dd className="tabular-nums">− {inr(current.data.cashOut)}</dd></div>
+              ) : null}
               <div className="flex justify-between border-t border-slate-100 pt-2 font-semibold"><dt>Expected in drawer</dt><dd className="tabular-nums">{inr(expected)}</dd></div>
             </dl>
+            {current.data.cardSales > 0 || current.data.upiSales > 0 ? (
+              <dl className="mt-3 space-y-1 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <p className="font-medium text-slate-500">Not in the drawer; check against the settlement</p>
+                <div className="flex justify-between"><dt>Card taken</dt><dd className="tabular-nums">{inr(current.data.cardSales)}</dd></div>
+                <div className="flex justify-between"><dt>UPI taken</dt><dd className="tabular-nums">{inr(current.data.upiSales)}</dd></div>
+              </dl>
+            ) : null}
             <label className="mt-4 block text-sm text-slate-600">
               Cash counted
               <input

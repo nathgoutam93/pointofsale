@@ -101,7 +101,7 @@ export class ExportsService {
     ]);
     const header = [
       'Type', 'Date', 'Number', 'Against invoice', 'Branch', 'Customer', 'Phone', 'Buyer GSTIN', 'Place of supply',
-      'Taxable value', 'CGST', 'SGST', 'IGST', 'Total', 'Paid', 'Credited by returns', 'Owed', 'Refunded', 'Status', 'Payments'
+      'Taxable value', 'CGST', 'SGST', 'IGST', 'Round off', 'Total', 'Paid', 'Credited by returns', 'Owed', 'Refunded', 'Status', 'Payments'
     ];
     const place = (code: string | null, seller: string | null) => {
       const state = code ?? seller;
@@ -124,10 +124,11 @@ export class ExportsService {
         invoice.customerPhone,
         invoice.buyerGstin,
         place(invoice.placeOfSupplyStateCode, invoice.sellerStateCode),
-        round2(total - toNumber(invoice.taxTotal)),
+        round2(total - toNumber(invoice.taxTotal) - toNumber(invoice.roundOff)),
         toNumber(invoice.cgstTotal),
         toNumber(invoice.sgstTotal),
         toNumber(invoice.igstTotal),
+        toNumber(invoice.roundOff),
         total,
         paid,
         credited,
@@ -153,6 +154,7 @@ export class ExportsService {
         -toNumber(ret.cgstTotal),
         -toNumber(ret.sgstTotal),
         -toNumber(ret.igstTotal),
+        0,
         -toNumber(ret.totalAmount),
         null,
         null,

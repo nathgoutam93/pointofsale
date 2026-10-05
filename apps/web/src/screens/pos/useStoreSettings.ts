@@ -74,17 +74,17 @@ export function useStoreSettings(branchId: string) {
   /** The same, on this computer's paper when its printer takes other paper: what receipts print with. */
   const printTemplate = usePrintTemplate(receiptTemplate);
 
-  const taxCalculationMode =
-    businessSettings.data?.taxCalculationMode ?? "AFTER_DISCOUNT";
   // A composition taxpayer can't charge GST, so the cart is priced without tax. The server
   // decides at checkout; this only keeps the totals shown the same as what it will charge.
   const chargeTax = chargesGst(businessSettings.data?.taxpayerType ?? "REGULAR");
+  // How the bill's total is rounded, the same as the server will.
+  const roundOffMode = businessSettings.data?.roundOffMode ?? "NONE";
 
   return {
     branchSettings,
     businessSettings,
-    taxCalculationMode,
     chargeTax,
+    roundOffMode,
     invoiceHeaderLines,
     invoiceFooterLines,
     receiptFooterLines,

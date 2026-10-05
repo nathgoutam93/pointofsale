@@ -15,6 +15,8 @@ export type SessionUser = {
 export type PaymentInput = {
   mode: PaymentMode;
   amount: number;
+  /** Cash only: what was handed over, when more than `amount` (the rest is change). */
+  tendered?: number;
   reference?: string;
 };
 

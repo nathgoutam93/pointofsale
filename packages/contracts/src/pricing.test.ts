@@ -3,27 +3,32 @@ import {
   allocateDiscountAcrossBases,
   computeSaleTotals,
   exclusiveBase,
+  mrpProblem,
+  priceWithTax,
   lineTax,
   resolveDiscountAmounts,
   returnLineAmounts,
+  round2,
+  round3,
+  roundOffFor,
+  roundTo,
   splitGst,
   type GstAmounts,
   type PricedLineInput
 } from './pricing.js';
 
-const round2 = (v: number) => Math.round(v * 100) / 100;
 const sum = (values: number[]) => round2(values.reduce((a, b) => a + b, 0));
 
 describe('lineTax', () => {
   it('keeps a tax-inclusive ₹100 at 18% at ₹100.00 (not 84.75 + 15.26 = 100.01)', () => {
     const base = exclusiveBase(100, 'INCLUSIVE', 18);
     expect(base).toBe(84.75);
-    expect(lineTax({ gross: 100, baseExclusive: base, taxable: base, taxMode: 'INCLUSIVE', taxRate: 18, taxCalculationMode: 'AFTER_DISCOUNT' }))
+    expect(lineTax({ gross: 100, baseExclusive: base, taxable: base, taxMode: 'INCLUSIVE', taxRate: 18 }))
       .toEqual({ tax: 15.25, net: 100 });
   });
 
   it('adds tax on top for tax-exclusive prices', () => {
-    expect(lineTax({ gross: 100, baseExclusive: 100, taxable: 100, taxMode: 'EXCLUSIVE', taxRate: 18, taxCalculationMode: 'AFTER_DISCOUNT' }))
+    expect(lineTax({ gross: 100, baseExclusive: 100, taxable: 100, taxMode: 'EXCLUSIVE', taxRate: 18 }))
       .toEqual({ tax: 18, net: 118 });
   });
 
@@ -32,21 +37,17 @@ describe('lineTax', () => {
       for (let paise = 1; paise <= 20000; paise += 7) {
         const gross = paise / 100;
         const base = exclusiveBase(gross, 'INCLUSIVE', rate);
-        for (const mode of ['AFTER_DISCOUNT', 'BEFORE_DISCOUNT'] as const) {
-          const { tax, net } = lineTax({ gross, baseExclusive: base, taxable: base, taxMode: 'INCLUSIVE', taxRate: rate, taxCalculationMode: mode });
-          expect(net).toBe(gross);
-          expect(tax).toBeGreaterThanOrEqual(0);
-        }
+        const { tax, net } = lineTax({ gross, baseExclusive: base, taxable: base, taxMode: 'INCLUSIVE', taxRate: rate });
+        expect(net).toBe(gross);
+        expect(tax).toBeGreaterThanOrEqual(0);
       }
     }
   });
 
-  it('BEFORE_DISCOUNT keeps the tax of the undiscounted price', () => {
-    // ₹118 incl. 18%: base 100, tax 18. A ₹10 discount leaves taxable 90 but tax stays 18.
-    expect(lineTax({ gross: 118, baseExclusive: 100, taxable: 90, taxMode: 'INCLUSIVE', taxRate: 18, taxCalculationMode: 'BEFORE_DISCOUNT' }))
-      .toEqual({ tax: 18, net: 108 });
-    expect(lineTax({ gross: 100, baseExclusive: 100, taxable: 90, taxMode: 'EXCLUSIVE', taxRate: 18, taxCalculationMode: 'BEFORE_DISCOUNT' }))
-      .toEqual({ tax: 18, net: 108 });
+  it('taxes the value after the discount (CGST Act s.15(3))', () => {
+    // ₹118 incl. 18%: base 100. A ₹10 discount leaves taxable 90, so the tax is 16.20.
+    expect(lineTax({ gross: 118, baseExclusive: 100, taxable: 90, taxMode: 'INCLUSIVE', taxRate: 18 })).toEqual({ tax: 16.2, net: 106.2 });
+    expect(lineTax({ gross: 100, baseExclusive: 100, taxable: 90, taxMode: 'EXCLUSIVE', taxRate: 18 })).toEqual({ tax: 16.2, net: 106.2 });
   });
 });
 
@@ -86,7 +87,7 @@ describe('allocateDiscountAcrossBases', () => {
 
 describe('computeSaleTotals', () => {
   it('prices a sale unit (1 box of 10) at the box price', () => {
-    const totals = computeSaleTotals([{ qty: 10, saleUomQty: 1, rate: 45000, taxRate: 18, taxMode: 'EXCLUSIVE' }], [], 'AFTER_DISCOUNT');
+    const totals = computeSaleTotals([{ qty: 10, saleUomQty: 1, rate: 45000, taxRate: 18, taxMode: 'EXCLUSIVE' }], []);
     expect(totals.lines[0].gross).toBe(45000);
     expect(totals.grandTotal).toBe(53100);
   });
@@ -97,8 +98,7 @@ describe('computeSaleTotals', () => {
         { qty: 2, rate: 100, taxRate: 18, taxMode: 'EXCLUSIVE', discounts: [{ type: 'FIXED', value: 20 }] },
         { qty: 1, rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' }
       ],
-      [{ type: 'PERCENTAGE', value: 10 }],
-      'AFTER_DISCOUNT'
+      [{ type: 'PERCENTAGE', value: 10 }]
     );
     expect(totals.orderDiscountBase).toBe(280); // (200 − 20) + 100
     expect(totals.orderDiscountTotal).toBe(28);
@@ -113,7 +113,7 @@ describe('computeSaleTotals', () => {
       { qty: 2, rate: 100, taxRate: 18, taxMode: 'EXCLUSIVE' as const, discounts: [{ type: 'FIXED' as const, value: 20 }] },
       { qty: 1, rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' as const }
     ];
-    const totals = computeSaleTotals(lines, [{ type: 'PERCENTAGE', value: 10 }], 'AFTER_DISCOUNT', { chargeTax: false });
+    const totals = computeSaleTotals(lines, [{ type: 'PERCENTAGE', value: 10 }], { chargeTax: false });
     expect(totals.taxTotal).toBe(0);
     expect(totals.lines.map((l) => l.baseExclusive)).toEqual([200, 118]); // nothing taken out of the inclusive price
     expect(totals.orderDiscountTotal).toBe(29.8); // 10% of (200 − 20) + 118
@@ -124,8 +124,8 @@ describe('computeSaleTotals', () => {
 
   it('charges tax unless told not to', () => {
     const line = { qty: 1, rate: 100, taxRate: 18, taxMode: 'EXCLUSIVE' as const };
-    expect(computeSaleTotals([line], [], 'AFTER_DISCOUNT').grandTotal).toBe(118);
-    expect(computeSaleTotals([line], [], 'AFTER_DISCOUNT', { chargeTax: true }).grandTotal).toBe(118);
+    expect(computeSaleTotals([line], []).grandTotal).toBe(118);
+    expect(computeSaleTotals([line], [], { chargeTax: true }).grandTotal).toBe(118);
   });
 
   it('keeps its invariants on random carts', () => {
@@ -141,8 +141,7 @@ describe('computeSaleTotals', () => {
         discounts: rnd() < 0.5 ? [{ type: 'FIXED', value: money(300) }] : []
       }));
       const orderDiscounts = rnd() < 0.5 ? [{ type: 'PERCENTAGE' as const, value: money(100) }] : [];
-      const mode = rnd() < 0.5 ? 'AFTER_DISCOUNT' : 'BEFORE_DISCOUNT';
-      const totals = computeSaleTotals(lines, orderDiscounts, mode);
+      const totals = computeSaleTotals(lines, orderDiscounts);
       for (const plan of totals.orderDiscountPlans) expect(sum(plan.allocations)).toBe(plan.amount);
       for (const line of totals.lines) {
         expect(line.discountAmount).toBeLessThanOrEqual(line.baseExclusive);
@@ -150,6 +149,8 @@ describe('computeSaleTotals', () => {
         expect(line.net).toBeGreaterThanOrEqual(line.taxable);
         if (line.discountAmount === 0 && line.line.taxMode === 'INCLUSIVE') expect(line.net).toBe(line.gross);
         expect(round2(line.cgst + line.sgst + line.igst)).toBe(line.tax);
+        // Every line's tax is its rate × taxable value, to the paisa.
+        expect(Math.abs(line.tax - (line.taxable * line.line.taxRate) / 100)).toBeLessThanOrEqual(0.01 + 1e-9);
       }
       expect(round2(totals.cgstTotal + totals.sgstTotal + totals.igstTotal)).toBe(totals.taxTotal);
       expect(totals.grandTotal).toBe(sum(totals.lines.map((l) => l.net)));
@@ -186,16 +187,16 @@ describe('computeSaleTotals tax split', () => {
   ];
 
   it('gives each line and the sale its CGST and SGST within a state', () => {
-    const totals = computeSaleTotals(lines, [], 'AFTER_DISCOUNT');
+    const totals = computeSaleTotals(lines, []);
     expect(totals.lines.map((l) => [l.cgst, l.sgst, l.igst])).toEqual([[7.62, 7.63, 0], [2.5, 2.5, 0]]);
     expect([totals.cgstTotal, totals.sgstTotal, totals.igstTotal]).toEqual([10.12, 10.13, 0]);
     expect(round2(totals.cgstTotal + totals.sgstTotal)).toBe(totals.taxTotal);
   });
 
   it('makes it all IGST between states, and nothing for a composition taxpayer', () => {
-    const inter = computeSaleTotals(lines, [], 'AFTER_DISCOUNT', { interState: true });
+    const inter = computeSaleTotals(lines, [], { interState: true });
     expect([inter.cgstTotal, inter.sgstTotal, inter.igstTotal]).toEqual([0, 0, inter.taxTotal]);
-    const composition = computeSaleTotals(lines, [], 'AFTER_DISCOUNT', { chargeTax: false });
+    const composition = computeSaleTotals(lines, [], { chargeTax: false });
     expect([composition.cgstTotal, composition.sgstTotal, composition.igstTotal]).toEqual([0, 0, 0]);
   });
 });
@@ -226,12 +227,14 @@ describe('returnLineAmounts', () => {
     expect(refunds.map((r) => r.amount)).toEqual([66.67, 66.66, 66.67]);
   });
 
-  it('splits the refund into taxable value and tax the way the line was', () => {
-    // ₹100 including 18%: 84.75 + CGST 7.62 + SGST 7.63, sold as 2 units.
+  it('refunds each unit what it sold for, split into taxable value and tax the way the line was', () => {
+    // ₹100 including 18%: 84.75 + CGST 7.62 + SGST 7.63, sold as 2 units at ₹50.
     const line = { taxable: 84.75, cgst: 7.62, sgst: 7.63, igst: 0 };
     const [first, second] = returnInSteps(line, 2, [1, 1]).refunds;
-    expect(first).toEqual({ taxable: 42.38, cgst: 3.81, sgst: 3.82, igst: 0, tax: 7.63, amount: 50.01 });
-    expect(second).toEqual({ taxable: 42.37, cgst: 3.81, sgst: 3.81, igst: 0, tax: 7.62, amount: 49.99 });
+    expect(first).toEqual({ taxable: 42.37, cgst: 3.81, sgst: 3.82, igst: 0, tax: 7.63, amount: 50 });
+    expect(second).toEqual({ taxable: 42.38, cgst: 3.81, sgst: 3.81, igst: 0, tax: 7.62, amount: 50 });
+    // Two at ₹120 including 5% (228.57 + 5.71 + 5.72): one back is ₹120, not ₹120.01.
+    expect(returnInSteps({ taxable: 228.57, cgst: 5.71, sgst: 5.72, igst: 0 }, 2, [1]).refunds[0].amount).toBe(120);
   });
 
   it('never lets a part run past the line (four returns of a 0.04 tax)', () => {
@@ -264,6 +267,9 @@ describe('returnLineAmounts', () => {
         returnedQty += qty;
         returned = add(returned, r);
         for (const part of ['taxable', 'cgst', 'sgst', 'igst'] as const) expect(returned[part]).toBeLessThanOrEqual(line[part]);
+        // What has come back so far is the line's total prorated on the units returned.
+        const lineTotal = round2(line.taxable + line.cgst + line.sgst + line.igst);
+        if (line.taxable >= 1) expect(round2(returned.taxable + returned.cgst + returned.sgst + returned.igst)).toBe(round2((lineTotal * returnedQty) / soldQty));
       }
       expect(returned).toEqual(line);
     }
@@ -271,5 +277,45 @@ describe('returnLineAmounts', () => {
 
   it('refunds nothing for nothing', () => {
     expect(returnLineAmounts({ line: { ...zero, taxable: 10 }, soldQty: 1, alreadyReturnedQty: 0, alreadyReturned: zero, qty: 0 }).amount).toBe(0);
+  });
+});
+
+describe('MRP', () => {
+  it('compares what the customer pays (with GST on a tax-exclusive price) with the MRP', () => {
+    expect(priceWithTax(100, 'EXCLUSIVE', 18)).toBe(118);
+    expect(priceWithTax(100, 'INCLUSIVE', 18)).toBe(100);
+    expect(priceWithTax(100, 'EXCLUSIVE', 18, false)).toBe(100); // composition: no GST charged
+    expect(mrpProblem(100, 118, 'EXCLUSIVE', 18)).toBeNull();
+    expect(mrpProblem(100, 117.99, 'EXCLUSIVE', 18)).toBe('118.00 with GST is above the MRP of 117.99');
+    expect(mrpProblem(119, 118, 'INCLUSIVE', 18)).toBe('119.00 is above the MRP of 118.00');
+    expect(mrpProblem(1000, 0, 'EXCLUSIVE', 18)).toBeNull(); // no MRP printed
+  });
+});
+
+describe('rounding', () => {
+  it('rounds half away from zero on the number as written', () => {
+    expect(round2(1.005)).toBe(1.01); // Math.round(1.005 * 100) / 100 gives 1
+    expect(round2(-1.005)).toBe(-1.01);
+    expect(round2(0.1 + 0.2)).toBe(0.3);
+    expect(round2(1234.005)).toBe(1234.01);
+    expect(round2(1e-7)).toBe(0);
+    expect(Object.is(round2(-0.001), 0)).toBe(true);
+    expect(round3(2.0005)).toBe(2.001);
+    expect(roundTo(123456789.125, 2)).toBe(123456789.13);
+  });
+});
+
+describe('round-off', () => {
+  it('rounds the total to the rupee or 50 paise, halves up, leaving lines and GST alone', () => {
+    expect(roundOffFor(486.6, 'NEAREST_1')).toBe(0.4);
+    expect(roundOffFor(486.5, 'NEAREST_1')).toBe(0.5);
+    expect(roundOffFor(486.49, 'NEAREST_1')).toBe(-0.49);
+    expect(roundOffFor(486.24, 'NEAREST_050')).toBe(-0.24);
+    expect(roundOffFor(486.25, 'NEAREST_050')).toBe(0.25);
+    expect(roundOffFor(486.6, 'NONE')).toBe(0);
+    const totals = computeSaleTotals([{ qty: 1, rate: 412.37, taxRate: 18, taxMode: 'EXCLUSIVE' }], [], { roundOff: 'NEAREST_1' });
+    expect(totals.netTotal).toBe(486.6);
+    expect(totals).toMatchObject({ roundOff: 0.4, grandTotal: 487, taxTotal: 74.23 });
+    expect(totals.lines[0].net).toBe(486.6);
   });
 });

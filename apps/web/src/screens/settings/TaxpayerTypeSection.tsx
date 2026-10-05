@@ -104,6 +104,8 @@ export function TaxpayerTypeSection({ timeZone }: { timeZone: string }) {
   // Offer the other type than the one in force.
   useEffect(() => {
     if (current) setTaxpayerType(current.taxpayerType === "REGULAR" ? "COMPOSITION" : "REGULAR");
+    // Only when the type in force changes, not on every refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.taxpayerType]);
 
   return (

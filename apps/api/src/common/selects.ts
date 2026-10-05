@@ -11,11 +11,14 @@ export const businessSettingsSelect = {
   name: true,
   logoUrl: true,
   gstNumber: true,
-  taxCalculationMode: true,
   cashierMaxDiscountPercent: true,
   customerScope: true,
   timezone: true,
-  hsnMinDigits: true
+  hsnMinDigits: true,
+  returnWindowDays: true,
+  roundOffMode: true,
+  allowNegativeStock: true,
+  scaleBarcode: true
 } as const;
 
 export const branchSettingsSelect = {

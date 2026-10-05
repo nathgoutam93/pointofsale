@@ -6,6 +6,7 @@ export enum UserRole {
 export enum PaymentMode {
   CASH = 'CASH',
   CARD = 'CARD',
+  UPI = 'UPI',
   WALLET = 'WALLET'
 }
 

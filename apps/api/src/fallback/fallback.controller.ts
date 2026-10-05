@@ -5,7 +5,7 @@ import { rm } from 'fs/promises';
 import { Public } from '../auth/auth.guard';
 import { OnlineOnlyGuard } from '../common/mode';
 import { requireAdminSession, type RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { FallbackService, type FallbackOutbox } from './fallback.service';
 
 /** The header a fallback counter's computer sends its key in. */
@@ -26,7 +26,7 @@ export class FallbackController {
   @HttpCode(200)
   designate(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(appContract.counters.setFallback.body)) body: { deviceId: string },
+    @Body(new ZodValidationPipe(appContract.counters.setFallback.body)) body: Parsed<typeof appContract.counters.setFallback.body>,
     @Headers() headers: RequestHeaders
   ) {
     return this.fallback.designate(requireAdminSession(headers), id, body.deviceId);

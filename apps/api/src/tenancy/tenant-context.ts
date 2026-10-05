@@ -14,7 +14,8 @@ export type ActiveBusiness = {
 
 export type BusinessBilling = { plan: string; trialEndsAt: Date | null; paidUntil: Date | null };
 
-type TenantStore = { business?: ActiveBusiness; client?: PrismaClient };
+/** `release`: lets the client go when the request ends (see TenantClients.acquire). */
+export type TenantStore = { business?: ActiveBusiness; client?: PrismaClient; release?: () => void };
 
 /**
  * Per-request context on the hosted server: each request starts with an empty store (see
@@ -32,11 +33,17 @@ export function currentTenantClient() {
 }
 
 /** Points the current request at a business. */
-export function enterBusiness(business: ActiveBusiness, client: PrismaClient) {
+export function enterBusiness(business: ActiveBusiness, client: PrismaClient, release?: () => void) {
   const store = tenantStorage.getStore();
-  if (!store) throw new Error('No request context to enter a business in');
+  if (!store) {
+    release?.();
+    throw new Error('No request context to enter a business in');
+  }
+  // Entering another business (or the same one again) lets the one held go.
+  store.release?.();
   store.business = business;
   store.client = client;
+  store.release = release;
 }
 
 /** Runs `work` for a business outside a request (provisioning, tests, scripts). */

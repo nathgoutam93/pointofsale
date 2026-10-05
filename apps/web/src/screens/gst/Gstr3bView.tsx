@@ -51,6 +51,20 @@ export function Gstr3bView({ gstin, period }: { gstin: string; period: GstPeriod
             rows={data.table32.unregistered.map((r) => [gstStateLabel(r.pos), r.txval, r.iamt])}
             empty="No inter-state supplies in this period."
           />
+          <Table
+            title={`4 Eligible ITC, from ${data.table4.purchases} ${data.table4.purchases === 1 ? "purchase" : "purchases"} recorded here`}
+            headers={["Details", "IGST", "CGST", "SGST", "Cess"]}
+            rows={[
+              [
+                "(A)(5) All other ITC",
+                data.table4.itcAvailable.iamt,
+                data.table4.itcAvailable.camt,
+                data.table4.itcAvailable.samt,
+                data.table4.itcAvailable.csamt,
+              ],
+            ]}
+            empty=""
+          />
         </div>
       ) : null}
     </>

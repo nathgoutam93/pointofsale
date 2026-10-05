@@ -2,13 +2,12 @@ import { Body, Controller, Get, HttpCode, Headers, Param, ParseUUIDPipe, Post, Q
 import { OnlineOnlyGuard } from '../common/mode';
 import { FailureLimiter } from '../common/rate-limit';
 import { ReceiptEmailService } from './receipt-email.service';
-import { PaymentMode } from '@prisma/client';
 import { appContract } from '@pos/contracts';
 import { UserRole } from '@prisma/client';
 import { AccessService } from '../common/access.service';
 import { getSession, requireOpenRegisterSession, RequestHeaders } from '../common/request-session';
 import type { SessionUser } from '../common/types';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { SalesService } from './sales.service';
 
 const receiptEmailsSent = new FailureLimiter(30, 60 * 60 * 1000);
@@ -33,26 +32,7 @@ export class SalesController {
   @Post('/sales')
   createSale(
     @Body(new ZodValidationPipe(appContract.sales.create.body))
-    body: {
-      branchId: string;
-      customerId: string;
-      walkInCustomerName?: string | null;
-      walkInCustomerPhone?: string | null;
-      placeOfSupplyStateCode?: string;
-      reference?: string;
-      lines: Array<{
-        itemId: string;
-        qty: number;
-        rate: number;
-        saleUom?: string;
-        saleUomQty?: number;
-        saleUomConversionQty?: number;
-        taxRate: number;
-        taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
-        discounts?: Array<{ type: 'PERCENTAGE' | 'FIXED'; value: number }>;
-      }>;
-      discounts?: Array<{ type: 'PERCENTAGE' | 'FIXED'; value: number }>;
-    },
+    body: Parsed<typeof appContract.sales.create.body>,
     @Headers() headers: RequestHeaders
   ) {
     return this.sales.createSale(requireOpenRegisterSession(headers), body);
@@ -62,28 +42,7 @@ export class SalesController {
   @HttpCode(200)
   checkoutSale(
     @Body(new ZodValidationPipe(appContract.sales.checkout.body))
-    body: {
-      branchId: string;
-      customerId: string;
-      walkInCustomerName?: string | null;
-      walkInCustomerPhone?: string | null;
-      placeOfSupplyStateCode?: string;
-      reference?: string;
-      lines: Array<{
-        itemId: string;
-        qty: number;
-        rate: number;
-        saleUom?: string;
-        saleUomQty?: number;
-        saleUomConversionQty?: number;
-        taxRate: number;
-        taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
-        discounts?: Array<{ type: 'PERCENTAGE' | 'FIXED'; value: number }>;
-      }>;
-      discounts?: Array<{ type: 'PERCENTAGE' | 'FIXED'; value: number }>;
-      idempotencyKey: string;
-      payments: Array<{ mode: PaymentMode; amount: number; reference?: string }>;
-    },
+    body: Parsed<typeof appContract.sales.checkout.body>,
     @Headers() headers: RequestHeaders
   ) {
     return this.sales.checkoutSale(requireOpenRegisterSession(headers), body);
@@ -91,18 +50,22 @@ export class SalesController {
 
   @Post('/sales/:id/cancel')
   @HttpCode(200)
-  async cancelSale(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
+  async cancelSale(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(appContract.sales.cancel.body)) body: Parsed<typeof appContract.sales.cancel.body>,
+    @Headers() headers: RequestHeaders
+  ) {
     const session = getSession(headers);
     const branchId = await this.lookupBranch(session, { invoice: id });
     await this.access.requirePermission(session, 'CANCEL_SALES');
-    return this.sales.cancelSale(branchId, id);
+    return this.sales.cancelSale(session, branchId, id, body.reason);
   }
 
   @Post('/sales/:id/settle')
   @HttpCode(200)
   settleSale(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(appContract.sales.settle.body)) body: { payments: Array<{ mode: PaymentMode; amount: number; reference?: string }> },
+    @Body(new ZodValidationPipe(appContract.sales.settle.body)) body: Parsed<typeof appContract.sales.settle.body>,
     @Headers() headers: RequestHeaders
   ) {
     return this.sales.settleSale(requireOpenRegisterSession(headers), id, body.payments);
@@ -110,10 +73,11 @@ export class SalesController {
 
   @Get('/sales')
   async listSales(
-    @Query(new ZodValidationPipe(appContract.sales.list.query)) { branchId }: { branchId: string },
+    @Query(new ZodValidationPipe(appContract.sales.list.query))
+    query: Parsed<typeof appContract.sales.list.query>,
     @Headers() headers: RequestHeaders
   ) {
-    return this.sales.listSales(await this.access.requireBranch(getSession(headers), branchId));
+    return this.sales.listSales(await this.access.requireBranch(getSession(headers), query.branchId), query);
   }
 
   @Get('/sales/:id')
@@ -127,7 +91,7 @@ export class SalesController {
   @HttpCode(202)
   async emailReceipt(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(appContract.sales.emailReceipt.body)) body: { email: string },
+    @Body(new ZodValidationPipe(appContract.sales.emailReceipt.body)) body: Parsed<typeof appContract.sales.emailReceipt.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = getSession(headers);

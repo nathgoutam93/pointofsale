@@ -1,49 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, authHeaders } from "../lib/api";
-import { BranchPicker } from "../components/BranchPicker";
 import { useManagedBranch } from "../lib/branch";
 import { can } from "../lib/session";
 import { inr, requireManagementSession } from "./route-helpers";
-
-type StockModalType = "opening" | "adjustment" | null;
-
-const MOVEMENT_LABELS: Record<string, string> = {
-  OPENING: "Opening",
-  ADJUSTMENT_PLUS: "Adjustment in",
-  ADJUSTMENT_MINUS: "Adjustment out",
-  SALE: "Sale",
-  RETURN: "Return",
-  SALE_CANCEL: "Sale cancelled",
-  PURCHASE: "Purchase",
-  TRANSFER_OUT: "Sent to branch",
-  TRANSFER_IN: "Received from branch",
-  TRANSFER_CANCEL: "Transfer cancelled",
-};
-
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString("en-IN", {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function normalizeLeastCount(value: number | string | null | undefined) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
-  const rounded = Math.round(parsed * 1000) / 1000;
-  return rounded >= 0.001 ? rounded : 1;
-}
-
-function leastCountStepText(value: number) {
-  return normalizeLeastCount(value)
-    .toFixed(3)
-    .replace(/0+$/, "")
-    .replace(/\.$/, "");
-}
+import { BatchesCard } from "./stock/BatchesCard";
+import { ExpiryCard } from "./stock/ExpiryCard";
+import { isLow, LowStockCard, ReorderLevel, type StockLevel } from "./stock/LowStock";
+import { MovementsCard } from "./stock/MovementsCard";
+import { StockEntryModal } from "./stock/StockEntryModal";
+import { leastCountStepText, normalizeLeastCount } from "./stock/stockFormat";
+import { StockHistoryCards } from "./stock/StockHistoryCards";
+import { StockItemList } from "./stock/StockItemList";
+import { emptyBatchEntry, type BatchEntry, type StockModalType } from "./stock/types";
+import { useStockMutations } from "./stock/useStockMutations";
 
 export function StockPage() {
   const session = requireManagementSession();
@@ -51,11 +21,13 @@ export function StockPage() {
   const branchId = managedBranch ?? "";
   // Opening stock and adjustments: admins, and cashiers allowed to.
   const canChangeStock = can(session, "MANAGE_STOCK");
-  const queryClient = useQueryClient();
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [modalType, setModalType] = useState<StockModalType>(null);
+  const [batch, setBatch] = useState<BatchEntry>(emptyBatchEntry);
   const [searchTerm, setSearchTerm] = useState("");
   const [stockSort, setStockSort] = useState<"desc" | "asc">("desc");
+  // Items sold past their stock count (when the business allows it): to count and correct.
+  const [belowZeroOnly, setBelowZeroOnly] = useState(false);
   const [openingModalMode, setOpeningModalMode] = useState<"create" | "edit">(
     "create",
   );
@@ -92,19 +64,30 @@ export function StockPage() {
     },
   });
 
-  const ledger = useQuery({
+  // An item's movements a page at a time, newest first.
+  const LEDGER_PAGE = 200;
+  const ledgerPages = useInfiniteQuery({
     queryKey: ["stock-ledger", branchId, selectedItemId],
     enabled: Boolean(selectedItemId),
-    queryFn: async () => {
+    initialPageParam: null as { before: string; beforeId: string } | null,
+    queryFn: async ({ pageParam }) => {
       if (!selectedItemId) return [];
       const res = await api.stock.ledger({
-        query: { branchId: branchId, itemId: selectedItemId },
+        query: { branchId: branchId, itemId: selectedItemId, limit: LEDGER_PAGE, ...(pageParam ?? {}) },
         extraHeaders: authHeaders(),
       });
       if (res.status !== 200) throw new Error("Failed to fetch stock history");
       return res.body;
     },
+    getNextPageParam: (lastPage) => {
+      const last = lastPage[lastPage.length - 1];
+      return lastPage.length === LEDGER_PAGE && last ? { before: last.createdAt, beforeId: last.id } : undefined;
+    },
   });
+  const ledger = useMemo(
+    () => ({ data: ledgerPages.data?.pages.flat(), isLoading: ledgerPages.isLoading }),
+    [ledgerPages.data, ledgerPages.isLoading],
+  );
 
   const onHandByItem = useMemo(() => {
     const map = new Map<string, number>();
@@ -113,6 +96,8 @@ export function StockPage() {
     }
     return map;
   }, [onHand.data]);
+  const levelByItem = useMemo(() => new Map<string, StockLevel>((onHand.data ?? []).map((row) => [row.itemId, row])), [onHand.data]);
+  const lowItemIds = useMemo(() => new Set([...levelByItem].filter(([, level]) => isLow(level)).map(([itemId]) => itemId)), [levelByItem]);
 
   const filteredItems = useMemo(() => {
     const data = items.data ?? [];
@@ -126,6 +111,7 @@ export function StockPage() {
       : data;
 
     return filtered
+      .filter((item) => !belowZeroOnly || (onHandByItem.get(item.id) ?? 0) < 0)
       .slice()
       .sort((a, b) => {
         const aOnHand = onHandByItem.get(a.id) ?? 0;
@@ -135,7 +121,11 @@ export function StockPage() {
         }
         return stockSort === "desc" ? bOnHand - aOnHand : aOnHand - bOnHand;
       });
-  }, [items.data, onHandByItem, searchTerm, stockSort]);
+  }, [items.data, onHandByItem, searchTerm, stockSort, belowZeroOnly]);
+  const belowZeroCount = useMemo(
+    () => (onHand.data ?? []).filter((row) => row.onHand < 0).length,
+    [onHand.data],
+  );
 
   const selectedItem = useMemo(
     () => items.data?.find((item) => item.id === selectedItemId) ?? null,
@@ -180,93 +170,31 @@ export function StockPage() {
     if (!selectedItem) return;
     setOpeningCostPrice(String(Number(selectedItem.costPrice) || 0));
     setAdjustmentCostPrice(String(Number(selectedItem.costPrice) || 0));
+    // Only when another item is picked: a refetch mustn't overwrite what is being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedItem?.id]);
 
-  const opening = useMutation({
-    mutationFn: async () => {
-      if (!selectedItemId) throw new Error("Please select an item");
-      const res = await api.stock.opening({
-        body: {
-          branchId: branchId,
-          itemId: selectedItemId,
-          qty: Number(openingQty),
-          costPrice: Number(openingCostPrice),
-          reason: openingReason,
-        },
-        extraHeaders: authHeaders(),
-      });
-      if (res.status !== 201) throw new Error("Failed to post opening");
-      return res.body;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["stock-module", branchId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["stock-ledger", branchId, selectedItemId],
-      });
-      setOpeningQty("0");
-      setModalType(null);
-    },
+  const { opening, updateOpening, adjustment } = useStockMutations({
+    branchId,
+    selectedItemId,
+    openingQty,
+    setOpeningQty,
+    openingCostPrice,
+    openingReason,
+    adjustmentQty,
+    setAdjustmentQty,
+    adjustmentCostPrice,
+    adjustmentReason,
+    adjustmentDirection,
+    setModalType,
+    tracksBatches: !!selectedItem?.tracksBatches,
+    batch,
   });
-
-  const updateOpening = useMutation({
-    mutationFn: async () => {
-      if (!selectedItemId) throw new Error("Please select an item");
-      const res = await api.stock.updateOpening({
-        body: {
-          branchId: branchId,
-          itemId: selectedItemId,
-          qty: Number(openingQty),
-          costPrice: Number(openingCostPrice),
-          reason: openingReason,
-        },
-        extraHeaders: authHeaders(),
-      });
-      if (res.status !== 200) throw new Error("Failed to update opening");
-      return res.body;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["stock-module", branchId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["stock-ledger", branchId, selectedItemId],
-      });
-      setModalType(null);
-    },
-  });
-
-  const adjustment = useMutation({
-    mutationFn: async () => {
-      if (!selectedItemId) throw new Error("Please select an item");
-      const res = await api.stock.adjustment({
-        body: {
-          branchId: branchId,
-          itemId: selectedItemId,
-          qty: Number(adjustmentQty),
-          direction: adjustmentDirection,
-          costPrice: Number(adjustmentCostPrice),
-          reason: adjustmentReason,
-        },
-        extraHeaders: authHeaders(),
-      });
-      if (res.status !== 201) throw new Error("Failed to post adjustment");
-      return res.body;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["stock-module", branchId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["stock-ledger", branchId, selectedItemId],
-      });
-      setAdjustmentQty("0");
-      setModalType(null);
-    },
-  });
+  // Items kept by batch have an opening count per batch, added one at a time (corrected by adjustments).
+  const editableOpening = selectedItem?.tracksBatches ? null : openingEntry;
 
   const openOpeningCreateModal = () => {
+    setBatch(emptyBatchEntry);
     setOpeningModalMode("create");
     setOpeningQty("0");
     setOpeningCostPrice(String(Number(selectedItem?.costPrice) || 0));
@@ -286,80 +214,24 @@ export function StockPage() {
   return (
     <>
       <section className="grid grid-cols-1 xl:h-[calc(100vh-48px)] xl:grid-cols-[360px_1fr]">
-        <aside className="flex h-full max-h-[75vh] flex-col overflow-hidden border-r border-slate-200 bg-white xl:max-h-none">
-          <div className="shrink-0 border-b border-slate-200 p-4">
-          <h2 className="page-title mb-3">Inventory</h2>
-          <BranchPicker
-            className="mb-3"
-            value={branchId}
-            onChange={(next) => {
-              setManagedBranch(next);
-              setModalType(null);
-            }}
-          />
-          {items.isLoading && (
-            <p className="px-2 py-3 text-sm text-slate-500">Loading items...</p>
-          )}
-          {items.isError && (
-            <p className="px-2 py-3 text-sm text-rose-600">
-              Could not load items.
-            </p>
-          )}
-          <div className="grid gap-2">
-            <input
-              className="field"
-              placeholder="Search by item or code"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-            />
-            <label className="flex items-center justify-between gap-3 text-xs text-slate-500">
-              Sort by stock
-              <select
-                className="field w-auto py-1 text-xs"
-                value={stockSort}
-                onChange={(event) =>
-                  setStockSort(event.target.value as "desc" | "asc")
-                }
-              >
-                <option value="desc">High to Low</option>
-                <option value="asc">Low to High</option>
-              </select>
-            </label>
-          </div>
-          </div>
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
-            {filteredItems.map((item) => {
-              const isSelected = item.id === selectedItemId;
-              const itemOnHand = onHandByItem.get(item.id) ?? 0;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setSelectedItemId(item.id)}
-                  className={`list-row ${isSelected ? "is-active" : ""}`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">{item.name}</p>
-                      <p className="text-xs text-slate-500">{item.code}</p>
-                    </div>
-                    <span className={`badge tabular-nums ${itemOnHand <= 0 ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-700"}`}>
-                      {itemOnHand} on hand
-                    </span>
-                  </div>
-                  <p className="mt-1.5 text-xs text-slate-500">
-                    Cost <span className="tabular-nums">{inr(item.costPrice)}</span>
-                  </p>
-                </button>
-              );
-            })}
-            {!items.isLoading && filteredItems.length === 0 && (
-              <p className="px-2 py-3 text-sm text-slate-500">
-                No items match your search.
-              </p>
-            )}
-          </div>
-        </aside>
+        <StockItemList
+          branchId={branchId}
+          setManagedBranch={setManagedBranch}
+          setModalType={setModalType}
+          items={items}
+          filteredItems={filteredItems}
+          onHandByItem={onHandByItem}
+          lowItemIds={lowItemIds}
+          selectedItemId={selectedItemId}
+          setSelectedItemId={setSelectedItemId}
+          searchTerm={searchTerm}
+          setSearchTerm={setSearchTerm}
+          stockSort={stockSort}
+          setStockSort={setStockSort}
+          belowZeroCount={belowZeroCount}
+          belowZeroOnly={belowZeroOnly}
+          setBelowZeroOnly={setBelowZeroOnly}
+        />
 
         <div className="space-y-6 overflow-y-auto bg-slate-100 p-6">
           <div className="card p-5">
@@ -371,7 +243,7 @@ export function StockPage() {
                 Select an item from the left to manage stock.
               </p>
             ) : (
-              <dl className="mt-4 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-3">
+              <dl className="mt-4 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-4">
                 <div>
                   <dt className="eyebrow">Item code</dt>
                   <dd className="mt-1 text-sm font-medium text-slate-900">{selectedItem.code}</dd>
@@ -382,12 +254,15 @@ export function StockPage() {
                     {selectedOnHand}
                   </dd>
                 </div>
-                <div>
-                  <dt className="eyebrow">Default item cost</dt>
-                  <dd className="mt-1 text-xl font-semibold text-slate-900 tabular-nums">
-                    {inr(selectedItem.costPrice)}
-                  </dd>
-                </div>
+                <ReorderLevel branchId={branchId} itemId={selectedItem.id} level={levelByItem.get(selectedItem.id)} canChange={canChangeStock} />
+                {selectedItem.costPrice !== null ? (
+                  <div>
+                    <dt className="eyebrow">Default item cost</dt>
+                    <dd className="mt-1 text-xl font-semibold text-slate-900 tabular-nums">
+                      {inr(selectedItem.costPrice)}
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
             )}
             {canChangeStock ? (
@@ -395,18 +270,22 @@ export function StockPage() {
               <button
                 type="button"
                 onClick={() =>
-                  openingEntry
+                  editableOpening
                     ? openOpeningEditModal()
                     : openOpeningCreateModal()
                 }
                 className="btn-primary"
-                disabled={!selectedItem}
+                // With older movements not loaded, whether there is an opening count isn't known yet.
+                disabled={!selectedItem || (!editableOpening && !selectedItem.tracksBatches && ledgerPages.hasNextPage)}
               >
-                {openingEntry ? "Edit Opening Stock" : "Add Opening Stock"}
+                {editableOpening ? "Edit Opening Stock" : selectedItem?.tracksBatches ? "Add Opening Stock (a batch)" : "Add Opening Stock"}
               </button>
               <button
                 type="button"
-                onClick={() => setModalType("adjustment")}
+                onClick={() => {
+                  setBatch(emptyBatchEntry);
+                  setModalType("adjustment");
+                }}
                 className="btn-secondary"
                 disabled={!selectedItem}
               >
@@ -416,323 +295,52 @@ export function StockPage() {
             ) : null}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="card p-5">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Opening History
-                </h3>
-                {openingEntry && canChangeStock && (
-                  <button
-                    type="button"
-                    className="btn-secondary px-2.5 py-1 text-xs"
-                    onClick={openOpeningEditModal}
-                  >
-                    Edit Opening
-                  </button>
-                )}
-              </div>
-              {ledger.isLoading && (
-                <p className="mt-2 text-sm text-slate-500">
-                  Loading history...
-                </p>
-              )}
-              {openingHistory.length === 0 && !ledger.isLoading && (
-                <p className="mt-2 text-sm text-slate-500">
-                  No opening entries found.
-                </p>
-              )}
-              {openingHistory.length > 0 && (
-                <div className="mt-3 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="eyebrow border-b border-slate-200 text-left">
-                        <th className="py-2">Date</th>
-                        <th className="py-2">Qty</th>
-                        <th className="py-2">Cost</th>
-                        <th className="py-2">Reason</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {openingHistory.map((entry) => (
-                        <tr
-                          className="border-b border-slate-100"
-                          key={entry.id}
-                        >
-                          <td className="py-2 pr-2">
-                            {formatDateTime(entry.createdAt)}
-                          </td>
-                          <td className="py-2 pr-2">{entry.qtyIn}</td>
-                          <td className="py-2 pr-2">
-                            {inr(entry.costPrice)}
-                          </td>
-                          <td className="py-2">{entry.reason || "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+          {selectedItem ? <BatchesCard branchId={branchId} item={selectedItem} onHand={selectedOnHand} /> : null}
 
-            <div className="card p-5">
-              <h3 className="text-sm font-semibold text-slate-900">
-                Adjustment History
-              </h3>
-              {ledger.isLoading && (
-                <p className="mt-2 text-sm text-slate-500">
-                  Loading history...
-                </p>
-              )}
-              {adjustmentHistory.length === 0 && !ledger.isLoading && (
-                <p className="mt-2 text-sm text-slate-500">
-                  No adjustment entries found.
-                </p>
-              )}
-              {adjustmentHistory.length > 0 && (
-                <div className="mt-3 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="eyebrow border-b border-slate-200 text-left">
-                        <th className="py-2">Date</th>
-                        <th className="py-2">Type</th>
-                        <th className="py-2">Qty</th>
-                        <th className="py-2">Cost</th>
-                        <th className="py-2">Reason</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {adjustmentHistory.map((entry) => (
-                        <tr
-                          className="border-b border-slate-100"
-                          key={entry.id}
-                        >
-                          <td className="py-2 pr-2">
-                            {formatDateTime(entry.createdAt)}
-                          </td>
-                          <td className="py-2 pr-2">
-                            {entry.txnType === "ADJUSTMENT_PLUS" ? "IN" : "OUT"}
-                          </td>
-                          <td className="py-2 pr-2">
-                            {entry.txnType === "ADJUSTMENT_PLUS"
-                              ? entry.qtyIn
-                              : entry.qtyOut}
-                          </td>
-                          <td className="py-2 pr-2">
-                            {inr(entry.costPrice)}
-                          </td>
-                          <td className="py-2">{entry.reason || "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
+          <StockHistoryCards
+            ledger={ledger}
+            openingHistory={openingHistory}
+            openingEntry={openingEntry}
+            adjustmentHistory={adjustmentHistory}
+            canChangeStock={canChangeStock && !selectedItem?.tracksBatches}
+            openOpeningEditModal={openOpeningEditModal}
+          />
 
-          <div className="card p-5">
-            <h3 className="text-sm font-semibold text-slate-900">
-              All Movements
-            </h3>
-            {ledger.isLoading && (
-              <p className="mt-2 text-sm text-slate-500">Loading history...</p>
-            )}
-            {(ledger.data ?? []).length === 0 && !ledger.isLoading && (
-              <p className="mt-2 text-sm text-slate-500">No stock movements yet.</p>
-            )}
-            {(ledger.data ?? []).length > 0 && (
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="eyebrow border-b border-slate-200 text-left">
-                      <th className="py-2">Date</th>
-                      <th className="py-2">Movement</th>
-                      <th className="py-2 text-right">In</th>
-                      <th className="py-2 text-right">Out</th>
-                      <th className="py-2 pl-4">Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(ledger.data ?? []).map((entry) => (
-                      <tr className="border-b border-slate-100" key={entry.id}>
-                        <td className="py-2 pr-2">{formatDateTime(entry.createdAt)}</td>
-                        <td className="py-2 pr-2">{MOVEMENT_LABELS[entry.txnType] ?? entry.txnType}</td>
-                        <td className="py-2 pr-2 text-right tabular-nums">{Number(entry.qtyIn) || ""}</td>
-                        <td className="py-2 pr-2 text-right tabular-nums">{Number(entry.qtyOut) || ""}</td>
-                        <td className="py-2 pl-4 text-slate-600">{entry.reason || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          <MovementsCard ledger={ledger} ledgerPages={ledgerPages} />
+
+          <LowStockCard branchId={branchId} onSelect={setSelectedItemId} />
+
+          <ExpiryCard branchId={branchId} />
         </div>
       </section>
 
       {modalType && selectedItem && (
-        <div className="modal-backdrop">
-          <div className="max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">
-                  {modalType === "opening"
-                    ? openingModalMode === "edit"
-                      ? "Edit Opening Stock"
-                      : "Opening Stock Details"
-                    : "Stock Adjustment Details"}
-                </h3>
-                <p className="text-sm text-slate-500">
-                  {selectedItem.name} ({selectedItem.code})
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setModalType(null)}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600"
-              >
-                Close
-              </button>
-            </div>
-
-            {modalType === "opening" ? (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (openingModalMode === "edit") {
-                    updateOpening.mutate();
-                    return;
-                  }
-                  opening.mutate();
-                }}
-                className="space-y-3"
-              >
-                <label className="block text-sm text-slate-600">
-                  Quantity
-                  <input
-                    className="field mt-1"
-                    value={openingQty}
-                    onChange={(e) => setOpeningQty(e.target.value)}
-                    type="number"
-                    min={selectedLeastCountStep}
-                    step={selectedLeastCountStep}
-                    required
-                  />
-                </label>
-                <label className="block text-sm text-slate-600">
-                  Unit Cost (Rs)
-                  <input
-                    className="field mt-1"
-                    value={openingCostPrice}
-                    onChange={(e) => setOpeningCostPrice(e.target.value)}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    required
-                  />
-                </label>
-                <label className="block text-sm text-slate-600">
-                  Reason
-                  <input
-                    className="field mt-1"
-                    value={openingReason}
-                    onChange={(e) => setOpeningReason(e.target.value)}
-                    placeholder="Opening stock setup"
-                  />
-                </label>
-                <button
-                  className="btn-primary"
-                  type="submit"
-                  disabled={opening.isPending || updateOpening.isPending}
-                >
-                  {opening.isPending || updateOpening.isPending
-                    ? "Saving..."
-                    : openingModalMode === "edit"
-                      ? "Update Opening Stock"
-                      : "Save Opening Stock"}
-                </button>
-                {(opening.isError || updateOpening.isError) && (
-                  <p className="text-sm text-rose-600">
-                    {openingModalMode === "edit"
-                      ? "Could not update opening stock entry."
-                      : "Could not save opening stock entry."}
-                  </p>
-                )}
-              </form>
-            ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  adjustment.mutate();
-                }}
-                className="space-y-3"
-              >
-                <label className="block text-sm text-slate-600">
-                  Direction
-                  <select
-                    className="field mt-1"
-                    value={adjustmentDirection}
-                    onChange={(e) =>
-                      setAdjustmentDirection(e.target.value as "IN" | "OUT")
-                    }
-                  >
-                    <option value="IN">IN (+)</option>
-                    <option value="OUT">OUT (-)</option>
-                  </select>
-                </label>
-                <label className="block text-sm text-slate-600">
-                  Quantity
-                  <input
-                    className="field mt-1"
-                    value={adjustmentQty}
-                    onChange={(e) => setAdjustmentQty(e.target.value)}
-                    type="number"
-                    min={selectedLeastCountStep}
-                    step={selectedLeastCountStep}
-                    required
-                  />
-                </label>
-                <label className="block text-sm text-slate-600">
-                  Unit Cost (Rs)
-                  <input
-                    className="field mt-1"
-                    value={adjustmentCostPrice}
-                    onChange={(e) => setAdjustmentCostPrice(e.target.value)}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    required
-                  />
-                </label>
-                <label className="block text-sm text-slate-600">
-                  Reason
-                  <input
-                    className="field mt-1"
-                    value={adjustmentReason}
-                    onChange={(e) => setAdjustmentReason(e.target.value)}
-                    placeholder="Damage / correction / stock count"
-                    required
-                  />
-                </label>
-                <button
-                  className="rounded-lg bg-slate-800 px-4 py-2 font-semibold text-white"
-                  type="submit"
-                  disabled={adjustment.isPending}
-                >
-                  {adjustment.isPending
-                    ? "Saving..."
-                    : "Submit Stock Adjustment"}
-                </button>
-                {adjustment.isError && (
-                  <p className="text-sm text-rose-600">
-                    Could not save stock adjustment entry.
-                  </p>
-                )}
-              </form>
-            )}
-          </div>
-        </div>
+        <StockEntryModal
+          modalType={modalType}
+          setModalType={setModalType}
+          selectedItem={selectedItem}
+          selectedLeastCountStep={selectedLeastCountStep}
+          openingModalMode={openingModalMode}
+          openingQty={openingQty}
+          setOpeningQty={setOpeningQty}
+          openingCostPrice={openingCostPrice}
+          setOpeningCostPrice={setOpeningCostPrice}
+          openingReason={openingReason}
+          setOpeningReason={setOpeningReason}
+          adjustmentDirection={adjustmentDirection}
+          setAdjustmentDirection={setAdjustmentDirection}
+          adjustmentQty={adjustmentQty}
+          setAdjustmentQty={setAdjustmentQty}
+          adjustmentCostPrice={adjustmentCostPrice}
+          setAdjustmentCostPrice={setAdjustmentCostPrice}
+          adjustmentReason={adjustmentReason}
+          setAdjustmentReason={setAdjustmentReason}
+          opening={opening}
+          updateOpening={updateOpening}
+          adjustment={adjustment}
+          batch={batch}
+          setBatch={setBatch}
+        />
       )}
     </>
   );

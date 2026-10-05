@@ -15,12 +15,16 @@ export const RECEIPT_PAPERS = {
   '58MM_SMALL': { label: '58 mm, small text', paperMm: 58, printableMm: 48, columns: 42 },
   '80MM': { label: '80 mm (3 inch)', paperMm: 80, printableMm: 72, columns: 48 },
   '80MM_LARGE': { label: '80 mm, large text', paperMm: 80, printableMm: 72, columns: 42 },
-  '80MM_SMALL': { label: '80 mm, small text', paperMm: 80, printableMm: 72, columns: 64 }
+  '80MM_SMALL': { label: '80 mm, small text', paperMm: 80, printableMm: 72, columns: 64 },
+  /** A full-page invoice on an ordinary printer (see a4InvoiceHtml); its text fallback is 64 columns. */
+  A4: { label: 'A4 sheet (full-page invoice)', paperMm: 210, printableMm: 186, columns: 64 }
 } as const;
 
 export type ReceiptPaper = keyof typeof RECEIPT_PAPERS;
 export const RECEIPT_PAPER_IDS = Object.keys(RECEIPT_PAPERS) as [ReceiptPaper, ...ReceiptPaper[]];
 export const receiptPaperSchema = z.enum(RECEIPT_PAPER_IDS);
+/** The thermal roll sizes (a receipt printer's), without A4. */
+export const THERMAL_PAPER_IDS = RECEIPT_PAPER_IDS.filter((id) => id !== 'A4') as Exclude<ReceiptPaper, 'A4'>[];
 
 /**
  * How the receipt is laid out.

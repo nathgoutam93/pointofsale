@@ -19,7 +19,7 @@ describe('customer scope', () => {
     await addOpeningStock(t.db, y.branch.id, item.id, 50);
     const phone = `9${Date.now().toString().slice(-9)}`;
     const asha = await t.ok('POST', '/customers', x.token, { branchId: x.branch.id, name: 'Asha', phone });
-    await t.ok('POST', `/customers/${asha.id}/wallet/topup`, x.token, { amount: 300 });
+    await t.ok('POST', `/customers/${asha.id}/wallet/topup`, x.token, { amount: 300, mode: 'CASH' });
     const sellAtY = (payments: unknown[]) => t.call('POST', '/sales/checkout', y.token, checkoutBody(y.branch.id, asha.id, [line(item.id)], payments));
 
     // Shared
@@ -45,14 +45,14 @@ describe('walk-in customers', () => {
     const item = await t.item(ctx.token, ctx.branch.id);
     const sale = await t.ok('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(item.id)], [{ mode: 'CASH', amount: 100 }]));
     const ret = (refundMode: string) =>
-      t.call('POST', `/sales/${sale.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: sale.invoice.lines[0].id, qty: 1 }], refundMode });
+      t.call('POST', `/sales/${sale.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: sale.invoice.lines[0].id, qty: 1 }], refundMode, reason: 'Test return' });
     expect((await ret('WALLET')).status).toBe(400);
     // A balance left in the walk-in wallet from before stays frozen: it can't pay for a sale.
     await t.db.walletAccount.update({ where: { customerId: ctx.walkIn.id }, data: { balance: 500 } });
     expect((await t.call('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(item.id)], [{ mode: 'WALLET', amount: 100 }]))).status).toBe(400);
     expect(Number((await t.db.walletAccount.findUniqueOrThrow({ where: { customerId: ctx.walkIn.id } })).balance)).toBe(500);
     await t.db.walletAccount.update({ where: { customerId: ctx.walkIn.id }, data: { balance: 0 } });
-    expect((await t.call('POST', `/customers/${ctx.walkIn.id}/wallet/topup`, ctx.token, { amount: 500 })).status).toBe(400);
+    expect((await t.call('POST', `/customers/${ctx.walkIn.id}/wallet/topup`, ctx.token, { amount: 500, mode: 'CASH' })).status).toBe(400);
     expect((await t.call('GET', `/customers/${ctx.walkIn.id}/wallet`, ctx.token)).status).toBe(400);
     expect((await ret('CASH')).status).toBe(201);
     expect(Number((await t.db.walletAccount.findUniqueOrThrow({ where: { customerId: ctx.walkIn.id } })).balance)).toBe(0);

@@ -1,6 +1,6 @@
 import { isFallback, isOffline } from '../common/mode';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PaymentMode, Prisma } from '@prisma/client';
+import { CashMovementType, PaymentMode, Prisma, WalletTxnType } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { signToken } from '../auth/token';
 import type { SessionUser } from '../common/types';
@@ -9,6 +9,9 @@ import { requireSessionBranchId, requireSessionRegisterId } from '../common/sess
 import { branchSummarySelect, registerSelect } from '../common/selects';
 import { SettingsService } from '../settings/settings.service';
 import { lockBranchRegisters } from '../common/counters';
+import { requireAdmin } from '../common/request-session';
+import { AuditService } from '../common/audit.service';
+import { assertRegisterOpen } from '../common/register-open';
 import { BranchesService } from '../branches/branches.service';
 
 @Injectable()
@@ -16,7 +19,8 @@ export class RegistersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
-    private readonly branches: BranchesService
+    private readonly branches: BranchesService,
+    private readonly audit: AuditService
   ) {}
 
   private toRegisterDto(register: Prisma.RegisterSessionGetPayload<{ select: typeof registerSelect }>) {
@@ -37,38 +41,60 @@ export class RegistersService {
   }
 
   /**
-   * Cash that should be in a register's drawer: the opening balance plus cash payments
-   * taken on it, minus cash refunds given from it. Card and wallet don't touch the drawer.
+   * Cash that should be in a register's drawer: the opening balance plus cash payments and
+   * cash wallet top-ups taken on it and cash put in, minus cash refunds given, cash paid to
+   * suppliers and for expenses from it and cash taken out. Card, UPI and wallet
+   * don't touch the drawer; card and UPI takings (payments and top-ups) are reported for
+   * checking against their settlements.
    */
   async registerCash(client: Prisma.TransactionClient | PrismaService, registerId: string, openingBalance: number) {
-    const [cashIn, cashOut] = await Promise.all([
-      client.payment.aggregate({
-        where: { registerSessionId: registerId, mode: PaymentMode.CASH },
+    const [takenByMode, topupsByMode, cashOut, paidOut, movements, expenses] = await Promise.all([
+      client.payment.groupBy({
+        by: ['mode'],
+        where: { registerSessionId: registerId },
+        _sum: { amount: true }
+      }),
+      client.walletTxn.groupBy({
+        by: ['paymentMode'],
+        where: { registerSessionId: registerId, type: WalletTxnType.TOPUP },
         _sum: { amount: true }
       }),
       client.returnInvoice.aggregate({
         where: { registerSessionId: registerId, refundMode: PaymentMode.CASH },
         _sum: { refundAmount: true }
-      })
+      }),
+      client.supplierPayment.aggregate({ where: { registerSessionId: registerId }, _sum: { amount: true } }),
+      client.cashMovement.groupBy({ by: ['type'], where: { registerSessionId: registerId }, _sum: { amount: true } }),
+      client.expense.aggregate({ where: { registerSessionId: registerId }, _sum: { amount: true } })
     ]);
-    const cashSales = round2(toNumber(cashIn._sum.amount));
+    const moved = (type: CashMovementType) => round2(toNumber(movements.find((row) => row.type === type)?._sum.amount));
+    const topups = (mode: PaymentMode) => round2(toNumber(topupsByMode.find((row) => row.paymentMode === mode)?._sum.amount));
+    const taken = (mode: PaymentMode) =>
+      round2(toNumber(takenByMode.find((row) => row.mode === mode)?._sum.amount) + (mode === PaymentMode.CASH ? 0 : topups(mode)));
+    const cashSales = taken(PaymentMode.CASH);
+    const cashTopups = topups(PaymentMode.CASH);
     const cashRefunds = round2(toNumber(cashOut._sum.refundAmount));
-    return { cashSales, cashRefunds, expectedCash: round2(openingBalance + cashSales - cashRefunds) };
+    const cashPaidOut = round2(toNumber(paidOut._sum.amount));
+    const cashIn = moved(CashMovementType.CASH_IN);
+    const cashTakenOut = moved(CashMovementType.CASH_OUT);
+    const cashExpenses = round2(toNumber(expenses._sum.amount));
+    return {
+      cashSales,
+      cashTopups,
+      cashRefunds,
+      cashPaidOut,
+      cashIn,
+      cashOut: cashTakenOut,
+      cashExpenses,
+      expectedCash: round2(openingBalance + cashSales + cashTopups + cashIn - cashRefunds - cashPaidOut - cashTakenOut - cashExpenses),
+      cardSales: taken(PaymentMode.CARD),
+      upiSales: taken(PaymentMode.UPI)
+    };
   }
 
-  /**
-   * Money moving through a register must land before it closes: share-lock the register
-   * row (close takes it exclusively) and check it is still open.
-   */
-  /** Fails unless the session's register is still open; returns the counter it runs on. */
-  async assertRegisterOpen(tx: Prisma.TransactionClient, session: SessionUser) {
-    const registerId = requireSessionRegisterId(session);
-    const rows = await tx.$queryRaw<Array<{ closedAt: Date | null; counterId: string }>>`
-      SELECT "closedAt", "counterId" FROM "RegisterSession" WHERE id = ${registerId} FOR SHARE`;
-    if (rows.length === 0 || rows[0].closedAt !== null) {
-      throw new BadRequestException('Register is closed. Open a register to continue.');
-    }
-    return { counterId: rows[0].counterId };
+  /** Fails unless the session's register is still open; returns the counter it runs on (see assertRegisterOpen). */
+  assertRegisterOpen(tx: Prisma.TransactionClient, session: SessionUser) {
+    return assertRegisterOpen(tx, session);
   }
 
   /**
@@ -228,11 +254,45 @@ export class RegistersService {
     }
     const registerId = requireSessionRegisterId(session);
     const branchId = requireSessionBranchId(session);
-    const result = await this.prisma.$transaction(async (tx) => {
+    const result = await this.closeOpenRegister({ id: registerId, userId: session.userId, branchId }, closingBalance);
+    return {
+      token: signToken({ userId: session.userId, role: session.role }),
+      register: result
+    };
+  }
+
+  /**
+   * An admin closes a register someone else left open, at a branch they manage. The cash may be
+   * counted (closingBalance) or not (null: the expected cash is still worked out). Its user's
+   * session ends with it.
+   */
+  async closeRegisterFor(session: SessionUser, registerId: string, closingBalance: number | null) {
+    requireAdmin(session);
+    if (closingBalance !== null && (!Number.isFinite(closingBalance) || closingBalance < 0)) {
+      throw new BadRequestException('Closing balance must be 0 or more');
+    }
+    const register = await this.prisma.registerSession.findUnique({ where: { id: registerId }, select: { branchId: true } });
+    if (!register) throw new NotFoundException('Open register not found');
+    await this.branches.ensureUserHasBranchAccess(session.userId, register.branchId);
+    const closed = await this.closeOpenRegister({ id: registerId }, closingBalance);
+    await this.audit.record(session, {
+      action: 'REGISTER_CLOSED_FOR',
+      entityType: 'RegisterSession',
+      entityId: registerId,
+      branchId: register.branchId,
+      summary: `Closed ${closed.counterName}, opened by ${closed.openedBy}: ${closingBalance === null ? 'cash not counted' : `counted ${closingBalance.toFixed(2)}`} (${closed.expectedCash?.toFixed(2) ?? '0.00'} expected)`,
+      details: { expectedCash: closed.expectedCash, closingBalance, cashDifference: closed.cashDifference }
+    });
+    return closed;
+  }
+
+  /** Closes the open register matching `where`, recording the cash expected and, when counted, the difference. */
+  private async closeOpenRegister(where: { id: string; userId?: string; branchId?: string }, closingBalance: number | null) {
+    return this.prisma.$transaction(async (tx) => {
       // Lock the register so a sale or refund can't land between counting and closing.
-      await tx.$queryRaw`SELECT id FROM "RegisterSession" WHERE id = ${registerId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "RegisterSession" WHERE id = ${where.id} FOR UPDATE`;
       const register = await tx.registerSession.findFirst({
-        where: { id: registerId, userId: session.userId, branchId, closedAt: null },
+        where: { ...where, closedAt: null },
         select: { id: true, openingBalance: true }
       });
       if (!register) {
@@ -244,17 +304,23 @@ export class RegistersService {
         data: {
           closingBalance,
           expectedCash: cash.expectedCash,
-          cashDifference: round2(closingBalance - cash.expectedCash),
+          cashDifference: closingBalance === null ? null : round2(closingBalance - cash.expectedCash),
           closedAt: new Date()
         },
         select: registerSelect
       });
-      return { ...this.toRegisterDto(updated), cashSales: cash.cashSales, cashRefunds: cash.cashRefunds };
+      return {
+        ...this.toRegisterDto(updated),
+        cashSales: cash.cashSales,
+        cashTopups: cash.cashTopups,
+        cashRefunds: cash.cashRefunds,
+        cashPaidOut: cash.cashPaidOut,
+        cashIn: cash.cashIn,
+        cashOut: cash.cashOut,
+        cashExpenses: cash.cashExpenses,
+        cardSales: cash.cardSales,
+        upiSales: cash.upiSales
+      };
     });
-
-    return {
-      token: signToken({ userId: session.userId, role: session.role }),
-      register: result
-    };
   }
 }

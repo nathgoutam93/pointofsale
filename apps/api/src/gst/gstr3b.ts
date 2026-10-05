@@ -1,14 +1,13 @@
+import { round2 } from '@pos/contracts';
 import type { buildGstr1 } from './gstr1';
 
 /**
- * The sales side of GSTR-3B, from the same period's GSTR-1 so the two always agree:
- * Table 3.1 (outward supplies, net of credit notes) and Table 3.2 (inter-state supplies to
- * unregistered persons, by place of supply). Input tax credit (Table 4) needs purchase bills,
- * which this app doesn't record.
+ * GSTR-3B: the sales side from the same period's GSTR-1 so the two always agree (Table 3.1,
+ * outward supplies net of credit notes; Table 3.2, inter-state supplies to unregistered persons
+ * by place of supply), and Table 4's input tax credit from the purchases recorded here.
  */
 type Gstr1Result = ReturnType<typeof buildGstr1>;
 
-const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 type TaxRow = { txval: number; iamt: number; camt: number; samt: number; csamt: number };
 const zero = (): TaxRow => ({ txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 });
@@ -19,7 +18,15 @@ function add(into: TaxRow, row: { txval: number; iamt?: number; camt?: number; s
   into.samt = round2(into.samt + sign * (row.samt ?? 0));
 }
 
-export function buildGstr3b(gstr1: Gstr1Result) {
+/**
+ * Input tax credit from the period's purchases (see Purchase.itcEligible), by kind, net of the
+ * GST on goods sent back to suppliers in the period (PurchaseReturn.itcReversed), as GSTR-2B
+ * nets the suppliers' credit notes. `purchaseReturns` counts those returns.
+ */
+export type PurchaseItc = { purchases: number; purchaseReturns?: number; igst: number; cgst: number; sgst: number };
+
+export function buildGstr3b(gstr1: Gstr1Result, itc: PurchaseItc = { purchases: 0, igst: 0, cgst: 0, sgst: 0 }) {
+  const purchaseReturns = itc.purchaseReturns ?? 0;
   const { summary } = gstr1;
 
   // 3.1(a): taxable outward supplies (not zero rated, nil rated or exempt).
@@ -66,12 +73,22 @@ export function buildGstr3b(gstr1: Gstr1Result) {
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([pos, row]) => ({ pos, ...row }))
     },
+    table4: {
+      /** 4(A)(5) All other ITC: GST on the period's purchases from registered suppliers, less goods sent back. */
+      itcAvailable: { iamt: round2(itc.igst), camt: round2(itc.cgst), samt: round2(itc.sgst), csamt: 0 },
+      /** How many purchases and purchase returns it comes from. */
+      purchases: itc.purchases,
+      purchaseReturns
+    },
     // Item details (HSN, units) matter for GSTR-1, not 3B, so only warnings carry over.
     problems: [
       ...gstr1.problems.filter((p) => p.severity === 'warning'),
       {
         severity: 'warning' as const,
-        message: 'Input tax credit (Table 4) is not included: purchase bills are not recorded in this app. Fill it in from your purchase records.'
+        message:
+          itc.purchases > 0
+            ? `Input tax credit (Table 4) comes from ${itc.purchases} ${itc.purchases === 1 ? 'purchase' : 'purchases'} recorded here${purchaseReturns > 0 ? `, less the GST on ${purchaseReturns} ${purchaseReturns === 1 ? 'return' : 'returns'} to suppliers` : ''}. Check it against GSTR-2B before filing, and add purchases not recorded here.`
+            : 'No purchases with GST are recorded for this period, so input tax credit (Table 4) is 0. Fill it in from your purchase records if you have any.'
       }
     ]
   };

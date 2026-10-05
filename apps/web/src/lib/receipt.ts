@@ -1,12 +1,13 @@
 import {
+  a4InvoiceCss,
   code128Modules,
   RECEIPT_PAPERS,
   renderReceipt,
   resolveReceiptTemplate,
+  round2,
   type ReceiptBranding,
   type ReceiptDocument,
   type ReceiptDocumentItem,
-  type ReceiptField,
   type ReceiptLine,
   type ReceiptTemplate,
   type RenderedReceipt,
@@ -28,8 +29,13 @@ export function branchReceiptTemplate(
   return resolveReceiptTemplate(branch?.receiptTemplate ?? null, branch?.receiptCss || branch?.invoiceCss);
 }
 
-/** How a receipt is printed: the CSS styling it, its characters a line and its paper's width. */
-export type ReceiptStyle = { css: string; columns: number; paperMm: 58 | 80 };
+/** How a receipt is printed: the CSS styling it, its characters a line and its paper's width (210: an A4 sheet). */
+export type ReceiptStyle = { css: string; columns: number; paperMm: 58 | 80 | 210 };
+
+/** The CSS for a receipt laid out on its template's paper: a text column, or an A4 page. */
+export function receiptCssFor(template: ReceiptTemplate, columns: number, id = "printable-invoice") {
+  return template.paper === "A4" ? a4InvoiceCss(id) : receiptBaseCss(columns, id);
+}
 
 /**
  * The receipt's own CSS: a monospace column `columns` characters wide, as on the paper. `id`
@@ -78,7 +84,7 @@ export function receiptBaseCss(columns: number, id = "printable-invoice") {
 /** The style a branch's receipts print with: its template's paper, plus its own sanitized CSS. */
 export function receiptStyleFor(rendered: Pick<RenderedReceipt, "columns">, template: ReceiptTemplate, customCss: string): ReceiptStyle {
   return {
-    css: `${receiptBaseCss(rendered.columns)}${customCss}`,
+    css: `${receiptCssFor(template, rendered.columns)}${customCss}`,
     columns: rendered.columns,
     paperMm: RECEIPT_PAPERS[template.paper].paperMm,
   };
@@ -131,8 +137,8 @@ export { lineClass as receiptLineClass };
 export function sampleReceiptDocument(branding: ReceiptBranding, options: { title?: string; gstin?: string | null } = {}): ReceiptDocument {
   const now = new Date().toISOString();
   const item = (name: string, hsn: string, qty: number, unit: string, rate: number, taxRate: number, discount: number): ReceiptDocumentItem => {
-    const amount = Math.round(qty * rate * 100) / 100;
-    const taxable = Math.round((amount - discount) * 100) / 100;
+    const amount = round2(qty * rate);
+    const taxable = round2(amount - discount);
     const taxAmount = Math.round(taxable * taxRate) / 100;
     return { name, hsn, qty, qtyLabel: `${qty} ${unit}`, rate, amount, taxRate, taxAmount, discount, total: taxable + taxAmount, taxable };
   };
@@ -141,9 +147,9 @@ export function sampleReceiptDocument(branding: ReceiptBranding, options: { titl
     item("Dish Wash Liquid 500 ml", "3402", 1, "PCS", 85, 18, 0),
     item("Notebook, 200 pages", "4820", 3, "PCS", 40, 12, 0),
   ];
-  const grandTotal = Math.round(items.reduce((sum, line) => sum + line.total, 0) * 100) / 100;
-  const tax = Math.round(items.reduce((sum, line) => sum + line.taxAmount, 0) * 100) / 100;
-  const half = Math.round((tax / 2) * 100) / 100;
+  const grandTotal = round2(items.reduce((sum, line) => sum + line.total, 0));
+  const tax = round2(items.reduce((sum, line) => sum + line.taxAmount, 0));
+  const half = round2(tax / 2);
   return {
     title: options.title ?? "TAX INVOICE",
     storeName: branding.storeName,
@@ -163,7 +169,7 @@ export function sampleReceiptDocument(branding: ReceiptBranding, options: { titl
     orderDiscount: 0,
     taxTotals: [
       { label: "incl. CGST", amount: half },
-      { label: "incl. SGST", amount: Math.round((tax - half) * 100) / 100 },
+      { label: "incl. SGST", amount: round2(tax - half) },
     ],
     grandTotalLabel: "TOTAL",
     grandTotal,

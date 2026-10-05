@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Headers, Post } from '@nestjs/common';
 import { appContract } from '@pos/contracts';
 import { getSession, requireAdminSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { BranchesService } from './branches.service';
 
 @Controller()
@@ -15,7 +15,7 @@ export class BranchesController {
 
   @Post('/branches')
   createBranch(
-    @Body(new ZodValidationPipe(appContract.branches.create.body)) body: { name: string; code: string },
+    @Body(new ZodValidationPipe(appContract.branches.create.body)) body: Parsed<typeof appContract.branches.create.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = requireAdminSession(headers);

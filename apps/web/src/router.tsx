@@ -1,5 +1,5 @@
 import { createRootRoute, createRoute, createRouter, redirect } from '@tanstack/react-router';
-import { getSession } from './lib/session';
+import { can, getSession } from './lib/session';
 import { AppLayout } from './screens/AppLayout';
 import { LoginPage } from './screens/LoginPage';
 import { OpenRegisterPage } from './screens/OpenRegisterPage';
@@ -10,8 +10,13 @@ import { ItemsPage } from './screens/ItemsPage';
 import { CustomersPage } from './screens/CustomersPage';
 import { StockPage } from './screens/StockPage';
 import { PurchasesPage } from './screens/PurchasesPage';
+import { SuppliersPage } from './screens/SuppliersPage';
+import { ExpensesPage } from './screens/ExpensesPage';
+import { LabelsPage } from './screens/LabelsPage';
+import { ImportItemsPage } from './screens/items/import/ImportItemsPage';
 import { TransfersPage } from './screens/TransfersPage';
 import { ReportsPage } from './screens/ReportsPage';
+import { ActivityPage } from './screens/ActivityPage';
 import { GstReturnsPage } from './screens/GstReturnsPage';
 import { BranchSettingsPage } from './screens/BranchSettingsPage';
 import { requireAdmin, requireManagementSession, requireOperationalSession, requirePermission, requireSession } from './screens/route-helpers';
@@ -217,6 +222,54 @@ const purchasesRoute = createRoute({
   component: PurchasesPage
 });
 
+const suppliersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/suppliers',
+  beforeLoad: () => {
+    const session = requireManagementSession();
+    if (!can(session, 'RECORD_PURCHASES') && !can(session, 'PAY_SUPPLIERS')) throw redirect({ to: '/pos' });
+    return session;
+  },
+  component: SuppliersPage
+});
+
+const expensesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/expenses',
+  beforeLoad: () => {
+    requirePermission('CASH_AND_EXPENSES');
+    return requireManagementSession();
+  },
+  component: ExpensesPage
+});
+
+/** Items from a CSV or Excel file: item managers. */
+const importItemsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/items/import',
+  beforeLoad: () => {
+    requirePermission('MANAGE_ITEMS');
+    return requireManagementSession();
+  },
+  component: ImportItemsPage
+});
+
+/** Barcode labels: for those who look after items, stock or purchases. */
+const labelsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/labels',
+  beforeLoad: () => {
+    const session = requireManagementSession();
+    if (!can(session, 'MANAGE_ITEMS') && !can(session, 'MANAGE_STOCK') && !can(session, 'RECORD_PURCHASES')) throw redirect({ to: '/pos' });
+    return session;
+  },
+  validateSearch: (search: Record<string, unknown>): { itemId?: string; purchaseId?: string } => ({
+    ...(typeof search.itemId === 'string' ? { itemId: search.itemId } : {}),
+    ...(typeof search.purchaseId === 'string' ? { purchaseId: search.purchaseId } : {})
+  }),
+  component: LabelsPage
+});
+
 const transfersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/transfers',
@@ -230,6 +283,13 @@ const reportsRoute = createRoute({
   path: '/reports',
   beforeLoad: () => requireAdmin(),
   component: ReportsPage
+});
+
+const activityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/activity',
+  beforeLoad: () => requireAdmin(),
+  component: ActivityPage
 });
 
 const gstRoute = createRoute({
@@ -265,8 +325,13 @@ const routeTree = rootRoute.addChildren([
   customersRoute,
   stockRoute,
   purchasesRoute,
+  suppliersRoute,
+  expensesRoute,
+  labelsRoute,
+  importItemsRoute,
   transfersRoute,
   reportsRoute,
+  activityRoute,
   gstRoute,
   settingsRoute
 ]);

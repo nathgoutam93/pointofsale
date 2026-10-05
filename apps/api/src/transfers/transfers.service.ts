@@ -10,6 +10,8 @@ import { BranchesService } from '../branches/branches.service';
 import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 import { StockService } from '../stock/stock.service';
+import { splitOverShares } from '../stock/batches';
+import { businessToday, sharesOfLines, takeFromBatches } from '../stock/batch-stock';
 import { isOffline, offlineLimitError } from '../common/mode';
 
 export type CreateTransferInput = {
@@ -70,6 +72,10 @@ export class TransfersService {
           throw new BadRequestException(`Insufficient stock for ${line.item.name}: ${round3(onHand)} on hand, ${line.qty} to send`);
         }
       }
+      // Items kept by batch go earliest expiry first, never expired stock; they arrive in the same batches.
+      const batchShares = await takeFromBatches(tx, input.fromBranchId, new Map(lines.map((line) => [line.item.id, { name: line.item.name, qty: line.qty }])), {
+        today: await businessToday(tx)
+      });
 
       const user = await tx.user.findUnique({ where: { id: session.userId }, select: { username: true } });
       if (!user) throw new NotFoundException('User not found');
@@ -91,16 +97,21 @@ export class TransfersService {
 
       await this.stock.recordStock(
         tx,
-        transfer.lines.map((line) => ({
+        splitOverShares(
+          transfer.lines.map((line) => ({ ...line, qty: toNumber(line.qty) })),
+          batchShares
+        ).map((part) => ({
           branchId: input.fromBranchId,
-          itemId: line.itemId,
+          itemId: part.line.itemId,
           txnType: StockTxnType.TRANSFER_OUT,
           qtyIn: 0,
-          qtyOut: toNumber(line.qty),
-          costPrice: line.unitCost,
+          qtyOut: part.qty,
+          costPrice: part.line.unitCost,
           reason: `${transferNo} to ${transfer.toBranch.name}`,
           referenceType: 'TRANSFER',
-          referenceId: transfer.id
+          referenceId: transfer.id,
+          lineId: part.line.id,
+          batchId: part.batchId
         }))
       );
       return transfer;
@@ -146,19 +157,25 @@ export class TransfersService {
       }
 
       const closed = await tx.stockTransfer.findUniqueOrThrow({ where: { id: transferId }, include: transferInclude });
+      // In the batches it left in (a transfer from before batches left in none).
+      const sent = await sharesOfLines(tx, closed.lines.map((line) => line.id), 'OUT');
       await this.stock.recordStock(
         tx,
-        closed.lines.map((line) => ({
-          branchId: received ? closed.toBranchId : closed.fromBranchId,
-          itemId: line.itemId,
-          txnType: received ? StockTxnType.TRANSFER_IN : StockTxnType.TRANSFER_CANCEL,
-          qtyIn: toNumber(line.qty),
-          qtyOut: 0,
-          costPrice: line.unitCost,
-          reason: received ? `${closed.transferNo} from ${closed.fromBranch.name}` : `${closed.transferNo} cancelled`,
-          referenceType: 'TRANSFER',
-          referenceId: closed.id
-        }))
+        closed.lines.flatMap((line) =>
+          (sent.get(line.id) ?? [{ batchId: null, qty: toNumber(line.qty) }]).map((share) => ({
+            branchId: received ? closed.toBranchId : closed.fromBranchId,
+            itemId: line.itemId,
+            txnType: received ? StockTxnType.TRANSFER_IN : StockTxnType.TRANSFER_CANCEL,
+            qtyIn: share.qty,
+            qtyOut: 0,
+            costPrice: line.unitCost,
+            reason: received ? `${closed.transferNo} from ${closed.fromBranch.name}` : `${closed.transferNo} cancelled`,
+            referenceType: 'TRANSFER',
+            referenceId: closed.id,
+            lineId: line.id,
+            batchId: share.batchId
+          }))
+        )
       );
       return closed;
     });

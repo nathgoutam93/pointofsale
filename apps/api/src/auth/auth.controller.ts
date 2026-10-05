@@ -4,7 +4,7 @@ import { appContract } from '@pos/contracts';
 import { AllowBeforePasswordChange, Public } from '../auth/auth.guard';
 import { AllowWhenLocked } from '../common/instance-status.guard';
 import { getSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { AuthService } from './auth.service';
 import { isOffline, OfflineOnlyGuard } from '../common/mode';
 import { requireAdminSession } from '../common/request-session';
@@ -34,7 +34,7 @@ export class AuthController {
   @Post('/auth/recover')
   @HttpCode(200)
   async recover(
-    @Body(new ZodValidationPipe(appContract.auth.recover.body)) body: { recoveryCode: string; username: string; newPassword: string },
+    @Body(new ZodValidationPipe(appContract.auth.recover.body)) body: Parsed<typeof appContract.auth.recover.body>,
     @Ip() ip: string
   ) {
     recoveryFailures.assertAllowed(ip);
@@ -67,7 +67,7 @@ export class AuthController {
   @Post('/auth/login')
   @HttpCode(200)
   async login(
-    @Body(new ZodValidationPipe(appContract.auth.login.body)) body: { businessCode?: string; username: string; password: string },
+    @Body(new ZodValidationPipe(appContract.auth.login.body)) body: Parsed<typeof appContract.auth.login.body>,
     @Ip() ip: string
   ) {
     const key = `${ip}|${body.businessCode ?? ''}|${body.username}`;
@@ -89,7 +89,7 @@ export class AuthController {
   @Post('/auth/change-password')
   @HttpCode(200)
   async changePassword(
-    @Body(new ZodValidationPipe(appContract.auth.changePassword.body)) body: { currentPassword: string; newPassword: string },
+    @Body(new ZodValidationPipe(appContract.auth.changePassword.body)) body: Parsed<typeof appContract.auth.changePassword.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = getSession(headers);

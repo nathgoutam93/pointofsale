@@ -1,19 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { computeSaleTotals } from "@pos/contracts";
-import type { DiscountInput } from "@pos/contracts";
-import { api, apiErrorMessage, authHeaders } from "../lib/api";
-import { newUuid } from "../lib/id";
 import { receiptPrinterSettings, useReceiptPrinting } from "../lib/printing";
 import { removeDrafts, upsertDraft } from "../lib/draftStore";
 import { inr, requireOperationalSession } from "./route-helpers";
-import {
-  getCartLineKey,
-  normalizeLeastCount,
-  round3,
-  snapQtyToLeastCount,
-  stepLineQty,
-} from "./pos/cartMath";
+import { getCartLineKey, stepLineQty } from "./pos/cartMath";
 import { CartLines } from "./pos/CartLines";
 import { CartTotals } from "./pos/CartTotals";
 import { CustomerPickerModal } from "./pos/CustomerPickerModal";
@@ -29,18 +19,20 @@ import { ProductGrid } from "./pos/ProductGrid";
 import { ReceiptPrintStyles } from "./pos/ReceiptPrintStyles";
 import { buildInvoiceReceipt, buildPrintableInvoiceDocument, downloadHtml } from "./pos/receipt";
 import { receiptStyleFor } from "../lib/receipt";
+import { useAddToCart } from "./pos/useAddToCart";
+import { useCatalog } from "./pos/useCatalog";
+import { itemDiscountsFor, useCheckout } from "./pos/useCheckout";
 import { useLeaveGuard } from "./pos/useLeaveGuard";
 import { useLineEditor } from "./pos/useLineEditor";
 import { useLocalDrafts } from "./pos/useLocalDrafts";
 import { useOrderDiscount } from "./pos/useOrderDiscount";
 import { usePayment } from "./pos/usePayment";
+import { usePosCustomer } from "./pos/usePosCustomer";
 import { useStoreSettings } from "./pos/useStoreSettings";
 import type { CartLine, LocalSaleDraft, PostPaymentSummary } from "./pos/types";
-import { invoiceGstOf } from "../lib/gstReceipt";
 
 export function PosPage() {
   const session = requireOperationalSession();
-  const queryClient = useQueryClient();
   const [customerId, setCustomerId] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [search, setSearch] = useState("");
@@ -67,11 +59,13 @@ export function PosPage() {
   const [isOrderOpen, setIsOrderOpen] = useState(false);
 
   const store = useStoreSettings(session.branchId);
-  const { taxCalculationMode, chargeTax, invoiceLogoSrc, customReceiptCss, printTemplate } = store;
+  const { chargeTax, roundOffMode, invoiceLogoSrc, customReceiptCss, printTemplate } = store;
   const lineEditor = useLineEditor({ cart, setCart, chargeTax });
 
   const printableInvoice = useMemo(
     () => (postPayment ? buildInvoiceReceipt(postPayment, store, session.username ?? "") : null),
+    // `store` is a new object every render; these are the parts the receipt is built from.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [postPayment, store.businessSettings.data, store.branchSettings.data, session.username],
   );
 
@@ -90,7 +84,7 @@ export function PosPage() {
         await receiptPrinting.print(receiptStyle, { dialogOnFailure: false });
       }
     })();
-  }, [postPayment]);
+  }, [postPayment, receiptPrinting, receiptStyle]);
 
   const exportPrintableInvoice = () => {
     const htmlDocument = postPayment ? buildPrintableInvoiceDocument(postPayment, receiptStyle) : null;
@@ -102,67 +96,35 @@ export function PosPage() {
     setMessage("Receipt downloaded. Share the file on WhatsApp or anywhere else.");
   };
 
-  const items = useQuery({
-    // Priced for this branch: its own prices where it has them.
-    queryKey: ["items-pos", session.branchId],
-    queryFn: async () => {
-      const res = await api.items.list({
-        query: { activeOnly: true, branchId: session.branchId },
-        extraHeaders: authHeaders(),
-      });
-      if (res.status !== 200) throw new Error("Failed to load items");
-      return res.body;
-    },
+  const { items, categories, allSaleItemChoices, saleItemChoices, onHandByItem } = useCatalog({
+    branchId: session.branchId,
+    search,
+    activeCategory,
   });
 
-  const onHand = useQuery({
-    queryKey: ["stock-module", session.branchId],
-    queryFn: async () => {
-      const res = await api.stock.onHand({
-        query: { branchId: session.branchId },
-        extraHeaders: authHeaders(),
-      });
-      if (res.status !== 200) throw new Error("Failed to load stock");
-      return res.body;
-    },
+  const customer = usePosCustomer({
+    branchId: session.branchId,
+    customerId,
+    walkInCustomerName,
+    walkInCustomerPhone,
   });
-
-  const customers = useQuery({
-    queryKey: ["customers-pos", session.branchId],
-    queryFn: async () => {
-      const res = await api.customers.list({
-        query: { branchId: session.branchId },
-        extraHeaders: authHeaders(),
-      });
-      if (res.status !== 200) throw new Error("Failed to load customers");
-      return res.body;
-    },
-  });
-
-  const walkIn = useQuery({
-    queryKey: ["walk-in", session.branchId],
-    queryFn: async () => {
-      const res = await api.customers.getWalkIn({
-        params: { branchId: session.branchId },
-        extraHeaders: authHeaders(),
-      });
-      if (res.status !== 200)
-        throw new Error("Failed to load walk-in customer");
-      return res.body;
-    },
-  });
-
-  // The discounts exactly as checkout sends them, so the totals shown here are the
-  // totals the server computes (same request, same computeSaleTotals).
-  const itemDiscountsFor = (line: Pick<CartLine, "discountAmount">): DiscountInput[] =>
-    line.discountAmount > 0 ? [{ type: "FIXED", value: line.discountAmount }] : [];
+  const {
+    customers,
+    selectedCustomer,
+    isWalkInSelected,
+    normalizedWalkInCustomerName,
+    normalizedWalkInCustomerPhone,
+    displayCustomerName,
+    displayCustomerPhone,
+    walletBalance,
+    account,
+  } = customer;
 
   const computedCart = useMemo(() => {
     const totals = computeSaleTotals(
       cart.map((line) => ({ ...line, discounts: itemDiscountsFor(line) })),
       orderDiscounts,
-      taxCalculationMode,
-      { chargeTax },
+      { chargeTax, roundOff: roundOffMode },
     );
     return {
       lines: totals.lines.map((entry) => ({
@@ -179,93 +141,24 @@ export function PosPage() {
       subTotal: totals.subTotal,
       taxTotal: totals.taxTotal,
       grandTotal: totals.grandTotal,
+      roundOff: totals.roundOff,
       orderDiscountTotal: totals.orderDiscountTotal,
       orderDiscountBase: totals.orderDiscountBase,
     };
-  }, [cart, orderDiscounts, taxCalculationMode, chargeTax]);
+  }, [cart, orderDiscounts, chargeTax, roundOffMode]);
   const orderDiscountBase = computedCart.orderDiscountBase;
   const resolvedOrderDiscountAmount = computedCart.orderDiscountTotal;
 
-  const addItem = (item: {
-    id: string;
-    name: string;
-    uom?: string;
-    sellPrice: number | string;
-    taxRate: number | string;
-    taxMode?: "INCLUSIVE" | "EXCLUSIVE";
-    leastCount?: number | string;
-    imageUrl?: string | null;
-    saleUom?: string;
-    saleUomQty?: number;
-    saleUomConversionQty?: number;
-  }) => {
-    setIsOrderOpen(true);
-    const rate = Number(item.sellPrice) || 0;
-    const taxRate = Number(item.taxRate) || 0;
-    const taxMode = item.taxMode ?? "EXCLUSIVE";
-    const leastCount = normalizeLeastCount(item.leastCount);
-    const displayUom = item.saleUom ?? item.uom;
-    const saleUom = item.saleUom;
-    const saleUomQty = item.saleUomQty ?? 1;
-    const saleUomConversionQty = normalizeLeastCount(item.saleUomConversionQty ?? leastCount);
-    const qty = item.saleUom ? snapQtyToLeastCount(saleUomQty * saleUomConversionQty, leastCount) : leastCount;
-    const cartKey = `${item.id}:${displayUom ?? "BASE"}`;
-    setCart((prev) => {
-      const idx = prev.findIndex((l) => getCartLineKey(l) === cartKey);
-      if (idx === -1) {
-        return [
-          ...prev,
-          {
-            cartKey,
-            itemId: item.id,
-            name: item.name,
-            qty,
-            leastCount,
-            rate,
-            baseUom: item.uom,
-            saleUom,
-            saleUomQty: item.saleUom ? saleUomQty : undefined,
-            saleUomConversionQty: item.saleUom ? saleUomConversionQty : undefined,
-            discountAmount: 0,
-            taxRate,
-            taxMode,
-            imageUrl: item.imageUrl,
-          },
-        ];
-      }
-      const next = [...prev];
-      next[idx] = {
-        ...next[idx],
-        qty: round3(next[idx].qty + qty),
-        saleUomQty: next[idx].saleUomQty === undefined ? undefined : round3(next[idx].saleUomQty + saleUomQty),
-      };
-      return next;
-    });
-  };
-
-  const addScannedItem = () => {
-    const normalizedCode = scanCode.trim().toLowerCase();
-    if (!normalizedCode) return;
-
-    const codeMatches = allSaleItemChoices.filter(
-      (item) => item.code.trim().toLowerCase() === normalizedCode,
-    );
-    const match =
-      codeMatches.find((item) => !item.saleUom) ??
-      codeMatches[0] ??
-      allSaleItemChoices.find(
-        (item) => item.choiceKey.toLowerCase() === normalizedCode,
-      );
-
-    if (!match) {
-      setMessage(`No item found for code ${scanCode.trim()}`);
-      return;
-    }
-
-    addItem(match);
-    setScanCode("");
-    setMessage(`Added ${match.name} (${match.displayUom})`);
-  };
+  const { addItem, addScannedItem } = useAddToCart({
+    setCart,
+    setIsOrderOpen,
+    scanCode,
+    setScanCode,
+    setMessage,
+    allSaleItemChoices,
+    itemsData: items.data,
+    store,
+  });
 
   const total = useMemo(() => {
     return computedCart.grandTotal;
@@ -280,123 +173,6 @@ export function PosPage() {
     [cart],
   );
 
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of items.data ?? []) {
-      set.add(item.category || "Uncategorized");
-    }
-    return ["All", ...Array.from(set)];
-  }, [items.data]);
-
-  const filteredItems = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-    return (items.data ?? []).filter((item) => {
-      const category = item.category || "Uncategorized";
-      const categoryMatch =
-        activeCategory === "All" || category === activeCategory;
-      const saleUomText = (item.saleUoms ?? []).map((variant) => variant.uom).join(" ");
-      const textMatch =
-        keyword.length === 0 ||
-        item.name.toLowerCase().includes(keyword) ||
-        item.code.toLowerCase().includes(keyword) ||
-        category.toLowerCase().includes(keyword) ||
-        saleUomText.toLowerCase().includes(keyword);
-      return categoryMatch && textMatch;
-    });
-  }, [items.data, search, activeCategory]);
-
-  const allSaleItemChoices = useMemo(() => {
-    return (items.data ?? []).flatMap((item) => {
-      const variants = item.saleUoms?.length
-        ? item.saleUoms
-        : [
-            {
-              id: `${item.id}-base`,
-              uom: item.uom,
-              conversionQty: 1,
-              sellPrice: item.sellPrice,
-              isDefault: true,
-            },
-          ];
-      return variants.map((variant) => ({
-        id: item.id,
-        choiceKey: `${item.id}:${variant.uom}`,
-        name: item.name,
-        code: item.code,
-        uom: item.uom,
-        sellPrice: variant.sellPrice,
-        taxRate: item.taxRate,
-        taxMode: item.taxMode,
-        leastCount: item.leastCount,
-        imageUrl: item.imageUrl,
-        saleUom: variant.isDefault ? undefined : variant.uom,
-        displayUom: variant.uom,
-        saleUomQty: 1,
-        saleUomConversionQty: variant.conversionQty,
-      }));
-    });
-  }, [items.data]);
-
-  const saleItemChoices = useMemo(() => {
-    const visibleItemIds = new Set(filteredItems.map((item) => item.id));
-    return allSaleItemChoices.filter((item) => visibleItemIds.has(item.id));
-  }, [allSaleItemChoices, filteredItems]);
-
-  const onHandByItem = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const row of onHand.data ?? []) {
-      map.set(row.itemId, Number(row.onHand) || 0);
-    }
-    return map;
-  }, [onHand.data]);
-
-  const selectedCustomer = useMemo(() => {
-    if (!customerId) return walkIn.data;
-    return (
-      (customers.data ?? []).find((c) => c.id === customerId) ?? walkIn.data
-    );
-  }, [customerId, customers.data, walkIn.data]);
-
-  const isWalkInSelected = !customerId || !!selectedCustomer?.isWalkIn;
-  const normalizedWalkInCustomerName = walkInCustomerName.trim();
-  const normalizedWalkInCustomerPhone = walkInCustomerPhone.trim();
-  const displayCustomerName =
-    isWalkInSelected && normalizedWalkInCustomerName
-      ? normalizedWalkInCustomerName
-      : (selectedCustomer?.name ?? "Walk In");
-  const displayCustomerPhone =
-    isWalkInSelected && normalizedWalkInCustomerPhone
-      ? normalizedWalkInCustomerPhone
-      : (selectedCustomer?.phone ?? null);
-
-  const customerWallet = useQuery({
-    queryKey: ["customer-wallet", customerId],
-    // Walk-in customers have no wallet.
-    enabled: !!customerId && !selectedCustomer?.isWalkIn,
-    queryFn: async () => {
-      const res = await api.customers.getWallet({
-        params: { id: customerId },
-        extraHeaders: authHeaders(),
-      });
-      if (res.status !== 200) throw new Error("Failed to load customer wallet");
-      return res.body;
-    },
-  });
-  const walletBalance = Number(customerWallet.data?.balance ?? 0);
-  // What they owe already, against their credit limit.
-  const customerAccount = useQuery({
-    queryKey: ["customer-account", customerId],
-    enabled: !!customerId && !selectedCustomer?.isWalkIn,
-    queryFn: async () => {
-      const res = await api.customers.account({
-        params: { id: customerId },
-        extraHeaders: authHeaders(),
-      });
-      if (res.status !== 200) throw new Error("Failed to load what the customer owes");
-      return res.body;
-    },
-  });
-  const account = !isWalkInSelected ? customerAccount.data ?? null : null;
   const branchStateCode = store.branchSettings.data?.stateCode ?? null;
   // Composition taxpayers can't sell to another state, and a branch without a state can't
   // name one, so the choice only counts for a regular branch with its state set.
@@ -537,161 +313,22 @@ export function PosPage() {
     }
   };
 
-  // One idempotency key per checkout attempt. A retry of exactly the same request (e.g.
-  // after a network error) reuses it, so the server returns the invoice it already made
-  // instead of billing twice; any change to the cart or payments gets a new key.
-  const checkoutKeyRef = useRef<{ key: string; fingerprint: string } | null>(null);
-
-  const buildSaleBody = () => {
-    if (cart.length === 0) throw new Error("Cart is empty");
-
-    const selected = customerId || walkIn.data?.id;
-    if (!selected) throw new Error("Customer not resolved");
-
-    return {
-      branchId: session.branchId,
-      customerId: selected,
-      walkInCustomerName: isWalkInSelected ? normalizedWalkInCustomerName || null : null,
-      walkInCustomerPhone: isWalkInSelected ? normalizedWalkInCustomerPhone || null : null,
-      // Only a shipped regular sale names one; otherwise the server uses the branch's state.
-      placeOfSupplyStateCode: placeOfSupplyChoice ?? undefined,
-      reference: !isWalkInSelected && reference.trim() ? reference.trim() : undefined,
-      lines: cart.map((line) => ({
-        itemId: line.itemId,
-        qty: line.qty,
-        rate: line.rate,
-        saleUom: line.saleUom,
-        saleUomQty: line.saleUomQty,
-        saleUomConversionQty: line.saleUomConversionQty,
-        taxRate: line.taxRate,
-        taxMode: line.taxMode,
-        discounts: itemDiscountsFor(line),
-      })),
-      discounts: orderDiscounts,
-    };
-  };
-
-  const checkout = useMutation({
-    mutationFn: async (payload: {
-      payments: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
-    }) => {
-      const body = { ...buildSaleBody(), payments: payload.payments };
-      const fingerprint = JSON.stringify(body);
-      if (checkoutKeyRef.current?.fingerprint !== fingerprint) {
-        checkoutKeyRef.current = { key: newUuid(), fingerprint };
-      }
-
-      // Creates and pays in one transaction: if payment fails nothing is saved.
-      let res;
-      try {
-        res = await api.sales.checkout({
-          body: { ...body, idempotencyKey: checkoutKeyRef.current.key },
-          extraHeaders: authHeaders(),
-        });
-      } catch {
-        throw new Error(
-          "Couldn't reach the server. Check the connection and press Validate again; the sale won't be charged twice.",
-        );
-      }
-      if (res.status !== 200) {
-        throw new Error(apiErrorMessage(res.body, "Checkout failed"));
-      }
-      checkoutKeyRef.current = null;
-      return res.body;
-    },
-    // The cart's draft at the moment checkout started, removed on success along with the
-    // current one, so a paid cart can't stay behind as a draft.
-    onMutate: () => ({ draftIdAtStart: activeDraftIdRef.current }),
-    onSuccess: (result, _payload, context) => {
-      const cartSnapshotByKey = new Map(cart.map((line) => [getCartLineKey(line), line]));
-      const cartSnapshotByItemId = new Map(cart.map((line) => [line.itemId, line]));
-      const itemDiscountIds = new Set(
-        (result.invoice.discounts ?? [])
-          .filter((discount) => discount.scope === "ITEM")
-          .map((discount) => discount.id),
-      );
-      setPostPayment({
-        invoiceId: result.invoice.id,
-        invoiceNo: result.invoice.invoiceNo,
-        receiptNo: result.receipt?.receiptNo ?? null,
-        createdAt: result.receipt?.createdAt ?? result.invoice.createdAt,
-        customerName: result.invoice.customerName,
-        customerPhone: result.invoice.customerPhone ?? "",
-        customerEmail: selectedCustomer && !selectedCustomer.isWalkIn ? selectedCustomer.email : null,
-        subTotal: Number(result.invoice.subTotal),
-        orderDiscountAmount: Number(result.invoice.orderDiscountAmount ?? 0),
-        taxTotal: Number(result.invoice.taxTotal),
-        grandTotal: Number(result.invoice.grandTotal),
-        paidTotal: Number(result.invoice.paidTotal ?? 0),
-        gst: invoiceGstOf(result.invoice),
-        paymentLines: result.invoice.payments.map((line) => ({
-          mode: line.mode,
-          amount: Number(line.amount),
-        })),
-        lines: result.invoice.lines.map((line) => {
-          const snapshot = cartSnapshotByKey.get(
-            `${line.itemId}:${line.saleUom ?? "BASE"}`,
-          ) ?? cartSnapshotByItemId.get(line.itemId);
-          const itemDiscountAmount = (line.discountAllocations ?? []).reduce(
-            (acc, allocation) =>
-              itemDiscountIds.has(allocation.discountId)
-                ? acc + Number(allocation.amount ?? 0)
-                : acc,
-            0,
-          );
-          const orderDiscountAmount =
-            Number(line.discountAmount ?? 0) - itemDiscountAmount;
-          return {
-            itemId: line.itemId,
-            cartKey: snapshot?.cartKey ?? `${line.itemId}:${line.saleUom ?? "BASE"}`,
-            name: line.itemName ?? snapshot?.name ?? `Item ${line.itemId.slice(0, 6)}`,
-            qty: Number(line.qty),
-            leastCount: snapshot?.leastCount ?? 1,
-            rate: Number(line.rate),
-            baseUom: snapshot?.baseUom,
-            saleUom: line.saleUom ?? undefined,
-            saleUomQty: line.saleUomQty === null ? undefined : Number(line.saleUomQty ?? 0) || undefined,
-            saleUomConversionQty:
-              line.saleUomConversionQty === null
-                ? undefined
-                : Number(line.saleUomConversionQty ?? 0) || undefined,
-            discountAmount: Number(line.discountAmount ?? 0),
-            itemDiscountAmount,
-            orderDiscountAmount,
-            taxRate: Number(line.taxRate),
-            taxAmount: Number(line.taxAmount ?? 0),
-            taxMode: line.taxMode ?? snapshot?.taxMode ?? "EXCLUSIVE",
-            imageUrl: snapshot?.imageUrl,
-            netAmount: Number(line.netAmount ?? 0),
-            hsnCode: line.hsnCode ?? null,
-          };
-        }),
-      });
-      let draftCleanupFailed = false;
-      if (context?.draftIdAtStart || activeDraftIdRef.current) {
-        try {
-          setLocalDrafts(removeDrafts<LocalSaleDraft>(draftStorageKey, [context?.draftIdAtStart, activeDraftIdRef.current]));
-        } catch {
-          draftCleanupFailed = true;
-        }
-      }
-      setActiveDraft(null);
-      setCart([]);
-      payment.reset();
-      setMessage(
-        (result.receipt
-          ? `Done: ${result.invoice.invoiceNo}, Receipt: ${result.receipt.receiptNo}, Status: ${result.invoice.status}`
-          : `Done: ${result.invoice.invoiceNo}, Full credit, Status: ${result.invoice.status}`) +
-          (draftCleanupFailed ? ". Couldn't remove this cart's saved draft: delete it from Saved drafts so it isn't billed again." : ""),
-      );
-      queryClient.invalidateQueries({
-        queryKey: ["sales-module", session.branchId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["stock-module", session.branchId],
-      });
-      queryClient.invalidateQueries({ queryKey: ["customer-account"] });
-    },
+  const { checkout } = useCheckout({
+    branchId: session.branchId,
+    cart,
+    setCart,
+    customerId,
+    customer,
+    placeOfSupplyChoice,
+    reference,
+    orderDiscounts,
+    draftStorageKey,
+    activeDraftIdRef,
+    setLocalDrafts,
+    setActiveDraft,
+    payment,
+    setPostPayment,
+    setMessage,
   });
 
   const { leavePrompt } = useLeaveGuard({
@@ -729,7 +366,6 @@ export function PosPage() {
             <CartLines
               cart={cart}
               onHandByItem={onHandByItem}
-              taxCalculationMode={taxCalculationMode}
               chargeTax={chargeTax}
               onOpen={lineEditor.open}
               onStep={stepCartLine}
@@ -739,6 +375,7 @@ export function PosPage() {
             <CartTotals
               totalTax={totalTax}
               orderDiscountAmount={resolvedOrderDiscountAmount}
+              roundOff={computedCart.roundOff}
               total={total}
               onEditOrderDiscount={() => orderDiscount.setOpen(true)}
             />
@@ -835,7 +472,6 @@ export function PosPage() {
         <LineEditorModal
           editor={lineEditor}
           activeEditLine={lineEditor.activeEditLine}
-          taxCalculationMode={taxCalculationMode}
           chargeTax={chargeTax}
         />
       ) : null}

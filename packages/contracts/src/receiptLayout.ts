@@ -1,5 +1,5 @@
 import { canEncodeCode128 } from './code128.js';
-import { RECEIPT_PAPERS, type ReceiptPaper, type ReceiptTemplate } from './receiptTemplate.js';
+import { RECEIPT_PAPERS, type ReceiptPaper, type ReceiptSections, type ReceiptTemplate } from './receiptTemplate.js';
 
 /** One printed line. Text lines are exactly as wide as the paper's columns (half for large ones). */
 export type ReceiptLine = {
@@ -38,6 +38,8 @@ export type ReceiptDocumentItem = {
   total: number;
   /** Value tax was charged on, after every discount (for the GST summary). */
   taxable: number;
+  /** The batches it was sold from, with their expiry dates (items kept by batch). */
+  batches?: string | null;
 };
 
 /** Everything a printed sale, payment or refund says, independent of how it is laid out. */
@@ -57,6 +59,8 @@ export type ReceiptDocument = {
   /** Before the order discount. null leaves the line out. */
   itemsTotal: number | null;
   orderDiscount: number;
+  /** What the total was rounded by; printed when not 0. */
+  roundOff?: number;
   /** Tax included in the total, by kind ("incl. CGST"). Always printed. */
   taxTotals: Array<{ label: string; amount: number }>;
   grandTotalLabel: string;
@@ -72,6 +76,8 @@ export type RenderedReceipt = {
   lines: ReceiptLine[];
   columns: number;
   showLogo: boolean;
+  /** On A4 paper: the document and what it shows, laid out as a page (a4InvoiceHtml) instead of `lines`. */
+  page?: { doc: ReceiptDocument; sections: ReceiptSections };
 };
 
 const money = (value: number) => value.toFixed(2);
@@ -202,12 +208,14 @@ export function renderReceipt(doc: ReceiptDocument, template: ReceiptTemplate, c
         )
       );
       if (show.hsn && item.hsn) push(fitLeft(`  HSN ${item.hsn}`, width));
+      if (item.batches) wrapText(item.batches, width - 2).forEach((line) => push(fitLeft(`  ${line}`, width)));
       if (show.itemDiscount && item.discount > 0) push(detailRow('discount', `-${money(item.discount)}`));
     }
   } else if (style === 'MINIMAL') {
     for (const item of doc.items) {
       leftRight(`${formatQty(item.qty)} x ${item.name}`, money(item.total), width).forEach((line) => push(line));
       if (show.hsn && item.hsn) push(fitLeft(`  HSN ${item.hsn}`, width));
+      if (item.batches) wrapText(item.batches, width - 2).forEach((line) => push(fitLeft(`  ${line}`, width)));
       if (show.itemDiscount && item.discount > 0) push(detailRow('discount', `-${money(item.discount)}`));
     }
   } else {
@@ -220,6 +228,7 @@ export function renderReceipt(doc: ReceiptDocument, template: ReceiptTemplate, c
       } else {
         if (show.hsn && item.hsn) push(detailRow(`HSN ${item.hsn}`, ''));
       }
+      if (item.batches) wrapText(item.batches, width - 2).forEach((line) => push(fitLeft(`  ${line}`, width)));
       push(detailRow(`${item.qtyLabel} x ${money(item.rate)}`, money(item.amount)));
       if (show.itemTax && hasTax && !(style === 'DETAILED' && show.hsn && item.hsn)) {
         push(detailRow(`tax ${formatQty(item.taxRate)}%`, money(item.taxAmount)));
@@ -237,6 +246,7 @@ export function renderReceipt(doc: ReceiptDocument, template: ReceiptTemplate, c
   }
   if (doc.orderDiscount > 0) totals.push({ label: 'Order Discount', value: `- ${money(doc.orderDiscount)}` });
   doc.taxTotals.forEach((tax) => totals.push({ label: tax.label, value: money(tax.amount) }));
+  if (doc.roundOff) totals.push({ label: 'Round off', value: `${doc.roundOff < 0 ? '- ' : '+ '}${money(Math.abs(doc.roundOff))}` });
   if (totals.length > 0) {
     const labelWidth = Math.min(Math.max(...totals.map((total) => total.label.length)), Math.floor(width * 0.5));
     totals.forEach((total) => push(keyValue(total.label, total.value, width, labelWidth)));
@@ -298,7 +308,9 @@ export function renderReceipt(doc: ReceiptDocument, template: ReceiptTemplate, c
     lines.push({ text: fitCenter(doc.barcodeValue, width), barcode: doc.barcodeValue });
   }
 
-  return { lines, columns: width, showLogo: show.logo };
+  // A4 lays the same document out as a page; the lines stay for anything that prints text.
+  const page = template.paper === 'A4' && columns === undefined ? { doc, sections: show } : undefined;
+  return { lines, columns: width, showLogo: show.logo, ...(page ? { page } : {}) };
 }
 
 /** Paper columns for a template paper, or a computer's own paper when it has one. */

@@ -1,9 +1,8 @@
 import { randomUUID } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { weightedAverageCost } from '../src/purchases/purchases.service';
 import { startApp, type TestApp } from './helpers';
 
-// Goods received from suppliers: stock in, numbered per branch, and the item's cost averaged.
+// Goods received from suppliers: stock in, numbered per branch, and the item's cost set to what was paid.
 let t: TestApp;
 let admin: string;
 let ctx: Awaited<ReturnType<TestApp['branchWithRegister']>>;
@@ -17,7 +16,7 @@ afterAll(async () => { await t.close(); });
 const purchase = (token: string, body: Record<string, unknown>) => t.call('POST', '/purchases', token, { branchId: ctx.branch.id, supplierName: 'Acme Traders', ...body });
 
 describe('purchases', () => {
-  it('adds stock, numbers the purchase and averages the item cost', async () => {
+  it('adds stock, numbers the purchase and sets the item cost to what was paid', async () => {
     const item = await t.item(ctx.token, ctx.branch.id, { costPrice: 10, stock: 10 });
     const first = await purchase(ctx.token, {
       supplierInvoiceNo: 'INV-77',
@@ -29,16 +28,17 @@ describe('purchases', () => {
     expect(Number(first.body.totalCost)).toBe(420);
     expect(first.body.lines[0]).toMatchObject({ itemId: item.id, item: { code: item.code } });
     expect(await t.onHand(ctx.token, ctx.branch.id, item.id)).toBe(40);
-    // (10 × 10 + 30 × 14) / 40 = 13
-    expect(Number((await t.db.item.findUniqueOrThrow({ where: { id: item.id } })).costPrice)).toBe(13);
+    // The price paid, not an average with the 10 held at 10.
+    expect(Number((await t.db.item.findUniqueOrThrow({ where: { id: item.id } })).costPrice)).toBe(14);
 
     const ledger = await t.ok<Array<{ txnType: string; qtyIn: string; referenceId: string }>>(
       'GET', `/stock/ledger?branchId=${ctx.branch.id}&itemId=${item.id}`, ctx.token
     );
     expect(ledger[0]).toMatchObject({ txnType: 'PURCHASE', referenceId: first.body.id });
 
-    const second = await purchase(ctx.token, { lines: [{ itemId: item.id, qty: 1, unitCost: 13 }] });
+    const second = await purchase(ctx.token, { lines: [{ itemId: item.id, qty: 1, unitCost: 12.5 }] });
     expect(second.body.purchaseNo).toBe(`PUR-${ctx.branch.code}-000002`);
+    expect(Number((await t.db.item.findUniqueOrThrow({ where: { id: item.id } })).costPrice)).toBe(12.5);
     const list = await t.ok<Array<{ id: string }>>('GET', `/purchases?branchId=${ctx.branch.id}`, ctx.token);
     expect(list.map((row) => row.id)).toEqual([second.body.id, first.body.id]);
   });
@@ -59,11 +59,5 @@ describe('purchases', () => {
     const cashier = await t.login(username, 'cashier-pass-1');
     expect((await purchase(cashier, { lines: [{ itemId: item.id, qty: 1, unitCost: 1 }] })).status).toBe(400);
     expect(await t.onHand(ctx.token, ctx.branch.id, item.id)).toBe(0);
-  });
-
-  it('averages cost only over stock actually held', () => {
-    expect(weightedAverageCost(0, 50, 10, 20)).toBe(20);
-    expect(weightedAverageCost(-5, 50, 10, 20)).toBe(20);
-    expect(weightedAverageCost(10, 10, 10, 20)).toBe(15);
   });
 });

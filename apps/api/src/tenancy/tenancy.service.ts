@@ -57,7 +57,8 @@ export class TenancyService implements OnModuleDestroy {
     const business = await this.load(id);
     if (!business) throw new UnauthorizedException('Session is no longer valid, please sign in again');
     if (business.status !== 'ACTIVE') throw new UnauthorizedException('This business is not active');
-    enterBusiness(business, this.clients.clientFor(business));
+    const { client, release } = await this.clients.acquire(business);
+    enterBusiness(business, client, release);
     return business;
   }
 
@@ -72,8 +73,13 @@ export class TenancyService implements OnModuleDestroy {
   }
 
   /** Runs `work` against a business's schema, outside a request (provisioning, scripts, tests). */
-  run<T>(business: ActiveBusiness, work: () => Promise<T>) {
-    return runForBusiness(business, this.clients.clientFor(business), work);
+  async run<T>(business: ActiveBusiness, work: () => Promise<T>) {
+    const { client, release } = await this.clients.acquire(business);
+    try {
+      return await runForBusiness(business, client, work);
+    } finally {
+      release();
+    }
   }
 
   async onModuleDestroy() {

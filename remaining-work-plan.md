@@ -70,7 +70,8 @@ How the app tells managed from self-hosted:
   apps have updated, since installed apps keep the full address in their config
   (`apiBaseUrl`); or have an update rewrite the old address to the new one.
 
-Order of work: fixes to the product come before selling it. Then 13, then 14. Before charging anyone, also finish the rest of item 3 (off-server
+Order of work: fixes to the product come before selling it, starting with everything in
+`pre-launch-audit.md` (all of it must be done before launch). Then 13, then 14. Before charging anyone, also finish the rest of item 3 (off-server
 backups, a practised restore, uptime monitoring) and item 7 (data export), which paying
 customers expect. Item 16 (closing the source) must be done before the first real release. Item 15 comes after
 managed hosting is selling.
@@ -623,3 +624,4 @@ managed hosting is selling.
 - 2026-10-04: Item 8 done: the owner's screen (/owner) lists each business's staff, gives new passwords and turns staff off or on.
 - 2026-10-04: Item 1 done: crash reports to our own server (desktop main, local API, page, online API), scrubbed, sent only after an admin says yes.
 - 2026-10-04: Version 0.1.3 prepared: ships items 10, 11, 17, 7, 8 and 1 to installed apps. Deploy the server first (two new migrations). Then set `MIN_CLIENT_VERSION=0.1.3`: a 0.1.2 fallback counter can't load the new offline copy (it lacks the migration) and its offline sales are refused until it updates.
+- 2026-10-04: Codebase audit written up in `pre-launch-audit.md`; all of it is needed before launch.

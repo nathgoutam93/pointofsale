@@ -19,6 +19,7 @@ import { ProvisioningService } from './provisioning.service';
 import type { ActiveBusiness } from './tenant-context';
 import { TenancyService } from './tenancy.service';
 import { TenantClients } from './tenant-clients';
+import type { PrismaClient } from '@prisma/client';
 
 /** Most a bundle may unpack to. */
 const MAX_UNPACKED_BYTES = 4 * 1024 * 1024 * 1024;
@@ -114,7 +115,16 @@ export class ImportService {
 
   /** Rows into the new schema: parents first, foreign keys checked, counts compared. */
   private async loadRows(business: ActiveBusiness, work: string, manifest: MigrationManifest) {
-    const client = this.clients.clientFor(business);
+    // Held for the whole load, so the client isn't dropped while other businesses come and go.
+    const { client, release } = await this.clients.acquire(business);
+    try {
+      await this.loadRowsWith(client, business, work, manifest);
+    } finally {
+      release();
+    }
+  }
+
+  private async loadRowsWith(client: PrismaClient, business: ActiveBusiness, work: string, manifest: MigrationManifest) {
     const uploadPrefix = `/uploads/imported/${business.id}/`;
     await client.$transaction(
       async (tx) => {

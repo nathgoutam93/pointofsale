@@ -93,12 +93,19 @@ export class ReceiptEmailService {
       ),
       orderDiscount: Number(invoice.orderDiscountAmount ?? 0),
       grandTotal: Number(invoice.grandTotal),
-      payments: invoice.payments.map((payment) => ({ mode: payment.mode, amount: Number(payment.amount) })),
+      roundOff: Number(invoice.roundOff),
+      payments: invoice.payments.map((payment) => ({
+        mode: payment.mode,
+        amount: Number(payment.amount),
+        tendered: payment.tendered === null ? null : Number(payment.tendered)
+      })),
       paidTotal: Number(invoice.paidTotal),
       creditedTotal: Number(invoice.creditedTotal),
       timeZone: business?.timezone ?? undefined
     });
-    const receipt = renderReceipt(doc, resolveReceiptTemplate(branch.receiptTemplate, branch.receiptCss || branch.invoiceCss));
+    // Emailed as text: an A4 branch's bill in the 80 mm receipt's width.
+    const template = resolveReceiptTemplate(branch.receiptTemplate, branch.receiptCss || branch.invoiceCss);
+    const receipt = renderReceipt(doc, template, template.paper === 'A4' ? 48 : undefined);
     await this.mailer.send({
       to,
       subject: `Your receipt from ${storeName}: ${invoice.invoiceNo}`,

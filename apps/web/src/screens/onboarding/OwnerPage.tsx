@@ -4,13 +4,14 @@ import { FormEvent, useState } from "react";
 import { api, apiErrorMessage } from "../../lib/api";
 import { useServerMode } from "../../lib/mode";
 import { ErrorNote, OnboardingShell } from "./OnboardingShell";
+import { BusinessDeletion, type OwnedBusiness } from "./OwnerDeletion";
 
-type Owner = { token: string; email: string; businesses: Array<{ id: string; code: string; name: string; status: string }> };
+type Owner = { token: string; email: string; businesses: OwnedBusiness[] };
 
 /**
  * Online: the owner account's own screen. The owner signs in with the email and password that
  * created the business (or moved it online), sees each of their businesses' staff, gives anyone
- * a new password, and turns staff off or on. The owner token lives only in this page.
+ * a new password, turns staff off or on, and can delete a business. The owner token lives only in this page.
  */
 export function OwnerPage() {
   const mode = useServerMode();
@@ -73,12 +74,25 @@ function OwnerSignIn({ onSignedIn }: { onSignedIn: (owner: Owner) => void }) {
 
 function OwnerStaff({ owner, onSignOut }: { owner: Owner; onSignOut: () => void }) {
   const queryClient = useQueryClient();
-  const usable = owner.businesses.filter((business) => business.status === "ACTIVE");
-  const [businessId, setBusinessId] = useState(usable[0]?.id ?? "");
+  const auth = { Authorization: `Bearer ${owner.token}` };
+  const businessesQuery = useQuery({
+    queryKey: ["owner-businesses", owner.token],
+    initialData: owner.businesses,
+    staleTime: Infinity,
+    queryFn: async () => {
+      const res = await api.accounts.businesses({ extraHeaders: auth });
+      if (res.status !== 200) throw new Error(apiErrorMessage(res.body, "Couldn't load your businesses."));
+      return res.body;
+    },
+  });
+  const businesses = businessesQuery.data;
+  const usable = businesses.filter((business) => business.status === "ACTIVE");
+  const [chosenId, setBusinessId] = useState(usable[0]?.id ?? "");
+  // A business deleted from here can't stay chosen.
+  const businessId = usable.some((candidate) => candidate.id === chosenId) ? chosenId : (usable[0]?.id ?? "");
   const [resetting, setResetting] = useState<string | null>(null);
   const [message, setMessage] = useState("");
-  const auth = { Authorization: `Bearer ${owner.token}` };
-  const business = owner.businesses.find((candidate) => candidate.id === businessId);
+  const business = businesses.find((candidate) => candidate.id === businessId);
 
   const staff = useQuery({
     queryKey: ["owner-staff", businessId],
@@ -106,7 +120,7 @@ function OwnerStaff({ owner, onSignOut }: { owner: Owner; onSignOut: () => void 
     <OnboardingShell title="Your businesses' staff" subtitle={`Signed in as ${owner.email}.`}>
       <div className="grid gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          {owner.businesses.length > 1 ? (
+          {businesses.length > 1 ? (
             <div>
               <label className="field-label" htmlFor="owner-business">Business</label>
               <select
@@ -119,9 +133,9 @@ function OwnerStaff({ owner, onSignOut }: { owner: Owner; onSignOut: () => void 
                   setMessage("");
                 }}
               >
-                {owner.businesses.map((candidate) => (
+                {businesses.map((candidate) => (
                   <option key={candidate.id} value={candidate.id} disabled={candidate.status !== "ACTIVE"}>
-                    {candidate.name} ({candidate.code}){candidate.status !== "ACTIVE" ? " · not active" : ""}
+                    {candidate.name} ({candidate.code}){candidate.status === "DELETING" ? " · being deleted" : candidate.status !== "ACTIVE" ? " · not active" : ""}
                   </option>
                 ))}
               </select>
@@ -139,7 +153,7 @@ function OwnerStaff({ owner, onSignOut }: { owner: Owner; onSignOut: () => void 
         {message ? <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800" role="status">{message}</p> : null}
         {setActive.error ? <ErrorNote message={(setActive.error as Error).message} /> : null}
 
-        {staff.isLoading ? (
+        {!businessId ? null : staff.isLoading ? (
           <p className="text-sm text-slate-500">Loading…</p>
         ) : staff.error ? (
           <ErrorNote message={(staff.error as Error).message} />
@@ -200,6 +214,15 @@ function OwnerStaff({ owner, onSignOut }: { owner: Owner; onSignOut: () => void 
         <p className="text-xs text-slate-500">
           Adding staff, their branches and what cashiers may do stay with the business's admins (Settings → Cashiers & Access).
         </p>
+        <BusinessDeletion
+          businesses={businesses}
+          auth={auth}
+          onChanged={(text) => {
+            setResetting(null);
+            setMessage(text);
+            void businessesQuery.refetch();
+          }}
+        />
       </div>
     </OnboardingShell>
   );

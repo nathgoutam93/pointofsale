@@ -260,6 +260,37 @@ the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud.
 
 11. **Monitoring:** an uptime check (UptimeRobot or similar) on `https://<your domain>/meta`.
 
+12. **Database connections, as businesses grow:** each business has its own small pool of
+    connections (`TENANT_CONNECTION_LIMIT`, default 3), kept for the `TENANT_CLIENT_CACHE` (default
+    100) businesses used most recently. Up to their product (300 by default) can be open, against
+    PostgreSQL's default `max_connections` of 100; the API warns at start when that can happen.
+    A client is only dropped when no request is using it. Beyond a few dozen businesses, put
+    PgBouncer in front of PostgreSQL in transaction mode:
+    ```bash
+    sudo apt install -y pgbouncer
+    # /etc/pgbouncer/pgbouncer.ini
+    #   [databases]
+    #   pos = host=127.0.0.1 port=5432 dbname=pos
+    #   [pgbouncer]
+    #   listen_addr = 127.0.0.1
+    #   listen_port = 6432
+    #   auth_type = scram-sha-256
+    #   auth_file = /etc/pgbouncer/userlist.txt
+    #   pool_mode = transaction
+    #   max_client_conn = 1000
+    #   default_pool_size = 40
+    # /etc/pgbouncer/userlist.txt: "pos" "<the SCRAM secret from: sudo -u postgres psql -Atc \"select rolpassword from pg_authid where rolname='pos'\">"
+    sudo systemctl restart pgbouncer
+    ```
+    Then in `.env` point the API at PgBouncer, with `pgbouncer=true` (Prisma then doesn't use
+    prepared statements, which transaction pooling can't keep):
+    `DATABASE_URL=postgresql://pos:<db-password>@localhost:6432/pos?schema=public&pgbouncer=true`.
+    Migrations need a direct connection (they hold a lock across statements), so run them with
+    the database URL on the command line, which wins over `.env`:
+    `DATABASE_URL=postgresql://pos:<db-password>@localhost:5432/pos?schema=public node dist/tenancy/cli.js migrate`
+    (`deploy/deploy.sh` does this itself when `.env` has `MIGRATE_DATABASE_URL=` with that direct URL). Keep
+    `default_pool_size` well under `max_connections`.
+
 ### Deploying an update
 On the server, as `ubuntu`:
 ```bash

@@ -96,7 +96,7 @@ export async function startApp() {
   /** A new branch with a free code. */
   async function newBranch(adminToken: string, label = 'Test') {
     const code = await freeBranchCode();
-    return ok<{ id: string; code: string }>('POST', '/branches', adminToken, { name: `${label} ${code}`, code });
+    return ok<{ id: string; code: string; name: string }>('POST', '/branches', adminToken, { name: `${label} ${code}`, code });
   }
 
   /** A fresh branch with an open register (so each test file has its own data). */
@@ -194,6 +194,17 @@ export async function assertStockMatchesLedger(db: PrismaClient) {
     WHERE COALESCE(s.qty, 0) <> COALESCE(l.qty, 0)`;
   if (mismatches.length > 0) {
     throw new Error(`ItemStock differs from the ledger: ${JSON.stringify(mismatches.slice(0, 5))}`);
+  }
+  // And each batch's stock, which never goes below 0.
+  const batchMismatches = await db.$queryRaw<Array<{ branchId: string; batchId: string; stock: string; ledger: string }>>`
+    SELECT COALESCE(s."branchId", l."branchId") AS "branchId", COALESCE(s."batchId", l."batchId") AS "batchId",
+           COALESCE(s.qty, 0)::text AS stock, COALESCE(l.qty, 0)::text AS ledger
+    FROM "BatchStock" s
+    FULL JOIN (SELECT "branchId", "batchId", SUM("qtyIn" - "qtyOut") AS qty FROM "StockLedger" WHERE "batchId" IS NOT NULL GROUP BY 1, 2) l
+      ON l."branchId" = s."branchId" AND l."batchId" = s."batchId"
+    WHERE COALESCE(s.qty, 0) <> COALESCE(l.qty, 0) OR COALESCE(s.qty, 0) < 0`;
+  if (batchMismatches.length > 0) {
+    throw new Error(`BatchStock differs from the ledger: ${JSON.stringify(batchMismatches.slice(0, 5))}`);
   }
 }
 

@@ -1,3 +1,4 @@
+import { round2 } from './pricing.js';
 import { gstStateLabel, type GstDocumentType } from './gst.js';
 import type { ReceiptDocument, ReceiptDocumentItem, ReceiptField } from './receiptLayout.js';
 
@@ -132,7 +133,10 @@ export function saleReceiptDocument(sale: {
   items: ReceiptDocumentItem[];
   orderDiscount: number;
   grandTotal: number;
-  payments: Array<{ mode: string; amount: number }>;
+  /** What the total was rounded by (part of grandTotal). */
+  roundOff?: number;
+  /** `tendered`: cash handed over when more than the amount (the rest was change). */
+  payments: Array<{ mode: string; amount: number; tendered?: number | null }>;
   paidTotal: number;
   /** Taken off the amount due by returns made before the bill was paid. */
   creditedTotal?: number;
@@ -158,13 +162,23 @@ export function saleReceiptDocument(sale: {
     fields,
     barcodeValue: sale.invoiceNo,
     items: sale.items,
-    itemsTotal: sale.grandTotal + sale.orderDiscount,
+    itemsTotal: round2(sale.grandTotal - (sale.roundOff ?? 0) + sale.orderDiscount),
     orderDiscount: sale.orderDiscount,
+    roundOff: sale.roundOff ?? 0,
     taxTotals: gstTaxAmounts(sale.gst),
     grandTotalLabel: 'TOTAL',
     grandTotal: sale.grandTotal,
     payments: [
-      ...sale.payments.map((payment) => ({ label: `Paid by ${payment.mode}`, amount: payment.amount })),
+      ...sale.payments.flatMap((payment) => [
+        { label: `Paid by ${payment.mode}`, amount: payment.amount },
+        // Cash handed over and the change given back.
+        ...(payment.tendered && payment.tendered > payment.amount
+          ? [
+              { label: 'Cash tendered', amount: payment.tendered },
+              { label: 'Change', amount: round2(payment.tendered - payment.amount) },
+            ]
+          : []),
+      ]),
       ...(credited > 0 ? [{ label: 'Less returns', amount: credited }] : []),
     ],
     due: invoiceDue({ grandTotal: sale.grandTotal, paidTotal: sale.paidTotal, creditedTotal: credited }),
@@ -179,13 +193,13 @@ export function rateFromAmounts(taxable: number, tax: number) {
   if (taxable <= 0 || tax <= 0) return 0;
   const rate = (tax / taxable) * 100;
   const nearest = COMMON_GST_RATES.reduce((best, known) => (Math.abs(known - rate) < Math.abs(best - rate) ? known : best));
-  return Math.abs(nearest - rate) < 0.5 ? nearest : Math.round(rate * 100) / 100;
+  return Math.abs(nearest - rate) < 0.5 ? nearest : round2(rate);
 }
 
 /** What is still owed on a bill: its total less payments and returns taken off it. */
 export function invoiceDue(invoice: { grandTotal: number | string; paidTotal: number | string; creditedTotal?: number | string | null }) {
   const due = Number(invoice.grandTotal) - Number(invoice.paidTotal) - Number(invoice.creditedTotal ?? 0);
-  return Math.max(0, Math.round(due * 100) / 100);
+  return Math.max(0, round2(due));
 }
 
 /**
@@ -193,8 +207,8 @@ export function invoiceDue(invoice: { grandTotal: number | string; paidTotal: nu
  * a bill not yet paid in full is first brought down, and only the rest is refunded.
  */
 export function splitReturn(amount: number, due: number) {
-  const dueAdjusted = Math.round(Math.min(amount, Math.max(0, due)) * 100) / 100;
-  return { dueAdjusted, refundAmount: Math.round((amount - dueAdjusted) * 100) / 100 };
+  const dueAdjusted = round2(Math.min(amount, Math.max(0, due)));
+  return { dueAdjusted, refundAmount: round2(amount - dueAdjusted) };
 }
 
 /** A return: what was refunded and how. */
@@ -214,7 +228,7 @@ export function returnReceiptDocument(refund: {
   timeZone?: string;
 }): ReceiptDocument {
   const dueAdjusted = refund.dueAdjusted ?? 0;
-  const refunded = Math.round((refund.totalAmount - dueAdjusted) * 100) / 100;
+  const refunded = round2(refund.totalAmount - dueAdjusted);
   const taxTotals = [
     ...(refund.tax.igst > 0 ? [{ label: 'incl. IGST', amount: refund.tax.igst }] : []),
     ...(refund.tax.cgst > 0 || refund.tax.sgst > 0
@@ -269,7 +283,15 @@ type InvoiceLine = {
   netAmount: number | string;
   hsnCode?: string | null;
   discountAllocations?: Array<{ discountId: string; amount: number | string }>;
+  /** Items kept by batch: the batches it was sold from. */
+  batches?: Array<{ batchNo: string; expiryDate: string | null; qty: number }>;
 };
+
+/** "Batch A1 exp 2027-03-31", one per batch a line was sold from. */
+export function batchLabel(batches: Array<{ batchNo: string; expiryDate: string | null }> | undefined) {
+  if (!batches || batches.length === 0) return null;
+  return batches.map((batch) => `Batch ${batch.batchNo}${batch.expiryDate ? ` exp ${batch.expiryDate}` : ''}`).join(', ');
+}
 
 const formatQtyLabel = (qty: number) => (Number.isInteger(qty) ? qty.toFixed(0) : qty.toFixed(3));
 
@@ -309,7 +331,8 @@ export function invoiceReceiptItems(
       discount: Math.max(0, itemDiscount),
       // Before the order discount, which is shown once under the items.
       total: Number(line.netAmount ?? 0) + orderDiscount,
-      taxable: Number(line.taxableAmount ?? 0)
+      taxable: Number(line.taxableAmount ?? 0),
+      batches: batchLabel(line.batches)
     };
   });
 }

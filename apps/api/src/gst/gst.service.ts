@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InvoiceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
-import { toNumber } from '../common/numbers';
+import { round2, toNumber } from '../common/numbers';
 import { financialYearStart } from '@pos/contracts';
 import { localDate, startOfLocalDay } from '../reports/zoned-dates';
 import { SettingsService } from '../settings/settings.service';
@@ -163,7 +163,45 @@ export class GstService {
   /** The sales side of GSTR-3B for the same periods, from the same figures as GSTR-1. */
   async gstr3b(gstin: string, from: string, to: string) {
     assertMonthOrQuarter(from, to);
-    return { gstin, from, to, ...buildGstr3b(buildGstr1(await this.loadPeriod(gstin, from, to))) };
+    const [period, itc] = await Promise.all([this.loadPeriod(gstin, from, to), this.purchaseItc(gstin, from, to)]);
+    return { gstin, from, to, ...buildGstr3b(buildGstr1(period), itc) };
+  }
+
+  /**
+   * Input tax credit from purchases bought under `gstin` in the months from-to: those it counts
+   * for (a registered supplier, a regular taxpayer), by the supplier's invoice date when entered,
+   * else the day the goods were received.
+   */
+  private async purchaseItc(gstin: string, from: string, to: string) {
+    const start = parseMonth(from);
+    const end = parseMonth(to);
+    const { timezone } = await this.settings.ensureBusinessSettings();
+    const firstDay = `${start.year}-${String(start.month).padStart(2, '0')}-01`;
+    const next = end.month === 12 ? { year: end.year + 1, month: 1 } : { year: end.year, month: end.month + 1 };
+    const afterLastDay = `${next.year}-${String(next.month).padStart(2, '0')}-01`;
+    const received = { gte: startOfLocalDay(start.year, start.month, 1, timezone), lt: startOfLocalDay(next.year, next.month, 1, timezone) };
+    const where = {
+      buyerGstin: gstin,
+      itcEligible: true,
+      OR: [{ supplierInvoiceDate: { gte: firstDay, lt: afterLastDay } }, { supplierInvoiceDate: null, createdAt: received }]
+    };
+    // Goods sent back in the period take their GST off again (the supplier's credit note).
+    const [totals, returned] = await Promise.all([
+      this.prisma.purchase.aggregate({ where, _count: true, _sum: { igstTotal: true, cgstTotal: true, sgstTotal: true } }),
+      this.prisma.purchaseReturn.aggregate({
+        where: { itcReversed: true, purchase: { buyerGstin: gstin }, createdAt: received },
+        _count: true,
+        _sum: { igstTotal: true, cgstTotal: true, sgstTotal: true }
+      })
+    ]);
+    const net = (bought: unknown, sentBack: unknown) => round2(num(bought) - num(sentBack));
+    return {
+      purchases: totals._count,
+      purchaseReturns: returned._count,
+      igst: net(totals._sum.igstTotal, returned._sum.igstTotal),
+      cgst: net(totals._sum.cgstTotal, returned._sum.cgstTotal),
+      sgst: net(totals._sum.sgstTotal, returned._sum.sgstTotal)
+    };
   }
 
   /** CMP-08: a composition taxpayer's quarter. */

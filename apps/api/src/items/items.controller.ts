@@ -1,19 +1,19 @@
-import type { GstSupplyType } from '@pos/contracts';
-import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { join } from 'path';
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
 import { getSession, requireAdminSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
-import { uploadsDir } from '../common/uploads';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { imageUploadOptions, saveImage } from '../common/uploads';
 import { ItemsService } from './items.service';
+import { ItemImportService } from './item-import.service';
 
 @Controller()
 export class ItemsController {
   constructor(
     private readonly items: ItemsService,
-    private readonly access: AccessService
+    private readonly access: AccessService,
+    private readonly itemImport: ItemImportService
   ) {}
 
   /** The catalogue is the business's: admins, and cashiers allowed to manage items. */
@@ -23,7 +23,7 @@ export class ItemsController {
 
   @Get('/items')
   listItems(
-    @Query(new ZodValidationPipe(appContract.items.list.query)) { activeOnly, branchId }: { activeOnly?: boolean; branchId?: string },
+    @Query(new ZodValidationPipe(appContract.items.list.query)) { activeOnly, branchId }: Parsed<typeof appContract.items.list.query>,
     @Headers() headers: RequestHeaders
   ) {
     return this.items.listItems(getSession(headers), activeOnly === true, branchId);
@@ -38,91 +38,64 @@ export class ItemsController {
   setBranchPrices(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.items.setBranchPrices.body))
-    body: { branchId: string; prices: Array<{ uom: string; sellPrice: number; mrp?: number }> },
+    body: Parsed<typeof appContract.items.setBranchPrices.body>,
     @Headers() headers: RequestHeaders
   ) {
     return this.items.setBranchPrices(requireAdminSession(headers), id, body.branchId, body.prices);
   }
 
   @Post('/items/upload-image')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      dest: join(uploadsDir, 'items'),
-      fileFilter: (_req: unknown, file: { mimetype: string }, cb: (error: Error | null, acceptFile: boolean) => void) => {
-        if (!file.mimetype?.startsWith('image/')) {
-          cb(new BadRequestException('Only image files are allowed'), false);
-          return;
-        }
-        cb(null, true);
-      },
-      limits: { fileSize: 5 * 1024 * 1024 }
-    })
-  )
-  async uploadItemImage(@UploadedFile() file: { filename: string } | undefined, @Headers() headers: RequestHeaders) {
+  @UseInterceptors(FileInterceptor('file', imageUploadOptions))
+  async uploadItemImage(@UploadedFile() file: { buffer?: Buffer } | undefined, @Headers() headers: RequestHeaders) {
+    // Checked before anything is saved: the upload is held in memory until then.
     await this.managing(headers);
-    if (!file) {
-      throw new BadRequestException('Image file is required');
-    }
+    return { path: await saveImage(file, 'items') };
+  }
 
-    return { path: `/uploads/items/${file.filename}` };
+  @Post('/items/import')
+  @HttpCode(200)
+  async importItems(
+    @Body(new ZodValidationPipe(appContract.items.import.body)) body: Parsed<typeof appContract.items.import.body>,
+    @Headers() headers: RequestHeaders
+  ) {
+    await this.managing(headers);
+    const session = getSession(headers);
+    await this.access.requireBranch(session, body.branchId);
+    // Opening stock and reorder levels are stock changes; costs only for those who see them.
+    const mayChangeStock = await this.access.requirePermission(session, 'MANAGE_STOCK').then(() => true, () => false);
+    return this.itemImport.import(session, body, { maySeeCosts: await this.access.maySeeCosts(session), mayChangeStock });
   }
 
   @Post('/items')
   async createItem(
     @Body(new ZodValidationPipe(appContract.items.create.body))
-    body: {
-      code: string;
-      name: string;
-      category?: string;
-      uom: string;
-      leastCount?: number;
-      costPrice?: number;
-      sellPrice: number;
-      mrp?: number;
-      saleUoms?: Array<{ uom: string; conversionQty: number; sellPrice: number; mrp?: number }>;
-      taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
-      taxRate: number;
-      hsnCode?: string | null;
-      uqc?: string | null;
-      supplyType?: GstSupplyType;
-      imageUrl?: string;
-    },
+    body: Parsed<typeof appContract.items.create.body>,
     @Headers() headers: RequestHeaders
   ) {
     await this.managing(headers);
-    return this.items.createItem(body);
+    const session = getSession(headers);
+    // Someone who may not see costs can't set one either (the item starts at 0).
+    const { costPrice, ...rest } = body;
+    return this.items.createItem(session, (await this.access.maySeeCosts(session)) ? body : rest);
   }
 
   @Patch('/items/:id')
   async updateItem(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.items.update.body))
-    body: {
-      name?: string;
-      category?: string | null;
-      uom?: string;
-      leastCount?: number;
-      costPrice?: number;
-      sellPrice?: number;
-      mrp?: number;
-      saleUoms?: Array<{ uom: string; conversionQty: number; sellPrice: number; mrp?: number }>;
-      taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
-      taxRate?: number;
-      hsnCode?: string | null;
-      uqc?: string | null;
-      supplyType?: GstSupplyType;
-      imageUrl?: string | null;
-      isActive?: boolean;
-    },
+    body: Parsed<typeof appContract.items.update.body>,
     @Headers() headers: RequestHeaders
   ) {
     await this.managing(headers);
-    return this.items.updateItem(id, body);
+    const session = getSession(headers);
+    // Someone who may not see costs leaves the cost as it is.
+    const { costPrice, ...rest } = body;
+    return this.items.updateItem(session, id, (await this.access.maySeeCosts(session)) ? body : rest);
   }
 
   @Delete('/items/:id')
   async deleteItem(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
     await this.managing(headers);
-    return this.items.deleteItem(id);
+    return this.items.deleteItem(getSession(headers), id);
   }
 }

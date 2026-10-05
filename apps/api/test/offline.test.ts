@@ -236,7 +236,7 @@ describe('offline install', () => {
     const branch = await t.db.branch.findFirstOrThrow();
     await t.ok('POST', '/users', admin, { branchId: branch.id, username: 'till', password: 'till-pass-1' });
     const cashier = await t.login('till', 'till-pass-1');
-    expect((await t.call('GET', '/migration/export', cashier)).status).toBe(400);
+    expect((await t.call('GET', '/migration/export', cashier)).status).toBe(403);
     expect((await t.call('GET', '/migration/export')).status).toBe(401);
   });
 
@@ -304,7 +304,7 @@ describe('forgotten admin password', () => {
 
     // Admins can see whether one exists and replace it; cashiers can't.
     expect((await t.ok('GET', '/auth/recovery-code', admin)).set).toBe(true);
-    expect((await t.call('POST', '/auth/recovery-code', cashier)).status).toBe(400);
+    expect((await t.call('POST', '/auth/recovery-code', cashier)).status).toBe(403);
     const { recoveryCode } = await t.ok('POST', '/auth/recovery-code', admin);
     // The hash is never shown anywhere.
     expect(JSON.stringify(await t.ok('GET', '/business/settings', admin))).not.toMatch(/recovery/i);

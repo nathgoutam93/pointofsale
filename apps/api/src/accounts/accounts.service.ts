@@ -146,11 +146,11 @@ export class AccountsService {
 
   async businessesOf(accountId: string) {
     const memberships = await this.tenancy.control.membership.findMany({
-      where: { accountId },
+      where: { accountId, business: { status: { not: 'DELETED' } } },
       orderBy: { createdAt: 'asc' },
-      select: { business: { select: { id: true, code: true, name: true, status: true } } }
+      select: { business: { select: { id: true, code: true, name: true, status: true, deleteAfter: true } } }
     });
-    return memberships.map((membership) => membership.business);
+    return memberships.map(({ business }) => ({ ...business, deleteAfter: business.deleteAfter?.toISOString() ?? null }));
   }
 
   /** Makes the rest of the request work in one of the owner's businesses. */

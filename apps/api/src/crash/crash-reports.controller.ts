@@ -1,11 +1,11 @@
 import { Body, Controller, Headers, HttpCode, Ip, Post, UseGuards } from '@nestjs/common';
-import { crashReportsBodySchema, type CrashReport } from '@pos/contracts';
+import { crashReportsBodySchema } from '@pos/contracts';
 import { Public } from '../auth/auth.guard';
 import { readBearerToken, verifyToken } from '../auth/token';
 import { OnlineOnlyGuard } from '../common/mode';
 import { FailureLimiter } from '../common/rate-limit';
 import type { RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { CrashReportsService } from './crash-reports.service';
 
 /** 60 deliveries an hour per address: an app in a crash loop can't fill the table. */
@@ -20,7 +20,7 @@ export class CrashReportsController {
   @Public()
   @Post('/crash-reports')
   @HttpCode(202)
-  async report(@Body(new ZodValidationPipe(crashReportsBodySchema)) body: { reports: CrashReport[] }, @Headers() headers: RequestHeaders, @Ip() ip: string) {
+  async report(@Body(new ZodValidationPipe(crashReportsBodySchema)) body: Parsed<typeof crashReportsBodySchema>, @Headers() headers: RequestHeaders, @Ip() ip: string) {
     deliveries.assertAllowed(ip);
     deliveries.failed(ip);
     // The business, only when a signed-in page sends it (the token is checked, never trusted blindly).

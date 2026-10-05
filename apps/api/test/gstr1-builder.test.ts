@@ -238,7 +238,7 @@ describe('GSTR-3B builder', () => {
     const returns: Gstr1Return[] = [
       { returnNo: 'MAINR/2627/00001', documentSeries: 'MAINR', createdAt: at(10), totalAmount: 23600, invoice: large, lines: [{ saleLine: large.lines[0], qty: 1, taxable: 20000, cgst: 0, sgst: 0, igst: 3600 }] }
     ];
-    const { table31, table32, problems } = buildGstr3b(build([intra, large, small], returns));
+    const { table31, table32, table4, problems } = buildGstr3b(build([intra, large, small], returns));
     expect(table31.outwardTaxable).toEqual({ txval: 180700, iamt: 32490, camt: 18, samt: 18, csamt: 0 });
     expect(table31.outwardNilExempt.txval).toBe(40);
     expect(table31.outwardNonGst.txval).toBe(60);
@@ -246,6 +246,11 @@ describe('GSTR-3B builder', () => {
       { pos: '27', txval: 180000, iamt: 32400 },
       { pos: '33', txval: 500, iamt: 90 }
     ]);
-    expect(problems.map((p) => p.message).join(' ')).toMatch(/Input tax credit \(Table 4\) is not included/);
+    // No purchases recorded: no input tax credit, and a note to fill it in.
+    expect(table4).toEqual({ itcAvailable: { iamt: 0, camt: 0, samt: 0, csamt: 0 }, purchases: 0, purchaseReturns: 0 });
+    expect(problems.map((p) => p.message).join(' ')).toMatch(/input tax credit \(Table 4\) is 0/);
+    // With purchases: their tax, by kind.
+    const withItc = buildGstr3b(build([intra], []), { purchases: 3, igst: 18, cgst: 4.5, sgst: 4.5 });
+    expect(withItc.table4).toEqual({ itcAvailable: { iamt: 18, camt: 4.5, samt: 4.5, csamt: 0 }, purchases: 3, purchaseReturns: 0 });
   });
 });

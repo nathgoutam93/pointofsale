@@ -30,12 +30,12 @@ describe('cashier permissions', () => {
       items: () => t.call('POST', '/items', cashier.token, { code: `P${Date.now()}`, name: 'Cashier item', uom: 'PCS', sellPrice: 10, taxRate: 0 }),
       purchases: () => t.call('POST', '/purchases', cashier.token, { branchId: a.branch.id, supplierName: 'Acme', lines: [{ itemId, qty: 1, unitCost: 5 }] }),
       transfers: () => t.call('POST', '/stock-transfers', cashier.token, { fromBranchId: a.branch.id, toBranchId: b.branch.id, lines: [{ itemId, qty: 1 }] }),
-      wallet: () => t.call('POST', `/customers/${customerId}/wallet/topup`, cashier.token, { amount: 50 }),
-      cancel: () => t.call('POST', `/sales/${unpaid.id}/cancel`, cashier.token)
+      wallet: () => t.call('POST', `/customers/${customerId}/wallet/topup`, cashier.token, { amount: 50, mode: 'CASH' }),
+      cancel: () => t.call('POST', `/sales/${unpaid.id}/cancel`, cashier.token, { reason: 'Test cancel' })
     };
     for (const [name, attempt] of Object.entries(attempts)) {
       const res = await attempt();
-      expect(res.status, name).toBe(400);
+      expect(res.status, name).toBe(403);
       expect(res.body.message, name).toMatch(/aren't allowed/);
     }
     expect((await t.ok('GET', '/auth/me', cashier.token)).permissions).toEqual([]);
@@ -49,11 +49,11 @@ describe('cashier permissions', () => {
     }
     // Still only at their register's branch.
     const elsewhere = await t.call('POST', '/stock/adjustment', cashier.token, { branchId: b.branch.id, itemId, qty: 1, direction: 'IN', reason: 'Elsewhere' });
-    expect(elsewhere.status).toBe(400);
+    expect(elsewhere.status).toBe(403);
 
     // Taken away again: refused at once, without signing in again.
     await t.ok('PATCH', `/users/${cashier.userId}`, admin, { permissions: [] });
-    expect((await attempts.stock()).status).toBe(400);
+    expect((await attempts.stock()).status).toBe(403);
   });
 
   it('are given when the cashier is created, and only to cashiers', async () => {
@@ -88,20 +88,20 @@ describe('admins and branches', () => {
 
   it("still sell only at the register's branch", async () => {
     const res = await t.call('POST', '/sales/checkout', a.token, checkoutBody(b.branch.id, b.walkIn.id, [line(itemId)], [{ mode: 'CASH', amount: 100 }]));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
   });
 
   it("don't reach a branch they have no access to", async () => {
     const other = await t.newBranch(admin, 'Hidden');
     await t.db.userBranchAccess.deleteMany({ where: { branchId: other.id } });
-    expect((await t.call('GET', `/sales?branchId=${other.id}`, admin)).status).toBe(400);
-    expect((await t.call('GET', `/branches/${other.id}`, admin)).status).toBe(400);
+    expect((await t.call('GET', `/sales?branchId=${other.id}`, admin)).status).toBe(403);
+    expect((await t.call('GET', `/branches/${other.id}`, admin)).status).toBe(403);
   });
 
   it("let only the branch's own people read its settings", async () => {
     const cashier = await t.cashierWithRegister(admin, a.branch.id);
     expect((await t.call('GET', `/branches/${a.branch.id}`, cashier.token)).status).toBe(200);
-    expect((await t.call('GET', `/branches/${b.branch.id}`, cashier.token)).status).toBe(400);
+    expect((await t.call('GET', `/branches/${b.branch.id}`, cashier.token)).status).toBe(403);
   });
 });
 
@@ -110,9 +110,9 @@ describe('receiving transfers', () => {
     const sent = await t.ok('POST', '/stock-transfers', admin, { fromBranchId: a.branch.id, toBranchId: b.branch.id, lines: [{ itemId, qty: 2 }] });
     const atSource = await t.cashierWithRegister(admin, a.branch.id);
     const atDestination = await t.cashierWithRegister(admin, b.branch.id);
-    expect((await t.call('POST', `/stock-transfers/${sent.id}/cancel`, atSource.token)).status).toBe(400);
+    expect((await t.call('POST', `/stock-transfers/${sent.id}/cancel`, atSource.token)).status).toBe(403);
     // A cashier with no access to the receiving branch can't take it in.
-    expect((await t.call('POST', `/stock-transfers/${sent.id}/receive`, atSource.token)).status).toBe(400);
+    expect((await t.call('POST', `/stock-transfers/${sent.id}/receive`, atSource.token)).status).toBe(403);
     const received = await t.call('POST', `/stock-transfers/${sent.id}/receive`, atDestination.token);
     expect(received.status).toBe(200);
     expect(received.body).toMatchObject({ status: 'RECEIVED', closedByName: atDestination.username });

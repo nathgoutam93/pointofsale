@@ -81,6 +81,6 @@ describe('server-side pricing', () => {
     await t.ok('PATCH', '/business/settings', admin, { cashierMaxDiscountPercent: 20 });
     expect((await as([phoneLine()], [{ type: 'PERCENTAGE', value: 15 }])).status).toBe(201);
     await t.ok('PATCH', '/business/settings', admin, { cashierMaxDiscountPercent: 10 });
-    expect((await t.call('PATCH', '/business/settings', c.token, { cashierMaxDiscountPercent: 100 })).status).toBe(400);
+    expect((await t.call('PATCH', '/business/settings', c.token, { cashierMaxDiscountPercent: 100 })).status).toBe(403);
   });
 });

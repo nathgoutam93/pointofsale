@@ -2,8 +2,8 @@ import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { appContract } from '@pos/contracts';
 import { Public } from '../auth/auth.guard';
 import { OfflineOnlyGuard } from '../common/mode';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
-import { SetupInput, SetupService } from './setup.service';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { SetupService } from './setup.service';
 
 @Controller()
 export class SetupController {
@@ -16,7 +16,7 @@ export class SetupController {
   @Public()
   @UseGuards(OfflineOnlyGuard)
   @Post('/setup')
-  setup(@Body(new ZodValidationPipe(appContract.setup.run.body)) body: SetupInput) {
+  setup(@Body(new ZodValidationPipe(appContract.setup.run.body)) body: Parsed<typeof appContract.setup.run.body>) {
     return this.setupService.setup(body);
   }
 }

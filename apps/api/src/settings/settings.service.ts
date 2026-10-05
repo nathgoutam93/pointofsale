@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CompositionCategory, CustomerScope, Prisma, TaxpayerType } from '@prisma/client';
-import { COMPOSITION_CATEGORY_LABELS, gstStateLabel, type ReceiptTemplate } from '@pos/contracts';
+import { COMPOSITION_CATEGORY_LABELS, gstStateLabel, type ReceiptTemplate, type ScaleBarcode } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import { toNumber } from '../common/numbers';
 import { businessSettingsSelect, branchSettingsSelect } from '../common/selects';
@@ -63,11 +63,14 @@ export class SettingsService {
     name?: string;
     logoUrl?: string | null;
     gstNumber?: string | null;
-    taxCalculationMode?: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
     cashierMaxDiscountPercent?: number;
     customerScope?: CustomerScope;
     timezone?: string;
     hsnMinDigits?: number;
+    returnWindowDays?: number | null;
+    roundOffMode?: 'NONE' | 'NEAREST_1' | 'NEAREST_050';
+    allowNegativeStock?: boolean;
+    scaleBarcode?: ScaleBarcode | null;
   }) {
     await this.ensureBusinessSettings();
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -78,11 +81,14 @@ export class SettingsService {
           name: input.name,
           logoUrl: input.logoUrl,
           gstNumber: input.gstNumber,
-          taxCalculationMode: input.taxCalculationMode,
           cashierMaxDiscountPercent: input.cashierMaxDiscountPercent,
           customerScope: input.customerScope,
           timezone: input.timezone,
-          hsnMinDigits: input.hsnMinDigits
+          hsnMinDigits: input.hsnMinDigits,
+          returnWindowDays: input.returnWindowDays,
+          roundOffMode: input.roundOffMode,
+          allowNegativeStock: input.allowNegativeStock,
+          scaleBarcode: input.scaleBarcode === null ? Prisma.DbNull : input.scaleBarcode
         },
         select: businessSettingsSelect
       });

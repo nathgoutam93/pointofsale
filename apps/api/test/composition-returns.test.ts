@@ -38,7 +38,7 @@ beforeAll(async () => {
   await t.ok('POST', '/business/taxpayer-type', admin, { taxpayerType: 'COMPOSITION', compositionCategory: 'TRADER', effectiveDate: today });
   // Composition: 3 phones at 1000 (no GST) and 4 kg rice (exempt); one phone comes back.
   const sale = await sell([line(phone.id, { qty: 3, rate: 1000, taxRate: 18 }), line(rice.id, { qty: 4, rate: 50, taxRate: 0 })], 3200);
-  await t.ok('POST', `/sales/${sale.id}/return`, ctx.token, { refundMode: 'CASH', lines: [{ saleLineId: sale.lines[0].id, qty: 1 }] });
+  await t.ok('POST', `/sales/${sale.id}/return`, ctx.token, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: sale.lines[0].id, qty: 1 }] });
 });
 afterAll(async () => {
   await t.db.taxpayerTypeChange.deleteMany({});

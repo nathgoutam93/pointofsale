@@ -3,7 +3,7 @@ import { UserRole } from '@prisma/client';
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
 import { getSession, requireOpenRegisterSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { ReturnsService } from './returns.service';
 
 @Controller()
@@ -14,21 +14,25 @@ export class ReturnsController {
   ) {}
 
   @Post('/sales/:id/return')
-  createReturn(
+  async createReturn(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(appContract.sales.returns.body)) body: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET' },
+    @Body(new ZodValidationPipe(appContract.sales.returns.body))
+    body: Parsed<typeof appContract.sales.returns.body>,
     @Headers() headers: RequestHeaders
   ) {
-    return this.returns.createReturn(requireOpenRegisterSession(headers), id, body);
+    const session = requireOpenRegisterSession(headers);
+    await this.access.requirePermission(session, 'MAKE_RETURNS');
+    return this.returns.createReturn(session, id, body);
   }
 
   @Get('/returns')
   async listReturns(
-    @Query(new ZodValidationPipe(appContract.returns.list.query)) { branchId }: { branchId?: string },
+    @Query(new ZodValidationPipe(appContract.returns.list.query))
+    query: Parsed<typeof appContract.returns.list.query>,
     @Headers() headers: RequestHeaders
   ) {
     const session = getSession(headers);
-    return this.returns.listReturns(await this.access.requireBranch(session, branchId ?? session.branchId ?? ''));
+    return this.returns.listReturns(await this.access.requireBranch(session, query.branchId ?? session.branchId ?? ''), query);
   }
 
   @Get('/returns/:id')

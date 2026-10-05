@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
@@ -22,7 +22,7 @@ export class BranchesService {
       select: { id: true }
     });
     if (!access) {
-      throw new BadRequestException('You do not have access to this branch');
+      throw new ForbiddenException('You do not have access to this branch');
     }
   }
 

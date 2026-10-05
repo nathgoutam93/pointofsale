@@ -20,11 +20,27 @@ enum CashierPermission {
   SEND_TRANSFERS
   TOP_UP_WALLETS
   CANCEL_SALES
+  /// Take goods back and refund them (credit notes).
+  MAKE_RETURNS
+  /// Sell more than the stock count shows, when the business allows it (allowNegativeStock).
+  SELL_PAST_STOCK
+  /// Pay suppliers (money out of the business, from the drawer or elsewhere).
+  PAY_SUPPLIERS
+  /// Move cash in or out of the drawer, and record the business's expenses.
+  CASH_AND_EXPENSES
+}
+
+enum CashMovementType {
+  /// Cash put into the drawer (change brought in, float topped up).
+  CASH_IN
+  /// Cash taken out that isn't an expense (to the bank, to the owner).
+  CASH_OUT
 }
 
 enum PaymentMode {
   CASH
   CARD
+  UPI
   WALLET
 }
 
@@ -51,6 +67,16 @@ enum StockTxnType {
   TRANSFER_IN
   /// Stock put back at the sending branch when a transfer in transit is cancelled.
   TRANSFER_CANCEL
+  /// Goods sent back to the supplier they were bought from (see PurchaseReturn).
+  PURCHASE_RETURN
+}
+
+/// How a supplier was paid.
+enum SupplierPaymentMode {
+  CASH
+  UPI
+  BANK_TRANSFER
+  CHEQUE
 }
 
 enum StockTransferStatus {
@@ -76,9 +102,11 @@ enum TaxMode {
   EXCLUSIVE
 }
 
-enum TaxCalculationMode {
-  AFTER_DISCOUNT
-  BEFORE_DISCOUNT
+/// How a bill's total is rounded: not at all, to the nearest rupee, or to the nearest 50 paise.
+enum RoundOffMode {
+  NONE
+  NEAREST_1
+  NEAREST_050
 }
 
 /// GST registration type. COMPOSITION pays a flat rate on turnover and may not charge GST to customers.
@@ -120,68 +148,84 @@ enum DiscountType {
 }
 
 model Branch {
-  id              String             @id @default(uuid())
-  name            String
+  id                String             @id @default(uuid())
+  name              String
   /// Exactly 3 letters or digits; starts every invoice and credit note number (see Counter.number).
-  code            String             @unique
-  logoUrl         String?
-  receiptPrefix   String             @default("RCPT")
-  invoiceHeader   String?
-  invoiceFooter   String?
-  receiptHeader   String?
-  receiptFooter   String?
-  invoiceCss      String?
-  receiptCss      String?
+  code              String             @unique
+  logoUrl           String?
+  receiptPrefix     String             @default("RCPT")
+  invoiceHeader     String?
+  invoiceFooter     String?
+  receiptHeader     String?
+  receiptFooter     String?
+  invoiceCss        String?
+  receiptCss        String?
   /// Receipt layout, paper and sections (see receiptTemplateSchema in @pos/contracts). null: classic.
-  receiptTemplate Json?
+  receiptTemplate   Json?
   /// The branch's own GSTIN. When empty, the business GSTIN is used if it is for this branch's state.
-  gstin           String?
+  gstin             String?
   /// Two-digit GST state code of where the branch is; an over-the-counter sale's place of supply.
-  stateCode       String?
+  stateCode         String?
   /// Before GST numbering: invoices and returns now count in DocumentSequence.
-  invoiceSeq      Int                @default(0)
-  receiptSeq      Int                @default(0)
+  invoiceSeq        Int                @default(0)
+  receiptSeq        Int                @default(0)
   /// Before GST numbering: see invoiceSeq.
-  returnSeq       Int                @default(0)
-  customerSeq     Int                @default(0)
-  purchaseSeq     Int                @default(0)
+  returnSeq         Int                @default(0)
+  customerSeq       Int                @default(0)
+  purchaseSeq       Int                @default(0)
+  purchaseReturnSeq Int                @default(0)
   /// Numbers transfers sent from this branch.
-  transferSeq     Int                @default(0)
-  users           User[]
-  userAccesses    UserBranchAccess[]
-  registers       RegisterSession[]
-  counters        Counter[]
-  customers       Customer[]
-  wallets         WalletAccount[]
-  stockLedgers    StockLedger[]
-  stock           ItemStock[]
-  saleInvoices    SaleInvoice[]
-  purchases       Purchase[]
-  transfersOut    StockTransfer[]    @relation("TransferFrom")
-  transfersIn     StockTransfer[]    @relation("TransferTo")
-  itemPrices      ItemBranchPrice[]
+  transferSeq       Int                @default(0)
+  users             User[]
+  userAccesses      UserBranchAccess[]
+  registers         RegisterSession[]
+  counters          Counter[]
+  customers         Customer[]
+  wallets           WalletAccount[]
+  stockLedgers      StockLedger[]
+  stock             ItemStock[]
+  saleInvoices      SaleInvoice[]
+  purchases         Purchase[]
+  transfersOut      StockTransfer[]    @relation("TransferFrom")
+  transfersIn       StockTransfer[]    @relation("TransferTo")
+  itemPrices        ItemBranchPrice[]
+  supplierPayments  SupplierPayment[]
+  purchaseReturns   PurchaseReturn[]
+  batchStocks       BatchStock[]
+  cashMovements     CashMovement[]
+  expenses          Expense[]
 }
 
 model BusinessSettings {
-  id                        String             @id @default("default")
+  id                        String        @id @default("default")
   name                      String
   logoUrl                   String?
   gstNumber                 String?
-  taxCalculationMode        TaxCalculationMode @default(AFTER_DISCOUNT)
   /// Most a cashier may lower a sale below list price (price edits + discounts), in percent. Admins have no limit.
-  cashierMaxDiscountPercent Decimal            @default(10) @db.Decimal(5, 2)
+  cashierMaxDiscountPercent Decimal       @default(10) @db.Decimal(5, 2)
   /// SHARED: customers and their wallets can be used at every branch. BRANCH: only at the branch that created them.
-  customerScope             CustomerScope      @default(SHARED)
+  customerScope             CustomerScope @default(SHARED)
   /// IANA time zone that report periods (Today, This Week, This Month) are worked out in.
-  timezone                  String             @default("Asia/Kolkata")
+  timezone                  String        @default("Asia/Kolkata")
   /// Shortest HSN code accepted on items: 4 (turnover up to ₹5 crore) or 6.
-  hsnMinDigits              Int                @default(4)
+  hsnMinDigits              Int           @default(4)
+  /// Cashiers may take goods back up to this many days after the sale (calendar days in the
+  /// business time zone; 0 is the same day only). Null: no limit. Admins are never limited.
+  returnWindowDays          Int?
+  /// Rounds each bill's total (see SaleInvoice.roundOff).
+  roundOffMode              RoundOffMode  @default(NONE)
+  /// When the stock count is wrong: let admins (and cashiers given SELL_PAST_STOCK) sell more
+  /// than it shows, taking it below 0. Off: a sale can't go past stock.
+  allowNegativeStock        Boolean       @default(false)
+  /// How the weighing scale's labels are laid out (see scaleBarcodeSchema in @pos/contracts);
+  /// null when the business has no scale.
+  scaleBarcode              Json?
   /// Offline installs: hash of the recovery code that resets a forgotten admin password.
   /// Shown once when created; never stored or returned in plain text.
   recoveryCodeHash          String?
   recoveryCodeCreatedAt     DateTime?
-  createdAt                 DateTime           @default(now())
-  updatedAt                 DateTime           @updatedAt
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
 }
 
 enum DocumentKind {
@@ -322,6 +366,7 @@ model RegisterSession {
   createdAt      DateTime        @default(now())
   payments       Payment[]
   returns        ReturnInvoice[]
+  walletTxns     WalletTxn[]
 
   @@index([userId, closedAt])
   @@index([branchId, closedAt])
@@ -367,43 +412,86 @@ model WalletAccount {
 }
 
 model WalletTxn {
-  id              String        @id @default(uuid())
-  walletAccountId String
-  walletAccount   WalletAccount @relation(fields: [walletAccountId], references: [id])
-  type            WalletTxnType
-  amount          Decimal       @db.Decimal(14, 2)
-  referenceType   String?
-  referenceId     String?
-  createdAt       DateTime      @default(now())
+  id                String           @id @default(uuid())
+  walletAccountId   String
+  walletAccount     WalletAccount    @relation(fields: [walletAccountId], references: [id])
+  type              WalletTxnType
+  /// Positive, except an ADJUSTMENT that takes money off (negative).
+  amount            Decimal          @db.Decimal(14, 2)
+  referenceType     String?
+  referenceId       String?
+  /// Who made it; null on entries made before this was recorded.
+  createdBy         String?
+  createdByName     String?
+  /// A top-up paid at the counter: how it was paid (CASH, CARD or UPI) and the register it was
+  /// taken on. Cash top-ups count in that register's expected cash. Null for other entries.
+  paymentMode       PaymentMode?
+  registerSessionId String?
+  registerSession   RegisterSession? @relation(fields: [registerSessionId], references: [id])
+  /// Why an admin adjusted the balance (ADJUSTMENT).
+  reason            String?
+  createdAt         DateTime         @default(now())
+
+  @@index([registerSessionId])
+  @@index([walletAccountId, createdAt])
 }
 
 model Item {
-  id            String              @id @default(uuid())
-  code          String              @unique
-  name          String
-  category      String?
-  uom           String
-  leastCount    Decimal             @default(1) @db.Decimal(14, 3)
-  costPrice     Decimal             @default(0) @db.Decimal(14, 2)
-  sellPrice     Decimal             @db.Decimal(14, 2)
-  mrp           Decimal             @default(0) @db.Decimal(14, 2)
-  taxMode       TaxMode             @default(EXCLUSIVE)
-  taxRate       Decimal             @db.Decimal(5, 2)
+  id                  String               @id @default(uuid())
+  code                String               @unique
+  name                String
+  category            String?
+  uom                 String
+  leastCount          Decimal              @default(1) @db.Decimal(14, 3)
+  costPrice           Decimal              @default(0) @db.Decimal(14, 2)
+  sellPrice           Decimal              @db.Decimal(14, 2)
+  mrp                 Decimal              @default(0) @db.Decimal(14, 2)
+  taxMode             TaxMode              @default(EXCLUSIVE)
+  taxRate             Decimal              @db.Decimal(5, 2)
+  /// Stock is kept by batch, each with its expiry date: sales take the earliest expiry first and
+  /// never expired stock. Stock from before tracking started counts as "no batch".
+  tracksBatches       Boolean              @default(false)
   /// HSN (goods) or SAC (services) code: 4, 6 or 8 digits. Null until entered.
-  hsnCode       String?
+  hsnCode             String?
   /// GST unit quantity code (PCS, KGS, LTR...) of the base unit `uom`.
-  uqc           String?
-  supplyType    GstSupplyType       @default(TAXABLE)
-  imageUrl      String?
-  isActive      Boolean             @default(true)
-  lines         SaleInvoiceLine[]
-  stockLedgers  StockLedger[]
-  stock         ItemStock[]
-  saleUoms      ItemSaleUom[]
-  branchPrices  ItemBranchPrice[]
-  purchaseLines PurchaseLine[]
-  transferLines StockTransferLine[]
-  createdAt     DateTime            @default(now())
+  uqc                 String?
+  supplyType          GstSupplyType        @default(TAXABLE)
+  imageUrl            String?
+  isActive            Boolean              @default(true)
+  /// A size/colour variant: the product it belongs to, and its values of the product's options
+  /// (option2 only when the product has a second option).
+  groupId             String?
+  group               ItemGroup?           @relation(fields: [groupId], references: [id])
+  option1             String?
+  option2             String?
+  lines               SaleInvoiceLine[]
+  stockLedgers        StockLedger[]
+  stock               ItemStock[]
+  saleUoms            ItemSaleUom[]
+  barcodes            ItemBarcode[]
+  branchPrices        ItemBranchPrice[]
+  purchaseLines       PurchaseLine[]
+  transferLines       StockTransferLine[]
+  createdAt           DateTime             @default(now())
+  purchaseReturnLines PurchaseReturnLine[]
+  batches             ItemBatch[]
+
+  @@index([groupId])
+}
+
+/// A product sold in sizes and/or colours: each combination is an item of its own (code,
+/// barcodes, price, stock), grouped here for the counter's picker.
+model ItemGroup {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  /// "Size", "Colour"...
+  option1Name   String
+  option2Name   String?
+  /// The options' values in the order they were given (the picker's rows and columns).
+  option1Values String[]
+  option2Values String[]
+  createdAt     DateTime @default(now())
+  items         Item[]
 }
 
 model ItemSaleUom {
@@ -420,6 +508,20 @@ model ItemSaleUom {
 
   @@unique([itemId, uom])
   @@index([itemId, sortOrder])
+}
+
+/// A barcode an item is scanned by besides its code: products often carry several (EAN, the
+/// supplier's own), and a box has its own. Unique across items, and never another item's code.
+model ItemBarcode {
+  id        String   @id @default(uuid())
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  barcode   String   @unique
+  /// The sale unit this barcode sells (a box), spelt as on the item; null for the base unit.
+  saleUom   String?
+  createdAt DateTime @default(now())
+
+  @@index([itemId])
 }
 
 /// A branch's own price for one unit an item is sold in (the base unit or a sale unit),
@@ -442,12 +544,16 @@ model ItemBranchPrice {
 /// Current stock on hand per branch and item, kept in step with StockLedger: every ledger
 /// entry adjusts this row in the same transaction (see recordStock in stock/stock.service.ts).
 model ItemStock {
-  branchId  String
-  branch    Branch   @relation(fields: [branchId], references: [id])
-  itemId    String
-  item      Item     @relation(fields: [itemId], references: [id])
-  qty       Decimal  @default(0) @db.Decimal(14, 3)
-  updatedAt DateTime @updatedAt
+  branchId     String
+  branch       Branch   @relation(fields: [branchId], references: [id])
+  itemId       String
+  item         Item     @relation(fields: [itemId], references: [id])
+  qty          Decimal  @default(0) @db.Decimal(14, 3)
+  /// Low stock: on hand at or below this level (null: not watched at this branch).
+  reorderLevel Decimal? @db.Decimal(14, 3)
+  /// How much to order when it is low (null: not set).
+  reorderQty   Decimal? @db.Decimal(14, 3)
+  updatedAt    DateTime @updatedAt
 
   @@id([branchId, itemId])
 }
@@ -465,9 +571,48 @@ model StockLedger {
   reason        String?
   referenceType String?
   referenceId   String?
+  /// The document line it moved stock for (a sale, return, transfer or purchase line), so the
+  /// batches a line took can be found and put back.
+  lineId        String?
+  /// The batch, for items that track batches; null for others, and for stock without one.
+  batchId       String?
+  batch         ItemBatch?   @relation(fields: [batchId], references: [id])
   createdAt     DateTime     @default(now())
 
   @@index([branchId, itemId, createdAt])
+  @@index([lineId])
+  @@index([batchId])
+}
+
+/// A batch of an item (batch or lot number, with its expiry date), as received from a supplier.
+model ItemBatch {
+  id            String         @id @default(uuid())
+  itemId        String
+  item          Item           @relation(fields: [itemId], references: [id])
+  batchNo       String
+  /// The last day it may be sold (YYYY-MM-DD); null when it doesn't expire.
+  expiryDate    String?
+  createdAt     DateTime       @default(now())
+  stocks        BatchStock[]
+  ledger        StockLedger[]
+  purchaseLines PurchaseLine[]
+
+  @@unique([itemId, batchNo])
+  @@index([expiryDate])
+}
+
+/// How much of a batch a branch holds (the sum of its ledger entries). An item's other stock,
+/// ItemStock less its batches, has no batch.
+model BatchStock {
+  branchId  String
+  branch    Branch    @relation(fields: [branchId], references: [id])
+  batchId   String
+  batch     ItemBatch @relation(fields: [batchId], references: [id])
+  qty       Decimal   @default(0) @db.Decimal(14, 3)
+  updatedAt DateTime  @updatedAt
+
+  @@id([branchId, batchId])
+  @@index([batchId])
 }
 
 model SaleInvoice {
@@ -499,6 +644,9 @@ model SaleInvoice {
   cgstTotal              Decimal              @default(0) @db.Decimal(14, 2)
   sgstTotal              Decimal              @default(0) @db.Decimal(14, 2)
   igstTotal              Decimal              @default(0) @db.Decimal(14, 2)
+  /// What the total was rounded by (the business's round-off setting): grandTotal is the sum of
+  /// the lines' net amounts plus this. Lines, taxable values and GST are not rounded.
+  roundOff               Decimal              @default(0) @db.Decimal(14, 2)
   grandTotal             Decimal              @db.Decimal(14, 2)
   paidTotal              Decimal              @db.Decimal(14, 2)
   /// Taken off what was still owed by returns on this bill before it was paid in full: the
@@ -506,6 +654,12 @@ model SaleInvoice {
   creditedTotal          Decimal              @default(0) @db.Decimal(14, 2)
   createdBy              String
   createdByName          String
+  /// A cancelled bill (status CANCELLED): when, by whom and why. Bills can be cancelled only on
+  /// the day they were made, while nothing is paid; after that the way out is a return.
+  cancelledAt            DateTime?
+  cancelledBy            String?
+  cancelledByName        String?
+  cancelReason           String?
   /// The business's GST registration type when the sale was made; never changes afterwards.
   taxpayerType           TaxpayerType         @default(REGULAR)
   documentType           GstDocumentType      @default(TAX_INVOICE)
@@ -525,6 +679,10 @@ model SaleInvoice {
   receipts               Receipt[]
   returns                ReturnInvoice[]
   createdAt              DateTime             @default(now())
+
+  @@index([branchId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([sellerGstin, createdAt])
 }
 
 model SaleInvoiceLine {
@@ -559,6 +717,9 @@ model SaleInvoiceLine {
   supplyType           GstSupplyType        @default(TAXABLE)
   discountAllocations  DiscountAllocation[]
   returnLines          ReturnInvoiceLine[]
+
+  @@index([invoiceId])
+  @@index([itemId])
 }
 
 model Discount {
@@ -592,6 +753,9 @@ model Payment {
   invoice           SaleInvoice      @relation(fields: [invoiceId], references: [id])
   mode              PaymentMode
   amount            Decimal          @db.Decimal(14, 2)
+  /// Cash payments: what the customer handed over, when more than `amount`; the difference was
+  /// given back as change. Only `amount` goes on the bill and in the drawer.
+  tendered          Decimal?         @db.Decimal(14, 2)
   reference         String?
   /// The register the payment was taken on; null for payments made before this was recorded.
   registerSessionId String?
@@ -599,6 +763,8 @@ model Payment {
   createdAt         DateTime         @default(now())
 
   @@index([registerSessionId])
+  @@index([invoiceId])
+  @@index([createdAt])
 }
 
 model Receipt {
@@ -608,6 +774,8 @@ model Receipt {
   invoice   SaleInvoice @relation(fields: [invoiceId], references: [id])
   amount    Decimal     @db.Decimal(14, 2)
   createdAt DateTime    @default(now())
+
+  @@index([invoiceId])
 }
 
 model ReturnInvoice {
@@ -630,6 +798,11 @@ model ReturnInvoice {
   dueAdjusted       Decimal             @default(0) @db.Decimal(14, 2)
   refundAmount      Decimal             @default(0) @db.Decimal(14, 2)
   refundMode        PaymentMode
+  /// Why the goods came back, as the person making the return entered it.
+  reason            String?
+  /// Who made the return; null on returns made before this was recorded.
+  createdBy         String?
+  createdByName     String?
   /// The register the refund was given from; null for returns made before this was recorded.
   registerSessionId String?
   registerSession   RegisterSession?    @relation(fields: [registerSessionId], references: [id])
@@ -637,6 +810,8 @@ model ReturnInvoice {
   createdAt         DateTime            @default(now())
 
   @@index([registerSessionId])
+  @@index([saleInvoiceId])
+  @@index([createdAt])
 }
 
 model ReturnInvoiceLine {
@@ -653,44 +828,177 @@ model ReturnInvoiceLine {
   cgstAmount      Decimal         @default(0) @db.Decimal(14, 2)
   sgstAmount      Decimal         @default(0) @db.Decimal(14, 2)
   igstAmount      Decimal         @default(0) @db.Decimal(14, 2)
+
+  @@index([returnInvoiceId])
+  @@index([saleLineId])
 }
 
 /// Goods received from a supplier at a branch (a GRN). Adds stock and moves the item's
 /// cost towards the purchase cost (weighted average over stock on hand at all branches).
 model Purchase {
-  id                  String         @id @default(uuid())
-  purchaseNo          String         @unique
-  branchId            String
-  branch              Branch         @relation(fields: [branchId], references: [id])
-  supplierName        String
-  supplierGstin       String?
-  supplierInvoiceNo   String?
+  id                    String           @id @default(uuid())
+  purchaseNo            String           @unique
+  branchId              String
+  branch                Branch           @relation(fields: [branchId], references: [id])
+  /// Who it was bought from; supplierName and supplierGstin keep what the purchase was made with.
+  supplierId            String?
+  supplier              Supplier?        @relation(fields: [supplierId], references: [id])
+  supplierName          String
+  supplierGstin         String?
+  supplierInvoiceNo     String?
   /// The supplier invoice's date (YYYY-MM-DD), as entered.
-  supplierInvoiceDate String?
-  note                String?
+  supplierInvoiceDate   String?
+  note                  String?
   /// Sum of the lines' amounts (before tax).
-  totalCost           Decimal        @db.Decimal(14, 2)
-  createdBy           String
-  createdByName       String
-  createdAt           DateTime       @default(now())
-  lines               PurchaseLine[]
+  totalCost             Decimal          @db.Decimal(14, 2)
+  /// The GSTIN the goods were bought under (the branch's, as at the purchase); null without one.
+  buyerGstin            String?
+  /// GST charged by the supplier: the lines' sums by kind.
+  taxTotal              Decimal          @default(0) @db.Decimal(14, 2)
+  cgstTotal             Decimal          @default(0) @db.Decimal(14, 2)
+  sgstTotal             Decimal          @default(0) @db.Decimal(14, 2)
+  igstTotal             Decimal          @default(0) @db.Decimal(14, 2)
+  /// What is owed to the supplier for it: the lines' amounts plus their GST.
+  grandTotal            Decimal          @default(0) @db.Decimal(14, 2)
+  /// When it is to be paid by (YYYY-MM-DD): the supplier invoice date (else the day received)
+  /// plus the supplier's payment terms.
+  dueDate               String?
+  /// Recorded before supplier accounts existed: counted as paid, outside the supplier's account.
+  settledBeforeAccounts Boolean          @default(false)
+  /// Its GST counts as input tax credit (GSTR-3B Table 4): a registered supplier, bought under a
+  /// GSTIN by a regular taxpayer.
+  itcEligible           Boolean          @default(false)
+  createdBy             String
+  createdByName         String
+  createdAt             DateTime         @default(now())
+  lines                 PurchaseLine[]
+  returns               PurchaseReturn[]
 
   @@index([branchId, createdAt])
+  @@index([buyerGstin, createdAt])
+  @@index([supplierId, createdAt])
+}
+
+/// Someone the business buys from. Their account: what purchases owe, less goods sent back and
+/// payments made to them.
+model Supplier {
+  id               String            @id @default(uuid())
+  name             String
+  /// The name lower-cased and trimmed: two suppliers can't share a name.
+  nameKey          String            @unique
+  gstin            String?
+  phone            String?
+  email            String?
+  address          String?
+  /// Days after the supplier's invoice date a purchase is due; null: due at once.
+  paymentTermsDays Int?
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  purchases        Purchase[]
+  payments         SupplierPayment[]
+  returns          PurchaseReturn[]
+}
+
+/// Money paid to a supplier, against their account (the oldest bills are counted paid first).
+model SupplierPayment {
+  id                String              @id @default(uuid())
+  supplierId        String
+  supplier          Supplier            @relation(fields: [supplierId], references: [id])
+  /// The branch that paid.
+  branchId          String
+  branch            Branch              @relation(fields: [branchId], references: [id])
+  amount            Decimal             @db.Decimal(14, 2)
+  mode              SupplierPaymentMode
+  /// Cheque number, UTR, UPI reference...
+  reference         String?
+  note              String?
+  /// Cash taken from this register's drawer (it lowers the cash expected at close); null when
+  /// paid from elsewhere.
+  registerSessionId String?
+  createdBy         String
+  createdByName     String
+  createdAt         DateTime            @default(now())
+
+  @@index([supplierId, createdAt])
+  @@index([registerSessionId])
+}
+
+/// Goods sent back to the supplier of a purchase (a debit note): they leave stock, and what the
+/// supplier is owed comes down by their value with GST.
+model PurchaseReturn {
+  id            String               @id @default(uuid())
+  returnNo      String               @unique
+  purchaseId    String
+  purchase      Purchase             @relation(fields: [purchaseId], references: [id])
+  branchId      String
+  branch        Branch               @relation(fields: [branchId], references: [id])
+  supplierId    String?
+  supplier      Supplier?            @relation(fields: [supplierId], references: [id])
+  reason        String
+  /// Before tax, then the GST by kind (prorated from the purchase lines), and the total.
+  taxableTotal  Decimal              @db.Decimal(14, 2)
+  cgstTotal     Decimal              @default(0) @db.Decimal(14, 2)
+  sgstTotal     Decimal              @default(0) @db.Decimal(14, 2)
+  igstTotal     Decimal              @default(0) @db.Decimal(14, 2)
+  taxTotal      Decimal              @default(0) @db.Decimal(14, 2)
+  totalAmount   Decimal              @db.Decimal(14, 2)
+  /// The purchase's GST was claimed as input tax credit, so this return's GST is taken off it.
+  itcReversed   Boolean              @default(false)
+  createdBy     String
+  createdByName String
+  createdAt     DateTime             @default(now())
+  lines         PurchaseReturnLine[]
+
+  @@index([branchId, createdAt])
+  @@index([supplierId, createdAt])
+  @@index([purchaseId])
+}
+
+model PurchaseReturnLine {
+  id               String         @id @default(uuid())
+  purchaseReturnId String
+  purchaseReturn   PurchaseReturn @relation(fields: [purchaseReturnId], references: [id])
+  purchaseLineId   String
+  purchaseLine     PurchaseLine   @relation(fields: [purchaseLineId], references: [id])
+  itemId           String
+  item             Item           @relation(fields: [itemId], references: [id])
+  /// In the item's base unit.
+  qty              Decimal        @db.Decimal(14, 3)
+  /// Before tax.
+  amount           Decimal        @db.Decimal(14, 2)
+  taxRate          Decimal        @default(0) @db.Decimal(5, 2)
+  cgstAmount       Decimal        @default(0) @db.Decimal(14, 2)
+  sgstAmount       Decimal        @default(0) @db.Decimal(14, 2)
+  igstAmount       Decimal        @default(0) @db.Decimal(14, 2)
+
+  @@unique([purchaseReturnId, purchaseLineId])
 }
 
 model PurchaseLine {
-  id         String   @id @default(uuid())
-  purchaseId String
-  purchase   Purchase @relation(fields: [purchaseId], references: [id])
-  itemId     String
-  item       Item     @relation(fields: [itemId], references: [id])
+  id          String               @id @default(uuid())
+  purchaseId  String
+  purchase    Purchase             @relation(fields: [purchaseId], references: [id])
+  itemId      String
+  item        Item                 @relation(fields: [itemId], references: [id])
   /// In the item's base unit.
-  qty        Decimal  @db.Decimal(14, 3)
+  qty         Decimal              @db.Decimal(14, 3)
   /// Cost per base unit, before tax.
-  unitCost   Decimal  @db.Decimal(14, 2)
-  amount     Decimal  @db.Decimal(14, 2)
+  unitCost    Decimal              @db.Decimal(14, 2)
+  /// Before tax: qty × unitCost.
+  amount      Decimal              @db.Decimal(14, 2)
+  /// The batch it came in, for items that track batches.
+  batchId     String?
+  batch       ItemBatch?           @relation(fields: [batchId], references: [id])
+  /// The GST rate the supplier charged, and the tax by kind (CGST + SGST from the same state,
+  /// IGST from another). 0 from an unregistered supplier.
+  taxRate     Decimal              @default(0) @db.Decimal(5, 2)
+  cgstAmount  Decimal              @default(0) @db.Decimal(14, 2)
+  sgstAmount  Decimal              @default(0) @db.Decimal(14, 2)
+  igstAmount  Decimal              @default(0) @db.Decimal(14, 2)
+  returnLines PurchaseReturnLine[]
 
-  @@unique([purchaseId, itemId])
+  @@index([purchaseId])
 }
 
 /// Stock moved from one branch to another. Sending takes the stock out of the source at
@@ -731,6 +1039,28 @@ model StockTransferLine {
   @@unique([transferId, itemId])
 }
 
+/// Who changed what, and when: prices and tax, cancellations, returns, wallet corrections, staff
+/// and permissions, settings. Rows are only ever added (see AuditService).
+model AuditEvent {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  userId     String
+  userName   String
+  /// What was done, e.g. ITEM_PRICE_CHANGED, SALE_CANCELLED, RETURN_MADE.
+  action     String
+  entityType String
+  entityId   String?
+  /// The branch it happened at, when it belongs to one.
+  branchId   String?
+  /// One line for a person to read.
+  summary    String
+  /// Before and after, or other facts.
+  details    Json?
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
+
 /// Fallback copies only (empty on the server): what each customer owed when the copy was made,
 /// since the copy carries no unpaid bills. Offline credit sales count it against the credit limit.
 model FallbackBalance {
@@ -743,4 +1073,47 @@ model FallbackBalance {
 /// sends back is everything else.
 model FallbackCopiedDocument {
   id String @id
+}
+
+/// Cash put into or taken out of a register's drawer that isn't a sale, refund or expense.
+model CashMovement {
+  id                String           @id @default(uuid())
+  branchId          String
+  branch            Branch           @relation(fields: [branchId], references: [id])
+  registerSessionId String
+  type              CashMovementType
+  amount            Decimal          @db.Decimal(14, 2)
+  /// Why: "Cash to bank", "Change added"...
+  reason            String
+  note              String?
+  createdBy         String
+  createdByName     String
+  createdAt         DateTime         @default(now())
+
+  @@index([registerSessionId])
+  @@index([branchId, createdAt])
+}
+
+/// Money the business spent (rent, electricity, tea...): paid in cash from a drawer or otherwise.
+model Expense {
+  id                String              @id @default(uuid())
+  branchId          String
+  branch            Branch              @relation(fields: [branchId], references: [id])
+  /// The day it was paid (YYYY-MM-DD, the business's calendar).
+  date              String
+  category          String
+  amount            Decimal             @db.Decimal(14, 2)
+  mode              SupplierPaymentMode
+  /// Cheque number, UTR, bill number...
+  reference         String?
+  note              String?
+  /// Cash taken from this register's drawer (it lowers the cash expected at close); null when
+  /// paid from elsewhere.
+  registerSessionId String?
+  createdBy         String
+  createdByName     String
+  createdAt         DateTime            @default(now())
+
+  @@index([branchId, date])
+  @@index([registerSessionId])
 }

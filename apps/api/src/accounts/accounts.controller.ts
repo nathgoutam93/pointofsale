@@ -9,11 +9,11 @@ import { readBearerToken, signAccountToken } from '../auth/token';
 import { OnlineOnlyGuard } from '../common/mode';
 import { FailureLimiter } from '../common/rate-limit';
 import type { RequestHeaders } from '../common/request-session';
-import { SetupInput } from '../setup/setup.service';
 import { ImportService } from '../tenancy/import.service';
 import { ProvisioningService } from '../tenancy/provisioning.service';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { AccountsService } from './accounts.service';
+import { BusinessDeletionService } from './business-deletion.service';
 
 /** Wrong owner passwords: 10 per email and address per 15 minutes. */
 const accountFailures = new FailureLimiter(10, 15 * 60 * 1000);
@@ -27,6 +27,9 @@ const isVerificationRequired = (error: unknown) =>
   error instanceof BadRequestException && (error.getResponse() as { code?: unknown })?.code === EMAIL_VERIFICATION_REQUIRED;
 /** New businesses: 5 per address per hour, against sign-up floods. */
 const creations = new FailureLimiter(5, 60 * 60 * 1000);
+/** Deleting a business: 3 emailed codes an hour, and 10 wrong passwords or codes in 15 minutes, per account. */
+const deletionCodeSends = new FailureLimiter(3, 60 * 60 * 1000);
+const deletionFailures = new FailureLimiter(10, 15 * 60 * 1000);
 
 /** Hosted server only: owners sign up, create businesses and see theirs. */
 @Controller()
@@ -35,8 +38,59 @@ export class AccountsController {
   constructor(
     private readonly accounts: AccountsService,
     private readonly provisioning: ProvisioningService,
-    private readonly imports: ImportService
+    private readonly imports: ImportService,
+    private readonly deletion: BusinessDeletionService
   ) {}
+
+  /** Owner token: emails a code to delete one of their businesses. */
+  @Public()
+  @Post('/accounts/businesses/:businessId/deletion/code')
+  @HttpCode(202)
+  async businessDeletionCode(@Param('businessId', ParseUUIDPipe) businessId: string, @Headers() headers: RequestHeaders) {
+    const accountId = await this.accounts.accountIdFrom(readBearerToken(headers));
+    deletionCodeSends.assertAllowed(accountId);
+    deletionCodeSends.failed(accountId);
+    await this.deletion.sendCode(accountId, businessId);
+    return { sent: true as const };
+  }
+
+  /** Owner token, password and the emailed code: deletes one of their businesses (locked now, erased after the grace period). */
+  @Public()
+  @Post('/accounts/businesses/:businessId/deletion')
+  @HttpCode(200)
+  async deleteBusiness(
+    @Param('businessId', ParseUUIDPipe) businessId: string,
+    @Body(new ZodValidationPipe(appContract.accounts.deleteBusiness.body)) body: Parsed<typeof appContract.accounts.deleteBusiness.body>,
+    @Headers() headers: RequestHeaders
+  ) {
+    const accountId = await this.accounts.accountIdFrom(readBearerToken(headers));
+    deletionFailures.assertAllowed(accountId);
+    const deleted = await this.deletion.requestDeletion(accountId, businessId, body).catch((error) => {
+      deletionFailures.failed(accountId);
+      throw error;
+    });
+    deletionFailures.succeeded(accountId);
+    return deleted;
+  }
+
+  /** Owner token and password: keeps a business being deleted. */
+  @Public()
+  @Post('/accounts/businesses/:businessId/deletion/cancel')
+  @HttpCode(200)
+  async cancelBusinessDeletion(
+    @Param('businessId', ParseUUIDPipe) businessId: string,
+    @Body(new ZodValidationPipe(appContract.accounts.cancelBusinessDeletion.body)) body: Parsed<typeof appContract.accounts.cancelBusinessDeletion.body>,
+    @Headers() headers: RequestHeaders
+  ) {
+    const accountId = await this.accounts.accountIdFrom(readBearerToken(headers));
+    deletionFailures.assertAllowed(accountId);
+    const kept = await this.deletion.cancelDeletion(accountId, businessId, body.password).catch((error) => {
+      deletionFailures.failed(accountId);
+      throw error;
+    });
+    deletionFailures.succeeded(accountId);
+    return kept;
+  }
 
   /**
    * The owner account for an email and password, created on first use, with the verification
@@ -70,7 +124,7 @@ export class AccountsController {
   @Post('/accounts/signup')
   @HttpCode(200)
   async signup(
-    @Body(new ZodValidationPipe(appContract.accounts.signup.body)) body: { email: string; password: string; emailCode?: string },
+    @Body(new ZodValidationPipe(appContract.accounts.signup.body)) body: Parsed<typeof appContract.accounts.signup.body>,
     @Ip() ip: string
   ) {
     const account = await this.ownerAccount(body, ip);
@@ -106,7 +160,7 @@ export class AccountsController {
   @Post('/businesses')
   async createBusiness(
     @Body(new ZodValidationPipe(appContract.businesses.create.body))
-    body: SetupInput & { ownerEmail: string; ownerPassword: string; emailCode?: string },
+    body: Parsed<typeof appContract.businesses.create.body>,
     @Ip() ip: string
   ) {
     creations.assertAllowed(ip);
@@ -121,7 +175,7 @@ export class AccountsController {
   @Public()
   @Post('/accounts/login')
   @HttpCode(200)
-  async login(@Body(new ZodValidationPipe(appContract.accounts.login.body)) body: { email: string; password: string }, @Ip() ip: string) {
+  async login(@Body(new ZodValidationPipe(appContract.accounts.login.body)) body: Parsed<typeof appContract.accounts.login.body>, @Ip() ip: string) {
     const key = `${ip}|${body.email}`;
     accountFailures.assertAllowed(key);
     const account = await this.accounts.login(body.email, body.password).catch((error) => {
@@ -151,7 +205,7 @@ export class AccountsController {
   @Post('/accounts/staff-active')
   @HttpCode(200)
   async staffActive(
-    @Body(new ZodValidationPipe(appContract.accounts.staffActive.body)) body: { businessId: string; username: string; isActive: boolean },
+    @Body(new ZodValidationPipe(appContract.accounts.staffActive.body)) body: Parsed<typeof appContract.accounts.staffActive.body>,
     @Headers() headers: RequestHeaders
   ) {
     return this.accounts.setStaffActive(await this.accounts.accountIdFrom(readBearerToken(headers)), body);
@@ -162,7 +216,7 @@ export class AccountsController {
   @Post('/accounts/staff-password')
   @HttpCode(200)
   async staffPassword(
-    @Body(new ZodValidationPipe(appContract.accounts.staffPassword.body)) body: { businessId: string; username: string; newPassword: string },
+    @Body(new ZodValidationPipe(appContract.accounts.staffPassword.body)) body: Parsed<typeof appContract.accounts.staffPassword.body>,
     @Headers() headers: RequestHeaders
   ) {
     const accountId = await this.accounts.accountIdFrom(readBearerToken(headers));
@@ -173,7 +227,7 @@ export class AccountsController {
   @Public()
   @Post('/accounts/password-reset')
   @HttpCode(202)
-  async requestPasswordReset(@Body(new ZodValidationPipe(appContract.accounts.requestPasswordReset.body)) body: { email: string }, @Ip() ip: string) {
+  async requestPasswordReset(@Body(new ZodValidationPipe(appContract.accounts.requestPasswordReset.body)) body: Parsed<typeof appContract.accounts.requestPasswordReset.body>, @Ip() ip: string) {
     resetRequestsByAddress.assertAllowed(ip);
     resetRequestsByEmail.assertAllowed(body.email);
     resetRequestsByAddress.failed(ip);
@@ -186,7 +240,7 @@ export class AccountsController {
   @Post('/accounts/password-reset/confirm')
   @HttpCode(200)
   async confirmPasswordReset(
-    @Body(new ZodValidationPipe(appContract.accounts.confirmPasswordReset.body)) body: { email: string; code: string; newPassword: string },
+    @Body(new ZodValidationPipe(appContract.accounts.confirmPasswordReset.body)) body: Parsed<typeof appContract.accounts.confirmPasswordReset.body>,
     @Ip() ip: string
   ) {
     const key = `${ip}|${body.email}`;

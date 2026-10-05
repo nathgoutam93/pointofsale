@@ -86,7 +86,7 @@ describe('registered buyers', () => {
     expect(text).toMatch(/Ref: PO-7781/);
 
     // One phone comes back: a credit note to the registered buyer.
-    await t.ok('POST', `/sales/${invoice.id}/return`, ctx.token, { refundMode: 'CASH', lines: [{ saleLineId: invoice.lines[0].id, qty: 1 }] });
+    await t.ok('POST', `/sales/${invoice.id}/return`, ctx.token, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: invoice.lines[0].id, qty: 1 }] });
 
     const { json } = await t.ok('GET', `/gst/gstr1?gstin=${SELLER}&from=${month}&to=${month}`, admin);
     expect(json.b2b).toEqual([

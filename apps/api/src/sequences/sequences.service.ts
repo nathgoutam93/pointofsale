@@ -9,10 +9,11 @@ const SEQUENCE_FIELDS = {
   receipt: 'receiptSeq',
   customer: 'customerSeq',
   purchase: 'purchaseSeq',
+  purchaseReturn: 'purchaseReturnSeq',
   transfer: 'transferSeq'
 } as const;
 
-const SEQUENCE_PREFIXES = { customer: 'CUST', purchase: 'PUR', transfer: 'TRF' } as const;
+const SEQUENCE_PREFIXES = { customer: 'CUST', purchase: 'PUR', purchaseReturn: 'PRT', transfer: 'TRF' } as const;
 
 @Injectable()
 export class SequenceService {
@@ -51,8 +52,8 @@ export class SequenceService {
     return { number, series, fiscalYear };
   }
 
-  /** Receipt, customer, purchase and transfer numbers (not GST documents): one running count per branch. */
-  async nextSequence(branchId: string, type: 'receipt' | 'customer' | 'purchase' | 'transfer', tx: Prisma.TransactionClient) {
+  /** Receipt, customer, purchase, purchase return and transfer numbers (not GST documents): one running count per branch. */
+  async nextSequence(branchId: string, type: keyof typeof SEQUENCE_FIELDS, tx: Prisma.TransactionClient) {
     // A fallback counter working offline has a receipt series of its own (RCPT-MAI-F1-000001),
     // which the branch's other tills, still online, never use.
     const fallbackCounter = fallbackCounterId();
@@ -68,7 +69,7 @@ export class SequenceService {
     const branch = await tx.branch.update({
       where: { id: branchId },
       data: { [field]: { increment: 1 } },
-      select: { code: true, receiptSeq: true, customerSeq: true, purchaseSeq: true, transferSeq: true, receiptPrefix: true }
+      select: { code: true, receiptSeq: true, customerSeq: true, purchaseSeq: true, purchaseReturnSeq: true, transferSeq: true, receiptPrefix: true }
     });
     return {
       branchCode: branch.code,

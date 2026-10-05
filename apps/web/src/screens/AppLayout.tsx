@@ -17,8 +17,10 @@ import {
   IconTag,
   IconTransfer,
   IconTruck,
-  IconUsers,
-} from "../components/icons";
+  IconFactory,
+  IconCash,
+  IconBarcode,
+  IconUsers, IconHistory } from "../components/icons";
 import { OnlineOnlyBadge } from "../components/OnlineOnly";
 import { MoveOnlineNotice } from "../components/MoveOnline";
 import { RecoveryCodeNotice } from "../components/RecoveryCode";
@@ -31,6 +33,7 @@ import { FallbackBanner } from "../components/FallbackBanner";
 import { BillingBanner } from "../components/BillingBanner";
 import { signOut } from "../lib/api";
 import { CloseRegisterDialog } from "./CloseRegisterDialog";
+import { CashDrawerDialog } from "./CashDrawerDialog";
 
 type NavItem = {
   to: string;
@@ -43,7 +46,8 @@ type NavItem = {
   needsRegister?: "always" | "cashiers";
   adminOnly?: boolean;
   /** Shown to admins, and to cashiers allowed this. */
-  permission?: CashierPermission;
+  /** Shown to cashiers with this permission (any of them, for a list). */
+  permission?: CashierPermission | CashierPermission[];
   /** Needs an online business; an offline one sees it marked "Online only". */
   onlineOnly?: boolean;
 };
@@ -56,6 +60,7 @@ const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
       { to: "/sales", label: "Sales", icon: IconReceipt, needsRegister: "cashiers" },
       { to: "/returns", label: "Returns", icon: IconReturn, needsRegister: "always" },
       { to: "/customers", label: "Customers", icon: IconUsers, needsRegister: "cashiers" },
+      { to: "/expenses", label: "Expenses", icon: IconCash, needsRegister: "cashiers", permission: "CASH_AND_EXPENSES" },
     ],
   },
   {
@@ -64,6 +69,8 @@ const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
       { to: "/items", label: "Items", icon: IconTag },
       { to: "/stock", label: "Inventory", icon: IconBoxes, needsRegister: "cashiers" },
       { to: "/purchases", label: "Purchases", icon: IconTruck, needsRegister: "cashiers", permission: "RECORD_PURCHASES" },
+      { to: "/suppliers", label: "Suppliers", icon: IconFactory, needsRegister: "cashiers", permission: ["RECORD_PURCHASES", "PAY_SUPPLIERS"] },
+      { to: "/labels", label: "Barcode Labels", icon: IconBarcode, needsRegister: "cashiers", permission: ["MANAGE_ITEMS", "MANAGE_STOCK", "RECORD_PURCHASES"] },
       { to: "/transfers", label: "Transfers", icon: IconTransfer, needsRegister: "cashiers", onlineOnly: true },
     ],
   },
@@ -72,6 +79,7 @@ const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
     items: [
       { to: "/reports", label: "Reports", icon: IconChart, adminOnly: true },
       { to: "/gst", label: "GST Returns", icon: IconFile, adminOnly: true },
+      { to: "/activity", label: "Activity", icon: IconHistory, adminOnly: true },
       { to: "/settings", label: "Settings", icon: IconSettings, adminOnly: true },
     ],
   },
@@ -107,6 +115,7 @@ export function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [closingRegister, setClosingRegister] = useState(false);
+  const [movingCash, setMovingCash] = useState(false);
   const userLabel = session ? session.username?.trim() || session.role : "";
   const branch = session?.branchId
     ? session.branches.find((b) => b.id === session.branchId)
@@ -194,7 +203,7 @@ export function AppLayout() {
         <nav className="flex-1 overflow-y-auto px-2 py-3">
           {NAV_SECTIONS.map((section) => {
             const items = section.items.filter(
-              (item) => (!item.adminOnly || session?.role === "ADMIN") && (!item.permission || can(session, item.permission)),
+              (item) => (!item.adminOnly || session?.role === "ADMIN") && (!item.permission || [item.permission].flat().some((permission) => can(session, permission))),
             );
             if (items.length === 0) return null;
             return (
@@ -249,6 +258,19 @@ export function AppLayout() {
         </nav>
 
         <div className="shrink-0 border-t border-white/5 p-2">
+          {hasRegister && session && can(session, "CASH_AND_EXPENSES") ? (
+            <button
+              className={`flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm font-medium text-slate-400 hover:bg-shell-800 hover:text-slate-100 ${collapsed ? "lg:justify-center lg:px-0" : ""}`}
+              title="Cash In / Out"
+              onClick={() => {
+                setMobileOpen(false);
+                setMovingCash(true);
+              }}
+            >
+              <IconCash className="shrink-0" />
+              <span className={labelClass}>Cash In / Out</span>
+            </button>
+          ) : null}
           {hasRegister ? (
             <button
               className={`flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm font-medium text-slate-400 hover:bg-shell-800 hover:text-slate-100 ${collapsed ? "lg:justify-center lg:px-0" : ""}`}
@@ -354,6 +376,7 @@ export function AppLayout() {
         </main>
       </div>
       {closingRegister ? <CloseRegisterDialog onCancel={() => setClosingRegister(false)} /> : null}
+      {movingCash ? <CashDrawerDialog onClose={() => setMovingCash(false)} /> : null}
     </div>
   );
 }

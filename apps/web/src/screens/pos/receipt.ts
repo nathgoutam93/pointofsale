@@ -7,7 +7,7 @@ import type { StoreSettings } from "./useStoreSettings";
 /** The printed receipt for a completed sale, laid out with the branch's receipt template. */
 export function buildInvoiceReceipt(postPayment: PostPaymentSummary, store: StoreSettings, cashierName: string) {
   const items = postPayment.lines.map((line) => {
-    const amounts = computeLineAmounts(line, store.taxCalculationMode);
+    const amounts = computeLineAmounts(line);
     const netAmount = line.netAmount ?? amounts.net;
     const taxAmount = Number(line.taxAmount ?? amounts.tax);
     const baseExclusive = getBaseExclusive(line);
@@ -28,6 +28,7 @@ export function buildInvoiceReceipt(postPayment: PostPaymentSummary, store: Stor
       // Before the order discount, which is shown once under the items.
       total: netAmount + Number(line.orderDiscountAmount ?? 0),
       taxable: netAmount - taxAmount,
+      batches: line.batches ?? null,
     };
   });
 
@@ -46,6 +47,7 @@ export function buildInvoiceReceipt(postPayment: PostPaymentSummary, store: Stor
     items,
     orderDiscount: postPayment.orderDiscountAmount,
     grandTotal: postPayment.grandTotal,
+    roundOff: postPayment.roundOff ?? 0,
     payments: postPayment.paymentLines,
     paidTotal: postPayment.paidTotal,
     // The business's time, as on emailed receipts, whatever this computer's clock is set to.
@@ -61,7 +63,7 @@ export function buildInvoiceReceipt(postPayment: PostPaymentSummary, store: Stor
 export function buildPrintableInvoiceDocument(postPayment: PostPaymentSummary, style: ReceiptStyle) {
   const invoiceElement = document.getElementById("printable-invoice");
   if (!invoiceElement) return null;
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${escapeHtml(postPayment.invoiceNo)}</title><style>body{font-family:\"Courier New\",Courier,monospace;margin:0;padding:24px;background:#fff;color:#111827;}@media print{body{margin:0;}}${style.css}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${escapeHtml(postPayment.invoiceNo)}</title><style>body{font-family:"Courier New",Courier,monospace;margin:0;padding:24px;background:#fff;color:#111827;}@media print{body{margin:0;}}${style.css}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
 }
 
 /** Starts a browser download of an HTML document. */

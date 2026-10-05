@@ -27,6 +27,14 @@ export function can(session: Pick<Session, 'role' | 'permissions'> | null | unde
   return !!session && hasPermission(session, permission);
 }
 
+/**
+ * Whether the user may see what goods cost (cost prices, purchase history): admins, and cashiers
+ * who adjust stock or record purchases. The API leaves costs out for everyone else.
+ */
+export function canSeeCosts(session: Pick<Session, 'role' | 'permissions'> | null | undefined) {
+  return can(session, 'MANAGE_STOCK') || can(session, 'RECORD_PURCHASES');
+}
+
 /** The session as answered by the API, whose blank `token` field is not kept. */
 type AnswerSession = Session & { token?: unknown };
 

@@ -23,6 +23,8 @@ export type CartLine = {
   netAmount?: number;
   /** On a completed sale's lines: the HSN/SAC code it was sold under. */
   hsnCode?: string | null;
+  /** On a completed sale's lines: the batches it was sold from ("Batch A1 exp 2027-03-31"). */
+  batches?: string | null;
 };
 
 export type PostPaymentSummary = {
@@ -38,14 +40,16 @@ export type PostPaymentSummary = {
   orderDiscountAmount: number;
   taxTotal: number;
   grandTotal: number;
+  /** What the total was rounded by (part of grandTotal). */
+  roundOff?: number;
   paidTotal: number;
-  paymentLines: Array<{ mode: "CASH" | "CARD" | "WALLET"; amount: number }>;
+  paymentLines: Array<{ mode: PaymentMode; amount: number; tendered?: number | null }>;
   lines: CartLine[];
   /** The invoice's GST facts as recorded at the sale (document type, GSTIN, tax split). */
   gst: InvoiceGst;
 };
 
-export type PaymentMode = "CASH" | "CARD" | "WALLET";
+export type PaymentMode = "CASH" | "CARD" | "UPI" | "WALLET";
 export type PaymentMethod = PaymentMode | "CREDIT";
 
 export type LeaveChoice = "save" | "discard" | "stay";

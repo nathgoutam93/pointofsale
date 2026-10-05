@@ -78,7 +78,7 @@ describe('the whole business', () => {
 
   it('is for admins of every branch only', async () => {
     const cashier = await t.cashierWithRegister(admin, ctx.branch.id);
-    expect((await download('/exports/business', cashier.token)).status).toBe(400);
+    expect((await download('/exports/business', cashier.token)).status).toBe(403);
     // An admin of one branch only (made from a cashier: the screens have no such step).
     const username = `branch-admin-${randomUUID().slice(0, 8)}`;
     const user = await t.ok('POST', '/users', admin, { branchId: ctx.branch.id, username, password: 'admin-pass-123' });
@@ -100,25 +100,25 @@ describe('the sales register', () => {
       branch.token,
       checkoutBody(branch.branch.id, customer.id, [line(item.id, { qty: 2, rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], [{ mode: 'CASH', amount: 100 }])
     );
-    const ret = await t.ok('POST', `/sales/${invoice.id}/return`, branch.token, { refundMode: 'CASH', lines: [{ saleLineId: invoice.lines[0].id, qty: 1 }] });
+    const ret = await t.ok('POST', `/sales/${invoice.id}/return`, branch.token, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: invoice.lines[0].id, qty: 1 }] });
 
     const res = await download(`/exports/sales.csv?branchId=${branch.branch.id}&from=${today()}&to=${today()}`, admin);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/^text\/csv/);
-    const rows = (await res.text()).replace(/^﻿/, '').trim().split('\r\n');
+    const rows = (await res.text()).replace(/^\uFEFF/, '').trim().split('\r\n');
     expect(rows[0]).toBe(
-      'Type,Date,Number,Against invoice,Branch,Customer,Phone,Buyer GSTIN,Place of supply,Taxable value,CGST,SGST,IGST,Total,Paid,Credited by returns,Owed,Refunded,Status,Payments'
+      'Type,Date,Number,Against invoice,Branch,Customer,Phone,Buyer GSTIN,Place of supply,Taxable value,CGST,SGST,IGST,Round off,Total,Paid,Credited by returns,Owed,Refunded,Status,Payments'
     );
     expect(rows).toHaveLength(3);
     // 236 sold, 100 paid; one returned (118): 118 off what was owed, nothing back.
     expect(rows[1]).toBe(
-      `Invoice,${today()},${invoice.invoiceNo},,${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,,200,18,18,0,236,100,118,18,,Part paid,CASH 100.00`
+      `Invoice,${today()},${invoice.invoiceNo},,${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,,200,18,18,0,0,236,100,118,18,,Part paid,CASH 100.00`
     );
-    expect(rows[2]).toBe(`Credit note,${today()},${ret.returnNo},${invoice.invoiceNo},${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,,-100,-9,-9,0,-118,,,,0,,`);
+    expect(rows[2]).toBe(`Credit note,${today()},${ret.returnNo},${invoice.invoiceNo},${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,,-100,-9,-9,0,0,-118,,,,0,,`);
 
     // Admins only; a period the right way round.
     const cashier = await t.cashierWithRegister(admin, branch.branch.id);
-    expect((await download(`/exports/sales.csv?from=${today()}&to=${today()}`, cashier.token)).status).toBe(400);
+    expect((await download(`/exports/sales.csv?from=${today()}&to=${today()}`, cashier.token)).status).toBe(403);
     expect((await download(`/exports/sales.csv?from=${today()}&to=2000-01-01`, admin)).status).toBe(400);
   });
 });

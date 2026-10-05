@@ -1,8 +1,8 @@
-import { Body, Controller, Get, HttpCode, Headers, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Headers, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { appContract, DEVICE_HEADER } from '@pos/contracts';
 import { AllowWhenUnpaid } from '../common/instance-status.guard';
 import { getSession, requireOpenRegisterSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { RegistersService } from './registers.service';
 
 @Controller()
@@ -13,7 +13,7 @@ export class RegistersController {
   @HttpCode(200)
   openRegister(
     @Body(new ZodValidationPipe(appContract.registers.open.body))
-    body: { branchId: string; counterId?: string; openingBalance: number },
+    body: Parsed<typeof appContract.registers.open.body>,
     @Headers() headers: RequestHeaders
   ) {
     const device = headers[DEVICE_HEADER];
@@ -35,9 +35,21 @@ export class RegistersController {
   @AllowWhenUnpaid()
   @HttpCode(200)
   closeRegister(
-    @Body(new ZodValidationPipe(appContract.registers.close.body)) body: { closingBalance: number },
+    @Body(new ZodValidationPipe(appContract.registers.close.body)) body: Parsed<typeof appContract.registers.close.body>,
     @Headers() headers: RequestHeaders
   ) {
     return this.registers.closeRegister(requireOpenRegisterSession(headers), body.closingBalance);
+  }
+
+  /** Admins: close a register someone left open. Also allowed once a subscription has ended. */
+  @Post('/registers/:id/close')
+  @AllowWhenUnpaid()
+  @HttpCode(200)
+  closeOtherRegister(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(appContract.registers.closeOther.body)) body: Parsed<typeof appContract.registers.closeOther.body>,
+    @Headers() headers: RequestHeaders
+  ) {
+    return this.registers.closeRegisterFor(getSession(headers), id, body.closingBalance);
   }
 }

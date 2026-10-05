@@ -12,6 +12,8 @@
  * before filing: the format changes from time to time (see GSTR1_JSON_VERSION).
  */
 
+import { round2, round3 } from '@pos/contracts';
+
 /** The offline tool version this layout was written against; check against the current tool. */
 export const GSTR1_JSON_VERSION = 'GST3.2.1';
 
@@ -64,8 +66,6 @@ export type Gstr1Return = {
 
 export type Gstr1Problem = { severity: 'error' | 'warning'; message: string };
 
-const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
-const round3 = (value: number) => Math.round((value + Number.EPSILON) * 1000) / 1000;
 
 /** dd-mm-yyyy in `timeZone`, the date format GST returns use. */
 function gstDate(at: Date, timeZone: string) {

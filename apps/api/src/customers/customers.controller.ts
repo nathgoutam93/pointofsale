@@ -1,13 +1,13 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Headers, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
 import { OnlineOnlyGuard } from '../common/mode';
 import { FailureLimiter } from '../common/rate-limit';
-import { getSession, RequestHeaders } from '../common/request-session';
+import { getSession, requireAdminSession, requireOpenRegisterSession, RequestHeaders } from '../common/request-session';
 import type { SessionUser } from '../common/types';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
-import { CustomersService, type BuyerFields, type CreditFields } from './customers.service';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { CustomersService, type CreditFields } from './customers.service';
 import { ReceivablesService } from './receivables.service';
 
 /** Statements emailed, per user: 30 an hour, so the server can't be used to send mail in bulk. */
@@ -16,7 +16,7 @@ const statementEmailsSent = new FailureLimiter(30, 60 * 60 * 1000);
 /** Only admins give credit: setting a credit limit or payment terms. */
 function assertMaySetCredit(session: SessionUser, body: CreditFields) {
   if ((body.creditLimit !== undefined || body.paymentTermsDays !== undefined) && session.role !== UserRole.ADMIN) {
-    throw new BadRequestException('Only admins set credit limits and payment terms');
+    throw new ForbiddenException('Only admins set credit limits and payment terms');
   }
 }
 
@@ -38,7 +38,7 @@ export class CustomersController {
 
   @Get('/customers')
   async listCustomers(
-    @Query(new ZodValidationPipe(appContract.customers.list.query)) { branchId }: { branchId: string },
+    @Query(new ZodValidationPipe(appContract.customers.list.query)) { branchId }: Parsed<typeof appContract.customers.list.query>,
     @Headers() headers: RequestHeaders
   ) {
     return this.customers.listCustomers(await this.branch(getSession(headers), branchId));
@@ -46,7 +46,7 @@ export class CustomersController {
 
   @Post('/customers')
   async createCustomer(
-    @Body(new ZodValidationPipe(appContract.customers.create.body)) body: { branchId: string; name: string; phone?: string } & BuyerFields & CreditFields,
+    @Body(new ZodValidationPipe(appContract.customers.create.body)) body: Parsed<typeof appContract.customers.create.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = getSession(headers);
@@ -58,8 +58,8 @@ export class CustomersController {
   @Patch('/customers/:id')
   async updateCustomer(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(CustomersController.branchQuery) { branchId }: { branchId?: string },
-    @Body(new ZodValidationPipe(appContract.customers.update.body)) body: { name?: string; phone?: string | null } & BuyerFields & CreditFields,
+    @Query(CustomersController.branchQuery) { branchId }: Parsed<typeof appContract.customers.getWallet.query>,
+    @Body(new ZodValidationPipe(appContract.customers.update.body)) body: Parsed<typeof appContract.customers.update.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = getSession(headers);
@@ -70,7 +70,7 @@ export class CustomersController {
 
   @Get('/customers/ageing')
   async ageing(
-    @Query(new ZodValidationPipe(appContract.customers.ageing.query)) { branchId }: { branchId: string },
+    @Query(new ZodValidationPipe(appContract.customers.ageing.query)) { branchId }: Parsed<typeof appContract.customers.ageing.query>,
     @Headers() headers: RequestHeaders
   ) {
     return this.receivables.ageing(await this.branch(getSession(headers), branchId));
@@ -79,7 +79,7 @@ export class CustomersController {
   @Get('/customers/:id/account')
   async account(
     @Param('id', ParseUUIDPipe) customerId: string,
-    @Query(CustomersController.branchQuery) { branchId }: { branchId?: string },
+    @Query(CustomersController.branchQuery) { branchId }: Parsed<typeof appContract.customers.getWallet.query>,
     @Headers() headers: RequestHeaders
   ) {
     return this.receivables.account(await this.branch(getSession(headers), branchId), customerId);
@@ -88,7 +88,7 @@ export class CustomersController {
   @Get('/customers/:id/statement')
   async statement(
     @Param('id', ParseUUIDPipe) customerId: string,
-    @Query(CustomersController.statementQuery) query: { branchId?: string; from: string; to: string },
+    @Query(CustomersController.statementQuery) query: Parsed<typeof appContract.customers.statement.query>,
     @Headers() headers: RequestHeaders
   ) {
     return this.receivables.statement(await this.branch(getSession(headers), query.branchId), customerId, query.from, query.to);
@@ -100,8 +100,8 @@ export class CustomersController {
   @HttpCode(202)
   async emailStatement(
     @Param('id', ParseUUIDPipe) customerId: string,
-    @Query(CustomersController.branchQuery) { branchId }: { branchId?: string },
-    @Body(new ZodValidationPipe(appContract.customers.emailStatement.body)) body: { from: string; to: string; email: string },
+    @Query(CustomersController.branchQuery) { branchId }: Parsed<typeof appContract.customers.getWallet.query>,
+    @Body(new ZodValidationPipe(appContract.customers.emailStatement.body)) body: Parsed<typeof appContract.customers.emailStatement.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = getSession(headers);
@@ -120,7 +120,7 @@ export class CustomersController {
   @Get('/customers/:id/wallet')
   async getWallet(
     @Param('id', ParseUUIDPipe) customerId: string,
-    @Query(CustomersController.branchQuery) { branchId }: { branchId?: string },
+    @Query(CustomersController.branchQuery) { branchId }: Parsed<typeof appContract.customers.getWallet.query>,
     @Headers() headers: RequestHeaders
   ) {
     return this.customers.getWallet(await this.branch(getSession(headers), branchId), customerId);
@@ -130,13 +130,30 @@ export class CustomersController {
   @HttpCode(200)
   async topupWallet(
     @Param('id', ParseUUIDPipe) customerId: string,
-    @Query(CustomersController.branchQuery) { branchId }: { branchId?: string },
-    @Body(new ZodValidationPipe(appContract.customers.topupWallet.body)) body: { amount: number; reference?: string },
+    @Query(CustomersController.branchQuery) { branchId }: Parsed<typeof appContract.customers.getWallet.query>,
+    @Body(new ZodValidationPipe(appContract.customers.topupWallet.body)) body: Parsed<typeof appContract.customers.topupWallet.body>,
     @Headers() headers: RequestHeaders
   ) {
-    const session = getSession(headers);
-    const branch = await this.branch(session, branchId);
+    // Money is taken, so it lands on the open register, at its branch.
+    const session = requireOpenRegisterSession(headers);
+    if (branchId && branchId !== session.branchId) {
+      throw new BadRequestException("Top up at the branch of your open register");
+    }
+    const branch = await this.branch(session, session.branchId);
     await this.access.requirePermission(session, 'TOP_UP_WALLETS');
-    return this.customers.topupWallet(branch, customerId, body.amount, body.reference);
+    return this.customers.topupWallet(session, branch, customerId, body);
+  }
+
+  @Post('/customers/:id/wallet/adjust')
+  @HttpCode(200)
+  async adjustWallet(
+    @Param('id', ParseUUIDPipe) customerId: string,
+    @Query(CustomersController.branchQuery) { branchId }: Parsed<typeof appContract.customers.getWallet.query>,
+    @Body(new ZodValidationPipe(appContract.customers.adjustWallet.body)) body: Parsed<typeof appContract.customers.adjustWallet.body>,
+    @Headers() headers: RequestHeaders
+  ) {
+    const session = requireAdminSession(headers);
+    const branch = await this.branch(session, branchId);
+    return this.customers.adjustWallet(session, branch, customerId, body.amount, body.reason);
   }
 }

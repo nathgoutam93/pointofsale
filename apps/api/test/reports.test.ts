@@ -23,7 +23,7 @@ describe('sales summary', () => {
     const adminUser = await t.db.user.findUniqueOrThrow({ where: { username: ADMIN.username } });
     await t.db.userBranchAccess.delete({ where: { userId_branchId: { userId: adminUser.id, branchId: other.branch.id } } });
     const denied = await t.call('GET', `/reports/sales-summary?branchId=${other.branch.id}`, here.token);
-    expect(denied.status).toBe(400);
+    expect(denied.status).toBe(403);
     expect(denied.body.message).toBe('You do not have access to this branch');
   });
 
@@ -35,26 +35,37 @@ describe('sales summary', () => {
     const la = (qty: number) => line(a.id, { qty, taxRate: 18 });
     const s1 = await t.ok('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, ctx.walkIn.id, [la(2)], [{ mode: 'CASH', amount: 236 }]));
     await t.ok('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(b.id, { rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], [{ mode: 'CARD', amount: 118 }]));
-    await t.ok('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, customer.id, [la(1)], []));
+    const credit = await t.ok('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, customer.id, [la(1)], []));
     const draft = await t.ok('POST', '/sales', ctx.token, { branchId: ctx.branch.id, customerId: customer.id, lines: [la(5)] });
-    await t.ok('POST', `/sales/${draft.id}/cancel`, ctx.token);
-    await t.ok('POST', `/sales/${s1.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: s1.invoice.lines[0].id, qty: 1 }], refundMode: 'CASH' });
+    await t.ok('POST', `/sales/${draft.id}/cancel`, ctx.token, { reason: 'Test cancel' });
+    await t.ok('POST', `/sales/${s1.invoice.id}/return`, ctx.token, { lines: [{ saleLineId: s1.invoice.lines[0].id, qty: 1 }], refundMode: 'CASH', reason: 'Test return' });
 
-    expect(await overall(ctx.token, ctx.branch.id)).toMatchObject({
-      invoiceCount: 2,
-      grossSales: 354,
-      taxCollected: 54,
+    // The credit sale counts as a sale (its goods are gone); the cancelled one doesn't.
+    const before = {
+      invoiceCount: 3,
+      grossSales: 472,
+      taxCollected: 72,
       returnsGross: 118,
       returnsNet: 100,
-      netSales: 200,
-      costOfGoodsSold: 110,
-      grossProfit: 90,
-      unpaidSales: 118
-    });
+      netSales: 300,
+      costOfGoodsSold: 170,
+      grossProfit: 130,
+      unpaidSales: 118,
+      collections: { cash: 236, card: 118, upi: 0, wallet: 0 }
+    };
+    expect(await overall(ctx.token, ctx.branch.id)).toMatchObject(before);
 
     // Changing the cost later doesn't rewrite past profit.
     await t.ok('PATCH', `/items/${a.id}`, ctx.token, { costPrice: 80 });
-    expect((await overall(ctx.token, ctx.branch.id)).costOfGoodsSold).toBe(110);
+    expect((await overall(ctx.token, ctx.branch.id)).costOfGoodsSold).toBe(170);
+
+    // Paying the credit bill later doesn't change the sales; it is money collected (by UPI here).
+    await t.ok('POST', `/sales/${credit.invoice.id}/settle`, ctx.token, { payments: [{ mode: 'UPI', amount: 118 }] });
+    expect(await overall(ctx.token, ctx.branch.id)).toMatchObject({
+      ...before,
+      unpaidSales: 0,
+      collections: { cash: 236, card: 118, upi: 118, wallet: 0 }
+    });
   });
 
   it('works out Today in the business time zone', async () => {

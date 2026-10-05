@@ -34,7 +34,7 @@ const BLOCKED_FUNCTION = /\b(url|expression|image|image-set|cross-fade|element|a
 // No attribute selectors (they can match typed input values) and no sibling combinators
 // (they reach elements next to the receipt).
 const SAFE_SELECTOR = /^[a-z0-9\s.#\-_>:*()]+$/i;
-const SAFE_MEDIA_QUERY = /^[a-z0-9\s(),:.\-]+$/i;
+const SAFE_MEDIA_QUERY = /^[a-z0-9\s(),:.-]+$/i;
 const PAGE_ROOT = /^(html|body|:root)$/i;
 const STARTS_WITH_SCOPE = new RegExp(`^${RECEIPT_CSS_SCOPE}(?=$|[.:])`);
 

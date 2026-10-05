@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { CustomerAccount } from "@pos/contracts";
-import { inr, money } from "../route-helpers";
+import { inr } from "../route-helpers";
 import { keypadKeyFromEvent, shouldIgnoreDialogKey } from "./keyboard";
 import type { Payment } from "./usePayment";
 
@@ -112,6 +112,11 @@ export function PaymentModal({
                   <div className="flex items-center gap-3">
                     <p className="text-base font-semibold text-slate-900 tabular-nums">
                       {inr(line.amount)}
+                      {line.tendered !== undefined ? (
+                        <span className="block text-right text-xs font-normal text-slate-500">
+                          {inr(line.tendered)} handed over
+                        </span>
+                      ) : null}
                     </p>
                     <button
                       className="grid h-7 w-7 place-items-center rounded-md text-lg leading-none text-slate-400 hover:bg-rose-50 hover:text-rose-600"
@@ -131,6 +136,12 @@ export function PaymentModal({
               <p className="text-sm font-medium text-slate-600">Remaining</p>
               <p className="text-2xl font-semibold text-slate-900 tabular-nums">{inr(payment.remainingAmount)}</p>
             </div>
+            {payment.changeAmount > 0 ? (
+              <div className="mt-2 flex items-center justify-between rounded-md bg-emerald-50 px-3 py-2">
+                <p className="text-sm font-semibold text-emerald-800">Change to give</p>
+                <p className="text-2xl font-semibold text-emerald-800 tabular-nums">{inr(payment.changeAmount)}</p>
+              </div>
+            ) : null}
           </div>
 
           <button
@@ -191,6 +202,21 @@ export function PaymentModal({
         </div>
 
         <div className="border-t border-slate-200 p-6 md:border-t-0 md:border-l">
+          {!isWalkInSelected && payment.method === "CASH" ? (
+            <div className="mb-3 flex items-center gap-2 text-xs text-slate-600">
+              <span>Extra cash:</span>
+              {(["CHANGE", "WALLET"] as const).map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  className={`rounded-md border px-2 py-1 font-semibold ${payment.cashExcessTo === choice ? "border-brand-600 bg-brand-50 text-brand-700" : "border-slate-200 bg-white text-slate-600"}`}
+                  onClick={() => payment.setCashExcessTo(choice)}
+                >
+                  {choice === "CHANGE" ? "Give change" : "Add to wallet"}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="mb-4 grid grid-cols-2 gap-2">
             {payment.availableMethods.map((method) => (
               <button

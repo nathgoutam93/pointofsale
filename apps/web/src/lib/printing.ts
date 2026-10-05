@@ -47,7 +47,8 @@ export function usePrintTemplate(template: ReceiptTemplate) {
 export async function printReceipt(style: ReceiptStyle, markup?: string) {
   const settings = await receiptPrinterSettings();
   const html = markup ?? document.getElementById("printable-invoice")?.outerHTML;
-  if (!printing || !settings?.printerName || !html) {
+  // An A4 sheet goes to an ordinary printer through the print dialog; the receipt printer takes rolls.
+  if (!printing || !settings?.printerName || !html || style.paperMm === 210) {
     window.print();
     return;
   }

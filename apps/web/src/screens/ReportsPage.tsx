@@ -2,6 +2,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, authHeaders } from "../lib/api";
 import { inr, requireAdmin } from "./route-helpers";
+import { DetailReport } from "./reports/DetailReport";
 
 const ALL_BRANCHES_OPTION = "__all_branches__";
 
@@ -81,9 +82,12 @@ export function ReportsPage() {
     const ranges = first.ranges.map((range, index) => {
       const sum = (key: (typeof SUMMED_FIELDS)[number]) =>
         datasets.reduce((acc, data) => acc + Number(data.ranges[index]?.[key] ?? 0), 0);
+      const collected = (mode: "cash" | "card" | "upi" | "wallet") =>
+        datasets.reduce((acc, data) => acc + Number(data.ranges[index]?.collections?.[mode] ?? 0), 0);
       return {
         ...range,
         ...Object.fromEntries(SUMMED_FIELDS.map((key) => [key, sum(key)])),
+        collections: { cash: collected("cash"), card: collected("card"), upi: collected("upi"), wallet: collected("wallet") },
       } as typeof range;
     });
 
@@ -146,6 +150,13 @@ export function ReportsPage() {
     { label: "Gross profit", value: (r) => r.grossProfit, emphasis: true },
   ];
   const hasUnpaid = ranges.some((r) => r.unpaidSales > 0);
+  // Money taken in each period, by how it was paid (whenever its bill was made).
+  const collectionRows: Array<{ label: string; value: (r: (typeof ranges)[number]) => number }> = [
+    { label: "Cash", value: (r) => r.collections?.cash ?? 0 },
+    { label: "Card", value: (r) => r.collections?.card ?? 0 },
+    { label: "UPI", value: (r) => r.collections?.upi ?? 0 },
+    { label: "Customer wallet", value: (r) => r.collections?.wallet ?? 0 },
+  ];
 
   return (
     <section className="p-6">
@@ -201,7 +212,7 @@ export function ReportsPage() {
               <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">
                 {inr(range.netSales)}
               </p>
-              <p className="text-xs text-slate-500">Net sales · {range.invoiceCount} paid invoices</p>
+              <p className="text-xs text-slate-500">Net sales · {range.invoiceCount} invoices</p>
               <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
                 <span className="text-slate-500">Gross profit</span>
                 <span className="font-semibold text-slate-900 tabular-nums">
@@ -253,7 +264,7 @@ export function ReportsPage() {
                   </tr>
                 ))}
                 <tr>
-                  <td className="px-5 py-2.5 text-slate-600">Paid invoices</td>
+                  <td className="px-5 py-2.5 text-slate-600">Invoices</td>
                   {ranges.map((range) => (
                     <td key={range.label} className="px-5 py-2.5 text-right text-slate-900 tabular-nums">
                       {range.invoiceCount.toLocaleString("en-IN")}
@@ -263,7 +274,7 @@ export function ReportsPage() {
                 {hasUnpaid ? (
                   <tr>
                     <td className="px-5 py-2.5 text-slate-600">
-                      Unpaid credit sales <span className="text-xs text-slate-400">(not counted above)</span>
+                      Still owed on these sales <span className="text-xs text-slate-400">(credit, included above)</span>
                     </td>
                     {ranges.map((range) => (
                       <td key={range.label} className="px-5 py-2.5 text-right text-amber-700 tabular-nums">
@@ -272,10 +283,27 @@ export function ReportsPage() {
                     ))}
                   </tr>
                 ) : null}
+                <tr className="border-t border-slate-200 bg-slate-50">
+                  <td colSpan={ranges.length + 1} className="eyebrow px-5 py-2.5 font-semibold">
+                    Money collected <span className="normal-case text-slate-400">(payments taken in the period, for bills of any date)</span>
+                  </td>
+                </tr>
+                {collectionRows.map((row) => (
+                  <tr key={row.label}>
+                    <td className="px-5 py-2.5 text-slate-600">{row.label}</td>
+                    {ranges.map((range) => (
+                      <td key={range.label} className="px-5 py-2.5 text-right text-slate-900 tabular-nums">
+                        {inr(row.value(range))}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         ) : null}
+
+        <DetailReport branchId={isAllBranchesSelected ? null : selectedBranchId} timeZone={summary?.timezone} />
       </div>
     </section>
   );

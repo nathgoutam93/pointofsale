@@ -96,7 +96,8 @@ export async function enrichDemoGst(prisma, apiBaseUrl) {
     const newItems = scenarioProducts.map((product) => ({
       id: randomUUID(), code: product.code, name: product.name, category: 'GST Demo Scenarios',
       uom: 'PCS', leastCount: 1, costPrice: product.cost, sellPrice: product.price,
-      mrp: product.price, taxMode: 'EXCLUSIVE', taxRate: product.tax ?? 0,
+      // MRP includes GST: never below what the customer pays.
+      mrp: Math.round(product.price * (100 + (product.tax ?? 0))) / 100, taxMode: 'EXCLUSIVE', taxRate: product.tax ?? 0,
       hsnCode: product.hsn, uqc: 'PCS', supplyType: product.supplyType,
       imageUrl: `${apiBaseUrl}/uploads/items/${product.code.toLowerCase()}.svg`
     }));
@@ -162,7 +163,7 @@ export async function enrichDemoGst(prisma, apiBaseUrl) {
           taxRate: Number(item.taxRate), discounts: [] } };
       });
       const compositionSale = taxpayerType === 'COMPOSITION';
-      const totals = computeSaleTotals(chosen.map((entry) => entry.input), [], 'AFTER_DISCOUNT', {
+      const totals = computeSaleTotals(chosen.map((entry) => entry.input), [], {
         chargeTax: !compositionSale, interState: place !== branch.stateCode
       });
       const invoiceId = randomUUID();

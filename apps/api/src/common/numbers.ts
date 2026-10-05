@@ -4,10 +4,5 @@ export function toNumber(value: Prisma.Decimal | number | null | undefined) {
   return Number(value ?? 0);
 }
 
-export function round2(value: number) {
-  return Math.round(value * 100) / 100;
-}
-
-export function round3(value: number) {
-  return Math.round(value * 1000) / 1000;
-}
+/** The app's one rounding (see roundTo in @pos/contracts): money to the paisa, quantities to three places. */
+export { round2, round3 } from '@pos/contracts';

@@ -24,10 +24,14 @@ export const MIGRATION_TABLES = [
   'Customer',
   'WalletAccount',
   'WalletTxn',
+  'ItemGroup',
   'Item',
   'ItemSaleUom',
+  'ItemBarcode',
   'ItemBranchPrice',
   'ItemStock',
+  'ItemBatch',
+  'BatchStock',
   'StockLedger',
   'SaleInvoice',
   'SaleInvoiceLine',
@@ -37,10 +41,17 @@ export const MIGRATION_TABLES = [
   'Receipt',
   'ReturnInvoice',
   'ReturnInvoiceLine',
+  'Supplier',
+  'SupplierPayment',
   'Purchase',
   'PurchaseLine',
+  'PurchaseReturn',
+  'PurchaseReturnLine',
   'StockTransfer',
-  'StockTransferLine'
+  'StockTransferLine',
+  'CashMovement',
+  'Expense',
+  'AuditEvent'
 ] as const;
 
 /**
