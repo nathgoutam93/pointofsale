@@ -1,5 +1,5 @@
 import { canEncodeCode128 } from './code128.js';
-import { RECEIPT_PAPERS, type ReceiptPaper, type ReceiptTemplate } from './receiptTemplate.js';
+import { RECEIPT_PAPERS, type ReceiptPaper, type ReceiptSections, type ReceiptTemplate } from './receiptTemplate.js';
 
 /** One printed line. Text lines are exactly as wide as the paper's columns (half for large ones). */
 export type ReceiptLine = {
@@ -76,6 +76,8 @@ export type RenderedReceipt = {
   lines: ReceiptLine[];
   columns: number;
   showLogo: boolean;
+  /** On A4 paper: the document and what it shows, laid out as a page (a4InvoiceHtml) instead of `lines`. */
+  page?: { doc: ReceiptDocument; sections: ReceiptSections };
 };
 
 const money = (value: number) => value.toFixed(2);
@@ -306,7 +308,9 @@ export function renderReceipt(doc: ReceiptDocument, template: ReceiptTemplate, c
     lines.push({ text: fitCenter(doc.barcodeValue, width), barcode: doc.barcodeValue });
   }
 
-  return { lines, columns: width, showLogo: show.logo };
+  // A4 lays the same document out as a page; the lines stay for anything that prints text.
+  const page = template.paper === 'A4' && columns === undefined ? { doc, sections: show } : undefined;
+  return { lines, columns: width, showLogo: show.logo, ...(page ? { page } : {}) };
 }
 
 /** Paper columns for a template paper, or a computer's own paper when it has one. */

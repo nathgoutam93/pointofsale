@@ -1,4 +1,5 @@
 import {
+  a4InvoiceCss,
   code128Modules,
   RECEIPT_PAPERS,
   renderReceipt,
@@ -28,8 +29,13 @@ export function branchReceiptTemplate(
   return resolveReceiptTemplate(branch?.receiptTemplate ?? null, branch?.receiptCss || branch?.invoiceCss);
 }
 
-/** How a receipt is printed: the CSS styling it, its characters a line and its paper's width. */
-export type ReceiptStyle = { css: string; columns: number; paperMm: 58 | 80 };
+/** How a receipt is printed: the CSS styling it, its characters a line and its paper's width (210: an A4 sheet). */
+export type ReceiptStyle = { css: string; columns: number; paperMm: 58 | 80 | 210 };
+
+/** The CSS for a receipt laid out on its template's paper: a text column, or an A4 page. */
+export function receiptCssFor(template: ReceiptTemplate, columns: number, id = "printable-invoice") {
+  return template.paper === "A4" ? a4InvoiceCss(id) : receiptBaseCss(columns, id);
+}
 
 /**
  * The receipt's own CSS: a monospace column `columns` characters wide, as on the paper. `id`
@@ -78,7 +84,7 @@ export function receiptBaseCss(columns: number, id = "printable-invoice") {
 /** The style a branch's receipts print with: its template's paper, plus its own sanitized CSS. */
 export function receiptStyleFor(rendered: Pick<RenderedReceipt, "columns">, template: ReceiptTemplate, customCss: string): ReceiptStyle {
   return {
-    css: `${receiptBaseCss(rendered.columns)}${customCss}`,
+    css: `${receiptCssFor(template, rendered.columns)}${customCss}`,
     columns: rendered.columns,
     paperMm: RECEIPT_PAPERS[template.paper].paperMm,
   };

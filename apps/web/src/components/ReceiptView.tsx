@@ -1,3 +1,4 @@
+import { a4InvoiceHtml } from "@pos/contracts";
 import { barcodePath, receiptLineClass, type RenderedReceipt } from "../lib/receipt";
 
 /**
@@ -15,6 +16,10 @@ export function ReceiptView({
   id?: string;
   className?: string;
 }) {
+  // On A4 paper: a full-page invoice (every value escaped by a4InvoiceHtml).
+  if (receipt?.page) {
+    return <div id={id} className={className} dangerouslySetInnerHTML={{ __html: a4InvoiceHtml(receipt.page.doc, receipt.page.sections, logoSrc) }} />;
+  }
   return (
     <div id={id} className={className}>
       {receipt?.showLogo && logoSrc ? <img src={logoSrc} alt="Store logo" className="receipt-logo" /> : null}

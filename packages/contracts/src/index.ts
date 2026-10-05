@@ -14,6 +14,7 @@ export {
   presetTemplate,
   RECEIPT_PAPER_IDS,
   RECEIPT_PAPERS,
+  THERMAL_PAPER_IDS,
   RECEIPT_SECTION_LABELS,
   RECEIPT_SECTIONS,
   RECEIPT_STYLE_LABELS,
@@ -25,6 +26,7 @@ export {
 } from './receiptTemplate.js';
 export type { ReceiptPaper, ReceiptSection, ReceiptSections, ReceiptStyle, ReceiptTemplate } from './receiptTemplate.js';
 export { fitCenter, fitLeft, fitRight, receiptColumns, renderReceipt, tableColumns, wrapText } from './receiptLayout.js';
+export { a4InvoiceCss, a4InvoiceHtml, indianNumberWords, rupeesInWords } from './receiptA4.js';
 export type { ReceiptDocument, ReceiptDocumentItem, ReceiptField, ReceiptLine, RenderedReceipt } from './receiptLayout.js';
 export { canEncodeCode128, code128Modules, code128Values } from './code128.js';
 export {

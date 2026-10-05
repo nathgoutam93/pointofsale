@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { DesktopPrinting, PrintingSettings } from "../../lib/desktop";
-import { RECEIPT_PAPER_IDS, RECEIPT_PAPERS, type ReceiptPaper } from "@pos/contracts";
+import { RECEIPT_PAPERS, THERMAL_PAPER_IDS, type ReceiptPaper } from "@pos/contracts";
 import { printReceipt } from "../../lib/printing";
 import { receiptMarkup, receiptStyleFor, renderReceipt, sampleReceiptDocument } from "../../lib/receipt";
 import { useStoreSettings } from "../pos/useStoreSettings";
@@ -74,7 +74,10 @@ export function PrinterSection({ printing, branchId }: { printing: DesktopPrinti
           <h2 className="text-lg font-semibold tracking-tight text-slate-900">Receipt printer</h2>
           <p className="mt-1 text-sm text-slate-600">
             Receipts go straight to this printer in one click, with no print dialog. This is set on each computer
-            separately. Receipts are laid out for {paper.label} paper ({paper.columns} characters a line).
+            separately.{" "}
+            {store.printTemplate.paper === "A4"
+              ? "This branch bills on A4 sheets, which print through the print dialog; set the paper below to print receipts on this printer instead."
+              : `Receipts are laid out for ${paper.label} paper (${paper.columns} characters a line).`}
           </p>
         </div>
 
@@ -136,7 +139,7 @@ export function PrinterSection({ printing, branchId }: { printing: DesktopPrinti
             <option value="">
               Same as the branch: {branchPaper.label}, {branchPaper.columns} characters a line
             </option>
-            {RECEIPT_PAPER_IDS.map((id) => (
+            {THERMAL_PAPER_IDS.map((id) => (
               <option key={id} value={id}>
                 {RECEIPT_PAPERS[id].label}, {RECEIPT_PAPERS[id].columns} characters a line
               </option>

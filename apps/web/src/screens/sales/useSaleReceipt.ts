@@ -21,6 +21,7 @@ export function useSaleReceipt({
   formatSaleCreator,
   itemUomById,
   store,
+  asA4,
 }: {
   settledSummary: SettledSummary | null;
   selectedInvoiceDetails: InvoiceDetailsQuery;
@@ -32,6 +33,8 @@ export function useSaleReceipt({
   formatSaleCreator: (createdBy: string, createdByName?: string) => string;
   itemUomById: Map<string, string>;
   store: ReceiptSettings;
+  /** Lay the bill out on an A4 sheet whatever the branch's paper. */
+  asA4: boolean;
 }) {
   const {
     businessSettings,
@@ -39,9 +42,10 @@ export function useSaleReceipt({
     receiptHeaderLines,
     receiptFooterLines,
     invoiceFooterLines,
-    receiptTemplate,
+    receiptTemplate: branchTemplate,
     customReceiptCss,
   } = store;
+  const receiptTemplate = useMemo(() => (asA4 ? { ...branchTemplate, paper: "A4" as const } : branchTemplate), [asA4, branchTemplate]);
 
   const saleLines =
     settledSummary?.lines ??

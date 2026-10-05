@@ -47,6 +47,7 @@ export function SalesPage() {
   const [message, setMessage] = useState("");
   const receiptPrinting = useReceiptPrinting();
   const [selectedReceiptId, setSelectedReceiptId] = useState("");
+  const [asA4, setAsA4] = useState(false);
   const [settledSummary, setSettledSummary] = useState<SettledSummary | null>(
     null,
   );
@@ -247,6 +248,7 @@ export function SalesPage() {
     formatSaleCreator,
     itemUomById,
     store,
+    asA4,
   });
 
   return (
@@ -337,6 +339,8 @@ export function SalesPage() {
           onPrint={() =>
             void receiptPrinting.print(receiptStyle)
           }
+          asA4={asA4}
+          onToggleA4={() => setAsA4((current) => !current)}
           onSettle={payment.openSettleModal}
           canTakePayment={canTakePayment}
           pendingAmount={pendingAmount}

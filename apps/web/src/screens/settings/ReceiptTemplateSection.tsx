@@ -14,7 +14,7 @@ import {
   type ReceiptTemplate,
 } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders } from "../../lib/api";
-import { receiptBaseCss, renderReceipt, sampleReceiptDocument } from "../../lib/receipt";
+import { receiptCssFor, renderReceipt, sampleReceiptDocument } from "../../lib/receipt";
 import { ReceiptView } from "../../components/ReceiptView";
 import { useStoreSettings } from "../pos/useStoreSettings";
 
@@ -134,7 +134,7 @@ export function ReceiptTemplateSection({
           >
             {RECEIPT_PAPER_IDS.map((paper) => (
               <option key={paper} value={paper}>
-                {RECEIPT_PAPERS[paper].label} · {RECEIPT_PAPERS[paper].columns} characters a line
+                {paper === "A4" ? RECEIPT_PAPERS[paper].label : `${RECEIPT_PAPERS[paper].label} · ${RECEIPT_PAPERS[paper].columns} characters a line`}
               </option>
             ))}
           </select>
@@ -228,7 +228,7 @@ export function ReceiptTemplateSection({
       <div className="card content-start p-5">
         <p className="eyebrow">Preview</p>
         <p className="mt-1 text-xs text-slate-500">A sample sale, {RECEIPT_PAPERS[draft.paper].label} paper.</p>
-        <style>{receiptBaseCss(preview.columns, PREVIEW_ID)}</style>
+        <style>{receiptCssFor(draft, preview.columns, PREVIEW_ID)}</style>
         <div className="mt-3 overflow-x-auto">
           <ReceiptView
             id={PREVIEW_ID}

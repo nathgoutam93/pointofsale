@@ -11,6 +11,8 @@ export function InvoiceToolbar({
   setMessage,
   printing,
   onPrint,
+  asA4,
+  onToggleA4,
   onSettle,
   canTakePayment,
   pendingAmount,
@@ -27,6 +29,9 @@ export function InvoiceToolbar({
   setMessage: (message: string) => void;
   printing: boolean;
   onPrint: () => void;
+  /** The bill is shown (and printed) as an A4 invoice instead of on the branch's paper. */
+  asA4: boolean;
+  onToggleA4: () => void;
   onSettle: () => void;
   /** Payments are taken only at the branch where this user's register is open. */
   canTakePayment: boolean;
@@ -63,6 +68,14 @@ export function InvoiceToolbar({
             Cancel Invoice
           </button>
         ) : null}
+        <button
+          className={asA4 ? "btn-primary" : "btn-secondary"}
+          aria-pressed={asA4}
+          title="Show and print this bill as a full-page A4 invoice"
+          onClick={onToggleA4}
+        >
+          A4
+        </button>
         <button
           className="btn-secondary"
           disabled={printing}
