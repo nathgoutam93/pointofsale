@@ -1,12 +1,9 @@
-# Checks every push and pull request: lint and types across the workspace, the unit tests
+# Checks pull requests (opened, and each push to them): lint and types across the workspace, the unit tests
 # (contracts, web), the API's tests against a real PostgreSQL (see apps/api/test), and a
 # browser smoke test of the web app on the real API (apps/web/e2e).
 name: CI
 
 on:
-  push:
-    branches: ['**']
-    tags-ignore: ['**']
   pull_request:
 
 concurrency:
