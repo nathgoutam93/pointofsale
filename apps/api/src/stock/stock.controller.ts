@@ -28,7 +28,7 @@ export class StockController {
     @Headers() headers: RequestHeaders
   ) {
     await this.changing(headers, body.branchId);
-    return this.stock.createStockOpening(body.branchId, body.itemId, body.qty, body.costPrice, body.reason);
+    return this.stock.createStockOpening(body.branchId, body.itemId, body.qty, body.costPrice, body.reason, body);
   }
 
   @Patch('/stock/opening')
@@ -37,13 +37,13 @@ export class StockController {
     @Headers() headers: RequestHeaders
   ) {
     const session = await this.changing(headers, body.branchId);
-    const entry = await this.stock.updateStockOpening(body.branchId, body.itemId, body.qty, body.costPrice, body.reason);
+    const entry = await this.stock.updateStockOpening(body.branchId, body.itemId, body.qty, body.costPrice, body.reason, body);
     await this.audit.record(session, {
       action: 'OPENING_STOCK_CORRECTED',
       entityType: 'Item',
       entityId: entry.itemId,
       branchId: body.branchId,
-      summary: `Opening stock corrected to ${body.qty}${body.reason ? ` (${body.reason})` : ''}`,
+      summary: `Opening stock${body.batchNo ? ` of batch ${body.batchNo.toUpperCase()}` : ''} corrected to ${body.qty}${body.reason ? ` (${body.reason})` : ''}`,
       details: { qty: body.qty, costPrice: body.costPrice ?? null, reason: body.reason ?? null }
     });
     return entry;
@@ -55,7 +55,7 @@ export class StockController {
     @Headers() headers: RequestHeaders
   ) {
     const session = await this.changing(headers, body.branchId);
-    const entry = await this.stock.createStockAdjustment(body.branchId, body.itemId, body.qty, body.direction, body.costPrice, body.reason);
+    const entry = await this.stock.createStockAdjustment(body.branchId, body.itemId, body.qty, body.direction, body.costPrice, body.reason, body);
     await this.audit.record(session, {
       action: 'STOCK_ADJUSTED',
       entityType: 'Item',
@@ -84,5 +84,14 @@ export class StockController {
   ) {
     await this.access.requireBranch(getSession(headers), query.branchId);
     return this.stock.getLedger(query.branchId, query.itemId, query);
+  }
+
+  @Get('/stock/batches')
+  async batches(
+    @Query(new ZodValidationPipe(appContract.stock.batches.query)) query: Parsed<typeof appContract.stock.batches.query>,
+    @Headers() headers: RequestHeaders
+  ) {
+    await this.access.requireBranch(getSession(headers), query.branchId);
+    return this.stock.listBatches(query.branchId, query);
   }
 }

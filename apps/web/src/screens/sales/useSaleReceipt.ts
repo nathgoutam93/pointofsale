@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { invoiceReceiptItems } from "@pos/contracts";
+import { batchLabel, invoiceReceiptItems } from "@pos/contracts";
 import { receiptStyleFor, renderReceipt, saleReceiptDocument } from "../../lib/receipt";
 import { invoiceGstOf } from "../../lib/gstReceipt";
 import { getItemDiscountAmount } from "./salesFormat";
@@ -72,6 +72,7 @@ export function useSaleReceipt({
       taxableAmount: Number(line.taxableAmount ?? 0),
       netAmount: Number(line.netAmount),
       hsnCode: line.hsnCode ?? null,
+      batches: batchLabel(line.batches),
     })) ??
     [];
 

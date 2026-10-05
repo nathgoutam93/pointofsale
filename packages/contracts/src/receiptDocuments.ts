@@ -283,7 +283,15 @@ type InvoiceLine = {
   netAmount: number | string;
   hsnCode?: string | null;
   discountAllocations?: Array<{ discountId: string; amount: number | string }>;
+  /** Items kept by batch: the batches it was sold from. */
+  batches?: Array<{ batchNo: string; expiryDate: string | null; qty: number }>;
 };
+
+/** "Batch A1 exp 2027-03-31", one per batch a line was sold from. */
+export function batchLabel(batches: Array<{ batchNo: string; expiryDate: string | null }> | undefined) {
+  if (!batches || batches.length === 0) return null;
+  return batches.map((batch) => `Batch ${batch.batchNo}${batch.expiryDate ? ` exp ${batch.expiryDate}` : ''}`).join(', ');
+}
 
 const formatQtyLabel = (qty: number) => (Number.isInteger(qty) ? qty.toFixed(0) : qty.toFixed(3));
 
@@ -323,7 +331,8 @@ export function invoiceReceiptItems(
       discount: Math.max(0, itemDiscount),
       // Before the order discount, which is shown once under the items.
       total: Number(line.netAmount ?? 0) + orderDiscount,
-      taxable: Number(line.taxableAmount ?? 0)
+      taxable: Number(line.taxableAmount ?? 0),
+      batches: batchLabel(line.batches)
     };
   });
 }

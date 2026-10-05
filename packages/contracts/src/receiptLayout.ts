@@ -38,6 +38,8 @@ export type ReceiptDocumentItem = {
   total: number;
   /** Value tax was charged on, after every discount (for the GST summary). */
   taxable: number;
+  /** The batches it was sold from, with their expiry dates (items kept by batch). */
+  batches?: string | null;
 };
 
 /** Everything a printed sale, payment or refund says, independent of how it is laid out. */
@@ -204,12 +206,14 @@ export function renderReceipt(doc: ReceiptDocument, template: ReceiptTemplate, c
         )
       );
       if (show.hsn && item.hsn) push(fitLeft(`  HSN ${item.hsn}`, width));
+      if (item.batches) wrapText(item.batches, width - 2).forEach((line) => push(fitLeft(`  ${line}`, width)));
       if (show.itemDiscount && item.discount > 0) push(detailRow('discount', `-${money(item.discount)}`));
     }
   } else if (style === 'MINIMAL') {
     for (const item of doc.items) {
       leftRight(`${formatQty(item.qty)} x ${item.name}`, money(item.total), width).forEach((line) => push(line));
       if (show.hsn && item.hsn) push(fitLeft(`  HSN ${item.hsn}`, width));
+      if (item.batches) wrapText(item.batches, width - 2).forEach((line) => push(fitLeft(`  ${line}`, width)));
       if (show.itemDiscount && item.discount > 0) push(detailRow('discount', `-${money(item.discount)}`));
     }
   } else {
@@ -222,6 +226,7 @@ export function renderReceipt(doc: ReceiptDocument, template: ReceiptTemplate, c
       } else {
         if (show.hsn && item.hsn) push(detailRow(`HSN ${item.hsn}`, ''));
       }
+      if (item.batches) wrapText(item.batches, width - 2).forEach((line) => push(fitLeft(`  ${line}`, width)));
       push(detailRow(`${item.qtyLabel} x ${money(item.rate)}`, money(item.amount)));
       if (show.itemTax && hasTax && !(style === 'DETAILED' && show.hsn && item.hsn)) {
         push(detailRow(`tax ${formatQty(item.taxRate)}%`, money(item.taxAmount)));

@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, UserRole, WalletTxnType } from '@prisma/client';
 import { invoiceDue, returnLineAmounts, splitReturn, type GstAmounts } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
@@ -8,6 +9,8 @@ import { assertQtyRespectsLeastCount } from '../common/quantities';
 import { requireSessionBranchId } from '../common/session';
 import { SequenceService } from '../sequences/sequences.service';
 import { StockService } from '../stock/stock.service';
+import { putBack } from '../stock/batches';
+import { sharesOfLines } from '../stock/batch-stock';
 import { CustomersService, walletTxnAuthor } from '../customers/customers.service';
 import { RegistersService } from '../registers/registers.service';
 import { isFallback } from '../common/mode';
@@ -126,6 +129,7 @@ export class ReturnsService {
       }
 
       const returnLineCreates: Array<{
+        id: string;
         saleLineId: string;
         qty: number;
         amount: number;
@@ -168,6 +172,7 @@ export class ReturnsService {
           qty
         });
         returnLineCreates.push({
+          id: randomUUID(),
           saleLineId: saleLine.id,
           qty,
           amount: refund.amount,
@@ -238,17 +243,28 @@ export class ReturnsService {
         }
       });
 
+      // Back into the batches the sale line took, less what earlier returns put back.
+      const saleLineIds = returnLineCreates.map((line) => line.saleLineId);
+      const earlierReturnLines = invoice.lines.filter((line) => saleLineIds.includes(line.id)).flatMap((line) => line.returnLines.map((returned) => ({ id: returned.id, saleLineId: line.id })));
+      const sold = await sharesOfLines(tx, saleLineIds, 'OUT');
+      const putBackEarlier = await sharesOfLines(tx, earlierReturnLines.map((line) => line.id), 'IN');
       await this.stock.recordStock(
         tx,
-        returnLineCreates.map((line) => ({
-          branchId: invoice.branchId,
-          itemId: invoice.lines.find((l) => l.id === line.saleLineId)!.itemId,
-          txnType: StockTxnType.RETURN,
-          qtyIn: line.qty,
-          qtyOut: 0,
-          referenceType: 'RETURN',
-          referenceId: returnInvoice.id
-        }))
+        returnLineCreates.flatMap((line) => {
+          const out = sold.get(line.saleLineId) ?? [];
+          const back = earlierReturnLines.filter((earlier) => earlier.saleLineId === line.saleLineId).flatMap((earlier) => putBackEarlier.get(earlier.id) ?? []);
+          return putBack(out, back, line.qty).map((share) => ({
+            branchId: invoice.branchId,
+            itemId: invoice.lines.find((l) => l.id === line.saleLineId)!.itemId,
+            txnType: StockTxnType.RETURN,
+            qtyIn: share.qty,
+            qtyOut: 0,
+            referenceType: 'RETURN',
+            referenceId: returnInvoice.id,
+            lineId: line.id,
+            batchId: share.batchId
+          }));
+        })
       );
 
       if (refundAmount > 0 && input.refundMode === PaymentMode.WALLET) {

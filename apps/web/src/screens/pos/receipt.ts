@@ -28,6 +28,7 @@ export function buildInvoiceReceipt(postPayment: PostPaymentSummary, store: Stor
       // Before the order discount, which is shown once under the items.
       total: netAmount + Number(line.orderDiscountAmount ?? 0),
       taxable: netAmount - taxAmount,
+      batches: line.batches ?? null,
     };
   });
 

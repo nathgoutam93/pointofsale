@@ -75,7 +75,9 @@ const saleLineSchema = saleLineInput.omit({ discounts: true }).extend({
   hsnCode: z.string().nullable().default(null),
   uqc: z.string().nullable().default(null),
   supplyType: gstSupplyTypeSchema.default('TAXABLE'),
-  discountAllocations: z.array(discountAllocationSchema)
+  discountAllocations: z.array(discountAllocationSchema),
+  /** For items kept by batch: the batches it was sold from, with their expiry dates. */
+  batches: z.array(z.object({ batchNo: z.string(), expiryDate: z.string().nullable(), qty: z.number() })).default([])
 });
 
 /** A return line's refund split into taxable value and tax by kind (amount = taxable + tax). */

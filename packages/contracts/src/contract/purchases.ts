@@ -1,8 +1,10 @@
 // Purchases from suppliers, goods sent back to them (debit notes), and supplier accounts.
 import { z } from 'zod';
+import { batchInputSchema } from './inventory.js';
 import { c, calendarDateSchema, gstinSchema, moneySchema, pageQuerySchema, requiredText, supplierPaymentModeSchema, taxRateSchema, uniqueBy } from './shared.js';
 
-const purchaseLineInputSchema = z.object({
+/** For items that track batches: the batch it comes in, and its expiry date. */
+const purchaseLineInputSchema = batchInputSchema.extend({
   itemId: z.string().uuid(),
   /** In the item's base unit. */
   qty: z.number().positive(),
@@ -44,7 +46,8 @@ const purchaseSchema = z.object({
       cgstAmount: moneySchema.default(0),
       sgstAmount: moneySchema.default(0),
       igstAmount: moneySchema.default(0),
-      item: z.object({ code: z.string(), name: z.string(), uom: z.string() })
+      item: z.object({ code: z.string(), name: z.string(), uom: z.string() }),
+      batch: z.object({ batchNo: z.string(), expiryDate: z.string().nullable() }).nullable().optional()
     })
   )
 });
@@ -177,7 +180,7 @@ export const purchasesRoutes = c.router({
           .array(purchaseLineInputSchema)
           .min(1)
           .max(500)
-          .superRefine(uniqueBy((entry) => entry.itemId, 'Item is listed more than once'))
+          .superRefine(uniqueBy((entry) => `${entry.itemId}:${entry.batchNo?.toUpperCase() ?? ''}`, 'Item is listed more than once in the same batch'))
       })
       .refine((body) => body.supplierId || body.supplierName, { message: 'Choose a supplier', path: ['supplierId'] }),
     responses: { 201: purchaseSchema }

@@ -29,6 +29,8 @@ export const MIGRATION_TABLES = [
   'ItemBarcode',
   'ItemBranchPrice',
   'ItemStock',
+  'ItemBatch',
+  'BatchStock',
   'StockLedger',
   'SaleInvoice',
   'SaleInvoiceLine',

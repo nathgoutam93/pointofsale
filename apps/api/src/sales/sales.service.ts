@@ -12,6 +12,8 @@ import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 import { ItemsService } from '../items/items.service';
 import { StockService } from '../stock/stock.service';
+import { splitOverShares } from '../stock/batches';
+import { businessToday, sharesOfLines, takeFromBatches, takenOrder } from '../stock/batch-stock';
 import { CustomersService } from '../customers/customers.service';
 import { ReceivablesService } from '../customers/receivables.service';
 import { RegistersService } from '../registers/registers.service';
@@ -121,6 +123,8 @@ export class SalesService {
         );
       }
     }
+    // Items kept by batch: the earliest expiry first, never expired stock.
+    const batchShares = await takeFromBatches(tx, input.branchId, qtyByItem, { today: await businessToday(tx), allowShort: maySellPastStock });
 
     // Numbered in the series of the counter the sale is made at.
     const { counterId } = await this.registers.assertRegisterOpen(tx, session);
@@ -214,14 +218,19 @@ export class SalesService {
 
     await this.stock.recordStock(
       tx,
-      computedLines.map((line) => ({
+      splitOverShares(
+        computedLines.map((line, index) => ({ lineId: createdLines[index].id, itemId: line.itemId, qty: line.qty })),
+        batchShares
+      ).map((part) => ({
         branchId: input.branchId,
-        itemId: line.itemId,
+        itemId: part.line.itemId,
         txnType: StockTxnType.SALE,
         qtyIn: 0,
-        qtyOut: line.qty,
+        qtyOut: part.qty,
         referenceType: 'SALE',
-        referenceId: invoice.id
+        referenceId: invoice.id,
+        lineId: part.line.lineId,
+        batchId: part.batchId
       }))
     );
 
@@ -260,7 +269,7 @@ export class SalesService {
           }
           await this.receivables.assertWithinCreditLimit(tx, session, input.customerId);
         }
-        return result;
+        return { ...result, invoice: await this.withLineBatches(tx, result.invoice) };
       }, SALE_TRANSACTION);
     } catch (error) {
       // A concurrent request with the same key won the race; return what it created.
@@ -285,7 +294,7 @@ export class SalesService {
       where: { invoiceId: invoice.id },
       orderBy: { createdAt: 'desc' }
     });
-    return { invoice: await invoice, receipt };
+    return { invoice: await this.withLineBatches(this.prisma, invoice), receipt };
   }
 
   /**
@@ -303,7 +312,7 @@ export class SalesService {
       await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
       const invoice = await tx.saleInvoice.findFirst({
         where: { id: invoiceId, branchId: sessionBranchId },
-        include: { lines: { select: { itemId: true, qty: true } } }
+        include: { lines: { select: { id: true, itemId: true, qty: true } } }
       });
       if (!invoice) throw new NotFoundException('Invoice not found');
       if (invoice.status !== InvoiceStatus.DRAFT || toNumber(invoice.paidTotal) > 0) {
@@ -319,17 +328,23 @@ export class SalesService {
       }
       const canceller = await tx.user.findUnique({ where: { id: session.userId }, select: { username: true } });
       if (!canceller) throw new NotFoundException('User not found');
+      // Back into the batches each line took (a bill from before batches took none).
+      const taken = await sharesOfLines(tx, invoice.lines.map((line) => line.id), 'OUT');
       await this.stock.recordStock(
         tx,
-        invoice.lines.map((line) => ({
-          branchId: invoice.branchId,
-          itemId: line.itemId,
-          txnType: StockTxnType.SALE_CANCEL,
-          qtyIn: toNumber(line.qty),
-          qtyOut: 0,
-          referenceType: 'SALE_CANCEL',
-          referenceId: invoice.id
-        }))
+        invoice.lines.flatMap((line) =>
+          (taken.get(line.id) ?? [{ batchId: null, qty: toNumber(line.qty) }]).map((share) => ({
+            branchId: invoice.branchId,
+            itemId: line.itemId,
+            txnType: StockTxnType.SALE_CANCEL,
+            qtyIn: share.qty,
+            qtyOut: 0,
+            referenceType: 'SALE_CANCEL',
+            referenceId: invoice.id,
+            lineId: line.id,
+            batchId: share.batchId
+          }))
+        )
       );
       const updated = await tx.saleInvoice.update({
         where: { id: invoice.id },
@@ -359,7 +374,10 @@ export class SalesService {
   }
 
   async settleSale(session: SessionUser, invoiceId: string, payments: PaymentInput[]) {
-    return this.prisma.$transaction((tx) => this.settlement.settleSaleInTx(tx, session, invoiceId, payments));
+    return this.prisma.$transaction(async (tx) => {
+      const result = await this.settlement.settleSaleInTx(tx, session, invoiceId, payments);
+      return { ...result, invoice: await this.withLineBatches(tx, result.invoice) };
+    });
   }
 
   /** The branch of an invoice (by id or number), or of a receipt; null when there is none. */
@@ -445,7 +463,25 @@ export class SalesService {
       }
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
-    return invoice;
+    return this.withLineBatches(this.prisma, invoice);
+  }
+
+  /** The invoice with the batches each line was sold from (printed on the bill for items kept by batch). */
+  private async withLineBatches<I extends { lines: Array<{ id: string }> }>(client: Prisma.TransactionClient | PrismaService, invoice: I) {
+    const sold = await client.stockLedger.findMany({
+      where: { lineId: { in: invoice.lines.map((line) => line.id) }, txnType: StockTxnType.SALE, batchId: { not: null } },
+      select: { lineId: true, qtyOut: true, batch: { select: { batchNo: true, expiryDate: true, createdAt: true } } }
+    });
+    sold.sort(takenOrder);
+    return {
+      ...invoice,
+      lines: invoice.lines.map((line) => ({
+        ...line,
+        batches: sold
+          .filter((row) => row.lineId === line.id && row.batch)
+          .map((row) => ({ batchNo: row.batch!.batchNo, expiryDate: row.batch!.expiryDate, qty: toNumber(row.qtyOut) }))
+      }))
+    };
   }
 
   async getReceiptById(branchId: string, id: string) {

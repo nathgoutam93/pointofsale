@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   branchSchema,
   c,
+  calendarDateSchema,
   gstSupplyTypeSchema,
   gstUqcSchema,
   hsnCodeSchema,
@@ -36,7 +37,29 @@ export const itemSchema = z.object({
   /** /uploads/… (or, saved by older versions, a full address). */
   imageUrl: z.string().nullable(),
   isActive: z.boolean(),
+  /** Stock is kept by batch with expiry dates: sold earliest expiry first, never expired. */
+  tracksBatches: z.boolean().default(false),
   createdAt: z.string().datetime()
+});
+
+/** The batch stock comes in to or goes out of, for items that track batches. */
+export const batchInputSchema = z.object({
+  batchNo: z.string().trim().min(1).max(32).optional(),
+  /** The last day it may be sold. */
+  expiryDate: calendarDateSchema.optional()
+});
+
+/** A batch's stock at a branch. */
+export const batchStockSchema = z.object({
+  batchId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  itemCode: z.string(),
+  itemName: z.string(),
+  batchNo: z.string(),
+  expiryDate: z.string().nullable(),
+  qty: z.number(),
+  /** Past its expiry date: it can't be sold. */
+  expired: z.boolean()
 });
 
 const itemSaleUomInputSchema = z.object({
@@ -126,6 +149,7 @@ const stockLedgerSchema = z.object({
   reason: z.string().nullable(),
   referenceType: z.string().nullable(),
   referenceId: z.string().nullable(),
+  batchId: z.string().uuid().nullable().optional(),
   createdAt: z.string().datetime()
 });
 
@@ -184,7 +208,8 @@ export const itemsRoutes = c.router({
       /** Defaults from the tax rate: TAXABLE above 0%, else NIL_RATED. */
       supplyType: gstSupplyTypeSchema.optional(),
       // A relative /uploads/... path from the upload endpoint, or a full URL.
-      imageUrl: z.string().optional()
+      imageUrl: z.string().optional(),
+      tracksBatches: z.boolean().optional()
     }),
     responses: { 201: itemWithSaleUomsSchema }
   },
@@ -208,7 +233,8 @@ export const itemsRoutes = c.router({
       uqc: gstUqcSchema.nullable().optional(),
       supplyType: gstSupplyTypeSchema.optional(),
       imageUrl: z.string().nullable().optional(),
-      isActive: z.boolean().optional()
+      isActive: z.boolean().optional(),
+      tracksBatches: z.boolean().optional()
     }),
     responses: { 200: itemWithSaleUomsSchema }
   },
@@ -224,7 +250,7 @@ export const stockRoutes = c.router({
   opening: {
     method: 'POST',
     path: '/stock/opening',
-    body: z.object({
+    body: batchInputSchema.extend({
       branchId: z.string().uuid(),
       itemId: z.string().uuid(),
       qty: z.number().positive(),
@@ -236,7 +262,7 @@ export const stockRoutes = c.router({
   updateOpening: {
     method: 'PATCH',
     path: '/stock/opening',
-    body: z.object({
+    body: batchInputSchema.extend({
       branchId: z.string().uuid(),
       itemId: z.string().uuid(),
       qty: z.number().positive(),
@@ -248,7 +274,8 @@ export const stockRoutes = c.router({
   adjustment: {
     method: 'POST',
     path: '/stock/adjustment',
-    body: z.object({
+    /** For items kept by batch: the batch (stock out without one goes earliest expiry first). */
+    body: batchInputSchema.extend({
       branchId: z.string().uuid(),
       itemId: z.string().uuid(),
       qty: z.number().positive(),
@@ -270,6 +297,20 @@ export const stockRoutes = c.router({
     /** A page of the movements, newest first. */
     query: pageQuerySchema.extend({ branchId: z.string().uuid(), itemId: z.string().uuid().optional() }),
     responses: { 200: z.array(stockLedgerSchema) }
+  },
+  /**
+   * Batches with stock at a branch, earliest expiry first: of one item, or those expiring
+   * within `expiringWithinDays` days (expired ones included) for the expiry report.
+   */
+  batches: {
+    method: 'GET',
+    path: '/stock/batches',
+    query: z.object({
+      branchId: z.string().uuid(),
+      itemId: z.string().uuid().optional(),
+      expiringWithinDays: z.coerce.number().int().min(0).max(3650).optional()
+    }),
+    responses: { 200: z.array(batchStockSchema) }
   }
 });
 

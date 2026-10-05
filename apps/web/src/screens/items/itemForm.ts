@@ -17,6 +17,8 @@ export type ItemFormState = {
   taxMode: "INCLUSIVE" | "EXCLUSIVE";
   taxRate: string;
   gst: GstItemForm;
+  /** Stock kept by batch, with expiry dates. */
+  tracksBatches: boolean;
   imageFile: File | null;
 };
 
@@ -39,6 +41,7 @@ export const initialForm: ItemFormState = {
   taxMode: "EXCLUSIVE",
   taxRate: "0",
   gst: emptyGstItemForm,
+  tracksBatches: false,
   imageFile: null,
 };
 

@@ -182,6 +182,7 @@ model Branch {
   itemPrices        ItemBranchPrice[]
   supplierPayments  SupplierPayment[]
   purchaseReturns   PurchaseReturn[]
+  batchStocks       BatchStock[]
 }
 
 model BusinessSettings {
@@ -436,6 +437,9 @@ model Item {
   mrp                 Decimal              @default(0) @db.Decimal(14, 2)
   taxMode             TaxMode              @default(EXCLUSIVE)
   taxRate             Decimal              @db.Decimal(5, 2)
+  /// Stock is kept by batch, each with its expiry date: sales take the earliest expiry first and
+  /// never expired stock. Stock from before tracking started counts as "no batch".
+  tracksBatches       Boolean              @default(false)
   /// HSN (goods) or SAC (services) code: 4, 6 or 8 digits. Null until entered.
   hsnCode             String?
   /// GST unit quantity code (PCS, KGS, LTR...) of the base unit `uom`.
@@ -453,6 +457,7 @@ model Item {
   transferLines       StockTransferLine[]
   createdAt           DateTime             @default(now())
   purchaseReturnLines PurchaseReturnLine[]
+  batches             ItemBatch[]
 }
 
 model ItemSaleUom {
@@ -528,9 +533,48 @@ model StockLedger {
   reason        String?
   referenceType String?
   referenceId   String?
+  /// The document line it moved stock for (a sale, return, transfer or purchase line), so the
+  /// batches a line took can be found and put back.
+  lineId        String?
+  /// The batch, for items that track batches; null for others, and for stock without one.
+  batchId       String?
+  batch         ItemBatch?   @relation(fields: [batchId], references: [id])
   createdAt     DateTime     @default(now())
 
   @@index([branchId, itemId, createdAt])
+  @@index([lineId])
+  @@index([batchId])
+}
+
+/// A batch of an item (batch or lot number, with its expiry date), as received from a supplier.
+model ItemBatch {
+  id            String         @id @default(uuid())
+  itemId        String
+  item          Item           @relation(fields: [itemId], references: [id])
+  batchNo       String
+  /// The last day it may be sold (YYYY-MM-DD); null when it doesn't expire.
+  expiryDate    String?
+  createdAt     DateTime       @default(now())
+  stocks        BatchStock[]
+  ledger        StockLedger[]
+  purchaseLines PurchaseLine[]
+
+  @@unique([itemId, batchNo])
+  @@index([expiryDate])
+}
+
+/// How much of a batch a branch holds (the sum of its ledger entries). An item's other stock,
+/// ItemStock less its batches, has no batch.
+model BatchStock {
+  branchId  String
+  branch    Branch    @relation(fields: [branchId], references: [id])
+  batchId   String
+  batch     ItemBatch @relation(fields: [batchId], references: [id])
+  qty       Decimal   @default(0) @db.Decimal(14, 3)
+  updatedAt DateTime  @updatedAt
+
+  @@id([branchId, batchId])
+  @@index([batchId])
 }
 
 model SaleInvoice {
@@ -905,6 +949,9 @@ model PurchaseLine {
   unitCost    Decimal              @db.Decimal(14, 2)
   /// Before tax: qty × unitCost.
   amount      Decimal              @db.Decimal(14, 2)
+  /// The batch it came in, for items that track batches.
+  batchId     String?
+  batch       ItemBatch?           @relation(fields: [batchId], references: [id])
   /// The GST rate the supplier charged, and the tax by kind (CGST + SGST from the same state,
   /// IGST from another). 0 from an unregistered supplier.
   taxRate     Decimal              @default(0) @db.Decimal(5, 2)
@@ -913,7 +960,7 @@ model PurchaseLine {
   igstAmount  Decimal              @default(0) @db.Decimal(14, 2)
   returnLines PurchaseReturnLine[]
 
-  @@unique([purchaseId, itemId])
+  @@index([purchaseId])
 }
 
 /// Stock moved from one branch to another. Sending takes the stock out of the source at

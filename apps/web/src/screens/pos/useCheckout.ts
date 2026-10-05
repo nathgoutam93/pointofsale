@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import type { DiscountInput } from "@pos/contracts";
+import { batchLabel, type DiscountInput } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders } from "../../lib/api";
 import { newUuid } from "../../lib/id";
 import { removeDrafts } from "../../lib/draftStore";
@@ -191,6 +191,7 @@ export function useCheckout({
             imageUrl: snapshot?.imageUrl,
             netAmount: Number(line.netAmount ?? 0),
             hsnCode: line.hsnCode ?? null,
+            batches: batchLabel(line.batches),
           };
         }),
       });

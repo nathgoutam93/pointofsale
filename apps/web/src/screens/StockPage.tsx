@@ -4,12 +4,14 @@ import { api, authHeaders } from "../lib/api";
 import { useManagedBranch } from "../lib/branch";
 import { can } from "../lib/session";
 import { inr, requireManagementSession } from "./route-helpers";
+import { BatchesCard } from "./stock/BatchesCard";
+import { ExpiryCard } from "./stock/ExpiryCard";
 import { MovementsCard } from "./stock/MovementsCard";
 import { StockEntryModal } from "./stock/StockEntryModal";
 import { leastCountStepText, normalizeLeastCount } from "./stock/stockFormat";
 import { StockHistoryCards } from "./stock/StockHistoryCards";
 import { StockItemList } from "./stock/StockItemList";
-import type { StockModalType } from "./stock/types";
+import { emptyBatchEntry, type BatchEntry, type StockModalType } from "./stock/types";
 import { useStockMutations } from "./stock/useStockMutations";
 
 export function StockPage() {
@@ -20,6 +22,7 @@ export function StockPage() {
   const canChangeStock = can(session, "MANAGE_STOCK");
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [modalType, setModalType] = useState<StockModalType>(null);
+  const [batch, setBatch] = useState<BatchEntry>(emptyBatchEntry);
   const [searchTerm, setSearchTerm] = useState("");
   const [stockSort, setStockSort] = useState<"desc" | "asc">("desc");
   // Items sold past their stock count (when the business allows it): to count and correct.
@@ -181,9 +184,14 @@ export function StockPage() {
     adjustmentReason,
     adjustmentDirection,
     setModalType,
+    tracksBatches: !!selectedItem?.tracksBatches,
+    batch,
   });
+  // Items kept by batch have an opening count per batch, added one at a time (corrected by adjustments).
+  const editableOpening = selectedItem?.tracksBatches ? null : openingEntry;
 
   const openOpeningCreateModal = () => {
+    setBatch(emptyBatchEntry);
     setOpeningModalMode("create");
     setOpeningQty("0");
     setOpeningCostPrice(String(Number(selectedItem?.costPrice) || 0));
@@ -255,19 +263,22 @@ export function StockPage() {
               <button
                 type="button"
                 onClick={() =>
-                  openingEntry
+                  editableOpening
                     ? openOpeningEditModal()
                     : openOpeningCreateModal()
                 }
                 className="btn-primary"
                 // With older movements not loaded, whether there is an opening count isn't known yet.
-                disabled={!selectedItem || (!openingEntry && ledgerPages.hasNextPage)}
+                disabled={!selectedItem || (!editableOpening && !selectedItem.tracksBatches && ledgerPages.hasNextPage)}
               >
-                {openingEntry ? "Edit Opening Stock" : "Add Opening Stock"}
+                {editableOpening ? "Edit Opening Stock" : selectedItem?.tracksBatches ? "Add Opening Stock (a batch)" : "Add Opening Stock"}
               </button>
               <button
                 type="button"
-                onClick={() => setModalType("adjustment")}
+                onClick={() => {
+                  setBatch(emptyBatchEntry);
+                  setModalType("adjustment");
+                }}
                 className="btn-secondary"
                 disabled={!selectedItem}
               >
@@ -277,16 +288,20 @@ export function StockPage() {
             ) : null}
           </div>
 
+          {selectedItem ? <BatchesCard branchId={branchId} item={selectedItem} onHand={selectedOnHand} /> : null}
+
           <StockHistoryCards
             ledger={ledger}
             openingHistory={openingHistory}
             openingEntry={openingEntry}
             adjustmentHistory={adjustmentHistory}
-            canChangeStock={canChangeStock}
+            canChangeStock={canChangeStock && !selectedItem?.tracksBatches}
             openOpeningEditModal={openOpeningEditModal}
           />
 
           <MovementsCard ledger={ledger} ledgerPages={ledgerPages} />
+
+          <ExpiryCard branchId={branchId} />
         </div>
       </section>
 
@@ -314,6 +329,8 @@ export function StockPage() {
           opening={opening}
           updateOpening={updateOpening}
           adjustment={adjustment}
+          batch={batch}
+          setBatch={setBatch}
         />
       )}
     </>

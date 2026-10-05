@@ -28,6 +28,7 @@ export { fitCenter, fitLeft, fitRight, receiptColumns, renderReceipt, tableColum
 export type { ReceiptDocument, ReceiptDocumentItem, ReceiptField, ReceiptLine, RenderedReceipt } from './receiptLayout.js';
 export { canEncodeCode128, code128Modules, code128Values } from './code128.js';
 export {
+  batchLabel,
   COMPOSITION_DECLARATION,
   formatReceiptDate,
   formatReceiptTime,
@@ -175,7 +176,7 @@ export {
   walletTxnSchema
 } from './contract/customers.js';
 export type { CustomerAccount } from './contract/customers.js';
-export { itemSchema, itemWithSaleUomsSchema } from './contract/inventory.js';
+export { batchStockSchema, itemSchema, itemWithSaleUomsSchema } from './contract/inventory.js';
 export { purchaseReturnSchema, supplierAccountSchema, supplierPaymentSchema, supplierSchema } from './contract/purchases.js';
 export type { SupplierAccount } from './contract/purchases.js';
 export { auditEventSchema, reportDetailSchema, salesExportQuerySchema } from './contract/reports.js';

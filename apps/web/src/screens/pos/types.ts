@@ -23,6 +23,8 @@ export type CartLine = {
   netAmount?: number;
   /** On a completed sale's lines: the HSN/SAC code it was sold under. */
   hsnCode?: string | null;
+  /** On a completed sale's lines: the batches it was sold from ("Batch A1 exp 2027-03-31"). */
+  batches?: string | null;
 };
 
 export type PostPaymentSummary = {

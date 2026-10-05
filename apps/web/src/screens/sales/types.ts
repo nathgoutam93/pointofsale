@@ -41,6 +41,8 @@ export type SettledSummary = {
     taxableAmount: number;
     netAmount: number;
     hsnCode?: string | null;
+    /** The batches it was sold from ("Batch A1 exp 2027-03-31"). */
+    batches?: string | null;
   }>;
   payments: Array<{ mode: PaymentMode; amount: number; tendered?: number | null }>;
   gst: InvoiceGst;

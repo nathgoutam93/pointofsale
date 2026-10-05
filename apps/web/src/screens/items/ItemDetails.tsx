@@ -63,6 +63,7 @@ export function ItemDetails({
                   uqc: selectedItem.uqc ?? "",
                   supplyType: selectedItem.supplyType,
                 },
+                tracksBatches: selectedItem.tracksBatches,
                 imageFile: null,
               });
               setSaleUomRows(

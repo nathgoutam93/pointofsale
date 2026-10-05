@@ -9,7 +9,8 @@ import { ItemPicker } from "./stock/ItemPicker";
 import { PurchaseDetail } from "./purchases/PurchaseDetail";
 import { emptySupplierChoice, NEW_SUPPLIER, SupplierPicker, useChosenGstin, type SupplierChoice } from "./purchases/SupplierPicker";
 
-type DraftLine = { itemId: string; code: string; name: string; uom: string; qty: string; unitCost: string; taxRate: string };
+/** `batchNo` and `expiryDate` for items kept by batch. */
+type DraftLine = { itemId: string; code: string; name: string; uom: string; qty: string; unitCost: string; taxRate: string; tracksBatches: boolean; batchNo: string; expiryDate: string };
 
 const emptySupplier = { supplierInvoiceNo: "", supplierInvoiceDate: "", note: "" };
 
@@ -72,7 +73,13 @@ export function PurchasesPage() {
           supplierInvoiceNo: supplier.supplierInvoiceNo.trim() || undefined,
           supplierInvoiceDate: supplier.supplierInvoiceDate || undefined,
           note: supplier.note.trim() || undefined,
-          lines: lines.map((line) => ({ itemId: line.itemId, qty: Number(line.qty), unitCost: Number(line.unitCost), taxRate: Number(line.taxRate) || 0 })),
+          lines: lines.map((line) => ({
+            itemId: line.itemId,
+            qty: Number(line.qty),
+            unitCost: Number(line.unitCost),
+            taxRate: Number(line.taxRate) || 0,
+            ...(line.tracksBatches ? { batchNo: line.batchNo.trim(), expiryDate: line.expiryDate || undefined } : {}),
+          })),
         },
         extraHeaders: authHeaders(),
       });
@@ -104,6 +111,8 @@ export function PurchasesPage() {
     if (lines.length === 0) return setError("Add at least one item");
     const bad = lines.find((line) => !(Number(line.qty) > 0) || !(Number(line.unitCost) >= 0) || line.unitCost.trim() === "");
     if (bad) return setError(`Enter a quantity and cost for ${bad.name}`);
+    const noBatch = lines.find((line) => line.tracksBatches && !line.batchNo.trim());
+    if (noBatch) return setError(`Enter the batch number of ${noBatch.name}`);
     create.mutate();
   };
 
@@ -151,7 +160,18 @@ export function PurchasesPage() {
             onPick={(item) =>
               setLines((current) => [
                 ...current,
-                { itemId: item.id, code: item.code, name: item.name, uom: item.uom, qty: "", unitCost: String(Number(item.costPrice) || 0), taxRate: String(Number(item.taxRate) || 0) },
+                {
+                  itemId: item.id,
+                  code: item.code,
+                  name: item.name,
+                  uom: item.uom,
+                  qty: "",
+                  unitCost: String(Number(item.costPrice) || 0),
+                  taxRate: String(Number(item.taxRate) || 0),
+                  tracksBatches: item.tracksBatches,
+                  batchNo: "",
+                  expiryDate: "",
+                },
               ])
             }
           />
@@ -174,6 +194,26 @@ export function PurchasesPage() {
                       <td className="py-2 pr-3">
                         <p className="font-medium text-slate-900">{line.name}</p>
                         <p className="text-xs text-slate-500">{line.code}</p>
+                        {line.tracksBatches ? (
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            <input
+                              className="field w-28 py-1 uppercase"
+                              placeholder="Batch no."
+                              aria-label={`Batch of ${line.name}`}
+                              maxLength={32}
+                              value={line.batchNo}
+                              onChange={(e) => updateLine(line.itemId, { batchNo: e.target.value })}
+                            />
+                            <input
+                              className="field w-36 py-1"
+                              type="date"
+                              aria-label={`Expiry of ${line.name}`}
+                              title="Expiry date: the last day it may be sold"
+                              value={line.expiryDate}
+                              onChange={(e) => updateLine(line.itemId, { expiryDate: e.target.value })}
+                            />
+                          </div>
+                        ) : null}
                       </td>
                       <td className="py-2 pr-3">
                         <div className="flex items-center gap-2">

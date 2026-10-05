@@ -18,6 +18,7 @@ import { BranchesService } from '../branches/branches.service';
 import { toNumber } from '../common/numbers';
 import { RegistersService } from '../registers/registers.service';
 import { SequenceService } from '../sequences/sequences.service';
+import { placeOfflineMovementsInBatches } from './offline-batches';
 import { verifyOutbox } from './verify-outbox';
 import { syncConflicts, verificationContext } from './sync-checks';
 
@@ -351,16 +352,21 @@ export class FallbackService {
           const ledger = [...all((entry) => entry.ledger), ...returns.flatMap((entry) => entry.ledger)];
           if (ledger.length) {
             // Stock moves only for movements not already recorded.
-            await tx.$executeRawUnsafe(
+            const added = await tx.$queryRawUnsafe<Array<{ id: string }>>(
               `WITH added AS (
                  INSERT INTO "StockLedger" SELECT * FROM json_populate_recordset(NULL::"StockLedger", $1::json)
-                 ON CONFLICT ("id") DO NOTHING RETURNING "branchId", "itemId", "qtyIn" - "qtyOut" AS change
-               ), totals AS (SELECT "branchId", "itemId", SUM(change) AS change FROM added GROUP BY 1, 2)
-               INSERT INTO "ItemStock" ("branchId", "itemId", "qty", "updatedAt")
-               SELECT "branchId", "itemId", change, now() FROM totals
-               ON CONFLICT ("branchId", "itemId") DO UPDATE SET "qty" = "ItemStock"."qty" + EXCLUDED."qty", "updatedAt" = now()`,
+                 ON CONFLICT ("id") DO NOTHING RETURNING "id", "branchId", "itemId", "qtyIn" - "qtyOut" AS change
+               ), totals AS (SELECT "branchId", "itemId", SUM(change) AS change FROM added GROUP BY 1, 2),
+               stock AS (
+                 INSERT INTO "ItemStock" ("branchId", "itemId", "qty", "updatedAt")
+                 SELECT "branchId", "itemId", change, now() FROM totals
+                 ON CONFLICT ("branchId", "itemId") DO UPDATE SET "qty" = "ItemStock"."qty" + EXCLUDED."qty", "updatedAt" = now()
+                 RETURNING 1
+               )
+               SELECT "id" FROM added`,
               JSON.stringify(ledger)
             );
+            await placeOfflineMovementsInBatches(tx, added.map((row) => row.id));
           }
           for (const sequence of outbox.sequences) {
             await tx.$executeRaw`

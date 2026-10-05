@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Prisma, StockTxnType } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
@@ -8,6 +9,7 @@ import { BranchesService } from '../branches/branches.service';
 import { SettingsService } from '../settings/settings.service';
 import { SequenceService } from '../sequences/sequences.service';
 import { StockService } from '../stock/stock.service';
+import { resolveBatch } from '../stock/batch-stock';
 import { addDays } from '../suppliers/supplier-ledger';
 import { SuppliersService } from '../suppliers/suppliers.service';
 import { chargesGst, splitGst } from '@pos/contracts';
@@ -22,11 +24,12 @@ export type CreatePurchaseInput = {
   supplierInvoiceNo?: string;
   supplierInvoiceDate?: string;
   note?: string;
-  lines: Array<{ itemId: string; qty: number; unitCost: number; taxRate?: number }>;
+  /** `batchNo` (and `expiryDate`, YYYY-MM-DD) for items that track batches. */
+  lines: Array<{ itemId: string; qty: number; unitCost: number; taxRate?: number; batchNo?: string; expiryDate?: string }>;
 };
 
 export const purchaseInclude = {
-  lines: { include: { item: { select: { code: true, name: true, uom: true } } } }
+  lines: { include: { item: { select: { code: true, name: true, uom: true } }, batch: { select: { batchNo: true, expiryDate: true } } } }
 } satisfies Prisma.PurchaseInclude;
 
 /**
@@ -59,7 +62,7 @@ export class PurchasesService {
       await tx.$queryRaw`SELECT "id" FROM "Item" WHERE "id" IN (${Prisma.join([...itemIds].sort())}) ORDER BY "id" FOR UPDATE`;
       const items = await tx.item.findMany({
         where: { id: { in: itemIds } },
-        select: { id: true, name: true, leastCount: true, costPrice: true, taxRate: true }
+        select: { id: true, name: true, leastCount: true, costPrice: true, taxRate: true, tracksBatches: true }
       });
       const supplier = await this.suppliers.resolveForPurchase(tx, input);
       // GST: only a registered supplier charges it; from the same state as CGST + SGST, from
@@ -72,7 +75,8 @@ export class PurchasesService {
       const itcEligible = !!supplierGstin && !!buyer.gstin && chargesGst(taxpayerType);
       const itemsById = new Map(items.map((item) => [item.id, item]));
 
-      const lines = input.lines.map((line) => {
+      const lines: Array<{ id: string; item: (typeof items)[number]; batchId: string | null; qty: number; unitCost: number; amount: number; taxRate: number; cgst: number; sgst: number; igst: number }> = [];
+      for (const line of input.lines) {
         const item = itemsById.get(line.itemId);
         if (!item) throw new NotFoundException(`Item not found: ${line.itemId}`);
         assertQtyRespectsLeastCount(line.qty, toNumber(item.leastCount), item.name);
@@ -81,8 +85,17 @@ export class PurchasesService {
         const amount = round2(qty * unitCost);
         const taxRate = supplierGstin ? (line.taxRate ?? toNumber(item.taxRate)) : 0;
         const tax = round2((amount * taxRate) / 100);
-        return { item, qty, unitCost, amount, taxRate, ...splitGst(tax, interState) };
-      });
+        // Items kept by batch come in a batch, with its expiry date.
+        if (item.tracksBatches && !line.batchNo?.trim()) throw new BadRequestException(`Enter the batch number of ${item.name}`);
+        const batch = item.tracksBatches ? await resolveBatch(tx, item, line.batchNo!, line.expiryDate ?? null) : null;
+        lines.push({ id: randomUUID(), item, batchId: batch?.id ?? null, qty, unitCost, amount, taxRate, ...splitGst(tax, interState) });
+      }
+      const seen = new Set<string>();
+      for (const line of lines) {
+        const key = `${line.item.id}:${line.batchId ?? ''}`;
+        if (seen.has(key)) throw new BadRequestException(`${line.item.name} is listed more than once${line.batchId ? ' in the same batch' : ''}`);
+        seen.add(key);
+      }
       const sum = (pick: (line: (typeof lines)[number]) => number) => round2(lines.reduce((acc, line) => acc + pick(line), 0));
 
       const user = await tx.user.findUnique({ where: { id: session.userId }, select: { username: true } });
@@ -117,7 +130,9 @@ export class PurchasesService {
           createdByName: user.username,
           lines: {
             create: lines.map((line) => ({
+              id: line.id,
               itemId: line.item.id,
+              batchId: line.batchId,
               qty: line.qty,
               unitCost: line.unitCost,
               amount: line.amount,
@@ -131,11 +146,17 @@ export class PurchasesService {
         include: purchaseInclude
       });
 
-      // Averaged over stock before this purchase, so work it out before recording the stock.
+      // Averaged over stock before this purchase, so work it out before recording the stock;
+      // an item bought in two batches counts once, at the cost of both together.
+      const boughtByItem = new Map<string, { item: (typeof lines)[number]['item']; qty: number; amount: number }>();
       for (const line of lines) {
-        const held = await tx.itemStock.aggregate({ where: { itemId: line.item.id, qty: { gt: 0 } }, _sum: { qty: true } });
-        const costPrice = weightedAverageCost(toNumber(held._sum.qty), toNumber(line.item.costPrice), line.qty, line.unitCost);
-        await tx.item.update({ where: { id: line.item.id }, data: { costPrice } });
+        const entry = boughtByItem.get(line.item.id) ?? { item: line.item, qty: 0, amount: 0 };
+        boughtByItem.set(line.item.id, { item: line.item, qty: round3(entry.qty + line.qty), amount: entry.amount + line.qty * line.unitCost });
+      }
+      for (const { item, qty, amount } of boughtByItem.values()) {
+        const held = await tx.itemStock.aggregate({ where: { itemId: item.id, qty: { gt: 0 } }, _sum: { qty: true } });
+        const costPrice = weightedAverageCost(toNumber(held._sum.qty), toNumber(item.costPrice), qty, qty > 0 ? amount / qty : 0);
+        await tx.item.update({ where: { id: item.id }, data: { costPrice } });
       }
 
       await this.stock.recordStock(
@@ -149,7 +170,9 @@ export class PurchasesService {
           costPrice: line.unitCost,
           reason: `${purchaseNo} from ${purchase.supplierName}`,
           referenceType: 'PURCHASE',
-          referenceId: purchase.id
+          referenceId: purchase.id,
+          lineId: line.id,
+          batchId: line.batchId
         }))
       );
       return purchase;

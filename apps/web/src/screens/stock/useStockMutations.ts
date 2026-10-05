@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage, authHeaders } from "../../lib/api";
-import type { StockModalType } from "./types";
+import type { BatchEntry, StockModalType } from "./types";
 
 /** Posting the selected item's opening stock (or changing it) and stock adjustments at the branch. */
 export function useStockMutations({
@@ -16,6 +16,8 @@ export function useStockMutations({
   adjustmentReason,
   adjustmentDirection,
   setModalType,
+  tracksBatches,
+  batch,
 }: {
   branchId: string;
   selectedItemId: string | null;
@@ -29,8 +31,13 @@ export function useStockMutations({
   adjustmentReason: string;
   adjustmentDirection: "IN" | "OUT";
   setModalType: (type: StockModalType) => void;
+  /** The item is kept by batch: `batch` goes with each change. */
+  tracksBatches: boolean;
+  batch: BatchEntry;
 }) {
   const queryClient = useQueryClient();
+  const batchBody = tracksBatches && batch.batchNo.trim() ? { batchNo: batch.batchNo.trim(), expiryDate: batch.expiryDate || undefined } : {};
+  const refreshBatches = () => queryClient.invalidateQueries({ queryKey: ["stock-batches", branchId] });
 
   const opening = useMutation({
     mutationFn: async () => {
@@ -42,10 +49,11 @@ export function useStockMutations({
           qty: Number(openingQty),
           costPrice: Number(openingCostPrice),
           reason: openingReason,
+          ...batchBody,
         },
         extraHeaders: authHeaders(),
       });
-      if (res.status !== 201) throw new Error("Failed to post opening");
+      if (res.status !== 201) throw new Error(apiErrorMessage(res.body, "Failed to post opening"));
       return res.body;
     },
     onSuccess: () => {
@@ -56,6 +64,7 @@ export function useStockMutations({
         queryKey: ["stock-ledger", branchId, selectedItemId],
       });
       setOpeningQty("0");
+      void refreshBatches();
       setModalType(null);
     },
   });
@@ -70,6 +79,7 @@ export function useStockMutations({
           qty: Number(openingQty),
           costPrice: Number(openingCostPrice),
           reason: openingReason,
+          ...batchBody,
         },
         extraHeaders: authHeaders(),
       });
@@ -98,10 +108,11 @@ export function useStockMutations({
           direction: adjustmentDirection,
           costPrice: Number(adjustmentCostPrice),
           reason: adjustmentReason,
+          ...batchBody,
         },
         extraHeaders: authHeaders(),
       });
-      if (res.status !== 201) throw new Error("Failed to post adjustment");
+      if (res.status !== 201) throw new Error(apiErrorMessage(res.body, "Failed to post adjustment"));
       return res.body;
     },
     onSuccess: () => {
@@ -112,6 +123,7 @@ export function useStockMutations({
         queryKey: ["stock-ledger", branchId, selectedItemId],
       });
       setAdjustmentQty("0");
+      void refreshBatches();
       setModalType(null);
     },
   });

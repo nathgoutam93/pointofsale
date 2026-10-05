@@ -74,6 +74,12 @@ export function PurchaseDetail({ purchaseId, branchId }: { purchaseId: string; b
               <tr key={line.id} className="border-b border-slate-100">
                 <td className="py-2 pr-3">
                   {line.item.name} <span className="text-xs text-slate-500">{line.item.code}</span>
+                  {line.batch ? (
+                    <span className="block text-xs text-slate-500">
+                      Batch {line.batch.batchNo}
+                      {line.batch.expiryDate ? ` · expires ${line.batch.expiryDate}` : ""}
+                    </span>
+                  ) : null}
                 </td>
                 <td className="py-2 pr-3 tabular-nums">
                   {Number(line.qty)} {line.item.uom}

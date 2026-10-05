@@ -360,7 +360,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
     permissions, returns, GSTR-3B) and a browser test (`e2e/suppliers.spec.ts`: buy from a new
     supplier, pay part, send goods back).
 
-### [~] B8. Decide on scope: batches and expiry, offers
+### [x] B8. Decide on scope: batches and expiry, offers
 
 - **Why:** without batch and expiry tracking the product doesn't suit pharmacies or much of
   grocery; without schemes (buy X get Y, combo prices, customer-group prices) many shops will
@@ -372,6 +372,32 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 
 - **Decided (2026-10-05):** batches and expiry are in the first release; offers and promotions
   (buy X get Y, combo prices, customer-group prices) come later.
+- **Status (2026-10-05):** batches and expiry done (migration `20261020230000_item_batches`).
+  - An item can *track batches and expiry* (Items screen). Its stock is kept by batch (batch number
+    and expiry date, the last day it may be sold), per branch; stock from before tracking started
+    counts as "without a batch".
+  - Batches come in on purchases (batch number and expiry per line; an item may come in two
+    batches on one purchase), on opening stock (one opening count per batch) and on stock
+    adjustments in. A batch number keeps the expiry it first came with.
+  - Sales take stock without a batch first, then the earliest expiry, and never expired stock: a
+    sale that would need it is refused, saying which batch has expired. Selling past the stock
+    count (B3) takes the rest without a batch.
+  - Returns go back into the batches the sale took (earlier returns counted), cancellations
+    into exactly those, transfers arrive in the batches they left, and goods sent back to a
+    supplier leave the batch they came in. Adjustments out take the batch named, else the
+    earliest expiry (expired stock included, to write it off).
+  - Each stock movement records its batch and document line (`StockLedger.batchId`, `lineId`);
+    `BatchStock` is kept equal to the movements, never below 0 (checked after every API test
+    file).
+  - The bill (POS receipt, Sales page, reprints) shows "Batch A1 exp 2027-03-31" under items kept
+    by batch. The Stock screen lists the selected item's batches and an *Expiring stock* report
+    (within N days, expired ones marked).
+  - A fallback counter's copy has no batches, so offline it doesn't check expiry; its sales and
+    returns are put in batches when they reach the server (earliest expiry first; returns back
+    where their sale took from), once.
+  - Tests: `batches.test.ts` (the whole cycle, offline placement, the allocation helpers) and a
+    browser test (`e2e/batches.spec.ts`).
+  - Offers and promotions are left for a later release, as decided.
 
 ---
 
@@ -514,3 +540,4 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 - 2026-10-04: C5 done; a partial return no longer refunds a paisa more or less than the price.
 - 2026-10-05: C6 done; closing the register no longer crashes the screen behind it.
 - 2026-10-05: A9 decided (returns only at the selling branch), A5 removed, B7 done (suppliers, payables, purchase returns).
+- 2026-10-05: B8 done: batches and expiry (offers later).

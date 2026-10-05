@@ -20,7 +20,7 @@ const itemInclude = {
 type ItemBarcodeInput = { barcode: string; saleUom?: string | null };
 
 /** The item fields the audit log follows. */
-const AUDITED_ITEM_FIELDS = ['name', 'code', 'category', 'uom', 'costPrice', 'sellPrice', 'mrp', 'taxMode', 'taxRate', 'hsnCode', 'supplyType', 'isActive'];
+const AUDITED_ITEM_FIELDS = ['name', 'code', 'category', 'uom', 'costPrice', 'sellPrice', 'mrp', 'taxMode', 'taxRate', 'hsnCode', 'supplyType', 'isActive', 'tracksBatches'];
 
 @Injectable()
 export class ItemsService {
@@ -269,6 +269,7 @@ export class ItemsService {
     supplyType?: GstSupplyType;
     imageUrl?: string;
     barcodes?: ItemBarcodeInput[];
+    tracksBatches?: boolean;
   }) {
     const leastCount = normalizeLeastCount(input.leastCount ?? 1);
     const supplyType = input.supplyType ?? defaultSupplyType(input.taxRate);
@@ -296,6 +297,7 @@ export class ItemsService {
           uqc: input.uqc === undefined ? suggestUqc(input.uom) : input.uqc,
           supplyType,
           imageUrl: input.imageUrl,
+          tracksBatches: input.tracksBatches ?? false,
           saleUoms: { create: saleUoms }
         },
         select: { id: true }
@@ -335,6 +337,7 @@ export class ItemsService {
       supplyType?: GstSupplyType;
       imageUrl?: string | null;
       isActive?: boolean;
+      tracksBatches?: boolean;
       barcodes?: ItemBarcodeInput[];
     }
   ) {

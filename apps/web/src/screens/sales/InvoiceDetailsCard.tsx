@@ -113,6 +113,7 @@ export function InvoiceDetailsCard({
                   {getSaleQtyLabel(line, itemUomById)}
                   {line.saleUom ? ` (${formatQtyLabel(line.qty)} base)` : ""}
                 </span>
+                {line.batches ? <span className="block text-xs text-slate-500">{line.batches}</span> : null}
               </td>
               <td className="px-5 py-2.5 text-right text-slate-900 tabular-nums">{inr(line.netAmount)}</td>
             </tr>

@@ -311,6 +311,21 @@ export function EditItemForm({
           />
         </label>
 
+        <label className="flex items-start gap-2 text-sm text-slate-600 md:col-span-2">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={form.tracksBatches}
+            onChange={(e) => setForm((s) => ({ ...s, tracksBatches: e.target.checked }))}
+          />
+          <span>
+            Track batches and expiry
+            <span className="block text-xs text-slate-500">
+              Stock comes in by batch with its expiry date; sales take the earliest expiry first and never expired stock.
+            </span>
+          </span>
+        </label>
+
         <GstItemFields
           value={form.gst}
           onChange={(gst) => setForm((s) => ({ ...s, gst }))}

@@ -98,12 +98,14 @@ export class PurchaseReturnsService {
         return { line, qty, amounts };
       });
 
-      // The goods must be here to send them back.
+      // The goods must be here to send them back: of their batch, for items kept by batch.
       await this.stock.lockItemStock(tx, purchase.branchId, lines.map((entry) => entry.line.itemId));
       for (const entry of lines) {
-        const onHand = await this.stock.getOnHandForItem(purchase.branchId, entry.line.itemId, tx);
+        const onHand = entry.line.batchId
+          ? toNumber((await tx.batchStock.findUnique({ where: { branchId_batchId: { branchId: purchase.branchId, batchId: entry.line.batchId } } }))?.qty)
+          : await this.stock.getOnHandForItem(purchase.branchId, entry.line.itemId, tx);
         if (onHand + 1e-9 < entry.qty) {
-          throw new BadRequestException(`Insufficient stock for ${entry.line.item.name}: ${round3(onHand)} on hand, ${entry.qty} to send back`);
+          throw new BadRequestException(`Insufficient stock for ${entry.line.item.name}${entry.line.batchId ? ' in its batch' : ''}: ${round3(onHand)} on hand, ${entry.qty} to send back`);
         }
       }
 
@@ -156,7 +158,9 @@ export class PurchaseReturnsService {
           costPrice: entry.line.unitCost,
           reason: `${returnNo} to ${purchase.supplierName}: ${input.reason.trim()}`,
           referenceType: 'PURCHASE_RETURN',
-          referenceId: created.id
+          referenceId: created.id,
+          lineId: created.lines.find((line) => line.purchaseLineId === entry.line.id)?.id,
+          batchId: entry.line.batchId
         }))
       );
       await this.audit.record(

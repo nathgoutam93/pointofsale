@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { invoiceReceiptItems } from "@pos/contracts";
+import { batchLabel, invoiceReceiptItems } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders } from "../../lib/api";
 import { invoiceGstOf } from "../../lib/gstReceipt";
 import { getItemDiscountAmount } from "./salesFormat";
@@ -113,6 +113,7 @@ export function useInvoiceActions({
           taxableAmount: Number(line.taxableAmount ?? 0),
           netAmount: Number(line.netAmount),
           hsnCode: line.hsnCode ?? null,
+          batches: batchLabel(line.batches),
         })),
         gst: invoiceGstOf(result.invoice),
         receiptItems: invoiceReceiptItems(result.invoice.lines, result.invoice.discounts, (itemId) => itemUomById.get(itemId)),
