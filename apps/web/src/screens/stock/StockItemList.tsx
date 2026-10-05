@@ -10,6 +10,7 @@ export function StockItemList({
   items,
   filteredItems,
   onHandByItem,
+  lowItemIds,
   selectedItemId,
   setSelectedItemId,
   searchTerm,
@@ -26,6 +27,8 @@ export function StockItemList({
   items: { isLoading: boolean; isError: boolean };
   filteredItems: StockItem[];
   onHandByItem: Map<string, number>;
+  /** At or below their reorder level at this branch. */
+  lowItemIds: Set<string>;
   selectedItemId: string | null;
   setSelectedItemId: (id: string | null) => void;
   searchTerm: string;
@@ -100,8 +103,8 @@ export function StockItemList({
                   <p className="truncate text-sm font-semibold text-slate-900">{item.name}</p>
                   <p className="text-xs text-slate-500">{item.code}</p>
                 </div>
-                <span className={`badge tabular-nums ${itemOnHand <= 0 ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-700"}`}>
-                  {itemOnHand < 0 ? `${itemOnHand} · below zero` : `${itemOnHand} on hand`}
+                <span className={`badge tabular-nums ${itemOnHand <= 0 ? "bg-rose-50 text-rose-700" : lowItemIds.has(item.id) ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-700"}`}>
+                  {itemOnHand < 0 ? `${itemOnHand} · below zero` : `${itemOnHand} on hand${lowItemIds.has(item.id) ? " · low" : ""}`}
                 </span>
               </div>
               {item.costPrice !== null ? (

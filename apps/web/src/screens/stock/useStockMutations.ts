@@ -37,7 +37,12 @@ export function useStockMutations({
 }) {
   const queryClient = useQueryClient();
   const batchBody = tracksBatches && batch.batchNo.trim() ? { batchNo: batch.batchNo.trim(), expiryDate: batch.expiryDate || undefined } : {};
-  const refreshBatches = () => queryClient.invalidateQueries({ queryKey: ["stock-batches", branchId] });
+  // Batches, and the low-stock list, which every movement can change.
+  const refreshBatches = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["stock-batches", branchId] }),
+      queryClient.invalidateQueries({ queryKey: ["low-stock", branchId] }),
+    ]);
 
   const opening = useMutation({
     mutationFn: async () => {
@@ -87,6 +92,7 @@ export function useStockMutations({
       return res.body;
     },
     onSuccess: () => {
+      void refreshBatches();
       queryClient.invalidateQueries({
         queryKey: ["stock-module", branchId],
       });

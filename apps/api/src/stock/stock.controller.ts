@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Patch, Post, Put, Query } from '@nestjs/common';
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
 import { getSession, RequestHeaders } from '../common/request-session';
@@ -74,6 +74,24 @@ export class StockController {
   ) {
     await this.access.requireBranch(getSession(headers), branchId);
     return this.stock.getOnHand(branchId, itemId);
+  }
+
+  @Put('/stock/reorder-level')
+  async setReorderLevel(
+    @Body(new ZodValidationPipe(appContract.stock.setReorderLevel.body)) body: Parsed<typeof appContract.stock.setReorderLevel.body>,
+    @Headers() headers: RequestHeaders
+  ) {
+    await this.changing(headers, body.branchId);
+    return this.stock.setReorderLevel(body.branchId, body.itemId, body.reorderLevel, body.reorderQty);
+  }
+
+  @Get('/stock/low')
+  async lowStock(
+    @Query(new ZodValidationPipe(appContract.stock.lowStock.query)) { branchId }: Parsed<typeof appContract.stock.lowStock.query>,
+    @Headers() headers: RequestHeaders
+  ) {
+    await this.access.requireBranch(getSession(headers), branchId);
+    return this.stock.lowStock(branchId);
   }
 
   @Get('/stock/ledger')

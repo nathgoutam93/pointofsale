@@ -6,6 +6,7 @@ import { can } from "../lib/session";
 import { inr, requireManagementSession } from "./route-helpers";
 import { BatchesCard } from "./stock/BatchesCard";
 import { ExpiryCard } from "./stock/ExpiryCard";
+import { isLow, LowStockCard, ReorderLevel, type StockLevel } from "./stock/LowStock";
 import { MovementsCard } from "./stock/MovementsCard";
 import { StockEntryModal } from "./stock/StockEntryModal";
 import { leastCountStepText, normalizeLeastCount } from "./stock/stockFormat";
@@ -95,6 +96,8 @@ export function StockPage() {
     }
     return map;
   }, [onHand.data]);
+  const levelByItem = useMemo(() => new Map<string, StockLevel>((onHand.data ?? []).map((row) => [row.itemId, row])), [onHand.data]);
+  const lowItemIds = useMemo(() => new Set([...levelByItem].filter(([, level]) => isLow(level)).map(([itemId]) => itemId)), [levelByItem]);
 
   const filteredItems = useMemo(() => {
     const data = items.data ?? [];
@@ -218,6 +221,7 @@ export function StockPage() {
           items={items}
           filteredItems={filteredItems}
           onHandByItem={onHandByItem}
+          lowItemIds={lowItemIds}
           selectedItemId={selectedItemId}
           setSelectedItemId={setSelectedItemId}
           searchTerm={searchTerm}
@@ -239,7 +243,7 @@ export function StockPage() {
                 Select an item from the left to manage stock.
               </p>
             ) : (
-              <dl className="mt-4 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-3">
+              <dl className="mt-4 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-4">
                 <div>
                   <dt className="eyebrow">Item code</dt>
                   <dd className="mt-1 text-sm font-medium text-slate-900">{selectedItem.code}</dd>
@@ -250,6 +254,7 @@ export function StockPage() {
                     {selectedOnHand}
                   </dd>
                 </div>
+                <ReorderLevel branchId={branchId} itemId={selectedItem.id} level={levelByItem.get(selectedItem.id)} canChange={canChangeStock} />
                 {selectedItem.costPrice !== null ? (
                   <div>
                     <dt className="eyebrow">Default item cost</dt>
@@ -302,6 +307,8 @@ export function StockPage() {
           />
 
           <MovementsCard ledger={ledger} ledgerPages={ledgerPages} />
+
+          <LowStockCard branchId={branchId} onSelect={setSelectedItemId} />
 
           <ExpiryCard branchId={branchId} />
         </div>

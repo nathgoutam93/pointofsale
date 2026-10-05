@@ -10,6 +10,14 @@ import { businessToday, resolveBatch, takeFromBatches } from './batch-stock';
 import { isExpired } from './batches';
 import { addDays } from '../suppliers/supplier-ledger';
 
+const onHandSelect = { itemId: true, qty: true, reorderLevel: true, reorderQty: true } as const;
+const onHandView = (row: { itemId: string; qty: Prisma.Decimal; reorderLevel: Prisma.Decimal | null; reorderQty: Prisma.Decimal | null }) => ({
+  itemId: row.itemId,
+  onHand: toNumber(row.qty),
+  reorderLevel: row.reorderLevel === null ? null : toNumber(row.reorderLevel),
+  reorderQty: row.reorderQty === null ? null : toNumber(row.reorderQty)
+});
+
 /** The batch stock comes in or goes out of, for items that track batches. */
 export type BatchInput = { batchNo?: string; expiryDate?: string };
 
@@ -123,9 +131,39 @@ export class StockService {
 
     const rows = await this.prisma.itemStock.findMany({
       where: { branchId, ...(normalizedItemId ? { itemId: normalizedItemId } : {}) },
-      select: { itemId: true, qty: true }
+      select: onHandSelect
     });
-    return rows.map((row) => ({ itemId: row.itemId, onHand: toNumber(row.qty) }));
+    return rows.map(onHandView);
+  }
+
+  /** Sets (or with nulls clears) an item's reorder level and order quantity at a branch. */
+  async setReorderLevel(branchId: string, itemId: string, reorderLevel: number | null, reorderQty: number | null) {
+    await this.settings.ensureBranchExists(branchId);
+    const item = await this.prisma.item.findUnique({ where: { id: itemId }, select: { id: true } });
+    if (!item) throw new NotFoundException('Item not found');
+    if (reorderLevel === null && reorderQty !== null) throw new BadRequestException('Set the reorder level to set an order quantity');
+    // A row with no stock yet starts at 0, matching its (empty) movements.
+    const row = await this.prisma.itemStock.upsert({
+      where: { branchId_itemId: { branchId, itemId } },
+      create: { branchId, itemId, qty: 0, reorderLevel, reorderQty },
+      update: { reorderLevel, reorderQty },
+      select: onHandSelect
+    });
+    return onHandView(row);
+  }
+
+  /** Active items at or below their reorder level at a branch, the furthest below it first. */
+  async lowStock(branchId: string) {
+    await this.settings.ensureBranchExists(branchId);
+    const rows = await this.prisma.itemStock.findMany({
+      where: { branchId, reorderLevel: { not: null }, item: { isActive: true } },
+      select: { ...onHandSelect, item: { select: { code: true, name: true, category: true, uom: true } } }
+    });
+    return rows
+      .map((row) => ({ ...onHandView(row), reorderLevel: toNumber(row.reorderLevel), item: row.item }))
+      .filter((row) => row.onHand <= row.reorderLevel)
+      .sort((a, b) => a.onHand - a.reorderLevel - (b.onHand - b.reorderLevel) || a.item.name.localeCompare(b.item.name))
+      .map(({ item, ...row }) => ({ ...row, itemCode: item.code, itemName: item.name, category: item.category, uom: item.uom }));
   }
 
   /** A page of the movements, newest first. */

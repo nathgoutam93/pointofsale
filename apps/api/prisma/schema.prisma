@@ -510,12 +510,16 @@ model ItemBranchPrice {
 /// Current stock on hand per branch and item, kept in step with StockLedger: every ledger
 /// entry adjusts this row in the same transaction (see recordStock in stock/stock.service.ts).
 model ItemStock {
-  branchId  String
-  branch    Branch   @relation(fields: [branchId], references: [id])
-  itemId    String
-  item      Item     @relation(fields: [itemId], references: [id])
-  qty       Decimal  @default(0) @db.Decimal(14, 3)
-  updatedAt DateTime @updatedAt
+  branchId     String
+  branch       Branch   @relation(fields: [branchId], references: [id])
+  itemId       String
+  item         Item     @relation(fields: [itemId], references: [id])
+  qty          Decimal  @default(0) @db.Decimal(14, 3)
+  /// Low stock: on hand at or below this level (null: not watched at this branch).
+  reorderLevel Decimal? @db.Decimal(14, 3)
+  /// How much to order when it is low (null: not set).
+  reorderQty   Decimal? @db.Decimal(14, 3)
+  updatedAt    DateTime @updatedAt
 
   @@id([branchId, itemId])
 }

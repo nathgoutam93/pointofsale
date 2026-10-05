@@ -43,6 +43,26 @@ export const itemSchema = z.object({
   createdAt: z.string().datetime()
 });
 
+/** An item's stock at a branch, with its reorder level there (null: not watched). */
+export const onHandSchema = z.object({
+  itemId: z.string().uuid(),
+  onHand: z.number(),
+  reorderLevel: z.number().nullable().default(null),
+  reorderQty: z.number().nullable().default(null)
+});
+
+/** An item running low at a branch. */
+export const lowStockSchema = z.object({
+  itemId: z.string().uuid(),
+  itemCode: z.string(),
+  itemName: z.string(),
+  category: z.string().nullable(),
+  uom: z.string(),
+  onHand: z.number(),
+  reorderLevel: z.number(),
+  reorderQty: z.number().nullable()
+});
+
 /** The batch stock comes in to or goes out of, for items that track batches. */
 export const batchInputSchema = z.object({
   batchNo: z.string().trim().min(1).max(32).optional(),
@@ -292,7 +312,26 @@ export const stockRoutes = c.router({
     method: 'GET',
     path: '/stock/on-hand',
     query: z.object({ branchId: z.string().uuid(), itemId: z.string().uuid().optional() }),
-    responses: { 200: z.array(z.object({ itemId: z.string().uuid(), onHand: z.number() })) }
+    responses: { 200: z.array(onHandSchema) }
+  },
+  /** Stock changers: the level at which an item counts as low at a branch, and how much to order then. Null clears. */
+  setReorderLevel: {
+    method: 'PUT',
+    path: '/stock/reorder-level',
+    body: z.object({
+      branchId: z.string().uuid(),
+      itemId: z.string().uuid(),
+      reorderLevel: z.number().min(0).max(1_000_000_000).nullable(),
+      reorderQty: z.number().positive().max(1_000_000_000).nullable()
+    }),
+    responses: { 200: onHandSchema }
+  },
+  /** Active items at or below their reorder level at a branch, lowest against their level first. */
+  lowStock: {
+    method: 'GET',
+    path: '/stock/low',
+    query: z.object({ branchId: z.string().uuid() }),
+    responses: { 200: z.array(lowStockSchema) }
   },
   ledger: {
     method: 'GET',
