@@ -534,6 +534,75 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 
 ---
 
+## D. Added by the owner (2026-10-05)
+
+Asked for after the audit; decided with the owner before building.
+
+### [x] D1. Purchases set the exact cost
+
+- **Why:** a purchase averaged the item's cost with the stock already held, so the item cost
+  didn't match any price actually paid.
+- **What:** the item's cost is what was paid on the latest purchase.
+- **Done when:** after a purchase, the item's cost is that purchase's price.
+- **Status (2026-10-05):** the weighted average is gone; each purchase sets the item's cost to its
+  line's price before tax, and each purchase line and stock movement keeps its own cost. An item
+  bought in two batches at two prices on one purchase takes the price of the line entered last.
+  Tests: `purchases.test.ts`, `batches.test.ts`.
+
+### [x] D2. Costs and purchase history hidden from cashiers
+
+- **Why:** cost prices, purchases and what suppliers charge are confidential; cashiers who only
+  sell shouldn't see them.
+- **What:** only admins, and cashiers allowed to adjust stock (`MANAGE_STOCK`) or record
+  purchases (`RECORD_PURCHASES`), see costs and purchase history.
+- **Done when:** other cashiers get no cost from any API answer and can't open purchases.
+- **Status (2026-10-05):** a global interceptor (`common/cost-visibility.interceptor.ts`) blanks
+  `costPrice` and `unitCost` in every answer to a signed-in user who may not see costs (items,
+  stock, the stock history, transfers). The offline counter's sync has no user session and still gets
+  costs. Purchase lists, details and purchase returns need one of the two permissions. A user who
+  can't see costs can't set one either: the cost is dropped from new and edited items, and the web
+  screens hide the cost field and show "—". Test: `cost-visibility.test.ts`.
+
+### [x] D3. A4 invoices
+
+- **Why:** many businesses (wholesale, B2B customers) need a full-page tax invoice, not a thermal
+  slip.
+- **What:** A4 as a branch's paper, and an A4 copy of any bill on the Sales page.
+- **Done when:** a bill prints as a full-page GST invoice.
+- **Status (2026-10-05):** "A4 sheet (full-page invoice)" is a paper in Branch Settings → Receipt
+  layout. It gives a full-page invoice (`packages/contracts/src/receiptA4.ts`) with the
+  business and branch details and logo, a table with each line's HSN, quantity, rate, discount,
+  taxable value, GST and amount (with the batch under it), totals, the amount in words, a
+  signature space and the footer. The Sales page has an **A4** button to show any bill this way,
+  whatever the branch's paper. A4 prints through the browser's print dialog, not the receipt
+  printer; emailed receipts stay text. Tests: `receiptA4.test.ts`, `e2e/a4.spec.ts`.
+
+### [x] D4. Delete a business from the platform
+
+- **Why:** an owner must be able to remove their business and all its data, safely.
+- **What:** online only. The owner confirms with their password, a code emailed to them and the business code
+  typed again; the business is locked at once and erased after 7 days unless an owner keeps it.
+- **Done when:** after the grace period, nothing of the business's data is left but what the
+  platform must keep.
+- **Status (2026-10-05):** control-schema migration `20261021100000_business_deletion` (statuses
+  `DELETING`, `DELETED`, `DeletionCode`), so it **must be applied on the hosted server's control
+  schema when deploying**.
+  - The Owner page has *Delete a business…*: email a code (8 digits, 15 minutes, 5 tries), then
+    the password, the code and the business code. Code emails are limited to 3 an hour, wrong
+    attempts to 10 per 15 minutes.
+  - The business is locked at once (no sign-ins) and every owner is emailed. Until it is erased,
+    any owner can *Keep this business* with their password, and it goes back to active (or
+    suspended, if it was). To export data before it goes, keep it, export, then delete it again.
+  - An hourly job (`BusinessDeletionService`) erases businesses past their date. It drops the business's
+    schema, removes its uploaded images and imported files, its memberships, codes and crash
+    reports, and renames the business row "Deleted business". The row and its billing invoices
+    stay for the platform's own records. Every owner is emailed. An erase that stopped partway is
+    finished on the next run.
+  - Test: `business-deletion.test.ts` (all three checks, locking, keeping it, erasing after the
+    grace period).
+
+---
+
 ## Progress log
 
 - 2026-10-04: List written from the codebase audit.
@@ -541,3 +610,4 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 - 2026-10-05: C6 done; closing the register no longer crashes the screen behind it.
 - 2026-10-05: A9 decided (returns only at the selling branch), A5 removed, B7 done (suppliers, payables, purchase returns).
 - 2026-10-05: B8 done: batches and expiry (offers later).
+- 2026-10-05: D1–D4 done: exact purchase costs, costs hidden from cashiers, A4 invoices, deleting a business.
