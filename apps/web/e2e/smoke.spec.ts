@@ -61,5 +61,7 @@ test('sign in, sell, return and close the register', async ({ page, request }) =
   await dialog.getByRole('button', { name: 'Close Register' }).click();
   await expect(dialog.getByText('Expected cash').locator('..')).toContainText('120.00');
   await expect(dialog.getByText('Difference').locator('..')).toContainText('Balanced');
-  await expect(dialog.getByRole('button', { name: 'Done' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await expect(page).toHaveURL(/\/open-register$/);
+  await expect(page.getByRole('heading', { name: 'Open a register' })).toBeVisible();
 });

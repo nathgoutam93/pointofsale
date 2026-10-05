@@ -15,6 +15,11 @@ function differenceLabel(difference: number) {
   return difference > 0 ? `Over by ${inr(difference)}` : `Short by ${inr(-difference)}`;
 }
 
+/** This computer no longer has a register open. */
+function forgetRegister() {
+  updateSession({ branchId: null, registerId: null, counterId: null, counterName: null });
+}
+
 /**
  * Close the register by counting the drawer: shows what should be there (opening balance
  * + cash taken − cash refunded), the difference as the cashier types the count, and the
@@ -40,7 +45,9 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
       return res.body;
     },
     onSuccess: (data) => {
-      updateSession({ branchId: null, registerId: null, counterId: null, counterName: null });
+      // The session keeps the register until the cashier leaves the summary: the page behind
+      // this dialog needs an open register to render, and would fail if it re-rendered now.
+      window.addEventListener("pagehide", forgetRegister, { once: true });
       setClosed(data.register);
     },
   });
@@ -79,6 +86,7 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
             <button
               className="btn-primary mt-5 w-full"
               onClick={() => {
+                forgetRegister();
                 window.location.href = "/open-register";
               }}
             >

@@ -448,7 +448,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   short at close). `returnLineAmounts` now prorates the line's total, so each unit gets back
   what it sold for; the taxable value takes the paisa.
 
-### [ ] C6. Split the largest files
+### [x] C6. Split the largest files
 
 - **Why:** `packages/contracts/src/index.ts` (~1,960 lines), `SalesPage.tsx` (~1,500),
   `ItemsPage.tsx` and `BranchSettingsPage.tsx` (~1,200 each) and `apps/desktop/src/main.ts`
@@ -456,6 +456,19 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 - **What:** contracts by domain (sales, items, customers, GST...); screens into sections as
   `screens/pos/` already is.
 - **Done when:** no source file is over about 600 lines.
+- **Status (2026-10-05):** the largest source file is now 499 lines (`PosPage.tsx`). The
+  contracts are split by domain under `packages/contracts/src/contract/` (the composed
+  `appContract` was compared route by route with the old one, and the 199 exports are the
+  same); the desktop main process into window, state, services, the fallback counter and the
+  IPC handlers by area; `SalesService` lost payment settlement (`SaleSettlementService`) and
+  line building, `FallbackService` its outbox checks; the seven large screens became sections,
+  hooks and helpers under `screens/sales`, `pos`, `returns`, `settings`, `items`, `stock` and
+  `customers`. All pure moves. The smoke test then caught a bug that was already there:
+  closing the register from the Returns, Sales or POS screen could crash to "Something went
+  wrong!" instead of showing the count, because the session dropped the register while the
+  page behind the dialog still needed it. The register now leaves the session when the
+  cashier presses Done (or the window closes). Selling, settling or returning another
+  branch's bill also answers 403 now, like the other permission refusals.
 
 ---
 
@@ -463,3 +476,4 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 
 - 2026-10-04: List written from the codebase audit.
 - 2026-10-04: C5 done; a partial return no longer refunds a paisa more or less than the price.
+- 2026-10-05: C6 done; closing the register no longer crashes the screen behind it.
