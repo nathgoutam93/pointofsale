@@ -88,7 +88,7 @@ describe('admins and branches', () => {
 
   it("still sell only at the register's branch", async () => {
     const res = await t.call('POST', '/sales/checkout', a.token, checkoutBody(b.branch.id, b.walkIn.id, [line(itemId)], [{ mode: 'CASH', amount: 100 }]));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
   });
 
   it("don't reach a branch they have no access to", async () => {

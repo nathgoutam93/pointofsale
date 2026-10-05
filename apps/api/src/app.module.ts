@@ -55,6 +55,7 @@ import { ReturnsController } from './returns/returns.controller';
 import { ReturnsService } from './returns/returns.service';
 import { SalesController } from './sales/sales.controller';
 import { SalesService } from './sales/sales.service';
+import { SaleSettlementService } from './sales/sale-settlement.service';
 import { SequenceService } from './sequences/sequences.service';
 import { SettingsController } from './settings/settings.controller';
 import { SettingsService } from './settings/settings.service';
@@ -125,6 +126,7 @@ import { UsersService } from './users/users.service';
     CountersService,
     RegistersService,
     SalesService,
+    SaleSettlementService,
     ReturnsService,
     ReportsService,
     GstService,

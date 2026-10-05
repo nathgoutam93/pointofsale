@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, UserRole, WalletTxnType } from '@prisma/client';
 import { invoiceDue, returnLineAmounts, splitReturn, type GstAmounts } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
@@ -93,7 +93,7 @@ export class ReturnsService {
       });
 
       if (!invoice) throw new NotFoundException('Invoice not found');
-      if (invoice.branchId !== sessionBranchId) throw new BadRequestException('Branch mismatch');
+      if (invoice.branchId !== sessionBranchId) throw new ForbiddenException('Branch mismatch');
       if (invoice.status === InvoiceStatus.CANCELLED) {
         throw new BadRequestException(`Invoice ${invoice.invoiceNo} is cancelled`);
       }
