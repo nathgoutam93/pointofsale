@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
@@ -6,12 +6,14 @@ import { getSession, requireAdminSession, RequestHeaders } from '../common/reque
 import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { imageUploadOptions, saveImage } from '../common/uploads';
 import { ItemsService } from './items.service';
+import { ItemImportService } from './item-import.service';
 
 @Controller()
 export class ItemsController {
   constructor(
     private readonly items: ItemsService,
-    private readonly access: AccessService
+    private readonly access: AccessService,
+    private readonly itemImport: ItemImportService
   ) {}
 
   /** The catalogue is the business's: admins, and cashiers allowed to manage items. */
@@ -48,6 +50,20 @@ export class ItemsController {
     // Checked before anything is saved: the upload is held in memory until then.
     await this.managing(headers);
     return { path: await saveImage(file, 'items') };
+  }
+
+  @Post('/items/import')
+  @HttpCode(200)
+  async importItems(
+    @Body(new ZodValidationPipe(appContract.items.import.body)) body: Parsed<typeof appContract.items.import.body>,
+    @Headers() headers: RequestHeaders
+  ) {
+    await this.managing(headers);
+    const session = getSession(headers);
+    await this.access.requireBranch(session, body.branchId);
+    // Opening stock and reorder levels are stock changes; costs only for those who see them.
+    const mayChangeStock = await this.access.requirePermission(session, 'MANAGE_STOCK').then(() => true, () => false);
+    return this.itemImport.import(session, body, { maySeeCosts: await this.access.maySeeCosts(session), mayChangeStock });
   }
 
   @Post('/items')

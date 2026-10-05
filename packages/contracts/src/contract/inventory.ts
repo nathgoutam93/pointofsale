@@ -143,6 +143,52 @@ export const itemGroupDetailSchema = itemGroupSchema.extend({
   )
 });
 
+/**
+ * Item import: the template's columns, in order. A spreadsheet's header row names them (any
+ * case); others are ignored. Fields marked * are needed for a new item.
+ */
+export const ITEM_IMPORT_COLUMNS = [
+  { field: 'code', header: 'Code', note: '* Matches an item already there, which is updated' },
+  { field: 'name', header: 'Name', note: '* for new items' },
+  { field: 'category', header: 'Category', note: '' },
+  { field: 'unit', header: 'Unit', note: '* for new items: PCS, KG, LTR...' },
+  { field: 'sellPrice', header: 'Selling price', note: '* for new items' },
+  { field: 'mrp', header: 'MRP', note: 'With all taxes' },
+  { field: 'costPrice', header: 'Cost price', note: 'Before GST' },
+  { field: 'gstRate', header: 'GST %', note: '* for new items: 0, 5, 12, 18, 28...' },
+  { field: 'priceIncludesGst', header: 'Price includes GST', note: 'Yes (default) or No' },
+  { field: 'hsnCode', header: 'HSN', note: '' },
+  { field: 'barcodes', header: 'Barcodes', note: 'Several split by |' },
+  { field: 'tracksBatches', header: 'Batches and expiry', note: 'Yes or No (default)' },
+  { field: 'openingStock', header: 'Opening stock', note: 'New items, at the branch chosen' },
+  { field: 'batchNo', header: 'Batch', note: 'For opening stock of items kept by batch' },
+  { field: 'expiryDate', header: 'Expiry date', note: 'YYYY-MM-DD' },
+  { field: 'reorderLevel', header: 'Reorder level', note: 'At the branch chosen' },
+  { field: 'reorderQty', header: 'Order quantity', note: 'At the branch chosen' },
+  { field: 'product', header: 'Product', note: 'Variants: the product they belong to' },
+  { field: 'size', header: 'Size', note: 'Variants: needed with Product' },
+  { field: 'colour', header: 'Colour', note: 'Variants: optional' }
+] as const;
+export type ItemImportField = (typeof ITEM_IMPORT_COLUMNS)[number]['field'];
+
+const importCellSchema = z.string().max(500).nullable().optional();
+export const itemImportRowSchema = z
+  .object({
+    /** The spreadsheet's row number, for the errors. */
+    row: z.number().int().positive(),
+    ...(Object.fromEntries(ITEM_IMPORT_COLUMNS.map((column) => [column.field, importCellSchema])) as Record<ItemImportField, typeof importCellSchema>)
+  })
+  .strict();
+
+export const itemImportResultSchema = z.object({
+  /** False when it was only checked, or had errors: nothing was saved. */
+  applied: z.boolean(),
+  created: z.number().int(),
+  updated: z.number().int(),
+  errors: z.array(z.object({ row: z.number().int(), message: z.string() })),
+  warnings: z.array(z.object({ row: z.number().int(), message: z.string() }))
+});
+
 export const itemGroupsRoutes = c.router({
   /** Products with variants, each with its items. */
   list: {
@@ -276,6 +322,21 @@ export const itemsRoutes = c.router({
       branchId: z.string().uuid().optional()
     }),
     responses: { 200: z.array(itemWithSaleUomsSchema) }
+  },
+  /**
+   * Item managers: items from a spreadsheet (as text cells). Every row is checked first; with
+   * no errors and dryRun false, all are saved together: new codes created, existing ones
+   * updated (blank cells left as they are), opening stock and reorder levels at the branch.
+   */
+  import: {
+    method: 'POST',
+    path: '/items/import',
+    body: z.object({
+      branchId: z.string().uuid(),
+      dryRun: z.boolean().default(true),
+      rows: z.array(itemImportRowSchema).min(1).max(5000)
+    }),
+    responses: { 200: itemImportResultSchema }
   },
   /** Admin: every branch's own prices for an item. */
   branchPrices: {

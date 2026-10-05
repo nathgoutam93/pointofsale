@@ -20,6 +20,26 @@ const itemInclude = {
 
 type ItemBarcodeInput = { barcode: string; saleUom?: string | null };
 
+export type ItemUpdateInput = {
+  name?: string;
+  category?: string | null;
+  uom?: string;
+  leastCount?: number;
+  costPrice?: number;
+  sellPrice?: number;
+  mrp?: number;
+  saleUoms?: ItemSaleUomInput[];
+  taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
+  taxRate?: number;
+  hsnCode?: string | null;
+  uqc?: string | null;
+  supplyType?: GstSupplyType;
+  imageUrl?: string | null;
+  isActive?: boolean;
+  tracksBatches?: boolean;
+  barcodes?: ItemBarcodeInput[];
+};
+
 export type NewItemInput = {
   code: string;
   name: string;
@@ -291,8 +311,8 @@ export class ItemsService {
     return { leastCount, supplyType, saleUoms };
   }
 
-  /** Saves a checked new item (and its barcodes) in the caller's transaction. */
-  async insertItem(tx: Prisma.TransactionClient, session: SessionUser, input: NewItemInput, prepared: Awaited<ReturnType<ItemsService['prepareNewItem']>>) {
+  /** Saves a checked new item (and its barcodes) in the caller's transaction; `audit: false` when the caller records one event for many. */
+  async insertItem(tx: Prisma.TransactionClient, session: SessionUser, input: NewItemInput, prepared: Awaited<ReturnType<ItemsService['prepareNewItem']>>, options: { audit?: boolean } = {}) {
     const { leastCount, supplyType, saleUoms } = prepared;
     // An item's code is scanned too, so it can't be another item's barcode.
     const barcodeOwner = await tx.itemBarcode.findFirst({ where: { barcode: { equals: input.code.trim(), mode: 'insensitive' } }, select: { item: { select: { name: true } } } });
@@ -320,7 +340,7 @@ export class ItemsService {
       select: { id: true }
     });
     if (input.barcodes?.length) await this.replaceBarcodes(tx, created.id, input.barcodes);
-    await this.audit.record(
+    if (options.audit !== false) await this.audit.record(
       session,
       {
         action: 'ITEM_CREATED',
@@ -337,107 +357,92 @@ export class ItemsService {
   async updateItem(
     session: SessionUser,
     id: string,
-    input: {
-      name?: string;
-      category?: string | null;
-      uom?: string;
-      leastCount?: number;
-      costPrice?: number;
-      sellPrice?: number;
-      mrp?: number;
-      saleUoms?: ItemSaleUomInput[];
-      taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
-      taxRate?: number;
-      hsnCode?: string | null;
-      uqc?: string | null;
-      supplyType?: GstSupplyType;
-      imageUrl?: string | null;
-      isActive?: boolean;
-      tracksBatches?: boolean;
-      barcodes?: ItemBarcodeInput[];
-    }
+    input: ItemUpdateInput
   ) {
+    return this.prisma.$transaction((tx) => this.applyItemUpdate(tx, session, id, input));
+  }
+
+  /** Changes an item in the caller's transaction (see updateItem). */
+  async applyItemUpdate(tx: Prisma.TransactionClient, session: SessionUser, id: string, input: ItemUpdateInput) {
     const { saleUoms: saleUomInput, barcodes: barcodeInput, ...data } = input;
     if (data.leastCount !== undefined) {
       data.leastCount = normalizeLeastCount(data.leastCount);
     }
-    return this.prisma.$transaction(async (tx) => {
-      const gst = await tx.item.findUnique({ where: { id }, select: { taxRate: true, supplyType: true, uqc: true, uom: true } });
-      if (!gst) throw new NotFoundException('Item not found');
-      const before = await tx.item.findUniqueOrThrow({ where: { id } });
-      const taxRate = data.taxRate ?? toNumber(gst.taxRate);
-      // Without a chosen supply type, keep the current one while it still fits the rate.
-      data.supplyType =
-        data.supplyType ?? (supplyTypeProblem(gst.supplyType, taxRate) ? defaultSupplyType(taxRate) : gst.supplyType);
-      this.assertSupplyType(data.supplyType, taxRate);
-      await this.assertHsnCode(data.hsnCode, tx);
-      if (data.hsnCode === '') data.hsnCode = null;
-      if (data.uqc === undefined && !gst.uqc) data.uqc = suggestUqc(data.uom ?? gst.uom);
-      const previousBaseUom = gst.uom;
+    const gst = await tx.item.findUnique({ where: { id }, select: { taxRate: true, supplyType: true, uqc: true, uom: true } });
+    if (!gst) throw new NotFoundException('Item not found');
+    const before = await tx.item.findUniqueOrThrow({ where: { id } });
+    const taxRate = data.taxRate ?? toNumber(gst.taxRate);
+    // Without a chosen supply type, keep the current one while it still fits the rate.
+    data.supplyType =
+      data.supplyType ?? (supplyTypeProblem(gst.supplyType, taxRate) ? defaultSupplyType(taxRate) : gst.supplyType);
+    this.assertSupplyType(data.supplyType, taxRate);
+    await this.assertHsnCode(data.hsnCode, tx);
+    if (data.hsnCode === '') data.hsnCode = null;
+    if (data.uqc === undefined && !gst.uqc) data.uqc = suggestUqc(data.uom ?? gst.uom);
+    const previousBaseUom = gst.uom;
 
-      if (saleUomInput !== undefined) {
-        const current = await tx.item.findUnique({
-          where: { id },
-          select: { uom: true, sellPrice: true, mrp: true }
-        });
-        if (!current) throw new NotFoundException('Item not found');
-        const nextSaleUoms = this.normalizeItemSaleUoms({
-          uom: data.uom ?? current.uom,
-          sellPrice: data.sellPrice ?? toNumber(current.sellPrice),
-          mrp: data.mrp ?? toNumber(current.mrp),
-          saleUoms: saleUomInput
-        });
-        await tx.itemSaleUom.deleteMany({ where: { itemId: id } });
-        await tx.itemSaleUom.createMany({
-          data: nextSaleUoms.map((variant) => ({ ...variant, itemId: id }))
-        });
-      }
-
-      const updated = await tx.item.update({
+    if (saleUomInput !== undefined) {
+      const current = await tx.item.findUnique({
         where: { id },
-        data,
-        include: itemInclude
+        select: { uom: true, sellPrice: true, mrp: true }
       });
-      if (data.uom !== undefined || saleUomInput !== undefined) {
-        await this.syncBranchPriceUnits(tx, id, previousBaseUom);
-        // Barcodes of sale units the item no longer has go too.
-        const units = new Set(updated.saleUoms.filter((unit) => !unit.isDefault).map((unit) => unit.uom.toLowerCase()));
-        const stale = (await tx.itemBarcode.findMany({ where: { itemId: id, saleUom: { not: null } }, select: { id: true, saleUom: true } }))
-          .filter((row) => !units.has(row.saleUom!.toLowerCase()))
-          .map((row) => row.id);
-        if (stale.length > 0) await tx.itemBarcode.deleteMany({ where: { id: { in: stale } } });
-      }
-      if (barcodeInput !== undefined) await this.replaceBarcodes(tx, id, barcodeInput);
-      // Prices, MRPs and tax as they now are, the branches' own prices too, all within the MRP.
-      const branchPrices = await tx.itemBranchPrice.findMany({ where: { itemId: id }, select: { uom: true, sellPrice: true, mrp: true } });
-      await this.assertWithinMrp(
-        [
-          { uom: updated.uom, sellPrice: toNumber(updated.sellPrice), mrp: toNumber(updated.mrp) },
-          // The default row mirrors the base unit (the item's own price is what is charged).
-          ...updated.saleUoms
-            .filter((unit) => !unit.isDefault)
-            .map((unit) => ({ uom: unit.uom, sellPrice: toNumber(unit.sellPrice), mrp: toNumber(unit.mrp) })),
-          ...branchPrices.map((price) => ({ uom: price.uom, sellPrice: toNumber(price.sellPrice), mrp: toNumber(price.mrp) }))
-        ],
-        { taxMode: updated.taxMode, taxRate: toNumber(updated.taxRate) },
+      if (!current) throw new NotFoundException('Item not found');
+      const nextSaleUoms = this.normalizeItemSaleUoms({
+        uom: data.uom ?? current.uom,
+        sellPrice: data.sellPrice ?? toNumber(current.sellPrice),
+        mrp: data.mrp ?? toNumber(current.mrp),
+        saleUoms: saleUomInput
+      });
+      await tx.itemSaleUom.deleteMany({ where: { itemId: id } });
+      await tx.itemSaleUom.createMany({
+        data: nextSaleUoms.map((variant) => ({ ...variant, itemId: id }))
+      });
+    }
+
+    const updated = await tx.item.update({
+      where: { id },
+      data,
+      include: itemInclude
+    });
+    if (data.uom !== undefined || saleUomInput !== undefined) {
+      await this.syncBranchPriceUnits(tx, id, previousBaseUom);
+      // Barcodes of sale units the item no longer has go too.
+      const units = new Set(updated.saleUoms.filter((unit) => !unit.isDefault).map((unit) => unit.uom.toLowerCase()));
+      const stale = (await tx.itemBarcode.findMany({ where: { itemId: id, saleUom: { not: null } }, select: { id: true, saleUom: true } }))
+        .filter((row) => !units.has(row.saleUom!.toLowerCase()))
+        .map((row) => row.id);
+      if (stale.length > 0) await tx.itemBarcode.deleteMany({ where: { id: { in: stale } } });
+    }
+    if (barcodeInput !== undefined) await this.replaceBarcodes(tx, id, barcodeInput);
+    // Prices, MRPs and tax as they now are, the branches' own prices too, all within the MRP.
+    const branchPrices = await tx.itemBranchPrice.findMany({ where: { itemId: id }, select: { uom: true, sellPrice: true, mrp: true } });
+    await this.assertWithinMrp(
+      [
+        { uom: updated.uom, sellPrice: toNumber(updated.sellPrice), mrp: toNumber(updated.mrp) },
+        // The default row mirrors the base unit (the item's own price is what is charged).
+        ...updated.saleUoms
+          .filter((unit) => !unit.isDefault)
+          .map((unit) => ({ uom: unit.uom, sellPrice: toNumber(unit.sellPrice), mrp: toNumber(unit.mrp) })),
+        ...branchPrices.map((price) => ({ uom: price.uom, sellPrice: toNumber(price.sellPrice), mrp: toNumber(price.mrp) }))
+      ],
+      { taxMode: updated.taxMode, taxRate: toNumber(updated.taxRate) },
+      tx
+    );
+    const changes = AuditService.changes(before, updated, AUDITED_ITEM_FIELDS);
+    if (Object.keys(changes).length > 0 || saleUomInput !== undefined || barcodeInput !== undefined) {
+      await this.audit.record(
+        session,
+        {
+          action: changes.sellPrice || changes.mrp || changes.taxRate || changes.taxMode ? 'ITEM_PRICE_CHANGED' : 'ITEM_UPDATED',
+          entityType: 'Item',
+          entityId: id,
+          summary: `Changed item ${updated.code} ${updated.name}: ${[...Object.keys(changes), ...(saleUomInput !== undefined ? ['sale units'] : []), ...(barcodeInput !== undefined ? ['barcodes'] : [])].join(', ') || 'no fields'}`,
+          details: { changes, ...(saleUomInput !== undefined ? { saleUoms: saleUomInput } : {}), ...(barcodeInput !== undefined ? { barcodes: barcodeInput } : {}) } as Prisma.InputJsonValue
+        },
         tx
       );
-      const changes = AuditService.changes(before, updated, AUDITED_ITEM_FIELDS);
-      if (Object.keys(changes).length > 0 || saleUomInput !== undefined || barcodeInput !== undefined) {
-        await this.audit.record(
-          session,
-          {
-            action: changes.sellPrice || changes.mrp || changes.taxRate || changes.taxMode ? 'ITEM_PRICE_CHANGED' : 'ITEM_UPDATED',
-            entityType: 'Item',
-            entityId: id,
-            summary: `Changed item ${updated.code} ${updated.name}: ${[...Object.keys(changes), ...(saleUomInput !== undefined ? ['sale units'] : []), ...(barcodeInput !== undefined ? ['barcodes'] : [])].join(', ') || 'no fields'}`,
-            details: { changes, ...(saleUomInput !== undefined ? { saleUoms: saleUomInput } : {}), ...(barcodeInput !== undefined ? { barcodes: barcodeInput } : {}) } as Prisma.InputJsonValue
-          },
-          tx
-        );
-      }
-      return tx.item.findUniqueOrThrow({ where: { id }, include: itemInclude });
-    });
+    }
+    return tx.item.findUniqueOrThrow({ where: { id }, include: itemInclude });
   }
 
   async deleteItem(session: SessionUser, id: string) {

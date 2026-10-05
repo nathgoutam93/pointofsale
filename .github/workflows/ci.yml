@@ -55,7 +55,7 @@ jobs:
         run: pnpm --filter @pos/api test
       - name: Web app builds
         run: pnpm --filter @pos/web build
-      - name: Browser tests (sell, return and close the register; suppliers; batches; A4 invoices; labels; variants and drawer expenses)
+      - name: Browser tests (sell, return and close the register; suppliers; batches; A4 invoices; labels; variants and drawer expenses; item import)
         env:
           E2E_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/pos_e2e?schema=public
         run: |

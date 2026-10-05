@@ -16,7 +16,8 @@
     "@tanstack/react-router": "^1.81.1",
     "@ts-rest/core": "^3.52.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "read-excel-file": "^5.8.8"
   },
   "devDependencies": {
     "@playwright/test": "~1.56.1",

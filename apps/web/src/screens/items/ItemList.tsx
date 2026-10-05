@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import type { Dispatch, SetStateAction } from "react";
 import { inr } from "../route-helpers";
 import { initialForm, type Item, type ItemFormState, type SaleUomFormState, type PanelMode } from "./itemForm";
@@ -71,6 +72,11 @@ export function ItemList({
         </div>
         ) : null}
       </div>
+      {canManageItems ? (
+        <Link to="/items/import" className="mb-2 inline-block text-xs font-medium text-brand-700 hover:underline">
+          Import items from a spreadsheet (CSV or Excel)
+        </Link>
+      ) : null}
       <input
         className="field"
         placeholder="Search by name, code, category, or UOM"

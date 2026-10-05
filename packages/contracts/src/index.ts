@@ -133,6 +133,7 @@ export {
 export type { CompositionCategory, GstDocumentType, GstSupplyType, TaxpayerType } from './gst.js';
 export {
   branchSchema,
+  calendarDateSchema,
   CASHIER_PERMISSION_LABELS,
   CASHIER_PERMISSIONS,
   cashierPermissionSchema,
@@ -181,7 +182,7 @@ export {
 export type { CustomerAccount } from './contract/customers.js';
 export { barcodeSvg, LABEL_LAYOUT_IDS, LABEL_LAYOUTS, labelProblem, labelsHtml, type LabelData, type LabelLayout, type LabelLayoutId, type LabelOptions } from './labels.js';
 export { CASH_IN_REASONS, CASH_OUT_REASONS, cashMovementSchema, EXPENSE_CATEGORIES, expenseSchema } from './contract/expenses.js';
-export { batchStockSchema, itemGroupDetailSchema, itemGroupSchema, itemSchema, itemWithSaleUomsSchema, lowStockSchema, onHandSchema } from './contract/inventory.js';
+export { ITEM_IMPORT_COLUMNS, itemImportResultSchema, itemImportRowSchema, type ItemImportField, batchStockSchema, itemGroupDetailSchema, itemGroupSchema, itemSchema, itemWithSaleUomsSchema, lowStockSchema, onHandSchema } from './contract/inventory.js';
 export { purchaseReturnSchema, supplierAccountSchema, supplierPaymentSchema, supplierSchema } from './contract/purchases.js';
 export type { SupplierAccount } from './contract/purchases.js';
 export { auditEventSchema, reportDetailSchema, salesExportQuerySchema } from './contract/reports.js';

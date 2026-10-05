@@ -54,6 +54,7 @@ import { SuppliersController } from './suppliers/suppliers.controller';
 import { ExpensesController } from './expenses/expenses.controller';
 import { ItemGroupsController } from './items/item-groups.controller';
 import { ItemGroupsService } from './items/item-groups.service';
+import { ItemImportService } from './items/item-import.service';
 import { ExpensesService } from './expenses/expenses.service';
 import { SuppliersService } from './suppliers/suppliers.service';
 import { RegistersController } from './registers/registers.controller';
@@ -130,6 +131,7 @@ import { UsersService } from './users/users.service';
     SuppliersService,
     ExpensesService,
     ItemGroupsService,
+    ItemImportService,
     TransfersService,
     CustomersService,
     ExportsService,

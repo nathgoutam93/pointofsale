@@ -13,6 +13,7 @@ import { PurchasesPage } from './screens/PurchasesPage';
 import { SuppliersPage } from './screens/SuppliersPage';
 import { ExpensesPage } from './screens/ExpensesPage';
 import { LabelsPage } from './screens/LabelsPage';
+import { ImportItemsPage } from './screens/items/import/ImportItemsPage';
 import { TransfersPage } from './screens/TransfersPage';
 import { ReportsPage } from './screens/ReportsPage';
 import { ActivityPage } from './screens/ActivityPage';
@@ -242,6 +243,17 @@ const expensesRoute = createRoute({
   component: ExpensesPage
 });
 
+/** Items from a CSV or Excel file: item managers. */
+const importItemsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/items/import',
+  beforeLoad: () => {
+    requirePermission('MANAGE_ITEMS');
+    return requireManagementSession();
+  },
+  component: ImportItemsPage
+});
+
 /** Barcode labels: for those who look after items, stock or purchases. */
 const labelsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -316,6 +328,7 @@ const routeTree = rootRoute.addChildren([
   suppliersRoute,
   expensesRoute,
   labelsRoute,
+  importItemsRoute,
   transfersRoute,
   reportsRoute,
   activityRoute,
