@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { FormEvent, useState } from "react";
 import { api, apiErrorMessage, authHeaders } from "../../lib/api";
 import { inr } from "../route-helpers";
@@ -57,6 +58,11 @@ export function PurchaseDetail({ purchaseId, branchId }: { purchaseId: string; b
 
   return (
     <form onSubmit={onSubmit} className="space-y-3">
+      <div className="flex justify-end">
+        <Link to="/labels" search={{ purchaseId }} className="text-xs font-medium text-brand-700 hover:underline">
+          Print barcode labels for these goods
+        </Link>
+      </div>
       <table className="w-full text-sm">
         <thead>
           <tr className="eyebrow border-b border-slate-200 text-left">

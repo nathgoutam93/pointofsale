@@ -12,6 +12,7 @@ import { StockPage } from './screens/StockPage';
 import { PurchasesPage } from './screens/PurchasesPage';
 import { SuppliersPage } from './screens/SuppliersPage';
 import { ExpensesPage } from './screens/ExpensesPage';
+import { LabelsPage } from './screens/LabelsPage';
 import { TransfersPage } from './screens/TransfersPage';
 import { ReportsPage } from './screens/ReportsPage';
 import { ActivityPage } from './screens/ActivityPage';
@@ -241,6 +242,22 @@ const expensesRoute = createRoute({
   component: ExpensesPage
 });
 
+/** Barcode labels: for those who look after items, stock or purchases. */
+const labelsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/labels',
+  beforeLoad: () => {
+    const session = requireManagementSession();
+    if (!can(session, 'MANAGE_ITEMS') && !can(session, 'MANAGE_STOCK') && !can(session, 'RECORD_PURCHASES')) throw redirect({ to: '/pos' });
+    return session;
+  },
+  validateSearch: (search: Record<string, unknown>): { itemId?: string; purchaseId?: string } => ({
+    ...(typeof search.itemId === 'string' ? { itemId: search.itemId } : {}),
+    ...(typeof search.purchaseId === 'string' ? { purchaseId: search.purchaseId } : {})
+  }),
+  component: LabelsPage
+});
+
 const transfersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/transfers',
@@ -298,6 +315,7 @@ const routeTree = rootRoute.addChildren([
   purchasesRoute,
   suppliersRoute,
   expensesRoute,
+  labelsRoute,
   transfersRoute,
   reportsRoute,
   activityRoute,

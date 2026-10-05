@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import type { Dispatch, SetStateAction } from "react";
 import { GST_SUPPLY_TYPE_LABELS } from "@pos/contracts";
 import { uploadSrc } from "../../lib/api";
@@ -39,6 +40,9 @@ export function ItemDetails({
         <h3 className="text-lg font-semibold">Item Details</h3>
         {canManageItems ? (
         <div className="flex items-center gap-2">
+          <Link to="/labels" search={{ itemId: selectedItem.id }} className="btn-ghost">
+            Print Labels
+          </Link>
           <button
             className="btn-secondary"
             type="button"

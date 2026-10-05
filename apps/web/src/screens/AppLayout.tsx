@@ -19,6 +19,7 @@ import {
   IconTruck,
   IconFactory,
   IconCash,
+  IconBarcode,
   IconUsers, IconHistory } from "../components/icons";
 import { OnlineOnlyBadge } from "../components/OnlineOnly";
 import { MoveOnlineNotice } from "../components/MoveOnline";
@@ -69,6 +70,7 @@ const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
       { to: "/stock", label: "Inventory", icon: IconBoxes, needsRegister: "cashiers" },
       { to: "/purchases", label: "Purchases", icon: IconTruck, needsRegister: "cashiers", permission: "RECORD_PURCHASES" },
       { to: "/suppliers", label: "Suppliers", icon: IconFactory, needsRegister: "cashiers", permission: ["RECORD_PURCHASES", "PAY_SUPPLIERS"] },
+      { to: "/labels", label: "Barcode Labels", icon: IconBarcode, needsRegister: "cashiers", permission: ["MANAGE_ITEMS", "MANAGE_STOCK", "RECORD_PURCHASES"] },
       { to: "/transfers", label: "Transfers", icon: IconTransfer, needsRegister: "cashiers", onlineOnly: true },
     ],
   },

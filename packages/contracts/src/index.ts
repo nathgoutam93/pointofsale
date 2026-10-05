@@ -179,6 +179,7 @@ export {
   walletTxnSchema
 } from './contract/customers.js';
 export type { CustomerAccount } from './contract/customers.js';
+export { barcodeSvg, LABEL_LAYOUT_IDS, LABEL_LAYOUTS, labelProblem, labelsHtml, type LabelData, type LabelLayout, type LabelLayoutId, type LabelOptions } from './labels.js';
 export { CASH_IN_REASONS, CASH_OUT_REASONS, cashMovementSchema, EXPENSE_CATEGORIES, expenseSchema } from './contract/expenses.js';
 export { batchStockSchema, itemSchema, itemWithSaleUomsSchema, lowStockSchema, onHandSchema } from './contract/inventory.js';
 export { purchaseReturnSchema, supplierAccountSchema, supplierPaymentSchema, supplierSchema } from './contract/purchases.js';

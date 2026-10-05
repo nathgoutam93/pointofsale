@@ -54,6 +54,12 @@ export const IconBoxes = (p: IconProps) => (
     <path d="m3 8 9 5 9-5M12 13v8" />
   </Icon>
 );
+export const IconBarcode = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 6v12M7 6v12M10 6v12M14 6v12M16 6v12M20 6v12" />
+  </Icon>
+);
+
 export const IconCash = (p: IconProps) => (
   <Icon {...p}>
     <rect x="2" y="6" width="20" height="12" rx="2" />
