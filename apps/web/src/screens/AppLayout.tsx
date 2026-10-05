@@ -18,6 +18,7 @@ import {
   IconTransfer,
   IconTruck,
   IconFactory,
+  IconCash,
   IconUsers, IconHistory } from "../components/icons";
 import { OnlineOnlyBadge } from "../components/OnlineOnly";
 import { MoveOnlineNotice } from "../components/MoveOnline";
@@ -31,6 +32,7 @@ import { FallbackBanner } from "../components/FallbackBanner";
 import { BillingBanner } from "../components/BillingBanner";
 import { signOut } from "../lib/api";
 import { CloseRegisterDialog } from "./CloseRegisterDialog";
+import { CashDrawerDialog } from "./CashDrawerDialog";
 
 type NavItem = {
   to: string;
@@ -57,6 +59,7 @@ const NAV_SECTIONS: Array<{ title: string; items: NavItem[] }> = [
       { to: "/sales", label: "Sales", icon: IconReceipt, needsRegister: "cashiers" },
       { to: "/returns", label: "Returns", icon: IconReturn, needsRegister: "always" },
       { to: "/customers", label: "Customers", icon: IconUsers, needsRegister: "cashiers" },
+      { to: "/expenses", label: "Expenses", icon: IconCash, needsRegister: "cashiers", permission: "CASH_AND_EXPENSES" },
     ],
   },
   {
@@ -110,6 +113,7 @@ export function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [closingRegister, setClosingRegister] = useState(false);
+  const [movingCash, setMovingCash] = useState(false);
   const userLabel = session ? session.username?.trim() || session.role : "";
   const branch = session?.branchId
     ? session.branches.find((b) => b.id === session.branchId)
@@ -252,6 +256,19 @@ export function AppLayout() {
         </nav>
 
         <div className="shrink-0 border-t border-white/5 p-2">
+          {hasRegister && session && can(session, "CASH_AND_EXPENSES") ? (
+            <button
+              className={`flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm font-medium text-slate-400 hover:bg-shell-800 hover:text-slate-100 ${collapsed ? "lg:justify-center lg:px-0" : ""}`}
+              title="Cash In / Out"
+              onClick={() => {
+                setMobileOpen(false);
+                setMovingCash(true);
+              }}
+            >
+              <IconCash className="shrink-0" />
+              <span className={labelClass}>Cash In / Out</span>
+            </button>
+          ) : null}
           {hasRegister ? (
             <button
               className={`flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm font-medium text-slate-400 hover:bg-shell-800 hover:text-slate-100 ${collapsed ? "lg:justify-center lg:px-0" : ""}`}
@@ -357,6 +374,7 @@ export function AppLayout() {
         </main>
       </div>
       {closingRegister ? <CloseRegisterDialog onCancel={() => setClosingRegister(false)} /> : null}
+      {movingCash ? <CashDrawerDialog onClose={() => setMovingCash(false)} /> : null}
     </div>
   );
 }

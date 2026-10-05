@@ -21,7 +21,7 @@ export const roleSchema = z.enum(['ADMIN', 'CASHIER']);
  * What an admin may let a cashier do, beyond selling (Settings → Cashiers & Access). Admins can
  * always do all of it.
  */
-export const CASHIER_PERMISSIONS = ['MANAGE_STOCK', 'MANAGE_ITEMS', 'RECORD_PURCHASES', 'SEND_TRANSFERS', 'TOP_UP_WALLETS', 'CANCEL_SALES', 'MAKE_RETURNS', 'SELL_PAST_STOCK', 'PAY_SUPPLIERS'] as const;
+export const CASHIER_PERMISSIONS = ['MANAGE_STOCK', 'MANAGE_ITEMS', 'RECORD_PURCHASES', 'SEND_TRANSFERS', 'TOP_UP_WALLETS', 'CANCEL_SALES', 'MAKE_RETURNS', 'SELL_PAST_STOCK', 'PAY_SUPPLIERS', 'CASH_AND_EXPENSES'] as const;
 export const cashierPermissionSchema = z.enum(CASHIER_PERMISSIONS);
 export type CashierPermission = z.infer<typeof cashierPermissionSchema>;
 export const CASHIER_PERMISSION_LABELS: Record<CashierPermission, { label: string; detail: string }> = {
@@ -33,7 +33,8 @@ export const CASHIER_PERMISSION_LABELS: Record<CashierPermission, { label: strin
   CANCEL_SALES: { label: 'Cancel unpaid bills', detail: 'Cancel a bill nothing has been paid on, on the day it was made' },
   MAKE_RETURNS: { label: 'Make returns', detail: 'Take goods back and refund them, within the return window' },
   SELL_PAST_STOCK: { label: 'Sell past stock', detail: 'Sell more than the stock count shows, when the business allows it' },
-  PAY_SUPPLIERS: { label: 'Pay suppliers', detail: 'Record payments to suppliers, in cash from the drawer or otherwise' }
+  PAY_SUPPLIERS: { label: 'Pay suppliers', detail: 'Record payments to suppliers, in cash from the drawer or otherwise' },
+  CASH_AND_EXPENSES: { label: 'Cash in/out and expenses', detail: 'Put cash into or take it out of the drawer, and record expenses (from the drawer or otherwise)' }
 };
 
 /** Whether a signed-in user may do `permission`: admins always, cashiers when given it. */

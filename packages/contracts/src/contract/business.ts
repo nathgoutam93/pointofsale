@@ -86,14 +86,20 @@ export const registerSessionSchema = z.object({
 
 /**
  * Running cash for a register: cash payments and cash wallet top-ups taken on it, cash refunds
- * given and cash paid to suppliers from it, and the card and UPI payments and top-ups taken on
- * it (not in the drawer; for checking against settlements).
+ * given, cash paid to suppliers and for expenses from it, cash put in or taken out, and the
+ * card and UPI payments and top-ups taken on it (not in the drawer; for checking against
+ * settlements).
  */
 export const registerCashSchema = z.object({
   cashSales: moneySchema,
   cashTopups: moneySchema,
   cashRefunds: moneySchema,
   cashPaidOut: moneySchema.default(0),
+  /** Cash put into the drawer, and taken out of it (not expenses). */
+  cashIn: moneySchema.default(0),
+  cashOut: moneySchema.default(0),
+  /** Expenses paid in cash from the drawer. */
+  cashExpenses: moneySchema.default(0),
   expectedCash: moneySchema,
   cardSales: moneySchema,
   upiSales: moneySchema

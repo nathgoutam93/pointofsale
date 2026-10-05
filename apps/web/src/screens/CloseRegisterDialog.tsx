@@ -22,7 +22,7 @@ function forgetRegister() {
 
 /**
  * Close the register by counting the drawer: shows what should be there (opening balance
- * + cash taken − cash refunded), the difference as the cashier types the count, and the
+ * + cash taken and put in − cash refunded, paid out and taken out), the difference as the cashier types the count, and the
  * saved result before leaving.
  */
 export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
@@ -108,6 +108,15 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
               <div className="flex justify-between"><dt className="text-slate-500">Cash refunded</dt><dd className="tabular-nums">− {inr(current.data.cashRefunds)}</dd></div>
               {current.data.cashPaidOut > 0 ? (
                 <div className="flex justify-between"><dt className="text-slate-500">Paid to suppliers</dt><dd className="tabular-nums">− {inr(current.data.cashPaidOut)}</dd></div>
+              ) : null}
+              {current.data.cashIn > 0 ? (
+                <div className="flex justify-between"><dt className="text-slate-500">Cash put in</dt><dd className="tabular-nums">+ {inr(current.data.cashIn)}</dd></div>
+              ) : null}
+              {current.data.cashExpenses > 0 ? (
+                <div className="flex justify-between"><dt className="text-slate-500">Expenses paid</dt><dd className="tabular-nums">− {inr(current.data.cashExpenses)}</dd></div>
+              ) : null}
+              {current.data.cashOut > 0 ? (
+                <div className="flex justify-between"><dt className="text-slate-500">Cash taken out</dt><dd className="tabular-nums">− {inr(current.data.cashOut)}</dd></div>
               ) : null}
               <div className="flex justify-between border-t border-slate-100 pt-2 font-semibold"><dt>Expected in drawer</dt><dd className="tabular-nums">{inr(expected)}</dd></div>
             </dl>

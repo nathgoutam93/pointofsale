@@ -3,6 +3,7 @@ import { branchesRoutes, businessRoutes, countersRoutes, registersRoutes } from 
 import { accountsRoutes, authRoutes, businessesRoutes, metaRoutes, setupRoutes, usersRoutes } from './contract/auth.js';
 import { customersRoutes } from './contract/customers.js';
 import { itemsRoutes, stockRoutes, transfersRoutes } from './contract/inventory.js';
+import { expensesRoutes } from './contract/expenses.js';
 import { purchasesRoutes, suppliersRoutes } from './contract/purchases.js';
 import { receiptsRoutes, returnsRoutes, salesRoutes } from './contract/sales.js';
 import { auditRoutes, billingRoutes, gstRoutes, reportsRoutes } from './contract/reports.js';
@@ -178,6 +179,7 @@ export {
   walletTxnSchema
 } from './contract/customers.js';
 export type { CustomerAccount } from './contract/customers.js';
+export { CASH_IN_REASONS, CASH_OUT_REASONS, cashMovementSchema, EXPENSE_CATEGORIES, expenseSchema } from './contract/expenses.js';
 export { batchStockSchema, itemSchema, itemWithSaleUomsSchema, lowStockSchema, onHandSchema } from './contract/inventory.js';
 export { purchaseReturnSchema, supplierAccountSchema, supplierPaymentSchema, supplierSchema } from './contract/purchases.js';
 export type { SupplierAccount } from './contract/purchases.js';
@@ -203,6 +205,8 @@ export const appContract = c.router({
   purchases: purchasesRoutes,
   /** Suppliers: their details, what is owed to them, and payments to them. */
   suppliers: suppliersRoutes,
+  /** Cash in or out of the drawer, and the expense book. */
+  expenses: expensesRoutes,
   transfers: transfersRoutes,
   sales: salesRoutes,
   receipts: receiptsRoutes,

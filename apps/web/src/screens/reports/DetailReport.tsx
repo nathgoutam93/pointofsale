@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api, apiErrorMessage, authHeaders } from "../../lib/api";
 import { inr } from "../route-helpers";
 
-type Tab = "items" | "categories" | "cashiers" | "registers";
+type Tab = "items" | "categories" | "cashiers" | "registers" | "expenses";
 type Cell = string | number | null;
 
 /** Today in the business time zone, as YYYY-MM-DD. */
@@ -32,8 +32,8 @@ function downloadCsv(name: string, header: string[], rows: Cell[][]) {
 }
 
 /**
- * The owner's report for any period: sales by item, category and cashier, discounts, and each
- * register's day-end (Z) figures, for the branch chosen above or all of them, with CSV downloads.
+ * The owner's report for any period: sales by item, category and cashier, discounts, each
+ * register's day-end (Z) figures and expenses by category, for the branch chosen above or all of them, with CSV downloads.
  */
 export function DetailReport({ branchId, timeZone }: { branchId: string | null; timeZone?: string }) {
   const [from, setFrom] = useState(() => today(timeZone));
@@ -79,7 +79,7 @@ export function DetailReport({ branchId, timeZone }: { branchId: string | null; 
       money: [2, 3],
     },
     registers: {
-      header: ["Branch", "Counter", "Opened by", "Opened", "Closed", "Opening cash", "Cash sales", "Cash top-ups", "Cash refunds", "Paid to suppliers", "Card", "UPI", "Expected cash", "Counted", "Difference"],
+      header: ["Branch", "Counter", "Opened by", "Opened", "Closed", "Opening cash", "Cash sales", "Cash top-ups", "Cash refunds", "Paid to suppliers", "Cash put in", "Expenses paid", "Cash taken out", "Card", "UPI", "Expected cash", "Counted", "Difference"],
       rows: (data?.registers ?? []).map((row) => [
         row.branchName,
         row.counterName,
@@ -91,17 +91,25 @@ export function DetailReport({ branchId, timeZone }: { branchId: string | null; 
         row.cashTopups,
         row.cashRefunds,
         row.cashPaidOut,
+        row.cashIn,
+        row.cashExpenses,
+        row.cashOut,
         row.cardSales,
         row.upiSales,
         row.expectedCash,
         row.closingBalance,
         row.cashDifference,
       ]),
-      money: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      money: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+    },
+    expenses: {
+      header: ["Category", "Entries", "Amount"],
+      rows: (data?.expenses.byCategory ?? []).map((row) => [row.category, row.count, row.total]),
+      money: [2],
     },
   };
   const current = tables[tab];
-  const tabLabels: Record<Tab, string> = { items: "Items", categories: "Categories", cashiers: "Cashiers", registers: "Registers (day-end)" };
+  const tabLabels: Record<Tab, string> = { items: "Items", categories: "Categories", cashiers: "Cashiers", registers: "Registers (day-end)", expenses: "Expenses" };
 
   return (
     <div className="card overflow-hidden">
@@ -131,10 +139,12 @@ export function DetailReport({ branchId, timeZone }: { branchId: string | null; 
       </div>
 
       {data ? (
-        <div className="grid grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-sm md:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-sm md:grid-cols-4 xl:grid-cols-8">
           <div><p className="eyebrow">Sales (with tax)</p><p className="font-semibold tabular-nums">{inr(data.summary.grossSales)}</p></div>
           <div><p className="eyebrow">Bills</p><p className="font-semibold tabular-nums">{data.summary.invoiceCount}</p></div>
           <div><p className="eyebrow">Gross profit</p><p className="font-semibold tabular-nums">{inr(data.summary.grossProfit)}</p></div>
+          <div><p className="eyebrow">Expenses</p><p className="font-semibold tabular-nums">{inr(data.expenses.total)}</p></div>
+          <div><p className="eyebrow">Profit after expenses</p><p className={`font-semibold tabular-nums ${data.summary.grossProfit - data.expenses.total < 0 ? "text-rose-600" : ""}`}>{inr(Math.round((data.summary.grossProfit - data.expenses.total) * 100) / 100)}</p></div>
           <div><p className="eyebrow">Discounts given</p><p className="font-semibold tabular-nums">{inr(data.discounts.item + data.discounts.order)}</p></div>
           <div><p className="eyebrow">Cash / Card / UPI</p><p className="font-semibold tabular-nums">{inr(data.summary.collections.cash)} / {inr(data.summary.collections.card)} / {inr(data.summary.collections.upi)}</p></div>
           <div><p className="eyebrow">Still owed</p><p className="font-semibold tabular-nums">{inr(data.summary.unpaidSales)}</p></div>

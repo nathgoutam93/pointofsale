@@ -11,6 +11,7 @@ import { CustomersPage } from './screens/CustomersPage';
 import { StockPage } from './screens/StockPage';
 import { PurchasesPage } from './screens/PurchasesPage';
 import { SuppliersPage } from './screens/SuppliersPage';
+import { ExpensesPage } from './screens/ExpensesPage';
 import { TransfersPage } from './screens/TransfersPage';
 import { ReportsPage } from './screens/ReportsPage';
 import { ActivityPage } from './screens/ActivityPage';
@@ -230,6 +231,16 @@ const suppliersRoute = createRoute({
   component: SuppliersPage
 });
 
+const expensesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/expenses',
+  beforeLoad: () => {
+    requirePermission('CASH_AND_EXPENSES');
+    return requireManagementSession();
+  },
+  component: ExpensesPage
+});
+
 const transfersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/transfers',
@@ -286,6 +297,7 @@ const routeTree = rootRoute.addChildren([
   stockRoute,
   purchasesRoute,
   suppliersRoute,
+  expensesRoute,
   transfersRoute,
   reportsRoute,
   activityRoute,

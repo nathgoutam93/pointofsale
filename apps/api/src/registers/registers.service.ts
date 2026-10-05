@@ -1,6 +1,6 @@
 import { isFallback, isOffline } from '../common/mode';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PaymentMode, Prisma, WalletTxnType } from '@prisma/client';
+import { CashMovementType, PaymentMode, Prisma, WalletTxnType } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { signToken } from '../auth/token';
 import type { SessionUser } from '../common/types';
@@ -42,12 +42,13 @@ export class RegistersService {
 
   /**
    * Cash that should be in a register's drawer: the opening balance plus cash payments and
-   * cash wallet top-ups taken on it, minus cash refunds given and cash paid to suppliers from it. Card, UPI and wallet
+   * cash wallet top-ups taken on it and cash put in, minus cash refunds given, cash paid to
+   * suppliers and for expenses from it and cash taken out. Card, UPI and wallet
    * don't touch the drawer; card and UPI takings (payments and top-ups) are reported for
    * checking against their settlements.
    */
   async registerCash(client: Prisma.TransactionClient | PrismaService, registerId: string, openingBalance: number) {
-    const [takenByMode, topupsByMode, cashOut, paidOut] = await Promise.all([
+    const [takenByMode, topupsByMode, cashOut, paidOut, movements, expenses] = await Promise.all([
       client.payment.groupBy({
         by: ['mode'],
         where: { registerSessionId: registerId },
@@ -62,8 +63,11 @@ export class RegistersService {
         where: { registerSessionId: registerId, refundMode: PaymentMode.CASH },
         _sum: { refundAmount: true }
       }),
-      client.supplierPayment.aggregate({ where: { registerSessionId: registerId }, _sum: { amount: true } })
+      client.supplierPayment.aggregate({ where: { registerSessionId: registerId }, _sum: { amount: true } }),
+      client.cashMovement.groupBy({ by: ['type'], where: { registerSessionId: registerId }, _sum: { amount: true } }),
+      client.expense.aggregate({ where: { registerSessionId: registerId }, _sum: { amount: true } })
     ]);
+    const moved = (type: CashMovementType) => round2(toNumber(movements.find((row) => row.type === type)?._sum.amount));
     const topups = (mode: PaymentMode) => round2(toNumber(topupsByMode.find((row) => row.paymentMode === mode)?._sum.amount));
     const taken = (mode: PaymentMode) =>
       round2(toNumber(takenByMode.find((row) => row.mode === mode)?._sum.amount) + (mode === PaymentMode.CASH ? 0 : topups(mode)));
@@ -71,12 +75,18 @@ export class RegistersService {
     const cashTopups = topups(PaymentMode.CASH);
     const cashRefunds = round2(toNumber(cashOut._sum.refundAmount));
     const cashPaidOut = round2(toNumber(paidOut._sum.amount));
+    const cashIn = moved(CashMovementType.CASH_IN);
+    const cashTakenOut = moved(CashMovementType.CASH_OUT);
+    const cashExpenses = round2(toNumber(expenses._sum.amount));
     return {
       cashSales,
       cashTopups,
       cashRefunds,
       cashPaidOut,
-      expectedCash: round2(openingBalance + cashSales + cashTopups - cashRefunds - cashPaidOut),
+      cashIn,
+      cashOut: cashTakenOut,
+      cashExpenses,
+      expectedCash: round2(openingBalance + cashSales + cashTopups + cashIn - cashRefunds - cashPaidOut - cashTakenOut - cashExpenses),
       cardSales: taken(PaymentMode.CARD),
       upiSales: taken(PaymentMode.UPI)
     };
@@ -305,6 +315,9 @@ export class RegistersService {
         cashTopups: cash.cashTopups,
         cashRefunds: cash.cashRefunds,
         cashPaidOut: cash.cashPaidOut,
+        cashIn: cash.cashIn,
+        cashOut: cash.cashOut,
+        cashExpenses: cash.cashExpenses,
         cardSales: cash.cardSales,
         upiSales: cash.upiSales
       };

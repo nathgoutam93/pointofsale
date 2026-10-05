@@ -51,6 +51,8 @@ import { PurchasesController } from './purchases/purchases.controller';
 import { PurchaseReturnsService } from './purchases/purchase-returns.service';
 import { PurchasesService } from './purchases/purchases.service';
 import { SuppliersController } from './suppliers/suppliers.controller';
+import { ExpensesController } from './expenses/expenses.controller';
+import { ExpensesService } from './expenses/expenses.service';
 import { SuppliersService } from './suppliers/suppliers.service';
 import { RegistersController } from './registers/registers.controller';
 import { RegistersService } from './registers/registers.service';
@@ -93,6 +95,7 @@ import { UsersService } from './users/users.service';
     StockController,
     PurchasesController,
     SuppliersController,
+    ExpensesController,
     TransfersController,
     SalesController,
     ReturnsController,
@@ -122,6 +125,7 @@ import { UsersService } from './users/users.service';
     PurchasesService,
     PurchaseReturnsService,
     SuppliersService,
+    ExpensesService,
     TransfersService,
     CustomersService,
     ExportsService,

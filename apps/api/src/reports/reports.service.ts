@@ -160,7 +160,7 @@ export class ReportsService {
     const madeIn = (column: Prisma.Sql) => Prisma.sql`${column} >= ${start} AND ${column} < ${end}`;
     type Amount = Prisma.Decimal | null;
 
-    const [summary, sold, returned, cashiers, cashierReturns, discounts, registers] = await Promise.all([
+    const [summary, sold, returned, cashiers, cashierReturns, discounts, registers, expenses] = await Promise.all([
       this.computeReportRange(branchIds, { label: `${input.from} to ${input.to}`, startDate: start, endDate: end }),
       // Lines sold on the period's bills, by item.
       this.prisma.$queryRaw<Array<{ itemId: string; itemName: string; category: string | null; qty: Amount; sales: Amount; tax: Amount; cost: Amount }>>`
@@ -201,6 +201,13 @@ export class ReportsService {
         where: { branchId: { in: branchIds }, openedAt: { lt: end }, OR: [{ closedAt: null }, { closedAt: { gte: start } }] },
         orderBy: { openedAt: 'asc' },
         select: { ...registerSelect, branch: { select: { name: true } } }
+      }),
+      // Expenses by the day paid (the period's calendar days).
+      this.prisma.expense.groupBy({
+        by: ['category'],
+        where: { branchId: { in: branchIds }, date: { gte: input.from, lte: input.to } },
+        _sum: { amount: true },
+        _count: { _all: true }
       })
     ]);
 
@@ -283,7 +290,13 @@ export class ReportsService {
       categories: [...byCategory.values()].sort((a, b) => b.sales - a.sales),
       cashiers: [...cashierRows.values()].sort((a, b) => b.sales - a.sales),
       discounts: { item: round2(totalDiscount - orderDiscount), order: orderDiscount },
-      registers: registerRows
+      registers: registerRows,
+      expenses: {
+        byCategory: expenses
+          .map((row) => ({ category: row.category, count: row._count._all, total: round2(toNumber(row._sum.amount)) }))
+          .sort((a, b) => b.total - a.total),
+        total: round2(expenses.reduce((sum, row) => sum + toNumber(row._sum.amount), 0))
+      }
     };
   }
 }

@@ -26,6 +26,15 @@ enum CashierPermission {
   SELL_PAST_STOCK
   /// Pay suppliers (money out of the business, from the drawer or elsewhere).
   PAY_SUPPLIERS
+  /// Move cash in or out of the drawer, and record the business's expenses.
+  CASH_AND_EXPENSES
+}
+
+enum CashMovementType {
+  /// Cash put into the drawer (change brought in, float topped up).
+  CASH_IN
+  /// Cash taken out that isn't an expense (to the bank, to the owner).
+  CASH_OUT
 }
 
 enum PaymentMode {
@@ -183,6 +192,8 @@ model Branch {
   supplierPayments  SupplierPayment[]
   purchaseReturns   PurchaseReturn[]
   batchStocks       BatchStock[]
+  cashMovements     CashMovement[]
+  expenses          Expense[]
 }
 
 model BusinessSettings {
@@ -1039,4 +1050,47 @@ model FallbackBalance {
 /// sends back is everything else.
 model FallbackCopiedDocument {
   id String @id
+}
+
+/// Cash put into or taken out of a register's drawer that isn't a sale, refund or expense.
+model CashMovement {
+  id                String           @id @default(uuid())
+  branchId          String
+  branch            Branch           @relation(fields: [branchId], references: [id])
+  registerSessionId String
+  type              CashMovementType
+  amount            Decimal          @db.Decimal(14, 2)
+  /// Why: "Cash to bank", "Change added"...
+  reason            String
+  note              String?
+  createdBy         String
+  createdByName     String
+  createdAt         DateTime         @default(now())
+
+  @@index([registerSessionId])
+  @@index([branchId, createdAt])
+}
+
+/// Money the business spent (rent, electricity, tea...): paid in cash from a drawer or otherwise.
+model Expense {
+  id                String              @id @default(uuid())
+  branchId          String
+  branch            Branch              @relation(fields: [branchId], references: [id])
+  /// The day it was paid (YYYY-MM-DD, the business's calendar).
+  date              String
+  category          String
+  amount            Decimal             @db.Decimal(14, 2)
+  mode              SupplierPaymentMode
+  /// Cheque number, UTR, bill number...
+  reference         String?
+  note              String?
+  /// Cash taken from this register's drawer (it lowers the cash expected at close); null when
+  /// paid from elsewhere.
+  registerSessionId String?
+  createdBy         String
+  createdByName     String
+  createdAt         DateTime            @default(now())
+
+  @@index([branchId, date])
+  @@index([registerSessionId])
 }

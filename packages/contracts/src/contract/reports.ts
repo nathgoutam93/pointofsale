@@ -77,7 +77,14 @@ export const reportDetailSchema = z.object({
   /** Each register open in the period, with its day-end (Z) figures. */
   registers: z.array(
     registerSessionSchema.merge(registerCashSchema).extend({ branchName: z.string() })
-  )
+  ),
+  /** Expenses paid in the period (by the day paid), by category. */
+  expenses: z
+    .object({
+      byCategory: z.array(z.object({ category: z.string(), count: z.number().int(), total: moneySchema })),
+      total: moneySchema
+    })
+    .default({ byCategory: [], total: 0 })
 });
 
 /** A GSTIN and a month (from = to) or quarter, as YYYY-MM. */
