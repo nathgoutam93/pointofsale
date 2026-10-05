@@ -66,7 +66,7 @@ describe('receipt templates', () => {
 
   it.each([
     ['an unknown layout', { ...template, style: 'FANCY' }],
-    ['an unknown paper', { ...template, paper: 'A4' }],
+    ['an unknown paper', { ...template, paper: 'LETTER' }],
     ['a missing section', { ...template, sections: { ...template.sections, barcode: undefined } }],
     ['a section that is not on or off', { ...template, sections: { ...template.sections, logo: 'yes' } }]
   ])('rejects %s', async (_name, body) => {
