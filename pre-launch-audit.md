@@ -603,6 +603,92 @@ Asked for after the audit; decided with the owner before building.
 
 ---
 
+## E. Found missing in the pre-merge re-check (2026-10-05)
+
+The owner asked for a re-check of the product before merging. These five were judged needed
+for launch and built. The rest of what was found (e-invoicing, loyalty, offers, stock count,
+purchase orders, quotations, SMS/WhatsApp, two-step sign-in, customer display) is in
+`post-launch-tracker.md`.
+
+### [x] E1. Low-stock levels
+
+- **Why:** there was no reorder level and no list of what to buy; the only warning was in the
+  cart at the counter.
+- **Status (2026-10-05):** migration `20261021110000_reorder_levels`.
+  - A reorder level and order quantity per item at each branch (`ItemStock`), set on the Stock
+    page by stock changers.
+  - Items at or below their level are marked in the list, and a *Low stock* card lists them
+    with how much to order (`GET /stock/low`).
+  - Test: `low-stock.test.ts`.
+
+### [x] E2. Cash in and out of the drawer, and an expense book
+
+- **Why:** only supplier payments could leave the drawer, so tea, cleaning, bank deposits and
+  change brought in made the register count wrong at close.
+- **Status (2026-10-05):** migration `20261021120000_cash_and_expenses`, with a new cashier
+  permission, `CASH_AND_EXPENSES`.
+  - On an open register, *Cash In / Out* pays an expense from the drawer, takes cash out (to
+    the bank or the owner) or puts change in, each with a reason.
+  - These count in the cash expected at close and never take out more than the drawer should
+    hold. They show in the close dialog and the day-end report.
+  - The *Expenses* page records any expense (cash, UPI, bank transfer, cheque) by category and
+    date, with totals for a period. The detailed report adds expenses by category and profit
+    after expenses.
+  - Only admins remove an expense, and one paid from a drawer only while its register is open.
+  - The fallback counter refuses these, as its copy can't send them to the server.
+  - Tests: `expenses.test.ts` and a browser test (`e2e/variants.spec.ts`: an expense paid from
+    the drawer, balanced at close).
+
+### [x] E3. Barcode labels
+
+- **Why:** items could have barcodes, but nothing printed labels for loose goods, the shop's
+  own products or batches.
+- **Status (2026-10-05):** the *Barcode Labels* screen (`packages/contracts/src/labels.ts`).
+  - Each label shows the name, the branch's price with GST, the MRP, the batch and expiry, and
+    a Code 128 barcode: the item's barcode, or else its item code, which the counter already
+    scans.
+  - Rolls of 50×25, 38×25, 50×30 and 100×50 mm print one label a page. A4 sheets of 65, 40 or
+    24 labels fill a grid, starting at any position on a part-used sheet.
+  - Printed through the print dialog, from a frame of its own sized to the labels.
+  - Started from an item, or from a purchase: a label for each piece received, with its batch.
+  - Tests: `labels.test.ts` and a browser test (`e2e/labels.spec.ts`).
+
+### [x] E4. Size and colour variants
+
+- **Why:** clothing and footwear shops sell one product in many sizes and colours.
+- **Decided:** each variant is an item of its own, grouped under a product.
+- **Status (2026-10-05):** migration `20261021130000_item_variants`.
+  - *Items → Sizes / Colours* makes an item for each combination of one or two options: coded
+    PREFIX-SIZE-COLOUR and named "Name Size / Colour".
+  - Each variant has its own stock, barcodes, batches and price, so selling, stock and GST need
+    nothing new.
+  - Sizes and colours can be added later, copying the first variant, and one price can be set
+    for all of them, checked against each one's MRP.
+  - At the counter a product is one tile that opens a size-by-colour grid with each variant's
+    price and stock. Scanning a variant's code adds it directly.
+  - Tests: `item-groups.test.ts` and a browser test (`e2e/variants.spec.ts`).
+
+### [x] E5. Importing items from a spreadsheet
+
+- **Why:** every item had to be typed in by hand, which blocks setting up a shop with
+  thousands of items.
+- **Status (2026-10-05):**
+  - *Items → Import items* reads a CSV or .xlsx file: the template, or any sheet whose header
+    row names the columns. Excel files are read with `read-excel-file` (MIT), loaded only when
+    one is chosen.
+  - The server checks every row with the Items screen's rules and lists errors by row. Nothing
+    is saved until there are none; then everything is saved in one transaction.
+  - A code already there updates that item: blank cells leave it as it is, and barcodes are
+    added.
+  - New items get opening stock at the chosen branch (with their batch when kept by batch), and
+    reorder levels are set there. Product, Size and Colour columns group variants.
+  - Opening stock and reorder levels need the stock permission. Costs are read only for those
+    allowed to see them.
+  - Tests: `item-import.test.ts`, `spreadsheet.test.ts`, and a browser test
+    (`e2e/import.spec.ts`, with a CSV and an Excel file).
+
+---
+
 ## Progress log
 
 - 2026-10-04: List written from the codebase audit.
@@ -611,3 +697,4 @@ Asked for after the audit; decided with the owner before building.
 - 2026-10-05: A9 decided (returns only at the selling branch), A5 removed, B7 done (suppliers, payables, purchase returns).
 - 2026-10-05: B8 done: batches and expiry (offers later).
 - 2026-10-05: D1–D4 done: exact purchase costs, costs hidden from cashiers, A4 invoices, deleting a business.
+- 2026-10-05: Pre-merge re-check: E1–E5 done (low stock, cash in/out and expenses, barcode labels, size/colour variants, item import); the rest moved to `post-launch-tracker.md`.
