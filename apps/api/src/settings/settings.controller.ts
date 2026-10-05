@@ -1,8 +1,8 @@
 import { Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { appContract, type ReceiptTemplate, type ScaleBarcode } from '@pos/contracts';
+import { appContract } from '@pos/contracts';
 import { getSession, requireAdminSession, requireAdmin, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { imageUploadOptions, saveImage } from '../common/uploads';
 import { SettingsService } from './settings.service';
 import { AccessService } from '../common/access.service';
@@ -27,20 +27,7 @@ export class SettingsController {
   @Patch('/business/settings')
   async updateBusinessSettings(
     @Body(new ZodValidationPipe(appContract.business.update.body))
-    body: {
-      name?: string;
-      logoUrl?: string | null;
-      gstNumber?: string | null;
-      taxCalculationMode?: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
-      cashierMaxDiscountPercent?: number;
-      customerScope?: 'SHARED' | 'BRANCH';
-      timezone?: string;
-      hsnMinDigits?: 4 | 6;
-      returnWindowDays?: number | null;
-      roundOffMode?: 'NONE' | 'NEAREST_1' | 'NEAREST_050';
-      allowNegativeStock?: boolean;
-      scaleBarcode?: ScaleBarcode | null;
-    },
+    body: Parsed<typeof appContract.business.update.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = getSession(headers);
@@ -68,11 +55,7 @@ export class SettingsController {
   @Post('/business/taxpayer-type')
   async changeTaxpayerType(
     @Body(new ZodValidationPipe(appContract.business.changeTaxpayerType.body))
-    body: {
-      taxpayerType: 'REGULAR' | 'COMPOSITION';
-      compositionCategory?: 'MANUFACTURER' | 'TRADER' | 'RESTAURANT' | 'SERVICES' | null;
-      effectiveDate: string;
-    },
+    body: Parsed<typeof appContract.business.changeTaxpayerType.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = getSession(headers);
@@ -115,21 +98,7 @@ export class SettingsController {
   async updateBranch(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.branches.update.body))
-    body: {
-      name?: string;
-      code?: string;
-      logoUrl?: string | null;
-      receiptPrefix?: string;
-      invoiceHeader?: string | null;
-      invoiceFooter?: string | null;
-      receiptHeader?: string | null;
-      receiptFooter?: string | null;
-      invoiceCss?: string | null;
-      receiptCss?: string | null;
-      receiptTemplate?: ReceiptTemplate | null;
-      gstin?: string | null;
-      stateCode?: string | null;
-    },
+    body: Parsed<typeof appContract.branches.update.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = requireAdminSession(headers);

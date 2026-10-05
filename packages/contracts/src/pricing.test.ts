@@ -231,12 +231,14 @@ describe('returnLineAmounts', () => {
     expect(refunds.map((r) => r.amount)).toEqual([66.67, 66.66, 66.67]);
   });
 
-  it('splits the refund into taxable value and tax the way the line was', () => {
-    // ₹100 including 18%: 84.75 + CGST 7.62 + SGST 7.63, sold as 2 units.
+  it('refunds each unit what it sold for, split into taxable value and tax the way the line was', () => {
+    // ₹100 including 18%: 84.75 + CGST 7.62 + SGST 7.63, sold as 2 units at ₹50.
     const line = { taxable: 84.75, cgst: 7.62, sgst: 7.63, igst: 0 };
     const [first, second] = returnInSteps(line, 2, [1, 1]).refunds;
-    expect(first).toEqual({ taxable: 42.38, cgst: 3.81, sgst: 3.82, igst: 0, tax: 7.63, amount: 50.01 });
-    expect(second).toEqual({ taxable: 42.37, cgst: 3.81, sgst: 3.81, igst: 0, tax: 7.62, amount: 49.99 });
+    expect(first).toEqual({ taxable: 42.37, cgst: 3.81, sgst: 3.82, igst: 0, tax: 7.63, amount: 50 });
+    expect(second).toEqual({ taxable: 42.38, cgst: 3.81, sgst: 3.81, igst: 0, tax: 7.62, amount: 50 });
+    // Two at ₹120 including 5% (228.57 + 5.71 + 5.72): one back is ₹120, not ₹120.01.
+    expect(returnInSteps({ taxable: 228.57, cgst: 5.71, sgst: 5.72, igst: 0 }, 2, [1]).refunds[0].amount).toBe(120);
   });
 
   it('never lets a part run past the line (four returns of a 0.04 tax)', () => {
@@ -269,6 +271,9 @@ describe('returnLineAmounts', () => {
         returnedQty += qty;
         returned = add(returned, r);
         for (const part of ['taxable', 'cgst', 'sgst', 'igst'] as const) expect(returned[part]).toBeLessThanOrEqual(line[part]);
+        // What has come back so far is the line's total prorated on the units returned.
+        const lineTotal = round2(line.taxable + line.cgst + line.sgst + line.igst);
+        if (line.taxable >= 1) expect(round2(returned.taxable + returned.cgst + returned.sgst + returned.igst)).toBe(round2((lineTotal * returnedQty) / soldQty));
       }
       expect(returned).toEqual(line);
     }

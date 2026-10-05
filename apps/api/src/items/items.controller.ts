@@ -1,10 +1,9 @@
-import type { GstSupplyType } from '@pos/contracts';
 import { Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
 import { getSession, requireAdminSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { imageUploadOptions, saveImage } from '../common/uploads';
 import { ItemsService } from './items.service';
 
@@ -22,7 +21,7 @@ export class ItemsController {
 
   @Get('/items')
   listItems(
-    @Query(new ZodValidationPipe(appContract.items.list.query)) { activeOnly, branchId }: { activeOnly?: boolean; branchId?: string },
+    @Query(new ZodValidationPipe(appContract.items.list.query)) { activeOnly, branchId }: Parsed<typeof appContract.items.list.query>,
     @Headers() headers: RequestHeaders
   ) {
     return this.items.listItems(getSession(headers), activeOnly === true, branchId);
@@ -37,7 +36,7 @@ export class ItemsController {
   setBranchPrices(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.items.setBranchPrices.body))
-    body: { branchId: string; prices: Array<{ uom: string; sellPrice: number; mrp?: number }> },
+    body: Parsed<typeof appContract.items.setBranchPrices.body>,
     @Headers() headers: RequestHeaders
   ) {
     return this.items.setBranchPrices(requireAdminSession(headers), id, body.branchId, body.prices);
@@ -54,24 +53,7 @@ export class ItemsController {
   @Post('/items')
   async createItem(
     @Body(new ZodValidationPipe(appContract.items.create.body))
-    body: {
-      code: string;
-      name: string;
-      category?: string;
-      uom: string;
-      leastCount?: number;
-      costPrice?: number;
-      sellPrice: number;
-      mrp?: number;
-      saleUoms?: Array<{ uom: string; conversionQty: number; sellPrice: number; mrp?: number }>;
-      taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
-      taxRate: number;
-      hsnCode?: string | null;
-      uqc?: string | null;
-      supplyType?: GstSupplyType;
-      imageUrl?: string;
-      barcodes?: Array<{ barcode: string; saleUom?: string | null }>;
-    },
+    body: Parsed<typeof appContract.items.create.body>,
     @Headers() headers: RequestHeaders
   ) {
     await this.managing(headers);
@@ -82,24 +64,7 @@ export class ItemsController {
   async updateItem(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.items.update.body))
-    body: {
-      name?: string;
-      category?: string | null;
-      uom?: string;
-      leastCount?: number;
-      costPrice?: number;
-      sellPrice?: number;
-      mrp?: number;
-      saleUoms?: Array<{ uom: string; conversionQty: number; sellPrice: number; mrp?: number }>;
-      taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
-      taxRate?: number;
-      hsnCode?: string | null;
-      uqc?: string | null;
-      supplyType?: GstSupplyType;
-      imageUrl?: string | null;
-      isActive?: boolean;
-      barcodes?: Array<{ barcode: string; saleUom?: string | null }>;
-    },
+    body: Parsed<typeof appContract.items.update.body>,
     @Headers() headers: RequestHeaders
   ) {
     await this.managing(headers);

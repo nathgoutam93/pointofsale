@@ -8,6 +8,13 @@ type SafeParseResult =
 type Schema = { safeParse(input: unknown): SafeParseResult };
 
 /**
+ * What a contract schema parses to, which is what a handler gets from the pipe:
+ * `@Body(new ZodValidationPipe(appContract.x.body)) body: Parsed<typeof appContract.x.body>`.
+ * Handlers take their types from the contract this way, so the two can't drift apart.
+ */
+export type Parsed<S> = S extends { _output: infer T } ? T : never;
+
+/**
  * Validates a request body against a schema from `@pos/contracts`.
  * Returns the parsed value, so unknown keys are dropped and defaults are applied.
  */

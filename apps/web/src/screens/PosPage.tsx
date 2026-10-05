@@ -72,6 +72,8 @@ export function PosPage() {
 
   const printableInvoice = useMemo(
     () => (postPayment ? buildInvoiceReceipt(postPayment, store, session.username ?? "") : null),
+    // `store` is a new object every render; these are the parts the receipt is built from.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [postPayment, store.businessSettings.data, store.branchSettings.data, session.username],
   );
 
@@ -90,7 +92,7 @@ export function PosPage() {
         await receiptPrinting.print(receiptStyle, { dialogOnFailure: false });
       }
     })();
-  }, [postPayment]);
+  }, [postPayment, receiptPrinting, receiptStyle]);
 
   const exportPrintableInvoice = () => {
     const htmlDocument = postPayment ? buildPrintableInvoiceDocument(postPayment, receiptStyle) : null;

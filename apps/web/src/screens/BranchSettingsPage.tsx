@@ -164,7 +164,7 @@ export function BranchSettingsPage() {
     initialData: session.branches
   });
 
-  const availableBranches = branches.data ?? [];
+  const availableBranches = useMemo(() => branches.data ?? [], [branches.data]);
 
   const [form, setForm] = useState<SettingsForm>({
     name: "",

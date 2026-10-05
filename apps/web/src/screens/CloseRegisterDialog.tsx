@@ -52,8 +52,13 @@ export function CloseRegisterDialog({ onCancel }: { onCancel: () => void }) {
 
   return (
     <div className="modal-backdrop z-50">
-      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl">
-        <h2 className="text-lg font-semibold">Close Register</h2>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="close-register-title"
+        className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl"
+      >
+        <h2 id="close-register-title" className="text-lg font-semibold">Close Register</h2>
         {current.data?.counterName ? (
           <p className="mt-0.5 text-sm text-slate-500">
             {current.data.counterName} · opened by {current.data.openedBy}

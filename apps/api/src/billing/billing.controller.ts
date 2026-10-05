@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Header, Headers, HttpCode, Param, ParseUUIDPipe, Post, Req, Res, UseGuards } from '@nestjs/common';
-import { appContract, type BillingPeriod, type PlanCode } from '@pos/contracts';
+import { appContract } from '@pos/contracts';
 import type { Response } from 'express';
 import { Public } from '../auth/auth.guard';
 import { AllowWhenUnpaid } from '../common/instance-status.guard';
 import { ManagedOnlyGuard } from '../common/mode';
 import { getSession, requireAdminSession, type RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { BillingService } from './billing.service';
 
 /** The pages the payer's browser opens: nothing from elsewhere, no scripts, forms post back here. */
@@ -31,7 +31,7 @@ export class BillingController {
 
   @Post('/billing/checkout')
   checkout(
-    @Body(new ZodValidationPipe(appContract.billing.checkout.body)) body: { plan: PlanCode; period: BillingPeriod },
+    @Body(new ZodValidationPipe(appContract.billing.checkout.body)) body: Parsed<typeof appContract.billing.checkout.body>,
     @Headers() headers: RequestHeaders
   ) {
     return this.billing.checkout(requireAdminSession(headers), body);

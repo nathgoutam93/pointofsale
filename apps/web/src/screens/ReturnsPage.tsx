@@ -8,7 +8,7 @@ import { ReceiptView } from "../components/ReceiptView";
 import { ReceiptPrintStyles } from "./pos/ReceiptPrintStyles";
 import { IconPrinter } from "../components/icons";
 import { can } from "../lib/session";
-import { inr, money, requireOperationalSession } from "./route-helpers";
+import { inr, requireOperationalSession } from "./route-helpers";
 
 type ReturnRefundMode = "CASH" | "WALLET";
 

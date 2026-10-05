@@ -105,7 +105,7 @@ describe('the sales register', () => {
     const res = await download(`/exports/sales.csv?branchId=${branch.branch.id}&from=${today()}&to=${today()}`, admin);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/^text\/csv/);
-    const rows = (await res.text()).replace(/^﻿/, '').trim().split('\r\n');
+    const rows = (await res.text()).replace(/^\uFEFF/, '').trim().split('\r\n');
     expect(rows[0]).toBe(
       'Type,Date,Number,Against invoice,Branch,Customer,Phone,Buyer GSTIN,Place of supply,Taxable value,CGST,SGST,IGST,Round off,Total,Paid,Credited by returns,Owed,Refunded,Status,Payments'
     );

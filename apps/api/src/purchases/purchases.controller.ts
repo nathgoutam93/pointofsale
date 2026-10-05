@@ -2,8 +2,8 @@ import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
 import { getSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
-import { PurchasesService, type CreatePurchaseInput } from './purchases.service';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { PurchasesService } from './purchases.service';
 
 @Controller()
 export class PurchasesController {
@@ -14,7 +14,7 @@ export class PurchasesController {
 
   @Post('/purchases')
   async createPurchase(
-    @Body(new ZodValidationPipe(appContract.purchases.create.body)) body: CreatePurchaseInput,
+    @Body(new ZodValidationPipe(appContract.purchases.create.body)) body: Parsed<typeof appContract.purchases.create.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = getSession(headers);
@@ -25,7 +25,7 @@ export class PurchasesController {
 
   @Get('/purchases')
   listPurchases(
-    @Query(new ZodValidationPipe(appContract.purchases.list.query)) { branchId }: { branchId: string },
+    @Query(new ZodValidationPipe(appContract.purchases.list.query)) { branchId }: Parsed<typeof appContract.purchases.list.query>,
     @Headers() headers: RequestHeaders
   ) {
     return this.purchases.listPurchases(getSession(headers), branchId);

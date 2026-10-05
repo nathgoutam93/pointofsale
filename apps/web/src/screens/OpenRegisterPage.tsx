@@ -49,7 +49,7 @@ export function OpenRegisterPage() {
     initialData: session.branches,
   });
 
-  const branches = branchesQuery.data ?? [];
+  const branches = useMemo(() => branchesQuery.data ?? [], [branchesQuery.data]);
 
   useEffect(() => {
     if (!selectedBranchId && branches.length > 0) {
@@ -101,7 +101,7 @@ export function OpenRegisterPage() {
     () => new Map((registerSummaryQuery.data ?? []).map((summary) => [summary.branchId, summary])),
     [registerSummaryQuery.data],
   );
-  const counters = summaryByBranch.get(selectedBranchId)?.counters ?? [];
+  const counters = useMemo(() => summaryByBranch.get(selectedBranchId)?.counters ?? [], [summaryByBranch, selectedBranchId]);
   const selected = counters.find((entry) => entry.counter.id === selectedCounterId);
   const selectedBranch = branches.find((branch) => branch.id === selectedBranchId);
   // A cashier runs one counter per branch; if they already hold one here, say so.

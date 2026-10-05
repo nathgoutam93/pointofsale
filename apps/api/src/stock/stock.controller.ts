@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, Patch, Post, Query } from '@nestjs/comm
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
 import { getSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { StockService } from './stock.service';
 import { AuditService } from '../common/audit.service';
 
@@ -24,7 +24,7 @@ export class StockController {
 
   @Post('/stock/opening')
   async stockOpening(
-    @Body(new ZodValidationPipe(appContract.stock.opening.body)) body: { branchId: string; itemId: string; qty: number; costPrice?: number; reason?: string },
+    @Body(new ZodValidationPipe(appContract.stock.opening.body)) body: Parsed<typeof appContract.stock.opening.body>,
     @Headers() headers: RequestHeaders
   ) {
     await this.changing(headers, body.branchId);
@@ -33,7 +33,7 @@ export class StockController {
 
   @Patch('/stock/opening')
   async updateStockOpening(
-    @Body(new ZodValidationPipe(appContract.stock.updateOpening.body)) body: { branchId: string; itemId: string; qty: number; costPrice?: number; reason?: string },
+    @Body(new ZodValidationPipe(appContract.stock.updateOpening.body)) body: Parsed<typeof appContract.stock.updateOpening.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = await this.changing(headers, body.branchId);
@@ -51,7 +51,7 @@ export class StockController {
 
   @Post('/stock/adjustment')
   async stockAdjustment(
-    @Body(new ZodValidationPipe(appContract.stock.adjustment.body)) body: { branchId: string; itemId: string; qty: number; direction: 'IN' | 'OUT'; costPrice?: number; reason: string },
+    @Body(new ZodValidationPipe(appContract.stock.adjustment.body)) body: Parsed<typeof appContract.stock.adjustment.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = await this.changing(headers, body.branchId);
@@ -69,7 +69,7 @@ export class StockController {
 
   @Get('/stock/on-hand')
   async onHand(
-    @Query(new ZodValidationPipe(appContract.stock.onHand.query)) { branchId, itemId }: { branchId: string; itemId?: string },
+    @Query(new ZodValidationPipe(appContract.stock.onHand.query)) { branchId, itemId }: Parsed<typeof appContract.stock.onHand.query>,
     @Headers() headers: RequestHeaders
   ) {
     await this.access.requireBranch(getSession(headers), branchId);
@@ -79,7 +79,7 @@ export class StockController {
   @Get('/stock/ledger')
   async stockLedger(
     @Query(new ZodValidationPipe(appContract.stock.ledger.query))
-    query: { branchId: string; itemId?: string; before?: string; beforeId?: string; limit: number },
+    query: Parsed<typeof appContract.stock.ledger.query>,
     @Headers() headers: RequestHeaders
   ) {
     await this.access.requireBranch(getSession(headers), query.branchId);

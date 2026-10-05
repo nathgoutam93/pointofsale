@@ -3,7 +3,7 @@ import { appContract } from '@pos/contracts';
 import { AuditService } from '../common/audit.service';
 import { requireAdminSession, RequestHeaders } from '../common/request-session';
 import { PrismaService } from '../prisma.service';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 
 @Controller()
 export class AuditController {
@@ -15,7 +15,7 @@ export class AuditController {
   /** Admins: the log for the business and the branches they manage, newest first. */
   @Get('/audit')
   async list(
-    @Query(new ZodValidationPipe(appContract.audit.list.query)) query: { action?: string; before?: string; limit: number },
+    @Query(new ZodValidationPipe(appContract.audit.list.query)) query: Parsed<typeof appContract.audit.list.query>,
     @Headers() headers: RequestHeaders
   ) {
     const session = requireAdminSession(headers);

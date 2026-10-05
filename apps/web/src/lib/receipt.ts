@@ -7,7 +7,6 @@ import {
   type ReceiptBranding,
   type ReceiptDocument,
   type ReceiptDocumentItem,
-  type ReceiptField,
   type ReceiptLine,
   type ReceiptTemplate,
   type RenderedReceipt,

@@ -94,13 +94,16 @@ export function lineTax(input: {
 export type GstAmounts = { taxable: number; cgst: number; sgst: number; igst: number };
 
 const GST_PARTS = ['taxable', 'cgst', 'sgst', 'igst'] as const;
+const TAX_PARTS = ['cgst', 'sgst', 'igst'] as const;
+const totalOf = (amounts: GstAmounts) => round2(amounts.taxable + amounts.cgst + amounts.sgst + amounts.igst);
 
 /**
- * What returning `qty` more units of a sale line refunds, part by part. Each part
- * (taxable value, CGST, SGST, IGST) is prorated on the units returned so far, less what
- * earlier returns took, so the parts never exceed the line's and returning a line in any
- * number of steps adds back up to it exactly. The last units take whatever is left.
- * `amount` (the refund) is the parts' sum.
+ * What returning `qty` more units of a sale line refunds, part by part. The refund is the
+ * line's total prorated on the units returned so far, less what earlier returns took, so each
+ * unit gets back what it sold for (one of two at ₹120 refunds ₹120, not ₹120.01). Each tax
+ * part (CGST, SGST, IGST) is prorated the same way, and the taxable value is the rest. No
+ * part ever exceeds the line's, and returning a line in any number of steps adds back up to
+ * it exactly: the last units take whatever is left. `amount` (the refund) is the parts' sum.
  */
 export function returnLineAmounts(input: {
   line: GstAmounts;
@@ -113,11 +116,15 @@ export function returnLineAmounts(input: {
   const parts: GstAmounts = { taxable: 0, cgst: 0, sgst: 0, igst: 0 };
   if (soldQty > 0 && qty > 0) {
     const returnedQty = alreadyReturnedQty + qty;
-    const isLastOfLine = Math.abs(returnedQty - soldQty) < 1e-9;
-    for (const part of GST_PARTS) {
-      const remaining = Math.max(0, round2(line[part] - alreadyReturned[part]));
-      const target = round2((line[part] * returnedQty) / soldQty);
-      parts[part] = isLastOfLine ? remaining : Math.min(remaining, Math.max(0, round2(target - alreadyReturned[part])));
+    const remaining = (part: keyof GstAmounts) => Math.max(0, round2(line[part] - alreadyReturned[part]));
+    /** The part's share of the units returned so far, less what earlier returns took. */
+    const due = (amount: number, before: number) => Math.max(0, round2(round2((amount * returnedQty) / soldQty) - before));
+    if (Math.abs(returnedQty - soldQty) < 1e-9) {
+      for (const part of GST_PARTS) parts[part] = remaining(part);
+    } else {
+      for (const part of TAX_PARTS) parts[part] = Math.min(remaining(part), due(line[part], alreadyReturned[part]));
+      const amount = due(totalOf(line), totalOf(alreadyReturned));
+      parts.taxable = Math.min(remaining('taxable'), Math.max(0, round2(amount - parts.cgst - parts.sgst - parts.igst)));
     }
   }
   const tax = round2(parts.cgst + parts.sgst + parts.igst);

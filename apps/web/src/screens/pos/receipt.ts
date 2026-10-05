@@ -62,7 +62,7 @@ export function buildInvoiceReceipt(postPayment: PostPaymentSummary, store: Stor
 export function buildPrintableInvoiceDocument(postPayment: PostPaymentSummary, style: ReceiptStyle) {
   const invoiceElement = document.getElementById("printable-invoice");
   if (!invoiceElement) return null;
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${escapeHtml(postPayment.invoiceNo)}</title><style>body{font-family:\"Courier New\",Courier,monospace;margin:0;padding:24px;background:#fff;color:#111827;}@media print{body{margin:0;}}${style.css}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${escapeHtml(postPayment.invoiceNo)}</title><style>body{font-family:"Courier New",Courier,monospace;margin:0;padding:24px;background:#fff;color:#111827;}@media print{body{margin:0;}}${style.css}</style></head><body>${invoiceElement.outerHTML}</body></html>`;
 }
 
 /** Starts a browser download of an HTML document. */

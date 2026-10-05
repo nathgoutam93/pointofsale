@@ -3,7 +3,7 @@ import { UserRole } from '@prisma/client';
 import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
 import { getSession, requireOpenRegisterSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { ReturnsService } from './returns.service';
 
 @Controller()
@@ -17,7 +17,7 @@ export class ReturnsController {
   async createReturn(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.sales.returns.body))
-    body: { lines: Array<{ saleLineId: string; qty: number }>; refundMode: 'CASH' | 'WALLET'; reason: string },
+    body: Parsed<typeof appContract.sales.returns.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = requireOpenRegisterSession(headers);
@@ -28,7 +28,7 @@ export class ReturnsController {
   @Get('/returns')
   async listReturns(
     @Query(new ZodValidationPipe(appContract.returns.list.query))
-    query: { branchId?: string; search?: string; before?: string; beforeId?: string; limit: number },
+    query: Parsed<typeof appContract.returns.list.query>,
     @Headers() headers: RequestHeaders
   ) {
     const session = getSession(headers);

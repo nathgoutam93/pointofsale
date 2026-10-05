@@ -422,7 +422,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   `Content-Security-Policy`. The file pickers ask for those three types. The 16 committed upload
   files are out of git (still on disk, and ignored). Tests: `uploads.test.ts`.
 
-### [ ] C5. Lint, web tests, contracts in controllers
+### [x] C5. Lint, web tests, contracts in controllers
 
 - **Why:** the root `lint` script runs nothing; the web app has no tests; controllers retype
   every request body by hand instead of using the ts-rest contracts, so they can drift;
@@ -431,6 +431,22 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   payment hooks and a Playwright smoke test (sign in, sell, return, close register); bodies typed
   from the contracts (or `@ts-rest/nest`); `ForbiddenException` for permissions.
 - **Done when:** CI runs lint and the web tests, and controllers no longer declare body types.
+- **Status (2026-10-04):** permission failures (admin only, another branch, a cashier
+  permission not granted) now answer 403 Forbidden; bad input stays 400. Every request body and
+  query is typed from the contract schema that validates it (`Parsed<typeof appContract...>`), so
+  no controller declares its own body types; the three bodies outside the contracts (a file
+  upload, the offline outbox, a dev-only billing page) are taken as `unknown` and checked by
+  hand. `pnpm lint` runs ESLint (typescript-eslint, react-hooks) over the workspace and CI runs
+  it; the react-hooks findings were fixed (lists memoised, a stale `formatSaleCreator`, the
+  payment keypad handler) or, where a hook deliberately runs on an id only, commented. The web
+  app has unit tests (`pnpm --filter @pos/web test`: cart amounts against `computeSaleTotals`,
+  the payment dialog's change, splits, wallet and walk-in rules, the order-discount keypad) and
+  a Playwright smoke test (`pnpm --filter @pos/web e2e`: a fresh shop, sign in, open the
+  register, sell two with change from a ₹500 note, return one, close the register balanced),
+  both in CI. The smoke test caught a bug: a partial return refunded each part of the line
+  rounded on its own, so one of two ₹120 items gave back ₹120.01 (and the drawer was a paisa
+  short at close). `returnLineAmounts` now prorates the line's total, so each unit gets back
+  what it sold for; the taxable value takes the paisa.
 
 ### [ ] C6. Split the largest files
 
@@ -446,3 +462,4 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
 ## Progress log
 
 - 2026-10-04: List written from the codebase audit.
+- 2026-10-04: C5 done; a partial return no longer refunds a paisa more or less than the price.

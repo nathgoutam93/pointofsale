@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Headers, HttpCode, Post, Res, UseGuards } from '@nestjs/common';
 import { migrationCompleteBodySchema } from '@pos/contracts';
 import { AllowWhenLocked } from '../common/instance-status.guard';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import type { ServerResponse } from 'http';
 import { getSession, requireAdmin, RequestHeaders } from '../common/request-session';
 import { OfflineOnlyGuard } from '../common/mode';
@@ -58,7 +58,7 @@ export class MigrationController {
   @AllowWhenLocked()
   @UseGuards(OfflineOnlyGuard)
   complete(
-    @Body(new ZodValidationPipe(migrationCompleteBodySchema)) body: { businessId: string; businessCode: string; server: string },
+    @Body(new ZodValidationPipe(migrationCompleteBodySchema)) body: Parsed<typeof migrationCompleteBodySchema>,
     @Headers() headers: RequestHeaders
   ) {
     requireAdmin(getSession(headers));

@@ -1,7 +1,7 @@
 import { Controller, Get, Headers, Query } from '@nestjs/common';
 import { appContract } from '@pos/contracts';
 import { requireAdminSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { ReportsService } from './reports.service';
 
 @Controller()
@@ -10,7 +10,7 @@ export class ReportsController {
 
   @Get('/reports/sales-summary')
   salesSummary(
-    @Query(new ZodValidationPipe(appContract.reports.salesSummary.query)) { branchId }: { branchId: string },
+    @Query(new ZodValidationPipe(appContract.reports.salesSummary.query)) { branchId }: Parsed<typeof appContract.reports.salesSummary.query>,
     @Headers() headers: RequestHeaders
   ) {
     const session = requireAdminSession(headers);
@@ -19,7 +19,7 @@ export class ReportsController {
 
   @Get('/reports/detail')
   detail(
-    @Query(new ZodValidationPipe(appContract.reports.detail.query)) query: { branchId?: string; from: string; to: string },
+    @Query(new ZodValidationPipe(appContract.reports.detail.query)) query: Parsed<typeof appContract.reports.detail.query>,
     @Headers() headers: RequestHeaders
   ) {
     return this.reports.getDetail(requireAdminSession(headers), query);

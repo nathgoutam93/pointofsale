@@ -1,8 +1,8 @@
 import { Body, Controller, Delete, Get, HttpCode, Headers, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
-import { appContract, type CashierPermission } from '@pos/contracts';
+import { appContract } from '@pos/contracts';
 import { AccessService } from '../common/access.service';
 import { requireAdminSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { UsersService } from './users.service';
 
 @Controller()
@@ -14,7 +14,7 @@ export class UsersController {
 
   @Get('/users')
   async listUsers(
-    @Query(new ZodValidationPipe(appContract.users.list.query)) { branchId }: { branchId: string },
+    @Query(new ZodValidationPipe(appContract.users.list.query)) { branchId }: Parsed<typeof appContract.users.list.query>,
     @Headers() headers: RequestHeaders
   ) {
     const session = requireAdminSession(headers);
@@ -24,7 +24,7 @@ export class UsersController {
   @Post('/users')
   async createUser(
     @Body(new ZodValidationPipe(appContract.users.create.body))
-    body: { branchId: string; username: string; password: string; branchIds?: string[]; permissions?: CashierPermission[] },
+    body: Parsed<typeof appContract.users.create.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = requireAdminSession(headers);
@@ -36,7 +36,7 @@ export class UsersController {
   @Patch('/users/:id')
   updateUser(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(appContract.users.update.body)) body: { username?: string; password?: string; mustChangePassword?: boolean; isActive?: boolean; permissions?: CashierPermission[] },
+    @Body(new ZodValidationPipe(appContract.users.update.body)) body: Parsed<typeof appContract.users.update.body>,
     @Headers() headers: RequestHeaders
   ) {
     const session = requireAdminSession(headers);

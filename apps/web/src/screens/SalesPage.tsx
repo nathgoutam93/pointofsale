@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearch } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoiceDue, invoiceReceiptItems, sanitizeReceiptCss, type ReceiptDocumentItem } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders, uploadSrc } from "../lib/api";
 import { usePrintTemplate, useReceiptPrinting } from "../lib/printing";
@@ -75,13 +75,16 @@ export function SalesPage() {
   const canTakePayment = Boolean(session.registerId) && session.branchId === branchId;
   const salesSearch = useSearch({ from: "/sales" });
   const queryClient = useQueryClient();
-  const formatSaleCreator = (createdBy: string, createdByName?: string) => {
-    const name = createdByName?.trim() || "Unknown User";
-    if (createdBy === session.userId) {
-      return session.username?.trim() || name;
-    }
-    return name;
-  };
+  const formatSaleCreator = useCallback(
+    (createdBy: string, createdByName?: string) => {
+      const name = createdByName?.trim() || "Unknown User";
+      if (createdBy === session.userId) {
+        return session.username?.trim() || name;
+      }
+      return name;
+    },
+    [session.userId, session.username],
+  );
   const formatQtyLabel = (qty: number) =>
     Number.isInteger(qty) ? qty.toFixed(0) : qty.toFixed(3);
   const getPricingQty = (line: { qty: number; saleUomQty?: number | null }) =>
@@ -751,16 +754,9 @@ export function SalesPage() {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [
-    paymentModalOpen,
-    applyPaymentLine,
-    currentInvoice,
-    paymentCanSubmit,
-    paymentKeypadPress,
-    paymentLines,
-    settleInvoice,
-    walletOverused,
-  ]);
+    // No dependency list: the handler reads the latest payment state, so it is attached
+    // again after every render.
+  });
 
   // Every status, not just those on the loaded page: the filter runs on the server.
   const statusOptions = ["ALL", "CANCELLED", "DRAFT", "PARTIALLY_SETTLED", "SETTLED"];
@@ -863,14 +859,17 @@ export function SalesPage() {
     })) ??
     [];
 
-  const paymentBreakdown =
-    settledSummary?.payments ??
-    selectedInvoiceDetails.data?.payments.map((line) => ({
-      mode: line.mode as PaymentMode,
-      amount: Number(line.amount),
-      tendered: line.tendered === null || line.tendered === undefined ? null : Number(line.tendered),
-    })) ??
-    [];
+  const paymentBreakdown = useMemo(
+    () =>
+      settledSummary?.payments ??
+      selectedInvoiceDetails.data?.payments.map((line) => ({
+        mode: line.mode as PaymentMode,
+        amount: Number(line.amount),
+        tendered: line.tendered === null || line.tendered === undefined ? null : Number(line.tendered),
+      })) ??
+      [],
+    [settledSummary?.payments, selectedInvoiceDetails.data],
+  );
 
   const invoiceSubTotal =
     settledSummary?.subTotal ?? Number(currentInvoice?.subTotal ?? 0);
@@ -929,6 +928,7 @@ export function SalesPage() {
     previewReceipt?.createdAt,
     currentSaleCreatorId,
     currentSaleCreatorName,
+    formatSaleCreator,
     settledSummary?.receiptItems,
     selectedInvoiceDetails.data,
     itemUomById,

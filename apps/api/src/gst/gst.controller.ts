@@ -1,7 +1,7 @@
 import { Controller, Get, Headers, Query } from '@nestjs/common';
 import { appContract } from '@pos/contracts';
 import { requireAdminSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { GstService } from './gst.service';
 
 @Controller()
@@ -16,7 +16,7 @@ export class GstController {
 
   @Get('/gst/gstr1')
   gstr1(
-    @Query(new ZodValidationPipe(appContract.gst.gstr1.query)) query: { gstin: string; from: string; to: string },
+    @Query(new ZodValidationPipe(appContract.gst.gstr1.query)) query: Parsed<typeof appContract.gst.gstr1.query>,
     @Headers() headers: RequestHeaders
   ) {
     requireAdminSession(headers);
@@ -25,7 +25,7 @@ export class GstController {
 
   @Get('/gst/gstr3b')
   gstr3b(
-    @Query(new ZodValidationPipe(appContract.gst.gstr3b.query)) query: { gstin: string; from: string; to: string },
+    @Query(new ZodValidationPipe(appContract.gst.gstr3b.query)) query: Parsed<typeof appContract.gst.gstr3b.query>,
     @Headers() headers: RequestHeaders
   ) {
     requireAdminSession(headers);
@@ -34,7 +34,7 @@ export class GstController {
 
   @Get('/gst/cmp08')
   cmp08(
-    @Query(new ZodValidationPipe(appContract.gst.cmp08.query)) query: { gstin: string; from: string; to: string },
+    @Query(new ZodValidationPipe(appContract.gst.cmp08.query)) query: Parsed<typeof appContract.gst.cmp08.query>,
     @Headers() headers: RequestHeaders
   ) {
     requireAdminSession(headers);
@@ -43,7 +43,7 @@ export class GstController {
 
   @Get('/gst/gstr4')
   gstr4(
-    @Query(new ZodValidationPipe(appContract.gst.gstr4.query)) query: { gstin: string; fy: number },
+    @Query(new ZodValidationPipe(appContract.gst.gstr4.query)) query: Parsed<typeof appContract.gst.gstr4.query>,
     @Headers() headers: RequestHeaders
   ) {
     requireAdminSession(headers);

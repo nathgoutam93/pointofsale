@@ -198,6 +198,8 @@ export function StockPage() {
     if (!selectedItem) return;
     setOpeningCostPrice(String(Number(selectedItem.costPrice) || 0));
     setAdjustmentCostPrice(String(Number(selectedItem.costPrice) || 0));
+    // Only when another item is picked: a refetch mustn't overwrite what is being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedItem?.id]);
 
   const opening = useMutation({

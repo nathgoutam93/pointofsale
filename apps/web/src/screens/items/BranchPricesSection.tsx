@@ -20,7 +20,7 @@ export function BranchPricesSection({
   units: Unit[];
 }) {
   const queryClient = useQueryClient();
-  const branches = getSession()?.branches ?? [];
+  const branches = useMemo(() => getSession()?.branches ?? [], []);
   const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
   const [draft, setDraft] = useState<Record<string, { sellPrice: string; mrp: string }>>({});
   const [error, setError] = useState("");

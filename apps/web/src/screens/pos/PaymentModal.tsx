@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { CustomerAccount } from "@pos/contracts";
-import { inr, money } from "../route-helpers";
+import { inr } from "../route-helpers";
 import { keypadKeyFromEvent, shouldIgnoreDialogKey } from "./keyboard";
 import type { Payment } from "./usePayment";
 

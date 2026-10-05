@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { appContract } from '@pos/contracts';
 import { getSession, RequestHeaders } from '../common/request-session';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
-import { TransfersService, type CreateTransferInput } from './transfers.service';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { TransfersService } from './transfers.service';
 
 @Controller()
 export class TransfersController {
@@ -10,7 +10,7 @@ export class TransfersController {
 
   @Post('/stock-transfers')
   createTransfer(
-    @Body(new ZodValidationPipe(appContract.transfers.create.body)) body: CreateTransferInput,
+    @Body(new ZodValidationPipe(appContract.transfers.create.body)) body: Parsed<typeof appContract.transfers.create.body>,
     @Headers() headers: RequestHeaders
   ) {
     return this.transfers.createTransfer(getSession(headers), body);
@@ -23,7 +23,7 @@ export class TransfersController {
 
   @Get('/stock-transfers')
   listTransfers(
-    @Query(new ZodValidationPipe(appContract.transfers.list.query)) { branchId }: { branchId: string },
+    @Query(new ZodValidationPipe(appContract.transfers.list.query)) { branchId }: Parsed<typeof appContract.transfers.list.query>,
     @Headers() headers: RequestHeaders
   ) {
     return this.transfers.listTransfers(getSession(headers), branchId);

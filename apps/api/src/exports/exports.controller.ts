@@ -9,7 +9,7 @@ import { requireAdminSession, type RequestHeaders } from '../common/request-sess
 import { BranchesService } from '../branches/branches.service';
 import { PrismaService } from '../prisma.service';
 import { currentBusiness } from '../tenancy/tenant-context';
-import { ZodValidationPipe } from '../validation/zod-validation.pipe';
+import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { ExportsService } from './exports.service';
 
 const fileDay = () => new Date().toISOString().slice(0, 10);
@@ -56,7 +56,7 @@ export class ExportsController {
   /** The sales register for a period, as CSV: invoices and credit notes with their tax split. */
   @Get('/exports/sales.csv')
   async sales(
-    @Query(new ZodValidationPipe(salesExportQuerySchema)) query: { branchId?: string; from: string; to: string },
+    @Query(new ZodValidationPipe(salesExportQuerySchema)) query: Parsed<typeof salesExportQuerySchema>,
     @Headers() headers: RequestHeaders,
     @Res() res: ServerResponse
   ) {
