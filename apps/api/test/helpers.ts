@@ -96,7 +96,7 @@ export async function startApp() {
   /** A new branch with a free code. */
   async function newBranch(adminToken: string, label = 'Test') {
     const code = await freeBranchCode();
-    return ok<{ id: string; code: string }>('POST', '/branches', adminToken, { name: `${label} ${code}`, code });
+    return ok<{ id: string; code: string; name: string }>('POST', '/branches', adminToken, { name: `${label} ${code}`, code });
   }
 
   /** A fresh branch with an open register (so each test file has its own data). */

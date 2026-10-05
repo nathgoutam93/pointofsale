@@ -88,12 +88,17 @@ export class ReturnsService {
         include: {
           lines: { include: { returnLines: true } },
           returns: { select: { totalAmount: true, refundAmount: true } },
-          customer: { select: { isWalkIn: true } }
+          customer: { select: { isWalkIn: true } },
+          branch: { select: { name: true } }
         }
       });
 
       if (!invoice) throw new NotFoundException('Invoice not found');
-      if (invoice.branchId !== sessionBranchId) throw new ForbiddenException('Branch mismatch');
+      // Goods come back only where they were sold: into that branch's stock and drawer, on a
+      // credit note under the GSTIN of the original invoice.
+      if (invoice.branchId !== sessionBranchId) {
+        throw new ForbiddenException(`Bill ${invoice.invoiceNo} was made at ${invoice.branch.name}: returns are taken only at the branch that sold the goods`);
+      }
       if (invoice.status === InvoiceStatus.CANCELLED) {
         throw new BadRequestException(`Invoice ${invoice.invoiceNo} is cancelled`);
       }

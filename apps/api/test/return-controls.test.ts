@@ -24,6 +24,15 @@ const returnOne = (token: string, invoice: { id: string; lines: Array<{ id: stri
   t.call('POST', `/sales/${invoice.id}/return`, token, { lines: [{ saleLineId: invoice.lines[0].id, qty: 1 }], refundMode: 'CASH', reason });
 
 describe('return controls', () => {
+  it('are taken only at the branch that sold the goods', async () => {
+    const invoice = await sale();
+    const elsewhere = await t.branchWithRegister(admin);
+    const refused = await returnOne(elsewhere.token, invoice);
+    expect(refused.status).toBe(403);
+    expect(refused.body.message).toContain(`was made at ${ctx.branch.name}`);
+    expect((await returnOne(ctx.token, invoice)).status).toBe(201);
+  });
+
   it('need the permission for cashiers, and record the reason and who made them', async () => {
     const invoice = await sale();
     const without = await t.cashierWithRegister(admin, ctx.branch.id);
