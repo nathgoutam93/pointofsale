@@ -146,7 +146,9 @@ export const ownedBusinessSchema = z.object({
   id: z.string().uuid(),
   code: z.string(),
   name: z.string(),
-  status: z.enum(['PROVISIONING', 'ACTIVE', 'SUSPENDED', 'FAILED'])
+  /** DELETING: locked, and erased at deleteAfter unless an owner cancels. */
+  status: z.enum(['PROVISIONING', 'ACTIVE', 'SUSPENDED', 'FAILED', 'DELETING']),
+  deleteAfter: z.string().datetime().nullable().optional()
 });
 
 export const metaRoutes = c.router({
@@ -265,6 +267,30 @@ export const accountsRoutes = c.router({
     path: '/accounts/password-reset/confirm',
     body: z.object({ email: emailSchema, code: resetCodeSchema, newPassword: passwordSchema }),
     responses: { 200: z.object({ reset: z.literal(true) }) }
+  },
+  /** Online, owner token: emails the owner a code to delete one of their businesses. */
+  businessDeletionCode: {
+    method: 'POST',
+    path: '/accounts/businesses/:businessId/deletion/code',
+    body: z.object({}),
+    responses: { 202: z.object({ sent: z.literal(true) }) }
+  },
+  /**
+   * Online, owner token: deletes one of their businesses, with their password, the emailed code
+   * and its business code typed again. Locked at once; erased after the grace period.
+   */
+  deleteBusiness: {
+    method: 'POST',
+    path: '/accounts/businesses/:businessId/deletion',
+    body: z.object({ password: z.string().min(1), code: resetCodeSchema, businessCode: z.string().trim().min(1) }),
+    responses: { 200: z.object({ id: z.string().uuid(), status: z.literal('DELETING'), deleteAfter: z.string().datetime() }) }
+  },
+  /** Online, owner token: keeps a business being deleted, with their password. */
+  cancelBusinessDeletion: {
+    method: 'POST',
+    path: '/accounts/businesses/:businessId/deletion/cancel',
+    body: z.object({ password: z.string().min(1) }),
+    responses: { 200: z.object({ id: z.string().uuid(), status: z.enum(['ACTIVE', 'SUSPENDED']) }) }
   }
 });
 

@@ -86,6 +86,16 @@ export class TenantClients implements OnModuleDestroy {
     };
   }
 
+  /** Forgets a business's client (its schema is gone), disconnecting it if nothing is using it. */
+  discard(business: Pick<ActiveBusiness, 'schemaName' | 'dbServer'>) {
+    const key = `${business.dbServer}/${business.schemaName}`;
+    const entry = this.clients.get(key);
+    if (!entry || entry.active > 0) return;
+    this.clients.delete(key);
+    this.disconnect(entry.client);
+    this.waiting.shift()?.();
+  }
+
   /** How many clients are kept, and how many are in use (for tests and health checks). */
   stats() {
     const entries = [...this.clients.values()];

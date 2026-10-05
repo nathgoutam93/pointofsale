@@ -13,6 +13,7 @@ import { ImportService } from '../tenancy/import.service';
 import { ProvisioningService } from '../tenancy/provisioning.service';
 import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { AccountsService } from './accounts.service';
+import { BusinessDeletionService } from './business-deletion.service';
 
 /** Wrong owner passwords: 10 per email and address per 15 minutes. */
 const accountFailures = new FailureLimiter(10, 15 * 60 * 1000);
@@ -26,6 +27,9 @@ const isVerificationRequired = (error: unknown) =>
   error instanceof BadRequestException && (error.getResponse() as { code?: unknown })?.code === EMAIL_VERIFICATION_REQUIRED;
 /** New businesses: 5 per address per hour, against sign-up floods. */
 const creations = new FailureLimiter(5, 60 * 60 * 1000);
+/** Deleting a business: 3 emailed codes an hour, and 10 wrong passwords or codes in 15 minutes, per account. */
+const deletionCodeSends = new FailureLimiter(3, 60 * 60 * 1000);
+const deletionFailures = new FailureLimiter(10, 15 * 60 * 1000);
 
 /** Hosted server only: owners sign up, create businesses and see theirs. */
 @Controller()
@@ -34,8 +38,59 @@ export class AccountsController {
   constructor(
     private readonly accounts: AccountsService,
     private readonly provisioning: ProvisioningService,
-    private readonly imports: ImportService
+    private readonly imports: ImportService,
+    private readonly deletion: BusinessDeletionService
   ) {}
+
+  /** Owner token: emails a code to delete one of their businesses. */
+  @Public()
+  @Post('/accounts/businesses/:businessId/deletion/code')
+  @HttpCode(202)
+  async businessDeletionCode(@Param('businessId', ParseUUIDPipe) businessId: string, @Headers() headers: RequestHeaders) {
+    const accountId = await this.accounts.accountIdFrom(readBearerToken(headers));
+    deletionCodeSends.assertAllowed(accountId);
+    deletionCodeSends.failed(accountId);
+    await this.deletion.sendCode(accountId, businessId);
+    return { sent: true as const };
+  }
+
+  /** Owner token, password and the emailed code: deletes one of their businesses (locked now, erased after the grace period). */
+  @Public()
+  @Post('/accounts/businesses/:businessId/deletion')
+  @HttpCode(200)
+  async deleteBusiness(
+    @Param('businessId', ParseUUIDPipe) businessId: string,
+    @Body(new ZodValidationPipe(appContract.accounts.deleteBusiness.body)) body: Parsed<typeof appContract.accounts.deleteBusiness.body>,
+    @Headers() headers: RequestHeaders
+  ) {
+    const accountId = await this.accounts.accountIdFrom(readBearerToken(headers));
+    deletionFailures.assertAllowed(accountId);
+    const deleted = await this.deletion.requestDeletion(accountId, businessId, body).catch((error) => {
+      deletionFailures.failed(accountId);
+      throw error;
+    });
+    deletionFailures.succeeded(accountId);
+    return deleted;
+  }
+
+  /** Owner token and password: keeps a business being deleted. */
+  @Public()
+  @Post('/accounts/businesses/:businessId/deletion/cancel')
+  @HttpCode(200)
+  async cancelBusinessDeletion(
+    @Param('businessId', ParseUUIDPipe) businessId: string,
+    @Body(new ZodValidationPipe(appContract.accounts.cancelBusinessDeletion.body)) body: Parsed<typeof appContract.accounts.cancelBusinessDeletion.body>,
+    @Headers() headers: RequestHeaders
+  ) {
+    const accountId = await this.accounts.accountIdFrom(readBearerToken(headers));
+    deletionFailures.assertAllowed(accountId);
+    const kept = await this.deletion.cancelDeletion(accountId, businessId, body.password).catch((error) => {
+      deletionFailures.failed(accountId);
+      throw error;
+    });
+    deletionFailures.succeeded(accountId);
+    return kept;
+  }
 
   /**
    * The owner account for an email and password, created on first use, with the verification

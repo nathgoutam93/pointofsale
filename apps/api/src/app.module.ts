@@ -37,6 +37,7 @@ import { BillingController } from './billing/billing.controller';
 import { BillingReminders } from './billing/reminders';
 import { BillingService } from './billing/billing.service';
 import { AccountsService } from './accounts/accounts.service';
+import { BusinessDeletionService } from './accounts/business-deletion.service';
 import { Mailer } from './mail/mailer';
 import { ReceiptEmailService } from './sales/receipt-email.service';
 import { FallbackController } from './fallback/fallback.controller';
@@ -108,6 +109,7 @@ import { UsersService } from './users/users.service';
     ProvisioningService,
     ImportService,
     AccountsService,
+    BusinessDeletionService,
     BillingService,
     BillingReminders,
     Mailer,
