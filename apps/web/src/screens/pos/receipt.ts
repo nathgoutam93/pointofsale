@@ -7,7 +7,7 @@ import type { StoreSettings } from "./useStoreSettings";
 /** The printed receipt for a completed sale, laid out with the branch's receipt template. */
 export function buildInvoiceReceipt(postPayment: PostPaymentSummary, store: StoreSettings, cashierName: string) {
   const items = postPayment.lines.map((line) => {
-    const amounts = computeLineAmounts(line, store.taxCalculationMode);
+    const amounts = computeLineAmounts(line);
     const netAmount = line.netAmount ?? amounts.net;
     const taxAmount = Number(line.taxAmount ?? amounts.tax);
     const baseExclusive = getBaseExclusive(line);

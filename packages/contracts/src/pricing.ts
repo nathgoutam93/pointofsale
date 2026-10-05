@@ -6,7 +6,6 @@
 export type TaxMode = 'INCLUSIVE' | 'EXCLUSIVE';
 /** How a bill's total is rounded: not at all, to the nearest rupee, or to the nearest 50 paise. */
 export type RoundOffMode = 'NONE' | 'NEAREST_1' | 'NEAREST_050';
-export type TaxCalculationMode = 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
 
 /** `value` with its decimal point moved `places` places, by its decimal digits rather than binary maths. */
 function shiftDecimal(value: number, places: number) {
@@ -55,7 +54,8 @@ export function exclusiveBase(gross: number, taxMode: TaxMode | undefined, taxRa
 }
 
 /**
- * Tax and net amount for one line.
+ * Tax and net amount for one line. GST is charged on the value after the discounts shown on
+ * the invoice (CGST Act s.15(3)), so the tax is always on `taxable`.
  *
  * - `gross`: shelf price × quantity, as entered (tax-inclusive for INCLUSIVE lines).
  * - `baseExclusive`: `exclusiveBase(gross, ...)`, before any discount.
@@ -65,28 +65,14 @@ export function exclusiveBase(gross: number, taxMode: TaxMode | undefined, taxRa
  * a separately rounded percentage, so taxable + tax always adds back up to the price
  * (₹100 at 18% is 84.75 + 15.25, not 84.75 + 15.26 = ₹100.01).
  */
-export function lineTax(input: {
-  gross: number;
-  baseExclusive: number;
-  taxable: number;
-  taxMode: TaxMode | undefined;
-  taxRate: number;
-  taxCalculationMode: TaxCalculationMode;
-}) {
-  const { gross, baseExclusive, taxable, taxMode, taxRate, taxCalculationMode } = input;
+export function lineTax(input: { gross: number; baseExclusive: number; taxable: number; taxMode: TaxMode | undefined; taxRate: number }) {
+  const { gross, baseExclusive, taxable, taxMode, taxRate } = input;
   if (taxMode === 'INCLUSIVE' && taxRate > 0) {
-    // Tax on the undiscounted price is fixed at price − base; otherwise the tax-inclusive
-    // amount shrinks in proportion to the discounted base.
-    const tax =
-      taxCalculationMode === 'BEFORE_DISCOUNT'
-        ? round2(gross - baseExclusive)
-        : baseExclusive > 0
-          ? round2(Math.max(0, round2((gross * taxable) / baseExclusive) - taxable))
-          : 0;
+    // The tax-inclusive amount shrinks in proportion to the discounted base.
+    const tax = baseExclusive > 0 ? round2(Math.max(0, round2((gross * taxable) / baseExclusive) - taxable)) : 0;
     return { tax, net: round2(taxable + tax) };
   }
-  const taxBase = taxCalculationMode === 'BEFORE_DISCOUNT' ? baseExclusive : taxable;
-  const tax = round2((taxBase * taxRate) / 100);
+  const tax = round2((taxable * taxRate) / 100);
   return { tax, net: round2(taxable + tax) };
 }
 
@@ -261,7 +247,6 @@ export type PricedLineInput = {
 export function computeSaleTotals<L extends PricedLineInput>(
   lines: L[],
   orderDiscounts: DiscountInput[] | undefined,
-  taxCalculationMode: TaxCalculationMode,
   options: {
     /**
      * False when the seller may not charge GST (a composition taxpayer): every line is
@@ -302,8 +287,7 @@ export function computeSaleTotals<L extends PricedLineInput>(
       baseExclusive: entry.baseExclusive,
       taxable,
       taxMode: entry.line.taxMode,
-      taxRate: entry.line.taxRate,
-      taxCalculationMode
+      taxRate: entry.line.taxRate
     });
     return { ...entry, orderDiscount, discountAmount, taxable, tax, ...splitGst(tax, options.interState === true), net };
   });

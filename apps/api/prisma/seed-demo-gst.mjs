@@ -163,7 +163,7 @@ export async function enrichDemoGst(prisma, apiBaseUrl) {
           taxRate: Number(item.taxRate), discounts: [] } };
       });
       const compositionSale = taxpayerType === 'COMPOSITION';
-      const totals = computeSaleTotals(chosen.map((entry) => entry.input), [], 'AFTER_DISCOUNT', {
+      const totals = computeSaleTotals(chosen.map((entry) => entry.input), [], {
         chargeTax: !compositionSale, interState: place !== branch.stateCode
       });
       const invoiceId = randomUUID();

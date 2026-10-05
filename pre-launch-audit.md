@@ -101,7 +101,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   the same GST period. A separate status for credit sales (so `DRAFT` means only "abandoned") is
   still worth doing for clarity, but nothing depends on it now. Tests: `checkout.test.ts`.
 
-### [ ] A5. Remove (or fix) "tax before discount"
+### [x] A5. Remove (or fix) "tax before discount"
 
 - **Why:** with `taxCalculationMode = BEFORE_DISCOUNT` (`lineTax` in
   `packages/contracts/src/pricing.ts`), ₹100 at 18% with 10% off saves taxable ₹90 and tax
@@ -111,6 +111,14 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   `AFTER_DISCOUNT`, from the next sale on) or restrict it to a compliant meaning.
 - **Done when:** every saved line's tax equals its rate × taxable value (within a paisa), and
   a test says so.
+- **Status (2026-10-05):** removed (decided by the owner). GST is always on the value after
+  the discounts shown on the invoice: `lineTax` and `computeSaleTotals` no longer take a mode,
+  the setting is gone from the settings page and the API (an old app sending it is ignored),
+  and migration `20261020210000_remove_tax_before_discount` drops the column, so every business
+  works this way from its next sale on. Bills already made keep their amounts. Offline bills
+  from a fallback counter are checked under this rule only. Tests: `pricing.test.ts` (on 3,000
+  random carts every line's tax is within a paisa of rate × taxable value) and
+  `tax-after-discount.test.ts` (saved lines, with item and order discounts).
 
 ### [x] A6. Never sell above MRP
 
@@ -329,7 +337,7 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   `purchase-gst.test.ts`, `gstr1-builder.test.ts`. **Still to do:** supplier accounts, amounts
   owed to suppliers and payments to them, and purchase returns (debit notes).
 
-### [ ] B8. Decide on scope: batches and expiry, offers
+### [~] B8. Decide on scope: batches and expiry, offers
 
 - **Why:** without batch and expiry tracking the product doesn't suit pharmacies or much of
   grocery; without schemes (buy X get Y, combo prices, customer-group prices) many shops will
@@ -338,6 +346,9 @@ Paths are as of version 0.1.3; check them first, as they may have moved. Keep th
   Build batch/expiry and offers if those shops are in scope.
 - **Done when:** the decision is written here, and either the features exist or the sign-up
   page names the shop types it's for.
+
+- **Decided (2026-10-05):** batches and expiry are in the first release; offers and promotions
+  (buy X get Y, combo prices, customer-group prices) come later.
 
 ---
 

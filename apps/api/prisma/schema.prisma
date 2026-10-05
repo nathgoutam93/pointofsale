@@ -88,11 +88,6 @@ enum RoundOffMode {
   NEAREST_050
 }
 
-enum TaxCalculationMode {
-  AFTER_DISCOUNT
-  BEFORE_DISCOUNT
-}
-
 /// GST registration type. COMPOSITION pays a flat rate on turnover and may not charge GST to customers.
 enum TaxpayerType {
   REGULAR
@@ -175,27 +170,26 @@ model Branch {
 }
 
 model BusinessSettings {
-  id                        String             @id @default("default")
+  id                        String        @id @default("default")
   name                      String
   logoUrl                   String?
   gstNumber                 String?
-  taxCalculationMode        TaxCalculationMode @default(AFTER_DISCOUNT)
   /// Most a cashier may lower a sale below list price (price edits + discounts), in percent. Admins have no limit.
-  cashierMaxDiscountPercent Decimal            @default(10) @db.Decimal(5, 2)
+  cashierMaxDiscountPercent Decimal       @default(10) @db.Decimal(5, 2)
   /// SHARED: customers and their wallets can be used at every branch. BRANCH: only at the branch that created them.
-  customerScope             CustomerScope      @default(SHARED)
+  customerScope             CustomerScope @default(SHARED)
   /// IANA time zone that report periods (Today, This Week, This Month) are worked out in.
-  timezone                  String             @default("Asia/Kolkata")
+  timezone                  String        @default("Asia/Kolkata")
   /// Shortest HSN code accepted on items: 4 (turnover up to ₹5 crore) or 6.
-  hsnMinDigits              Int                @default(4)
+  hsnMinDigits              Int           @default(4)
   /// Cashiers may take goods back up to this many days after the sale (calendar days in the
   /// business time zone; 0 is the same day only). Null: no limit. Admins are never limited.
   returnWindowDays          Int?
   /// Rounds each bill's total (see SaleInvoice.roundOff).
-  roundOffMode              RoundOffMode       @default(NONE)
+  roundOffMode              RoundOffMode  @default(NONE)
   /// When the stock count is wrong: let admins (and cashiers given SELL_PAST_STOCK) sell more
   /// than it shows, taking it below 0. Off: a sale can't go past stock.
-  allowNegativeStock        Boolean            @default(false)
+  allowNegativeStock        Boolean       @default(false)
   /// How the weighing scale's labels are laid out (see scaleBarcodeSchema in @pos/contracts);
   /// null when the business has no scale.
   scaleBarcode              Json?
@@ -203,8 +197,8 @@ model BusinessSettings {
   /// Shown once when created; never stored or returned in plain text.
   recoveryCodeHash          String?
   recoveryCodeCreatedAt     DateTime?
-  createdAt                 DateTime           @default(now())
-  updatedAt                 DateTime           @updatedAt
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
 }
 
 enum DocumentKind {

@@ -59,25 +59,6 @@ export function BusinessSettingsCard({
             ) : null}
           </div>
           <div>
-            <label className="text-sm text-slate-600">Tax calculation mode</label>
-            <select
-              className="field mt-1"
-              value={businessForm.taxCalculationMode}
-              onChange={(e) =>
-                setBusinessForm((prev) => ({
-                  ...prev,
-                  taxCalculationMode: e.target.value as "AFTER_DISCOUNT" | "BEFORE_DISCOUNT",
-                }))
-              }
-            >
-              <option value="AFTER_DISCOUNT">After discount</option>
-              <option value="BEFORE_DISCOUNT">Before discount</option>
-            </select>
-            <p className="mt-1 text-xs text-slate-500">
-              Controls whether tax is recomputed after discounts or held on the original pre-discount base.
-            </p>
-          </div>
-          <div>
             <label className="text-sm text-slate-600">Cashier discount limit (%)</label>
             <input
               className="field mt-1"

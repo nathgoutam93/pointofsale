@@ -21,7 +21,6 @@ export type BusinessSettingsForm = {
   name: string;
   logoUrl: string | null;
   gstNumber: string;
-  taxCalculationMode: "AFTER_DISCOUNT" | "BEFORE_DISCOUNT";
   cashierMaxDiscountPercent: string;
   customerScope: "SHARED" | "BRANCH";
   timezone: string;

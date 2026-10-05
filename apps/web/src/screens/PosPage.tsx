@@ -59,7 +59,7 @@ export function PosPage() {
   const [isOrderOpen, setIsOrderOpen] = useState(false);
 
   const store = useStoreSettings(session.branchId);
-  const { taxCalculationMode, chargeTax, roundOffMode, invoiceLogoSrc, customReceiptCss, printTemplate } = store;
+  const { chargeTax, roundOffMode, invoiceLogoSrc, customReceiptCss, printTemplate } = store;
   const lineEditor = useLineEditor({ cart, setCart, chargeTax });
 
   const printableInvoice = useMemo(
@@ -124,7 +124,6 @@ export function PosPage() {
     const totals = computeSaleTotals(
       cart.map((line) => ({ ...line, discounts: itemDiscountsFor(line) })),
       orderDiscounts,
-      taxCalculationMode,
       { chargeTax, roundOff: roundOffMode },
     );
     return {
@@ -146,7 +145,7 @@ export function PosPage() {
       orderDiscountTotal: totals.orderDiscountTotal,
       orderDiscountBase: totals.orderDiscountBase,
     };
-  }, [cart, orderDiscounts, taxCalculationMode, chargeTax, roundOffMode]);
+  }, [cart, orderDiscounts, chargeTax, roundOffMode]);
   const orderDiscountBase = computedCart.orderDiscountBase;
   const resolvedOrderDiscountAmount = computedCart.orderDiscountTotal;
 
@@ -367,7 +366,6 @@ export function PosPage() {
             <CartLines
               cart={cart}
               onHandByItem={onHandByItem}
-              taxCalculationMode={taxCalculationMode}
               chargeTax={chargeTax}
               onOpen={lineEditor.open}
               onStep={stepCartLine}
@@ -474,7 +472,6 @@ export function PosPage() {
         <LineEditorModal
           editor={lineEditor}
           activeEditLine={lineEditor.activeEditLine}
-          taxCalculationMode={taxCalculationMode}
           chargeTax={chargeTax}
         />
       ) : null}

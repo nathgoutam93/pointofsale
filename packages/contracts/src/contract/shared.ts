@@ -57,7 +57,6 @@ export const stockTxnTypeSchema = z.enum([
 export const stockTransferStatusSchema = z.enum(['IN_TRANSIT', 'RECEIVED', 'CANCELLED']);
 export const walletTxnTypeSchema = z.enum(['TOPUP', 'DEBIT_SALE', 'REFUND_RETURN', 'ADJUSTMENT']);
 export const taxModeSchema = z.enum(['INCLUSIVE', 'EXCLUSIVE']);
-export const taxCalculationModeSchema = z.enum(['AFTER_DISCOUNT', 'BEFORE_DISCOUNT']);
 /** SHARED: customers and wallets work at every branch. BRANCH: only at the branch that created them. */
 export const customerScopeSchema = z.enum(['SHARED', 'BRANCH']);
 export const taxpayerTypeSchema = z.enum(TAXPAYER_TYPES);

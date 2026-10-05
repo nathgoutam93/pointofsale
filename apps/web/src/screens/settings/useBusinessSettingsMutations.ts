@@ -41,7 +41,6 @@ export function useBusinessSettingsMutations({
           name: trimmedName,
           logoUrl: businessForm.logoUrl,
           gstNumber: emptyToNull(businessForm.gstNumber),
-          taxCalculationMode: businessForm.taxCalculationMode,
           cashierMaxDiscountPercent,
           customerScope: businessForm.customerScope,
           timezone: businessForm.timezone,
@@ -83,7 +82,6 @@ export function useBusinessSettingsMutations({
       name: string;
       logoUrl: string | null;
       gstNumber: string | null;
-      taxCalculationMode: "AFTER_DISCOUNT" | "BEFORE_DISCOUNT";
     };
   };
 
@@ -94,8 +92,7 @@ export function useBusinessSettingsMutations({
         ...prev,
         name: updated.name ?? prev.name,
         logoUrl: updated.logoUrl ?? null,
-        gstNumber: updated.gstNumber ?? "",
-        taxCalculationMode: updated.taxCalculationMode ?? prev.taxCalculationMode
+        gstNumber: updated.gstNumber ?? ""
       }));
       queryClient.invalidateQueries({ queryKey: ["business-settings"] });
       setBusinessMessage("Business logo updated.");

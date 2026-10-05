@@ -91,7 +91,7 @@ export {
   roundTo,
   splitGst
 } from './pricing.js';
-export type { DiscountInput, GstAmounts, PricedLineInput, ResolvedDiscount, RoundOffMode, TaxCalculationMode, TaxMode } from './pricing.js';
+export type { DiscountInput, GstAmounts, PricedLineInput, ResolvedDiscount, RoundOffMode, TaxMode } from './pricing.js';
 export {
   chargesGst,
   COMPOSITION_CATEGORIES,

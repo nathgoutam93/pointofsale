@@ -203,12 +203,11 @@ export function resolvePlaceOfSupply(branchStateCode: string | null, requested: 
 export function calculateSaleTotals(
   lines: SaleLineInput[],
   orderDiscounts: DiscountInput[] | undefined,
-  taxCalculationMode: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT',
   chargeTax: boolean,
   interState: boolean,
   roundOff: RoundOffMode
 ) {
-  const totals = computeSaleTotals(lines, orderDiscounts, taxCalculationMode, { chargeTax, interState, roundOff });
+  const totals = computeSaleTotals(lines, orderDiscounts, { chargeTax, interState, roundOff });
   const computedLines: ComputedSaleLine[] = totals.lines.map((entry) => ({
     ...entry.line,
     discountAmount: entry.discountAmount,

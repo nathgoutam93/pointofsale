@@ -145,7 +145,6 @@ export class SalesService {
     } = calculateSaleTotals(
       normalizedLines,
       input.discounts ?? [],
-      businessSettings.taxCalculationMode,
       chargeTax,
       interState,
       businessSettings.roundOffMode

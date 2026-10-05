@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { inr } from "../route-helpers";
 import { computeLineAmounts, formatQty } from "./cartMath";
-import type { TaxCalculationMode } from "./cartMath";
 import { keypadKeyFromEvent, shouldIgnoreDialogKey } from "./keyboard";
 import type { CartLine } from "./types";
 import type { LineEditor } from "./useLineEditor";
@@ -13,12 +12,10 @@ import type { LineEditor } from "./useLineEditor";
 export function LineEditorModal({
   editor,
   activeEditLine,
-  taxCalculationMode,
   chargeTax,
 }: {
   editor: LineEditor;
   activeEditLine: CartLine;
-  taxCalculationMode: TaxCalculationMode;
   chargeTax: boolean;
 }) {
   const { displayEditLine, editField, editValue, discountMode } = editor;
@@ -151,7 +148,7 @@ export function LineEditorModal({
                   </p>
                   <p className="text-2xl font-semibold text-slate-900 tabular-nums">
                     {inr(
-                      computeLineAmounts(displayEditLine ?? activeEditLine, taxCalculationMode, chargeTax)
+                      computeLineAmounts(displayEditLine ?? activeEditLine, chargeTax)
                         .net,
                     )}
                   </p>

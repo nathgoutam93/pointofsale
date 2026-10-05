@@ -1,8 +1,6 @@
 import { exclusiveBase, lineTax, round2, round3 } from "@pos/contracts";
 import type { CartLine } from "./types";
 
-export type TaxCalculationMode = "AFTER_DISCOUNT" | "BEFORE_DISCOUNT";
-
 // Pure helpers for cart lines: rounding, quantities and per-line amounts.
 
 // The app's one rounding (roundTo in @pos/contracts).
@@ -65,7 +63,6 @@ export function computeLineAmounts(
     CartLine,
     "qty" | "rate" | "discountAmount" | "taxRate" | "taxMode" | "saleUomQty"
   >,
-  taxCalculationMode: TaxCalculationMode,
   chargeTax = true,
 ) {
   const priced = asPriced(line, chargeTax);
@@ -79,7 +76,6 @@ export function computeLineAmounts(
     taxable,
     taxMode: priced.taxMode,
     taxRate: priced.taxRate,
-    taxCalculationMode,
   });
   return { taxable, tax, net };
 }

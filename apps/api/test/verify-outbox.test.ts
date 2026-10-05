@@ -6,7 +6,7 @@ import type { FallbackOutbox } from '../src/fallback/fallback.service';
 // The server's check of offline sales, without a database: one bill made the way the API makes it.
 function bill(options: { rate: number; listRate: number; paid: number; status: string; createdBy?: string }) {
   const line = { qty: 2, rate: options.rate, taxRate: 18, taxMode: 'EXCLUSIVE' as const };
-  const totals = computeSaleTotals([line], [], 'AFTER_DISCOUNT');
+  const totals = computeSaleTotals([line], []);
   const computed = totals.lines[0];
   const entry: FallbackOutbox['invoices'][number] = {
     invoice: {
@@ -66,7 +66,6 @@ const outbox = (entry: FallbackOutbox['invoices'][number]): FallbackOutbox => ({
   returns: []
 });
 const context: OutboxContext = {
-  taxCalculationMode: 'AFTER_DISCOUNT',
   maxDiscountPercentFor: (userId) => (userId === 'admin-1' ? null : 10),
   serverSaleLines: new Map()
 };

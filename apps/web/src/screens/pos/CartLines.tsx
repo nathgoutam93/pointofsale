@@ -2,7 +2,6 @@ import { IconMinus, IconPlus, IconTrash } from "../../components/icons";
 import { uploadSrc } from "../../lib/api";
 import { inr, money } from "../route-helpers";
 import { computeLineAmounts, formatQty, formatStockOnHand, getCartLineKey } from "./cartMath";
-import type { TaxCalculationMode } from "./cartMath";
 import type { CartLine } from "./types";
 
 const stepButton =
@@ -12,7 +11,6 @@ const stepButton =
 export function CartLines({
   cart,
   onHandByItem,
-  taxCalculationMode,
   chargeTax,
   onOpen,
   onStep,
@@ -20,7 +18,6 @@ export function CartLines({
 }: {
   cart: CartLine[];
   onHandByItem: Map<string, number>;
-  taxCalculationMode: TaxCalculationMode;
   chargeTax: boolean;
   onOpen: (line: CartLine) => void;
   onStep: (line: CartLine, direction: 1 | -1) => void;
@@ -37,7 +34,7 @@ export function CartLines({
         </div>
       ) : null}
       {cart.map((line) => {
-        const lineNet = computeLineAmounts(line, taxCalculationMode, chargeTax).net;
+        const lineNet = computeLineAmounts(line, chargeTax).net;
         const itemDiscount =
           line.itemDiscountAmount ?? line.discountAmount;
         const availableStock = onHandByItem.get(line.itemId);

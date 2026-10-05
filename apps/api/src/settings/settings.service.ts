@@ -63,7 +63,6 @@ export class SettingsService {
     name?: string;
     logoUrl?: string | null;
     gstNumber?: string | null;
-    taxCalculationMode?: 'AFTER_DISCOUNT' | 'BEFORE_DISCOUNT';
     cashierMaxDiscountPercent?: number;
     customerScope?: CustomerScope;
     timezone?: string;
@@ -82,7 +81,6 @@ export class SettingsService {
           name: input.name,
           logoUrl: input.logoUrl,
           gstNumber: input.gstNumber,
-          taxCalculationMode: input.taxCalculationMode,
           cashierMaxDiscountPercent: input.cashierMaxDiscountPercent,
           customerScope: input.customerScope,
           timezone: input.timezone,

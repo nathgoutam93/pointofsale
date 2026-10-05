@@ -18,24 +18,24 @@ const line = (overrides: Partial<CartLine> = {}): CartLine => ({
 
 describe("cart line amounts", () => {
   it("takes the tax out of a price that includes it", () => {
-    expect(computeLineAmounts(line(), "AFTER_DISCOUNT")).toEqual({ taxable: 100, tax: 18, net: 118 });
+    expect(computeLineAmounts(line())).toEqual({ taxable: 100, tax: 18, net: 118 });
   });
 
   it("adds the tax to a price that doesn't include it", () => {
-    expect(computeLineAmounts(line({ rate: 100, taxMode: "EXCLUSIVE", qty: 2 }), "AFTER_DISCOUNT")).toEqual({ taxable: 200, tax: 36, net: 236 });
+    expect(computeLineAmounts(line({ rate: 100, taxMode: "EXCLUSIVE", qty: 2 }))).toEqual({ taxable: 200, tax: 36, net: 236 });
   });
 
   it("never discounts below zero", () => {
-    expect(computeLineAmounts(line({ discountAmount: 500 }), "AFTER_DISCOUNT")).toEqual({ taxable: 0, tax: 0, net: 0 });
+    expect(computeLineAmounts(line({ discountAmount: 500 }))).toEqual({ taxable: 0, tax: 0, net: 0 });
   });
 
   it("charges no tax for a seller that can't (composition): the shelf price less discount", () => {
-    expect(computeLineAmounts(line({ discountAmount: 18 }), "AFTER_DISCOUNT", false)).toEqual({ taxable: 100, tax: 0, net: 100 });
+    expect(computeLineAmounts(line({ discountAmount: 18 }), false)).toEqual({ taxable: 100, tax: 0, net: 100 });
   });
 
   it("prices a pack by packs sold, not base units", () => {
     // 2 boxes of 12 at 60 a box.
-    expect(computeLineAmounts(line({ qty: 24, saleUomQty: 2, rate: 60, taxRate: 0 }), "AFTER_DISCOUNT").net).toBe(120);
+    expect(computeLineAmounts(line({ qty: 24, saleUomQty: 2, rate: 60, taxRate: 0 })).net).toBe(120);
   });
 
   it("agrees with the totals checkout sends to the server", () => {
@@ -44,11 +44,10 @@ describe("cart line amounts", () => {
       line({ itemId: "item-2", rate: 45.5, taxRate: 5, taxMode: "EXCLUSIVE", qty: 1.25, leastCount: 0.25 }),
       line({ itemId: "item-3", rate: 12, taxRate: 12, qty: 7 }),
     ];
-    const lines = cart.map((entry) => computeLineAmounts(entry, "AFTER_DISCOUNT"));
+    const lines = cart.map((entry) => computeLineAmounts(entry));
     const totals = computeSaleTotals(
       cart.map((entry) => ({ ...entry, discounts: entry.discountAmount > 0 ? [{ type: "FIXED" as const, value: entry.discountAmount }] : [] })),
       [],
-      "AFTER_DISCOUNT",
     );
     totals.lines.forEach((entry, i) => {
       expect(entry.taxable).toBeCloseTo(lines[i].taxable, 2);

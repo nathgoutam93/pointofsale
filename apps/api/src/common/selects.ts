@@ -11,7 +11,6 @@ export const businessSettingsSelect = {
   name: true,
   logoUrl: true,
   gstNumber: true,
-  taxCalculationMode: true,
   cashierMaxDiscountPercent: true,
   customerScope: true,
   timezone: true,

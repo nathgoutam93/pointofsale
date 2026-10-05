@@ -16,7 +16,7 @@ export async function verificationContext(
 ) {
   const business = await tx.businessSettings.findUnique({
     where: { id: 'default' },
-    select: { taxCalculationMode: true, cashierMaxDiscountPercent: true }
+    select: { cashierMaxDiscountPercent: true }
   });
   const staffIds = [...new Set(outbox.invoices.map((entry) => String(entry.invoice.createdBy)))];
   const admins = new Set(
@@ -75,7 +75,6 @@ export async function verificationContext(
     })
   );
   return {
-    taxCalculationMode: business?.taxCalculationMode ?? 'AFTER_DISCOUNT',
     maxDiscountPercentFor: (userId: string) => (admins.has(userId) ? null : cashierLimit),
     serverSaleLines
   };

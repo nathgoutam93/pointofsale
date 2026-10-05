@@ -1,4 +1,4 @@
-import { computeSaleTotals, exclusiveBase, round2, round3, type DiscountInput, type TaxCalculationMode, type TaxMode } from '@pos/contracts';
+import { computeSaleTotals, exclusiveBase, round2, round3, type DiscountInput, type TaxMode } from '@pos/contracts';
 import type { FallbackOutbox, SyncConflict } from './fallback.service';
 
 /**
@@ -27,8 +27,6 @@ export type ServerSaleLine = {
 };
 
 export type OutboxContext = {
-  /** The business's setting; a bill made under either mode is accepted (it may have changed since the copy). */
-  taxCalculationMode: TaxCalculationMode;
   /** The most a user may take off a sale's list price, in percent; null for no limit (admins). */
   maxDiscountPercentFor: (userId: string) => number | null;
   /** Lines of bills the server already had (by id), for returns of them made offline. */
@@ -62,8 +60,8 @@ function sameQuantities(a: Map<string, number>, b: Map<string, number>) {
   return [...keys].every((key) => Math.abs((a.get(key) ?? 0) - (b.get(key) ?? 0)) < 1e-6);
 }
 
-/** The bill's amounts worked out again from its lines and discounts, under one tax calculation mode. */
-function recompute(entry: FallbackOutbox['invoices'][number], mode: TaxCalculationMode) {
+/** The bill's amounts worked out again from its lines and discounts. */
+function recompute(entry: FallbackOutbox['invoices'][number]) {
   const invoice = entry.invoice;
   const discountsById = new Map(entry.discounts.map((row) => [str(row.id), row]));
   const itemDiscountsOf = (lineId: string): DiscountInput[] =>
@@ -85,7 +83,7 @@ function recompute(entry: FallbackOutbox['invoices'][number], mode: TaxCalculati
   }));
   const seller = str(invoice.sellerStateCode);
   const place = str(invoice.placeOfSupplyStateCode);
-  return computeSaleTotals(lines, orderDiscounts, mode, { interState: !!seller && !!place && seller !== place });
+  return computeSaleTotals(lines, orderDiscounts, { interState: !!seller && !!place && seller !== place });
 }
 
 /** Where the stored bill disagrees with its recomputed amounts, if anywhere. */
@@ -168,12 +166,11 @@ export function verifyOutbox(outbox: FallbackOutbox, context: OutboxContext): Sy
     const aboveList = entry.lines.find((line) => line.listRate !== null && line.listRate !== undefined && num(line.rate) > num(line.listRate) + 0.005);
     if (aboveList) problem(`"${str(aboveList.itemName)}" is sold above its list price`);
 
-    // The amounts, under the business's tax calculation mode or the other one.
-    const modes: TaxCalculationMode[] = [context.taxCalculationMode, context.taxCalculationMode === 'AFTER_DISCOUNT' ? 'BEFORE_DISCOUNT' : 'AFTER_DISCOUNT'];
-    const results = modes.map((mode) => ({ totals: recompute(entry, mode) })).map((result) => ({ ...result, problem: amountsProblem(entry, result.totals) }));
-    const matched = results.find((result) => result.problem === null);
-    if (!matched) {
-      problem(results[0].problem ?? "its amounts don't add up");
+    // The amounts, with GST on the value after discounts.
+    const totals = recompute(entry);
+    const amounts = amountsProblem(entry, totals);
+    if (amounts) {
+      problem(amounts);
       continue;
     }
 
@@ -190,7 +187,7 @@ export function verifyOutbox(outbox: FallbackOutbox, context: OutboxContext): Sy
           return sum + (chargeTax ? exclusiveBase(gross, taxMode, num(line.taxRate)) : gross);
         }, 0)
       );
-      const finalTotal = round2(matched.totals.lines.reduce((sum, line) => sum + line.taxable, 0));
+      const finalTotal = round2(totals.lines.reduce((sum, line) => sum + line.taxable, 0));
       if (listTotal > 0 && round2(listTotal - finalTotal) > round2((listTotal * maxPercent) / 100) + 0.01) {
         problem(`its price changes and discounts are more than the ${maxPercent}% a cashier may give`);
       }

@@ -14,7 +14,6 @@ import {
   gstStateCodeSchema,
   moneySchema,
   requiredText,
-  taxCalculationModeSchema,
   taxpayerTypeSchema,
   timeZoneSchema
 } from './shared.js';
@@ -136,7 +135,6 @@ export const businessSettingsSchema = z.object({
   name: z.string(),
   logoUrl: z.string().nullable(),
   gstNumber: z.string().nullable(),
-  taxCalculationMode: taxCalculationModeSchema,
   cashierMaxDiscountPercent: z.number(),
   customerScope: customerScopeSchema,
   /** IANA zone report periods are worked out in, e.g. Asia/Kolkata. */
@@ -192,7 +190,6 @@ export const businessRoutes = c.router({
       name: z.string().optional(),
       logoUrl: z.string().nullable().optional(),
       gstNumber: gstinSchema.nullable().optional(),
-      taxCalculationMode: taxCalculationModeSchema.optional(),
       cashierMaxDiscountPercent: z.number().min(0).max(100).optional(),
       customerScope: customerScopeSchema.optional(),
       timezone: timeZoneSchema.optional(),

@@ -235,7 +235,7 @@ async function seed() {
             });
           }
           const orderDiscounts = serial % 13 === 0 ? [{ type: 'PERCENTAGE', value: 3 }] : [];
-          const totals = computeSaleTotals(lineInputs, orderDiscounts, 'AFTER_DISCOUNT', { chargeTax: true, interState: false });
+          const totals = computeSaleTotals(lineInputs, orderDiscounts, { chargeTax: true, interState: false });
           grandTotal = round2(grandTotal + totals.grandTotal);
           const invoiceNo = documentNumber(branch.invoiceSeries, fy, nextSequence);
           invoices.push({
