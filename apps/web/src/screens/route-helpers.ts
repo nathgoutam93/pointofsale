@@ -63,3 +63,8 @@ export function requirePermission(permission: CashierPermission) {
   }
   return session;
 }
+
+/** A cost as shown: "—" when the user may not see costs (the API sends none). */
+export function costLabel(value: number | string | null | undefined) {
+  return value === null || value === undefined ? '—' : inr(value);
+}

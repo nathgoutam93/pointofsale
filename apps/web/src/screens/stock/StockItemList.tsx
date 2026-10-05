@@ -104,9 +104,11 @@ export function StockItemList({
                   {itemOnHand < 0 ? `${itemOnHand} · below zero` : `${itemOnHand} on hand`}
                 </span>
               </div>
-              <p className="mt-1.5 text-xs text-slate-500">
-                Cost <span className="tabular-nums">{inr(item.costPrice)}</span>
-              </p>
+              {item.costPrice !== null ? (
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Cost <span className="tabular-nums">{inr(item.costPrice)}</span>
+                </p>
+              ) : null}
             </button>
           );
         })}

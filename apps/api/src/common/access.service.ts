@@ -5,6 +5,9 @@ import { BranchesService } from '../branches/branches.service';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from './types';
 
+/** The permissions that come with seeing what goods cost. */
+export const COST_PERMISSIONS: CashierPermission[] = ['MANAGE_STOCK', 'RECORD_PURCHASES'];
+
 /**
  * Who may do what, where:
  * - Selling (checkout, returns, taking payments) happens at the branch of the open register.
@@ -33,6 +36,17 @@ export class AccessService {
       throw new ForbiddenException('Branch mismatch');
     }
     return branchId;
+  }
+
+  /**
+   * Whether a user may see what goods cost (cost prices, purchase prices and purchase history):
+   * admins, and cashiers who adjust stock or record purchases. Others never get them (see
+   * CostVisibilityInterceptor).
+   */
+  async maySeeCosts(session: SessionUser) {
+    if (session.role === UserRole.ADMIN) return true;
+    const user = await this.prisma.user.findUnique({ where: { id: session.userId }, select: { permissions: true } });
+    return COST_PERMISSIONS.some((permission) => user?.permissions.includes(permission) ?? false);
   }
 
   /** Admins always; cashiers when an admin gave them any of `permissions`. */

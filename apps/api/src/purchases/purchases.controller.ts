@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { appContract } from '@pos/contracts';
-import { AccessService } from '../common/access.service';
+import { AccessService, COST_PERMISSIONS } from '../common/access.service';
 import { getSession, RequestHeaders } from '../common/request-session';
 import { type Parsed, ZodValidationPipe } from '../validation/zod-validation.pipe';
 import { PurchaseReturnsService } from './purchase-returns.service';
@@ -26,16 +26,19 @@ export class PurchasesController {
   }
 
   @Get('/purchases')
-  listPurchases(
+  async listPurchases(
     @Query(new ZodValidationPipe(appContract.purchases.list.query)) { branchId, supplierId }: Parsed<typeof appContract.purchases.list.query>,
     @Headers() headers: RequestHeaders
   ) {
-    return this.purchases.listPurchases(getSession(headers), branchId, supplierId);
+    const session = getSession(headers);
+    await this.access.requireAnyPermission(session, COST_PERMISSIONS);
+    return this.purchases.listPurchases(session, branchId, supplierId);
   }
 
   @Get('/purchases/:id')
   async getPurchase(@Param('id', new ParseUUIDPipe()) id: string, @Headers() headers: RequestHeaders) {
-    await this.requirePurchaseBranch(id, headers);
+    const session = await this.requirePurchaseBranch(id, headers);
+    await this.access.requireAnyPermission(session, COST_PERMISSIONS);
     return this.purchases.getPurchase(id);
   }
 
@@ -55,7 +58,9 @@ export class PurchasesController {
     @Query(new ZodValidationPipe(appContract.purchases.listReturns.query)) { branchId, ...page }: Parsed<typeof appContract.purchases.listReturns.query>,
     @Headers() headers: RequestHeaders
   ) {
-    await this.access.requireBranch(getSession(headers), branchId);
+    const session = getSession(headers);
+    await this.access.requireBranch(session, branchId);
+    await this.access.requireAnyPermission(session, COST_PERMISSIONS);
     return this.returns.listReturns(branchId, page);
   }
 

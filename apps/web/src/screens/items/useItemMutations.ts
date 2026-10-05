@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Dispatch, SetStateAction } from "react";
 import { api, apiErrorMessage, apiFetch, authHeaders } from "../../lib/api";
+import { canSeeCosts, getSession } from "../../lib/session";
 import { effectiveSupplyType, effectiveUqc } from "./GstItemFields";
 import { initialForm, normalizeSaleUomRows, type Item, type ItemFormState, type SaleUomFormState } from "./itemForm";
 
@@ -55,7 +56,8 @@ export function useItemMutations({
           category: form.category || undefined,
           uom: form.uom,
           leastCount: Number(form.leastCount),
-          costPrice: Number(form.costPrice),
+          // Only someone who may see costs sets one (the API ignores it from others).
+          ...(canSeeCosts(getSession()) ? { costPrice: Number(form.costPrice) } : {}),
           sellPrice: Number(form.sellPrice),
           mrp: Number(form.mrp),
           saleUoms: normalizeSaleUomRows(saleUomRows, form.uom),
@@ -108,7 +110,8 @@ export function useItemMutations({
           category: form.category || null,
           uom: form.uom,
           leastCount: Number(form.leastCount),
-          costPrice: Number(form.costPrice),
+          // Only someone who may see costs sets one (the API ignores it from others).
+          ...(canSeeCosts(getSession()) ? { costPrice: Number(form.costPrice) } : {}),
           sellPrice: Number(form.sellPrice),
           mrp: Number(form.mrp),
           saleUoms: normalizeSaleUomRows(saleUomRows, form.uom),

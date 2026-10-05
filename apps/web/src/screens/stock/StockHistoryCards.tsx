@@ -1,4 +1,4 @@
-import { inr } from "../route-helpers";
+import { costLabel } from "../route-helpers";
 import { formatDateTime } from "./stockFormat";
 import type { LedgerEntry } from "./types";
 
@@ -67,7 +67,7 @@ export function StockHistoryCards({
                     </td>
                     <td className="py-2 pr-2">{entry.qtyIn}</td>
                     <td className="py-2 pr-2">
-                      {inr(entry.costPrice)}
+                      {costLabel(entry.costPrice)}
                     </td>
                     <td className="py-2">{entry.reason || "-"}</td>
                   </tr>
@@ -122,7 +122,7 @@ export function StockHistoryCards({
                         : entry.qtyOut}
                     </td>
                     <td className="py-2 pr-2">
-                      {inr(entry.costPrice)}
+                      {costLabel(entry.costPrice)}
                     </td>
                     <td className="py-2">{entry.reason || "-"}</td>
                   </tr>

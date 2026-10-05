@@ -50,7 +50,7 @@ export function ItemDetails({
                 category: selectedItem.category || "",
                 uom: selectedItem.uom,
                 leastCount: String(selectedItem.leastCount ?? 1),
-                costPrice: String(selectedItem.costPrice),
+                costPrice: String(selectedItem.costPrice ?? 0),
                 sellPrice: String(selectedItem.sellPrice),
                 mrp: String(
                   (selectedItem as { mrp?: number }).mrp ??
@@ -150,12 +150,14 @@ export function ItemDetails({
               {selectedItem.leastCount}
             </dd>
           </div>
-          <div>
-            <dt className="text-xs text-slate-500">Cost</dt>
-            <dd className="font-medium text-slate-900">
-              {inr(selectedItem.costPrice)}
-            </dd>
-          </div>
+          {selectedItem.costPrice !== null ? (
+            <div>
+              <dt className="text-xs text-slate-500">Cost</dt>
+              <dd className="font-medium text-slate-900">
+                {inr(selectedItem.costPrice)}
+              </dd>
+            </div>
+          ) : null}
           <div>
             <dt className="text-xs text-slate-500">Sell Price</dt>
             <dd className="font-medium text-slate-900">

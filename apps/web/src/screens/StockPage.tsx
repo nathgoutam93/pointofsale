@@ -250,12 +250,14 @@ export function StockPage() {
                     {selectedOnHand}
                   </dd>
                 </div>
-                <div>
-                  <dt className="eyebrow">Default item cost</dt>
-                  <dd className="mt-1 text-xl font-semibold text-slate-900 tabular-nums">
-                    {inr(selectedItem.costPrice)}
-                  </dd>
-                </div>
+                {selectedItem.costPrice !== null ? (
+                  <div>
+                    <dt className="eyebrow">Default item cost</dt>
+                    <dd className="mt-1 text-xl font-semibold text-slate-900 tabular-nums">
+                      {inr(selectedItem.costPrice)}
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
             )}
             {canChangeStock ? (

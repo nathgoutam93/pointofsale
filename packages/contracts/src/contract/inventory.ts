@@ -24,7 +24,8 @@ export const itemSchema = z.object({
   category: z.string().nullable(),
   uom: z.string(),
   leastCount: z.number().positive(),
-  costPrice: moneySchema,
+  /** Null for users who may not see costs (only admins and those who adjust stock or record purchases do). */
+  costPrice: moneySchema.nullable(),
   sellPrice: moneySchema,
   mrp: moneySchema,
   taxMode: taxModeSchema,
@@ -132,7 +133,8 @@ const stockTransferSchema = z.object({
       id: z.string().uuid(),
       itemId: z.string().uuid(),
       qty: z.number().positive(),
-      unitCost: moneySchema,
+      /** Null for users who may not see costs. */
+      unitCost: moneySchema.nullable(),
       item: z.object({ code: z.string(), name: z.string(), uom: z.string() })
     })
   )
@@ -145,7 +147,8 @@ const stockLedgerSchema = z.object({
   txnType: stockTxnTypeSchema,
   qtyIn: z.number().nonnegative(),
   qtyOut: z.number().nonnegative(),
-  costPrice: moneySchema.nonnegative(),
+  /** Null for users who may not see costs. */
+  costPrice: moneySchema.nonnegative().nullable(),
   reason: z.string().nullable(),
   referenceType: z.string().nullable(),
   referenceId: z.string().nullable(),

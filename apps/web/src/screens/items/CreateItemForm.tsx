@@ -1,4 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
+import { canSeeCosts, getSession } from "../../lib/session";
 import { BarcodeEditor } from "./BarcodeEditor";
 import { GstItemFields } from "./GstItemFields";
 import type { ItemFormState, SaleUomFormState } from "./itemForm";
@@ -146,21 +147,23 @@ export function CreateItemForm({
             required
           />
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-slate-600">
-            Cost Price
-          </span>
-          <input
-            className="field"
-            type="number"
-            step="0.01"
-            min="0"
-            value={form.costPrice}
-            onChange={(e) =>
-              setForm((s) => ({ ...s, costPrice: e.target.value }))
-            }
-          />
-        </label>
+        {canSeeCosts(getSession()) ? (
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-slate-600">
+              Cost Price
+            </span>
+            <input
+              className="field"
+              type="number"
+              step="0.01"
+              min="0"
+              value={form.costPrice}
+              onChange={(e) =>
+                setForm((s) => ({ ...s, costPrice: e.target.value }))
+              }
+            />
+          </label>
+        ) : null}
         <label className="flex flex-col gap-1">
           <span className="text-xs font-medium text-slate-600">
             Sell Price

@@ -15,6 +15,7 @@ import { SetupService } from './setup/setup.service';
 import { BranchesController } from './branches/branches.controller';
 import { BranchesService } from './branches/branches.service';
 import { AccessService } from './common/access.service';
+import { CostVisibilityInterceptor } from './common/cost-visibility.interceptor';
 import { AuditService } from './common/audit.service';
 import { AuditController } from './audit/audit.controller';
 import { CountersController } from './counters/counters.controller';
@@ -142,7 +143,8 @@ import { UsersService } from './users/users.service';
     // Guards run in this order: who is calling, then whether this install accepts changes.
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: InstanceStatusGuard },
-    { provide: APP_INTERCEPTOR, useClass: SessionCookieInterceptor }
+    { provide: APP_INTERCEPTOR, useClass: SessionCookieInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: CostVisibilityInterceptor }
   ]
 })
 export class AppModule implements OnModuleInit {

@@ -57,7 +57,10 @@ export class ItemsController {
     @Headers() headers: RequestHeaders
   ) {
     await this.managing(headers);
-    return this.items.createItem(getSession(headers), body);
+    const session = getSession(headers);
+    // Someone who may not see costs can't set one either (the item starts at 0).
+    const { costPrice, ...rest } = body;
+    return this.items.createItem(session, (await this.access.maySeeCosts(session)) ? body : rest);
   }
 
   @Patch('/items/:id')
@@ -68,7 +71,10 @@ export class ItemsController {
     @Headers() headers: RequestHeaders
   ) {
     await this.managing(headers);
-    return this.items.updateItem(getSession(headers), id, body);
+    const session = getSession(headers);
+    // Someone who may not see costs leaves the cost as it is.
+    const { costPrice, ...rest } = body;
+    return this.items.updateItem(session, id, (await this.access.maySeeCosts(session)) ? body : rest);
   }
 
   @Delete('/items/:id')
