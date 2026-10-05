@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { api, apiErrorMessage, apiFetch, authHeaders } from "../../lib/api";
 import { canSeeCosts, getSession } from "../../lib/session";
 import { effectiveSupplyType, effectiveUqc } from "./GstItemFields";
-import { initialForm, normalizeSaleUomRows, type Item, type ItemFormState, type SaleUomFormState } from "./itemForm";
+import { initialForm, normalizeSaleUomRows, type Item, type ItemFormState, type SaleUomFormState, type PanelMode } from "./itemForm";
 
 /** Creating, updating and deleting an item from the form, and the error the last attempt left. */
 export function useItemMutations({
@@ -27,7 +27,7 @@ export function useItemMutations({
   barcodeBody: () => Array<{ barcode: string; saleUom: string | null }>;
   selectedItem: Item | null;
   setSelectedItemId: (id: string | null) => void;
-  setPanelMode: (mode: "view" | "create" | "edit") => void;
+  setPanelMode: (mode: PanelMode) => void;
   removeImageOnEdit: boolean;
   setRemoveImageOnEdit: (remove: boolean) => void;
 }) {

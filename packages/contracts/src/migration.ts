@@ -24,6 +24,7 @@ export const MIGRATION_TABLES = [
   'Customer',
   'WalletAccount',
   'WalletTxn',
+  'ItemGroup',
   'Item',
   'ItemSaleUom',
   'ItemBarcode',

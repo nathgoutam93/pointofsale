@@ -3,7 +3,7 @@ import { canSeeCosts, getSession } from "../../lib/session";
 import { uploadSrc } from "../../lib/api";
 import { BarcodeEditor } from "./BarcodeEditor";
 import { GstItemFields } from "./GstItemFields";
-import { initialForm, type Item, type ItemFormState, type SaleUomFormState } from "./itemForm";
+import { initialForm, type Item, type ItemFormState, type SaleUomFormState, type PanelMode } from "./itemForm";
 import { SaleUomEditor } from "./SaleUomEditor";
 import type { ItemMutations } from "./useItemMutations";
 
@@ -32,7 +32,7 @@ export function EditItemForm({
   setSaleUomRows: Dispatch<SetStateAction<SaleUomFormState[]>>;
   barcodeRows: Array<{ barcode: string; saleUom: string }>;
   setBarcodeRows: Dispatch<SetStateAction<Array<{ barcode: string; saleUom: string }>>>;
-  setPanelMode: (mode: "view" | "create" | "edit") => void;
+  setPanelMode: (mode: PanelMode) => void;
   removeImageOnEdit: boolean;
   setRemoveImageOnEdit: (remove: boolean) => void;
   imagePreviewUrl: string | null;

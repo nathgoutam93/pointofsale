@@ -5,6 +5,7 @@ import { GstItemFields } from "./GstItemFields";
 import type { ItemFormState, SaleUomFormState } from "./itemForm";
 import { SaleUomEditor } from "./SaleUomEditor";
 import type { ItemMutations } from "./useItemMutations";
+import type { PanelMode } from "./itemForm";
 
 /** A new item: its code, name, units, prices, barcodes, tax and image. */
 export function CreateItemForm({
@@ -26,7 +27,7 @@ export function CreateItemForm({
   setSaleUomRows: Dispatch<SetStateAction<SaleUomFormState[]>>;
   barcodeRows: Array<{ barcode: string; saleUom: string }>;
   setBarcodeRows: Dispatch<SetStateAction<Array<{ barcode: string; saleUom: string }>>>;
-  setPanelMode: (mode: "view" | "create" | "edit") => void;
+  setPanelMode: (mode: PanelMode) => void;
   formMrpProblem: string | null;
   hsnMinDigits: number;
   createItem: ItemMutations["createItem"];

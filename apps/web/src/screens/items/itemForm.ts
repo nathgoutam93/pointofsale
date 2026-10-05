@@ -5,6 +5,9 @@ import { emptyGstItemForm, type GstItemForm } from "./GstItemFields";
 
 export type Item = Extract<Awaited<ReturnType<typeof api.items.list>>, { status: 200 }>["body"][number];
 
+/** The right-hand panel: an item's details, a form for a new item or a product with variants, or editing. */
+export type PanelMode = "view" | "create" | "product" | "edit";
+
 export type ItemFormState = {
   code: string;
   name: string;

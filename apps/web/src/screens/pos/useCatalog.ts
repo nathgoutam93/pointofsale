@@ -59,6 +59,7 @@ export function useCatalog({
         keyword.length === 0 ||
         item.name.toLowerCase().includes(keyword) ||
         item.code.toLowerCase().includes(keyword) ||
+        (item.group?.name.toLowerCase().includes(keyword) ?? false) ||
         category.toLowerCase().includes(keyword) ||
         saleUomText.toLowerCase().includes(keyword);
       return categoryMatch && textMatch;
@@ -93,6 +94,9 @@ export function useCatalog({
         displayUom: variant.uom,
         saleUomQty: 1,
         saleUomConversionQty: variant.conversionQty,
+        group: item.group,
+        option1: item.option1,
+        option2: item.option2,
       }));
     });
   }, [items.data]);

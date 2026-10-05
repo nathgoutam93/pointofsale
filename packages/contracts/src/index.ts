@@ -2,7 +2,7 @@ import { c } from './contract/shared.js';
 import { branchesRoutes, businessRoutes, countersRoutes, registersRoutes } from './contract/business.js';
 import { accountsRoutes, authRoutes, businessesRoutes, metaRoutes, setupRoutes, usersRoutes } from './contract/auth.js';
 import { customersRoutes } from './contract/customers.js';
-import { itemsRoutes, stockRoutes, transfersRoutes } from './contract/inventory.js';
+import { itemGroupsRoutes, itemsRoutes, stockRoutes, transfersRoutes } from './contract/inventory.js';
 import { expensesRoutes } from './contract/expenses.js';
 import { purchasesRoutes, suppliersRoutes } from './contract/purchases.js';
 import { receiptsRoutes, returnsRoutes, salesRoutes } from './contract/sales.js';
@@ -181,7 +181,7 @@ export {
 export type { CustomerAccount } from './contract/customers.js';
 export { barcodeSvg, LABEL_LAYOUT_IDS, LABEL_LAYOUTS, labelProblem, labelsHtml, type LabelData, type LabelLayout, type LabelLayoutId, type LabelOptions } from './labels.js';
 export { CASH_IN_REASONS, CASH_OUT_REASONS, cashMovementSchema, EXPENSE_CATEGORIES, expenseSchema } from './contract/expenses.js';
-export { batchStockSchema, itemSchema, itemWithSaleUomsSchema, lowStockSchema, onHandSchema } from './contract/inventory.js';
+export { batchStockSchema, itemGroupDetailSchema, itemGroupSchema, itemSchema, itemWithSaleUomsSchema, lowStockSchema, onHandSchema } from './contract/inventory.js';
 export { purchaseReturnSchema, supplierAccountSchema, supplierPaymentSchema, supplierSchema } from './contract/purchases.js';
 export type { SupplierAccount } from './contract/purchases.js';
 export { auditEventSchema, reportDetailSchema, salesExportQuerySchema } from './contract/reports.js';
@@ -202,6 +202,8 @@ export const appContract = c.router({
   counters: countersRoutes,
   registers: registersRoutes,
   items: itemsRoutes,
+  /** Products sold in sizes and/or colours, each combination an item of its own. */
+  itemGroups: itemGroupsRoutes,
   stock: stockRoutes,
   purchases: purchasesRoutes,
   /** Suppliers: their details, what is owed to them, and payments to them. */

@@ -7,6 +7,8 @@ import { inr } from "../route-helpers";
 import { BranchPricesSection } from "./BranchPricesSection";
 import type { Item, ItemFormState, SaleUomFormState } from "./itemForm";
 import type { ItemMutations } from "./useItemMutations";
+import type { PanelMode } from "./itemForm";
+import { VariantsPanel } from "./VariantsPanel";
 
 /** The selected item: its details and unit prices, with Edit and Delete, and (admins) its branch prices. */
 export function ItemDetails({
@@ -21,6 +23,7 @@ export function ItemDetails({
   setRemoveImageOnEdit,
   deleteItem,
   resetMutationErrors,
+  onSelectItem,
 }: {
   session: Pick<Session, "role">;
   canManageItems: boolean;
@@ -29,10 +32,12 @@ export function ItemDetails({
   setForm: Dispatch<SetStateAction<ItemFormState>>;
   setSaleUomRows: Dispatch<SetStateAction<SaleUomFormState[]>>;
   setBarcodeRows: Dispatch<SetStateAction<Array<{ barcode: string; saleUom: string }>>>;
-  setPanelMode: (mode: "view" | "create" | "edit") => void;
+  setPanelMode: (mode: PanelMode) => void;
   setRemoveImageOnEdit: (remove: boolean) => void;
   deleteItem: ItemMutations["deleteItem"];
   resetMutationErrors: () => void;
+  /** Shows another item (a sibling variant). */
+  onSelectItem: (itemId: string) => void;
 }) {
   return (
     <>
@@ -254,6 +259,9 @@ export function ItemDetails({
             </table>
           </div>
         </div>
+        {selectedItem.group ? (
+          <VariantsPanel group={selectedItem.group} itemId={selectedItem.id} canManage={canManageItems} onSelect={onSelectItem} />
+        ) : null}
         {session.role === "ADMIN" && selectedItemUnits ? (
           <BranchPricesSection
             itemId={selectedItem.id}

@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import { inr } from "../route-helpers";
-import { initialForm, type Item, type ItemFormState, type SaleUomFormState } from "./itemForm";
+import { initialForm, type Item, type ItemFormState, type SaleUomFormState, type PanelMode } from "./itemForm";
 
 /** The items column: searching, the list, and starting a new item. */
 export function ItemList({
@@ -27,8 +27,8 @@ export function ItemList({
   setSearchQuery: (query: string) => void;
   selectedItemId: string | null;
   setSelectedItemId: (id: string | null) => void;
-  panelMode: "view" | "create" | "edit";
-  setPanelMode: (mode: "view" | "create" | "edit") => void;
+  panelMode: PanelMode;
+  setPanelMode: (mode: PanelMode) => void;
   setForm: Dispatch<SetStateAction<ItemFormState>>;
   setSaleUomRows: Dispatch<SetStateAction<SaleUomFormState[]>>;
   setBarcodeRows: Dispatch<SetStateAction<Array<{ barcode: string; saleUom: string }>>>;
@@ -42,6 +42,18 @@ export function ItemList({
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="page-title">Items</h2>
         {canManageItems ? (
+        <div className="flex gap-1.5">
+        <button
+          className="btn-secondary"
+          type="button"
+          title="A product in sizes and/or colours"
+          onClick={() => {
+            resetMutationErrors();
+            setPanelMode("product");
+          }}
+        >
+          Sizes / Colours
+        </button>
         <button
           className="btn-primary"
           type="button"
@@ -56,6 +68,7 @@ export function ItemList({
         >
           New Item
         </button>
+        </div>
         ) : null}
       </div>
       <input

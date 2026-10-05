@@ -11,13 +11,36 @@ import { toNumber, round2 } from '../common/numbers';
 import { normalizeLeastCount } from '../common/quantities';
 import { AuditService } from '../common/audit.service';
 
-/** An item as the API answers it: its sale units in order and its barcodes. */
+/** An item as the API answers it: its sale units in order, its barcodes, and the product it is a variant of. */
 const itemInclude = {
   saleUoms: { orderBy: { sortOrder: 'asc' } },
-  barcodes: { orderBy: { createdAt: 'asc' }, select: { id: true, barcode: true, saleUom: true } }
+  barcodes: { orderBy: { createdAt: 'asc' }, select: { id: true, barcode: true, saleUom: true } },
+  group: { select: { id: true, name: true, option1Name: true, option2Name: true, option1Values: true, option2Values: true } }
 } satisfies Prisma.ItemInclude;
 
 type ItemBarcodeInput = { barcode: string; saleUom?: string | null };
+
+export type NewItemInput = {
+  code: string;
+  name: string;
+  category?: string;
+  uom: string;
+  leastCount?: number;
+  costPrice?: number;
+  sellPrice: number;
+  mrp?: number;
+  saleUoms?: ItemSaleUomInput[];
+  taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
+  taxRate: number;
+  hsnCode?: string | null;
+  uqc?: string | null;
+  supplyType?: GstSupplyType;
+  imageUrl?: string;
+  barcodes?: ItemBarcodeInput[];
+  tracksBatches?: boolean;
+  /** A size/colour variant: the product it belongs to, and its option values. */
+  variant?: { groupId: string; option1: string; option2: string | null };
+};
 
 /** The item fields the audit log follows. */
 const AUDITED_ITEM_FIELDS = ['name', 'code', 'category', 'uom', 'costPrice', 'sellPrice', 'mrp', 'taxMode', 'taxRate', 'hsnCode', 'supplyType', 'isActive', 'tracksBatches'];
@@ -65,7 +88,7 @@ export class ItemsService {
    * tax-exclusive price is checked with GST added while the business charges it. An MRP of 0
    * means none is printed.
    */
-  private async assertWithinMrp(
+  async assertWithinMrp(
     units: Array<{ uom: string; sellPrice: number; mrp: number }>,
     tax: { taxMode: 'INCLUSIVE' | 'EXCLUSIVE'; taxRate: number },
     tx?: Prisma.TransactionClient
@@ -252,70 +275,63 @@ export class ItemsService {
     }
   }
 
-  async createItem(session: SessionUser, input: {
-    code: string;
-    name: string;
-    category?: string;
-    uom: string;
-    leastCount?: number;
-    costPrice?: number;
-    sellPrice: number;
-    mrp?: number;
-    saleUoms?: ItemSaleUomInput[];
-    taxMode?: 'INCLUSIVE' | 'EXCLUSIVE';
-    taxRate: number;
-    hsnCode?: string | null;
-    uqc?: string | null;
-    supplyType?: GstSupplyType;
-    imageUrl?: string;
-    barcodes?: ItemBarcodeInput[];
-    tracksBatches?: boolean;
-  }) {
+  async createItem(session: SessionUser, input: NewItemInput) {
+    const prepared = await this.prepareNewItem(input);
+    return this.prisma.$transaction((tx) => this.insertItem(tx, session, input, prepared));
+  }
+
+  /** Checks a new item before it is saved; what insertItem needs from it. */
+  async prepareNewItem(input: NewItemInput) {
     const leastCount = normalizeLeastCount(input.leastCount ?? 1);
     const supplyType = input.supplyType ?? defaultSupplyType(input.taxRate);
     this.assertSupplyType(supplyType, input.taxRate);
     await this.assertHsnCode(input.hsnCode);
     const saleUoms = this.normalizeItemSaleUoms(input);
     await this.assertWithinMrp(saleUoms, { taxMode: input.taxMode ?? 'EXCLUSIVE', taxRate: input.taxRate });
-    return this.prisma.$transaction(async (tx) => {
-      // An item's code is scanned too, so it can't be another item's barcode.
-      const barcodeOwner = await tx.itemBarcode.findFirst({ where: { barcode: { equals: input.code.trim(), mode: 'insensitive' } }, select: { item: { select: { name: true } } } });
-      if (barcodeOwner) throw new BadRequestException(`${input.code} is a barcode of ${barcodeOwner.item.name}`);
-      const created = await tx.item.create({
-        data: {
-          code: input.code,
-          name: input.name,
-          category: input.category,
-          uom: input.uom,
-          leastCount,
-          costPrice: input.costPrice ?? 0,
-          sellPrice: input.sellPrice,
-          mrp: input.mrp ?? 0,
-          taxMode: input.taxMode ?? 'EXCLUSIVE',
-          taxRate: input.taxRate,
-          hsnCode: input.hsnCode || null,
-          uqc: input.uqc === undefined ? suggestUqc(input.uom) : input.uqc,
-          supplyType,
-          imageUrl: input.imageUrl,
-          tracksBatches: input.tracksBatches ?? false,
-          saleUoms: { create: saleUoms }
-        },
-        select: { id: true }
-      });
-      if (input.barcodes?.length) await this.replaceBarcodes(tx, created.id, input.barcodes);
-      await this.audit.record(
-        session,
-        {
-          action: 'ITEM_CREATED',
-          entityType: 'Item',
-          entityId: created.id,
-          summary: `Added item ${input.code} ${input.name} at ${round2(input.sellPrice).toFixed(2)}`,
-          details: { sellPrice: input.sellPrice, mrp: input.mrp ?? 0, taxRate: input.taxRate, taxMode: input.taxMode ?? 'EXCLUSIVE' }
-        },
-        tx
-      );
-      return tx.item.findUniqueOrThrow({ where: { id: created.id }, include: itemInclude });
+    return { leastCount, supplyType, saleUoms };
+  }
+
+  /** Saves a checked new item (and its barcodes) in the caller's transaction. */
+  async insertItem(tx: Prisma.TransactionClient, session: SessionUser, input: NewItemInput, prepared: Awaited<ReturnType<ItemsService['prepareNewItem']>>) {
+    const { leastCount, supplyType, saleUoms } = prepared;
+    // An item's code is scanned too, so it can't be another item's barcode.
+    const barcodeOwner = await tx.itemBarcode.findFirst({ where: { barcode: { equals: input.code.trim(), mode: 'insensitive' } }, select: { item: { select: { name: true } } } });
+    if (barcodeOwner) throw new BadRequestException(`${input.code} is a barcode of ${barcodeOwner.item.name}`);
+    const created = await tx.item.create({
+      data: {
+        ...(input.variant ? { groupId: input.variant.groupId, option1: input.variant.option1, option2: input.variant.option2 } : {}),
+        code: input.code,
+        name: input.name,
+        category: input.category,
+        uom: input.uom,
+        leastCount,
+        costPrice: input.costPrice ?? 0,
+        sellPrice: input.sellPrice,
+        mrp: input.mrp ?? 0,
+        taxMode: input.taxMode ?? 'EXCLUSIVE',
+        taxRate: input.taxRate,
+        hsnCode: input.hsnCode || null,
+        uqc: input.uqc === undefined ? suggestUqc(input.uom) : input.uqc,
+        supplyType,
+        imageUrl: input.imageUrl,
+        tracksBatches: input.tracksBatches ?? false,
+        saleUoms: { create: saleUoms }
+      },
+      select: { id: true }
     });
+    if (input.barcodes?.length) await this.replaceBarcodes(tx, created.id, input.barcodes);
+    await this.audit.record(
+      session,
+      {
+        action: 'ITEM_CREATED',
+        entityType: 'Item',
+        entityId: created.id,
+        summary: `Added item ${input.code} ${input.name} at ${round2(input.sellPrice).toFixed(2)}`,
+        details: { sellPrice: input.sellPrice, mrp: input.mrp ?? 0, taxRate: input.taxRate, taxMode: input.taxMode ?? 'EXCLUSIVE' }
+      },
+      tx
+    );
+    return tx.item.findUniqueOrThrow({ where: { id: created.id }, include: itemInclude });
   }
 
   async updateItem(

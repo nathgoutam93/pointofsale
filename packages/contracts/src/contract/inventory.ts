@@ -40,7 +40,22 @@ export const itemSchema = z.object({
   isActive: z.boolean(),
   /** Stock is kept by batch with expiry dates: sold earliest expiry first, never expired. */
   tracksBatches: z.boolean().default(false),
+  /** A size/colour variant: its product, and its values of the product's options. */
+  groupId: z.string().uuid().nullable().default(null),
+  option1: z.string().nullable().default(null),
+  option2: z.string().nullable().default(null),
   createdAt: z.string().datetime()
+});
+
+/** A product sold in sizes and/or colours; each combination is an item of its own. */
+export const itemGroupSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  option1Name: z.string(),
+  option2Name: z.string().nullable(),
+  /** The options' values in the order given: the picker's rows and columns. */
+  option1Values: z.array(z.string()).default([]),
+  option2Values: z.array(z.string()).default([])
 });
 
 /** An item's stock at a branch, with its reorder level there (null: not watched). */
@@ -111,7 +126,78 @@ const itemBarcodeListSchema = z
 
 export const itemWithSaleUomsSchema = itemSchema.extend({
   saleUoms: z.array(itemSaleUomSchema),
-  barcodes: z.array(z.object({ id: z.string().uuid(), barcode: z.string(), saleUom: z.string().nullable() })).default([])
+  barcodes: z.array(z.object({ id: z.string().uuid(), barcode: z.string(), saleUom: z.string().nullable() })).default([]),
+  group: itemGroupSchema.nullable().default(null)
+});
+
+/** An option's values: at most 30, each named once (any case). */
+const optionValuesSchema = z
+  .array(z.string().trim().min(1).max(20))
+  .min(1)
+  .max(30)
+  .superRefine(uniqueBy((value) => value.toLowerCase(), 'A value is listed more than once'));
+
+export const itemGroupDetailSchema = itemGroupSchema.extend({
+  items: z.array(
+    z.object({ id: z.string().uuid(), code: z.string(), name: z.string(), option1: z.string(), option2: z.string().nullable(), sellPrice: moneySchema, isActive: z.boolean() })
+  )
+});
+
+export const itemGroupsRoutes = c.router({
+  /** Products with variants, each with its items. */
+  list: {
+    method: 'GET',
+    path: '/item-groups',
+    responses: { 200: z.array(itemGroupDetailSchema) }
+  },
+  /**
+   * Item managers: a product and an item for each combination of its options' values (sizes
+   * × colours), coded PREFIX-VALUE1-VALUE2 and named "Name Value1 / Value2", all at one price.
+   */
+  create: {
+    method: 'POST',
+    path: '/item-groups',
+    body: z
+      .object({
+        name: requiredText.max(80),
+        codePrefix: z.string().trim().min(1).max(20).regex(/^[A-Za-z0-9-]+$/, 'Letters, digits and dashes only'),
+        category: z.string().optional(),
+        uom: requiredText,
+        option1Name: requiredText.max(20),
+        option1Values: optionValuesSchema,
+        option2Name: z.string().trim().min(1).max(20).optional(),
+        option2Values: optionValuesSchema.optional(),
+        costPrice: moneySchema.nonnegative().optional(),
+        sellPrice: moneySchema.nonnegative(),
+        mrp: moneySchema.nonnegative().optional(),
+        taxMode: taxModeSchema.optional(),
+        taxRate: taxRateSchema,
+        hsnCode: hsnCodeSchema.nullable().optional(),
+        supplyType: gstSupplyTypeSchema.optional(),
+        tracksBatches: z.boolean().optional()
+      })
+      .refine((body) => !body.option2Name === !body.option2Values, { message: 'Name the second option and give its values', path: ['option2Values'] })
+      .refine((body) => body.option1Values.length * (body.option2Values?.length ?? 1) <= 200, { message: 'At most 200 combinations', path: ['option1Values'] }),
+    responses: { 201: itemGroupDetailSchema }
+  },
+  /** Item managers: more values (a new size or colour); the new combinations copy the product's first item. */
+  addValues: {
+    method: 'POST',
+    path: '/item-groups/:id/values',
+    pathParams: z.object({ id: z.string().uuid() }),
+    body: z
+      .object({ option1Values: optionValuesSchema.optional(), option2Values: optionValuesSchema.optional() })
+      .refine((body) => body.option1Values || body.option2Values, { message: 'Give the new values' }),
+    responses: { 200: itemGroupDetailSchema }
+  },
+  /** Item managers: one price (and MRP) for every variant of the product. */
+  setPrices: {
+    method: 'PATCH',
+    path: '/item-groups/:id/prices',
+    pathParams: z.object({ id: z.string().uuid() }),
+    body: z.object({ sellPrice: moneySchema.nonnegative(), mrp: moneySchema.nonnegative().optional() }),
+    responses: { 200: itemGroupDetailSchema }
+  }
 });
 
 const saleUomInputListSchema = z

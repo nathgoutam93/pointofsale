@@ -458,6 +458,12 @@ model Item {
   supplyType          GstSupplyType        @default(TAXABLE)
   imageUrl            String?
   isActive            Boolean              @default(true)
+  /// A size/colour variant: the product it belongs to, and its values of the product's options
+  /// (option2 only when the product has a second option).
+  groupId             String?
+  group               ItemGroup?           @relation(fields: [groupId], references: [id])
+  option1             String?
+  option2             String?
   lines               SaleInvoiceLine[]
   stockLedgers        StockLedger[]
   stock               ItemStock[]
@@ -469,6 +475,23 @@ model Item {
   createdAt           DateTime             @default(now())
   purchaseReturnLines PurchaseReturnLine[]
   batches             ItemBatch[]
+
+  @@index([groupId])
+}
+
+/// A product sold in sizes and/or colours: each combination is an item of its own (code,
+/// barcodes, price, stock), grouped here for the counter's picker.
+model ItemGroup {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  /// "Size", "Colour"...
+  option1Name   String
+  option2Name   String?
+  /// The options' values in the order they were given (the picker's rows and columns).
+  option1Values String[]
+  option2Values String[]
+  createdAt     DateTime @default(now())
+  items         Item[]
 }
 
 model ItemSaleUom {

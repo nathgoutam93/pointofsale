@@ -7,8 +7,9 @@ import { requireSession } from "./route-helpers";
 import { CreateItemForm } from "./items/CreateItemForm";
 import { EditItemForm } from "./items/EditItemForm";
 import { ItemDetails } from "./items/ItemDetails";
-import { initialForm, type SaleUomFormState } from "./items/itemForm";
+import { initialForm, type PanelMode, type SaleUomFormState } from "./items/itemForm";
 import { ItemList } from "./items/ItemList";
+import { ProductForm } from "./items/ProductForm";
 import { useItemMutations } from "./items/useItemMutations";
 
 export function ItemsPage() {
@@ -24,7 +25,7 @@ export function ItemsPage() {
       .filter((row) => row.barcode.trim())
       .map((row) => ({ barcode: row.barcode.trim(), saleUom: row.saleUom || null }));
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [panelMode, setPanelMode] = useState<"view" | "create" | "edit">(
+  const [panelMode, setPanelMode] = useState<PanelMode>(
     "view",
   );
   const [removeImageOnEdit, setRemoveImageOnEdit] = useState(false);
@@ -169,6 +170,14 @@ export function ItemsPage() {
             createItem={createItem}
             resetMutationErrors={resetMutationErrors}
           />
+        ) : panelMode === "product" ? (
+          <ProductForm
+            onCancel={() => setPanelMode("view")}
+            onDone={(firstItemId) => {
+              if (firstItemId) setSelectedItemId(firstItemId);
+              setPanelMode("view");
+            }}
+          />
         ) : panelMode === "edit" && selectedItem ? (
           <EditItemForm
             selectedItem={selectedItem}
@@ -200,6 +209,7 @@ export function ItemsPage() {
             setRemoveImageOnEdit={setRemoveImageOnEdit}
             deleteItem={deleteItem}
             resetMutationErrors={resetMutationErrors}
+            onSelectItem={setSelectedItemId}
           />
         ) : (
           <div className="py-12 text-center">

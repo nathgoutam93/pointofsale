@@ -1,7 +1,9 @@
+import { useMemo, useState } from "react";
 import { IconScan, IconSearch } from "../../components/icons";
 import { uploadSrc } from "../../lib/api";
 import { inr } from "../route-helpers";
 import { formatStockOnHand } from "./cartMath";
+import { VariantPicker, type VariantChoice } from "./VariantPicker";
 
 type GridItem = {
   id: string;
@@ -13,7 +15,10 @@ type GridItem = {
   imageUrl?: string | null;
   saleUom?: string;
   saleUomConversionQty: number | string;
-};
+} & VariantChoice;
+
+/** A tile: one item (in one unit), or a product whose variants are picked in a grid. */
+type Tile<T> = { kind: "item"; choice: T } | { kind: "product"; key: string; choices: T[] };
 
 /** Category tabs, product search, the barcode box and the product tiles. */
 export function ProductGrid<T extends GridItem>({
@@ -41,6 +46,28 @@ export function ProductGrid<T extends GridItem>({
   onHandByItem: Map<string, number>;
   onAdd: (item: T) => void;
 }) {
+  const [picking, setPicking] = useState<T[] | null>(null);
+  // A product's variants (in their base unit) share one tile, where the first of them is.
+  const tiles = useMemo(() => {
+    const out: Array<Tile<T>> = [];
+    const products = new Map<string, Extract<Tile<T>, { kind: "product" }>>();
+    for (const choice of items) {
+      if (!choice.group || choice.saleUom) {
+        out.push({ kind: "item", choice });
+        continue;
+      }
+      const known = products.get(choice.group.id);
+      if (known) {
+        known.choices.push(choice);
+        continue;
+      }
+      const tile = { kind: "product" as const, key: `group:${choice.group.id}`, choices: [choice] };
+      products.set(choice.group.id, tile);
+      out.push(tile);
+    }
+    return out;
+  }, [items]);
+
   return (
     <>
       <div className="shrink-0 space-y-3 border-b border-slate-200 bg-white px-4 py-3">
@@ -92,7 +119,9 @@ export function ProductGrid<T extends GridItem>({
           </div>
         ) : null}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
-          {items.map((item) => {
+          {tiles.map((tile) => {
+            if (tile.kind === "product") return <ProductTile key={tile.key} choices={tile.choices} onHandByItem={onHandByItem} onOpen={() => setPicking(tile.choices)} />;
+            const item = tile.choice;
             const availableStock = onHandByItem.get(item.id) ?? 0;
             const stockTone = availableStock <= 0 ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-600";
             return (
@@ -132,6 +161,51 @@ export function ProductGrid<T extends GridItem>({
           })}
         </div>
       </div>
+      {picking ? (
+        <VariantPicker
+          choices={picking}
+          onHandByItem={onHandByItem}
+          onClose={() => setPicking(null)}
+          onPick={(choice) => {
+            onAdd(choice);
+            setPicking(null);
+          }}
+        />
+      ) : null}
     </>
+  );
+}
+
+/** A product with variants: its name, how many, the price range and the stock of them all. */
+function ProductTile<T extends GridItem>({ choices, onHandByItem, onOpen }: { choices: T[]; onHandByItem: Map<string, number>; onOpen: () => void }) {
+  const first = choices[0];
+  const prices = choices.map((choice) => Number(choice.sellPrice) || 0);
+  const low = Math.min(...prices);
+  const high = Math.max(...prices);
+  const stock = choices.reduce((sum, choice) => sum + (onHandByItem.get(choice.id) ?? 0), 0);
+  const image = choices.find((choice) => choice.imageUrl)?.imageUrl;
+  return (
+    <button
+      className="group flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white text-left shadow-xs transition hover:border-brand-300 hover:shadow-md active:scale-[0.98]"
+      onClick={onOpen}
+    >
+      <div className="h-24 w-full shrink-0 overflow-hidden border-b border-slate-100 bg-slate-50">
+        {image ? <img src={uploadSrc(image) ?? undefined} alt={first.group?.name} className="h-full w-full object-scale-down" /> : null}
+      </div>
+      <div className="flex flex-1 flex-col p-2.5">
+        <p className="line-clamp-2 min-h-[2.5em] text-[13px] leading-tight font-semibold text-slate-800 group-hover:text-brand-700" title={first.group?.name}>
+          {first.group?.name}
+        </p>
+        <p className="mt-0.5 truncate text-[11px] text-slate-500">
+          {choices.length} {first.group?.option2Name ? `${first.group.option1Name.toLowerCase()}s & ${first.group.option2Name.toLowerCase()}s` : `${first.group?.option1Name.toLowerCase()}s`}
+        </p>
+        <div className="mt-auto flex items-center justify-between gap-1 pt-2">
+          <span className="text-sm font-semibold whitespace-nowrap text-slate-900 tabular-nums">{low === high ? inr(low) : `${inr(low)}+`}</span>
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap tabular-nums ${stock <= 0 ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-600"}`}>
+            {formatStockOnHand(stock)} left
+          </span>
+        </div>
+      </div>
+    </button>
   );
 }
