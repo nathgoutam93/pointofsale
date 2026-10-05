@@ -23,7 +23,7 @@ test('buy from a new supplier, pay part, send goods back', async ({ page, reques
   await row.getByRole('spinbutton').first().fill('10');
   await row.getByRole('spinbutton').nth(1).fill('50');
   await page.getByRole('button', { name: 'Save Purchase' }).click();
-  await expect(page.getByText(/saved\. Stock and item costs are updated/)).toBeVisible();
+  await expect(page.getByText(/saved\. Stock added, and item costs set to the prices paid/)).toBeVisible();
 
   // The supplier is owed ₹500; ₹200 paid by bank leaves ₹300.
   await page.goto('/suppliers');

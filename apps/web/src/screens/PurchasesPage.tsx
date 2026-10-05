@@ -19,9 +19,8 @@ function formatDate(value: string) {
 }
 
 /**
- * Goods received from suppliers at this branch. Saving adds the stock, moves each item's cost
- * to the weighted average of the stock held and the new purchase, and adds the total with GST
- * to what the supplier is owed. Goods can be sent back from a purchase's details.
+ * Goods received from suppliers at this branch. Saving adds the stock, sets each item's cost to
+ * the price paid, and adds the total with GST to what the supplier is owed. Goods can be sent back from a purchase's details.
  */
 export function PurchasesPage() {
   requireManagementSession();
@@ -91,7 +90,7 @@ export function PurchasesPage() {
       setSupplierChoice(emptySupplierChoice);
       setLines([]);
       setError("");
-      setSaved(`${purchase.purchaseNo} saved. Stock and item costs are updated.`);
+      setSaved(`${purchase.purchaseNo} saved. Stock added, and item costs set to the prices paid.`);
       void queryClient.invalidateQueries({ queryKey: ["purchases", branchId] });
       void queryClient.invalidateQueries({ queryKey: ["stock-module", branchId] });
       void queryClient.invalidateQueries({ queryKey: ["stock-ledger", branchId] });

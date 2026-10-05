@@ -105,9 +105,8 @@ describe('batches and expiry', () => {
     ]);
     expect(purchase.status).toBe(201);
     expect(purchase.body.lines.map((row: { batch: { batchNo: string } }) => row.batch.batchNo).sort()).toEqual(['D-4', 'E-5']);
-    // The cost averages over both batches together, and the 10 held at both branches (at 0):
-    // (10 × 0 + 10 × 5 + 10 × 7) / 30.
-    expect(Number((await t.db.item.findUniqueOrThrow({ where: { id: itemId } })).costPrice)).toBe(4);
+    // The cost is what was paid; of two batches at two costs, the line entered last.
+    expect(Number((await t.db.item.findUniqueOrThrow({ where: { id: itemId } })).costPrice)).toBe(7);
     expect(await batches()).toEqual([['D-4', 10, false], ['B-2', 3, false], ['E-5', 10, false]]);
 
     const eLine = purchase.body.lines.find((row: { batch: { batchNo: string } }) => row.batch.batchNo === 'E-5');

@@ -32,15 +32,6 @@ export const purchaseInclude = {
   lines: { include: { item: { select: { code: true, name: true, uom: true } }, batch: { select: { batchNo: true, expiryDate: true } } } }
 } satisfies Prisma.PurchaseInclude;
 
-/**
- * The item's cost after buying `qty` at `unitCost`: the average over the stock already on
- * hand at every branch (at the current cost) and the new stock. Stock below zero counts as none.
- */
-export function weightedAverageCost(onHand: number, currentCost: number, qty: number, unitCost: number) {
-  const held = Math.max(onHand, 0);
-  return round2((held * currentCost + qty * unitCost) / (held + qty));
-}
-
 @Injectable()
 export class PurchasesService {
   constructor(
@@ -52,7 +43,7 @@ export class PurchasesService {
     private readonly suppliers: SuppliersService
   ) {}
 
-  /** Records goods received at a branch: adds the stock and updates each item's cost. The caller checks who may. */
+  /** Records goods received at a branch: adds the stock and sets each item's cost to what was paid. The caller checks who may. */
   async createPurchase(session: SessionUser, input: CreatePurchaseInput) {
     await this.settings.ensureBranchExists(input.branchId);
 
@@ -146,17 +137,11 @@ export class PurchasesService {
         include: purchaseInclude
       });
 
-      // Averaged over stock before this purchase, so work it out before recording the stock;
-      // an item bought in two batches counts once, at the cost of both together.
-      const boughtByItem = new Map<string, { item: (typeof lines)[number]['item']; qty: number; amount: number }>();
-      for (const line of lines) {
-        const entry = boughtByItem.get(line.item.id) ?? { item: line.item, qty: 0, amount: 0 };
-        boughtByItem.set(line.item.id, { item: line.item, qty: round3(entry.qty + line.qty), amount: entry.amount + line.qty * line.unitCost });
-      }
-      for (const { item, qty, amount } of boughtByItem.values()) {
-        const held = await tx.itemStock.aggregate({ where: { itemId: item.id, qty: { gt: 0 } }, _sum: { qty: true } });
-        const costPrice = weightedAverageCost(toNumber(held._sum.qty), toNumber(item.costPrice), qty, qty > 0 ? amount / qty : 0);
-        await tx.item.update({ where: { id: item.id }, data: { costPrice } });
+      // The item's cost is what was just paid for it, not an average (an item bought in two
+      // batches at two costs takes the line entered last). Each line keeps its own cost.
+      const costByItem = new Map(lines.map((line) => [line.item.id, line.unitCost]));
+      for (const [itemId, costPrice] of costByItem) {
+        await tx.item.update({ where: { id: itemId }, data: { costPrice } });
       }
 
       await this.stock.recordStock(
