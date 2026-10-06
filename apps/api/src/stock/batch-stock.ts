@@ -32,7 +32,8 @@ export async function lotsOf(tx: Prisma.TransactionClient, branchId: string, ite
 /**
  * The batches stock leaves from, for the items that track them: earliest expiry first, never
  * expired stock (unless `includeExpired`). What isn't there is refused, or (`allowShort`, selling
- * past the stock count) taken without a batch. The caller holds the item locks.
+ * past the stock count, and more is missing than is expired) taken without a batch. The caller
+ * holds the item locks.
  */
 export async function takeFromBatches(
   tx: Prisma.TransactionClient,
@@ -47,7 +48,10 @@ export async function takeFromBatches(
     const { lots, unbatched } = await lotsOf(tx, branchId, itemId);
     const picked = pickBatches({ lots, unbatched, qty, today: options.today, includeExpired: options.includeExpired });
     if (picked.short > 0) {
-      if (picked.expired > 0) {
+      // Selling past the count is for goods the count missed. While what's missing could all be the
+      // expired stock on the shelf, refuse: expired goods would go out recorded as missing stock.
+      const pastStock = options.allowShort && picked.short > picked.expired;
+      if (picked.expired > 0 && !pastStock) {
         const soonest = lots.filter((lot) => lot.qty > 0 && isExpired(lot.expiryDate, options.today)).sort((a, b) => (a.expiryDate ?? '').localeCompare(b.expiryDate ?? ''))[0];
         throw new BadRequestException(
           `${name}: only ${round3(qty - picked.short)} can be sold; ${picked.expired} more is expired stock (batch ${soonest.batchNo}, expired ${soonest.expiryDate}). Write expired stock off with a stock adjustment.`

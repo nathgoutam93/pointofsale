@@ -48,9 +48,9 @@ export class RegistersService {
    * checking against their settlements.
    */
   async registerCash(client: Prisma.TransactionClient | PrismaService, registerId: string, openingBalance: number) {
-    const baseline = isFallback() ? await client.fallbackRegisterBalance.findUnique({ where: { registerId } }) : null;
-    const copiedIds = isFallback() ? (await client.fallbackCopiedDocument.findMany({ select: { id: true } })).map((row) => row.id) : [];
-    const [takenByMode, topupsByMode, cashOut, paidOut, movements, expenses] = await Promise.all([
+    const fallback = isFallback();
+    const [baseline, takenByMode, topupsByMode, cashRefunded, paidOut, movements, expenses] = await Promise.all([
+      fallback ? client.fallbackRegisterBalance.findUnique({ where: { registerId } }) : null,
       client.payment.groupBy({
         by: ['mode'],
         where: { registerSessionId: registerId },
@@ -61,10 +61,15 @@ export class RegistersService {
         where: { registerSessionId: registerId, type: WalletTxnType.TOPUP },
         _sum: { amount: true }
       }),
-      client.returnInvoice.aggregate({
-        where: { registerSessionId: registerId, refundMode: PaymentMode.CASH, ...(copiedIds.length ? { id: { notIn: copiedIds } } : {}) },
-        _sum: { refundAmount: true }
-      }),
+      // A fallback copy's refunds made online are in its baseline already (FallbackCopiedDocument).
+      fallback
+        ? client.$queryRaw<Array<{ total: Prisma.Decimal | null }>>`
+            SELECT SUM(r."refundAmount") AS total FROM "ReturnInvoice" r
+            WHERE r."registerSessionId" = ${registerId} AND r."refundMode" = 'CASH'
+              AND NOT EXISTS (SELECT 1 FROM "FallbackCopiedDocument" c WHERE c."id" = r."id")`.then(([row]) => row?.total ?? null)
+        : client.returnInvoice
+            .aggregate({ where: { registerSessionId: registerId, refundMode: PaymentMode.CASH }, _sum: { refundAmount: true } })
+            .then((sum) => sum._sum.refundAmount),
       client.supplierPayment.aggregate({ where: { registerSessionId: registerId }, _sum: { amount: true } }),
       client.cashMovement.groupBy({ by: ['type'], where: { registerSessionId: registerId }, _sum: { amount: true } }),
       client.expense.aggregate({ where: { registerSessionId: registerId }, _sum: { amount: true } })
@@ -75,7 +80,7 @@ export class RegistersService {
       round2(toNumber(takenByMode.find((row) => row.mode === mode)?._sum.amount) + (mode === PaymentMode.CASH ? 0 : topups(mode)));
     const cashSales = round2(taken(PaymentMode.CASH) + toNumber(baseline?.cashSales));
     const cashTopups = round2(topups(PaymentMode.CASH) + toNumber(baseline?.cashTopups));
-    const cashRefunds = round2(toNumber(cashOut._sum.refundAmount) + toNumber(baseline?.cashRefunds));
+    const cashRefunds = round2(toNumber(cashRefunded) + toNumber(baseline?.cashRefunds));
     const cashPaidOut = round2(toNumber(paidOut._sum.amount) + toNumber(baseline?.cashPaidOut));
     const cashIn = round2(moved(CashMovementType.CASH_IN) + toNumber(baseline?.cashIn));
     const cashTakenOut = round2(moved(CashMovementType.CASH_OUT) + toNumber(baseline?.cashOut));

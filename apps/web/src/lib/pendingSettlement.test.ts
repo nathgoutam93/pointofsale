@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { SETTLEMENT_NOT_RECORDED } from '@pos/contracts';
 import { beginSettlement, finishSettlement, sendSettlement } from './pendingSettlement';
 
 const payments = [{ mode: 'CASH', amount: 60 }];
@@ -19,8 +20,8 @@ describe('settlement recovery', () => {
 
   it('refuses changed payment details while the outcome is unknown', () => {
     const first = beginSettlement(localStorage, scope, payments).id;
-    expect(() => beginSettlement(localStorage, scope, [{ mode: 'CASH', amount: 61 }])).toThrow(/previous payment is not confirmed/);
-    expect(() => beginSettlement(localStorage, scope, [{ mode: 'CARD', amount: 60 }])).toThrow(/previous payment is not confirmed/);
+    expect(() => beginSettlement(localStorage, scope, [{ mode: 'CASH', amount: 61 }])).toThrow(/previous payment \(₹60.00 CASH\) is not confirmed/);
+    expect(() => beginSettlement(localStorage, scope, [{ mode: 'CARD', amount: 60 }])).toThrow(/previous payment \(₹60.00 CASH\) is not confirmed/);
     expect(beginSettlement(localStorage, scope, payments).id).toBe(first);
   });
 
@@ -79,6 +80,29 @@ describe('settlement recovery', () => {
   it('allows correcting a payment rejected on its first attempt', async () => {
     await sendSettlement(localStorage, scope, payments, async () => ({ status: 400 }));
     await expect(sendSettlement(localStorage, scope, [{ mode: 'CARD', amount: 50 }], async () => ({ status: 200 }))).resolves.toEqual({ status: 200 });
+  });
+
+  it('frees the invoice when the online server refuses a retry without recording it', async () => {
+    let original = '';
+    await expect(sendSettlement(localStorage, scope, payments, async (id) => {
+      original = id;
+      throw new Error('Response lost');
+    })).rejects.toThrow('Response lost');
+    // Meanwhile a return lowered the amount due: the retry is refused and nothing was recorded.
+    await sendSettlement(localStorage, scope, payments, async (id) => {
+      expect(id).toBe(original);
+      return { status: 400, body: { message: 'Payment exceeds pending amount', code: SETTLEMENT_NOT_RECORDED } };
+    });
+    const corrected = [{ mode: 'CASH', amount: 40 }];
+    await expect(sendSettlement(localStorage, scope, corrected, async (id) => {
+      expect(id).not.toBe(original);
+      return { status: 200 };
+    })).resolves.toEqual({ status: 200 });
+  });
+
+  it('names the unconfirmed payment when other details are tried', () => {
+    beginSettlement(localStorage, scope, [{ mode: 'CASH', amount: 500 }, { mode: 'UPI', amount: 100 }]);
+    expect(() => beginSettlement(localStorage, scope, payments)).toThrow('The previous payment (₹500.00 CASH + ₹100.00 UPI) is not confirmed');
   });
 
   it('keeps payment details locked after a gateway timeout or server error', async () => {

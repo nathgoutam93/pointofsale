@@ -106,8 +106,7 @@ export async function syncConflicts(
   const knownMovements = new Set((await tx.stockLedger.findMany({ where: { id: { in: movements.map((row) => String(row.id)) } }, select: { id: true } })).map((row) => row.id));
   const fresh = movements.filter((row) => !knownMovements.has(String(row.id)) && row.batchId);
   const batchIds = [...new Set(fresh.map((row) => String(row.batchId)))];
-  const batches = new Map((await tx.itemBatch.findMany({ where: { id: { in: batchIds } }, include: { stocks: true } })).map((batch) => [batch.id, batch]));
-  const changes = new Map<string, { branchId: string; batchId: string; change: number }>();
+  const batches = new Map((await tx.itemBatch.findMany({ where: { id: { in: batchIds } } })).map((batch) => [batch.id, batch]));
   for (const row of fresh) {
     const batch = batches.get(String(row.batchId));
     const document = `Stock movement ${String(row.id)}`;
@@ -123,16 +122,6 @@ export async function syncConflicts(
     }
     if (row.txnType === 'SALE' && (!Number.isFinite(at.getTime()) || expired)) {
       conflicts.push({ document, problem: `Batch ${batch.batchNo} was expired when it was sold offline.` });
-    }
-    const branchId = String(row.branchId);
-    const key = `${branchId}:${batch.id}`;
-    const change = Number(row.qtyIn ?? 0) - Number(row.qtyOut ?? 0);
-    changes.set(key, { branchId, batchId: batch.id, change: (changes.get(key)?.change ?? 0) + change });
-  }
-  for (const { branchId, batchId, change } of changes.values()) {
-    const batch = batches.get(batchId)!;
-    if (toNumber(batch.stocks.find((stock) => stock.branchId === branchId)?.qty) + change < -0.0005) {
-      conflicts.push({ document: `Batch ${batch.batchNo}`, problem: 'The offline movements would take this batch below zero; reconcile the stock used by other tills.' });
     }
   }
   const ids = (rows: Array<Record<string, unknown>>) => rows.map((row) => String(row.id));

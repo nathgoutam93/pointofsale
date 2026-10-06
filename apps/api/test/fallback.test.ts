@@ -255,6 +255,13 @@ describe('fallback counter, working offline', () => {
     expect(outbox.body.invoices).toHaveLength(1);
     expect(outbox.body.receiptSeq).toBe(1);
 
+    // Meanwhile all but one of batch LIVE, which the offline sale took 2 from, went online.
+    const live = await t.db.batchStock.findFirstOrThrow({ where: { branchId, batch: { itemId, batchNo: 'LIVE' } } });
+    const liveKey = { branchId_batchId: { branchId, batchId: live.batchId } };
+    const gone = Number(live.qty) - 1;
+    const adjust = (direction: 'IN' | 'OUT') =>
+      t.ok('POST', '/stock/adjustment', registerToken, { branchId, itemId, qty: gone, direction, reason: 'Sold at another till', batchNo: 'LIVE' });
+    await adjust('OUT');
     const stockBefore = await t.onHand(registerToken, branchId, itemId);
     const sync = await call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body: outbox.body });
     expect(sync.status).toBe(200);
@@ -263,6 +270,15 @@ describe('fallback counter, working offline', () => {
     const again = await call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body: outbox.body });
     expect(again.body.invoices).toBe(0);
     expect(await t.onHand(registerToken, branchId, itemId)).toBe(stockBefore - 2);
+    // The batch gave the one it had; the other is counted without a batch, and flagged for the admin.
+    expect(Number((await t.db.batchStock.findUniqueOrThrow({ where: liveKey })).qty)).toBe(0);
+    const moves = await t.db.stockLedger.findMany({ where: { referenceId: offlineInvoiceId }, select: { batchId: true, qtyOut: true } });
+    expect(moves.map((move) => [move.batchId, Number(move.qtyOut)]).sort()).toEqual([[live.batchId, 1], [null, 1]].sort());
+    const flags = await t.db.auditEvent.findMany({ where: { action: 'OFFLINE_BATCH_SHORT', entityId: live.batchId } });
+    expect(flags).toHaveLength(1);
+    expect(flags[0].summary).toMatch(/took 1 more from batch LIVE/);
+    // The other till's goods back, for the tests that follow.
+    await adjust('IN');
 
     const invoice = await t.ok('GET', `/sales/${offlineInvoiceId}`, registerToken);
     expect(invoice.payments).toHaveLength(1);

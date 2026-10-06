@@ -84,9 +84,18 @@ describe('batches and expiry', () => {
       expect(rejected.status).toBe(400);
       expect(rejected.body.message).toMatch(/expired stock/);
       expect(await batches()).toEqual(before);
-      const overTotal = await sell(14);
-      expect(overTotal.status).toBe(400);
-      expect(overTotal.body.message).toMatch(/expired stock/);
+      const asMuchAsExpired = await sell(13); // 3 short: could all be the expired goods.
+      expect(asMuchAsExpired.status).toBe(400);
+      expect(asMuchAsExpired.body.message).toMatch(/expired stock/);
+      expect(await batches()).toEqual(before);
+      // 10 short, far more than is expired: the count missed goods. The fresh batches give what
+      // they have, the rest goes without a batch, and the expired batch is left to write off.
+      const pastStock = await sell(20);
+      expect(pastStock.status).toBe(200);
+      expect(await batches()).toEqual(before.filter(([, , expired]) => expired));
+      await t.ok('POST', `/sales/${pastStock.body.invoice.id}/return`, ctx.token, {
+        refundMode: 'CASH', reason: 'Undo the past-stock sale', lines: pastStock.body.invoice.lines.map((line: { id: string; qty: string }) => ({ saleLineId: line.id, qty: Number(line.qty) }))
+      });
       expect(await batches()).toEqual(before);
     } finally {
       await t.db.businessSettings.update({ where: { id: 'default' }, data: { allowNegativeStock: previous.allowNegativeStock } });

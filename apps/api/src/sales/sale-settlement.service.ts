@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { InvoiceStatus, PaymentMode, Prisma, WalletTxnType } from '@prisma/client';
 import { invoiceDue } from '@pos/contracts';
@@ -56,7 +56,7 @@ export class SaleSettlementService {
       const receipt = await tx.receipt.findUnique({ where: { idempotencyKey } });
       if (receipt) {
         if (receipt.invoiceId !== invoiceId || receipt.settlementUserId !== session.userId || receipt.requestFingerprint !== requestFingerprint) {
-          throw new BadRequestException('This payment key was already used for a different request');
+          throw new ConflictException('This payment key was already used for a different request');
         }
         // A replay is valid even if the invoice was paid or returned later.
         return { invoice, receipt };

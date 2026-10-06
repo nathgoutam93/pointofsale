@@ -1,3 +1,5 @@
+import { SETTLEMENT_NOT_RECORDED } from '@pos/contracts';
+
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem' | 'removeItem'>;
 type Payment = { mode: string; amount: number; tendered?: number; reference?: string };
 type Pending = { id: string; fingerprint: string };
@@ -19,7 +21,7 @@ export function beginSettlement(storage: Storage, scope: string, payments: Payme
   }
   if (pending) {
     if (pending.fingerprint !== fingerprint) {
-      throw new Error('The previous payment is not confirmed. Retry it with the same payment details before changing the amount or payment method.');
+      throw new Error(`The previous payment (${describePayments(pending.fingerprint)}) is not confirmed. Retry it with the same payment details before changing the amount or payment method.`);
     }
     return { id: pending.id, retrying: true };
   }
@@ -32,14 +34,26 @@ export function beginSettlement(storage: Storage, scope: string, payments: Payme
   return { id, retrying: false };
 }
 
+/** The payments a saved fingerprint stands for, e.g. "₹500.00 CASH + ₹100.00 UPI". */
+function describePayments(fingerprint: string) {
+  try {
+    const payments = JSON.parse(fingerprint) as Array<{ mode: string; amount: number }>;
+    return payments.map((p) => `₹${Number(p.amount).toFixed(2)} ${p.mode}`).join(' + ');
+  } catch {
+    return 'unknown details';
+  }
+}
+
 /** A retry may reach the fallback API before its original server payment has synced. Even a
- * rejection there cannot establish the original outcome, so retain the ID on every failed retry. */
-export async function sendSettlement<R extends { status: number }>(
+ * rejection there cannot establish the original outcome, so a failed retry keeps the ID unless
+ * the online server says it recorded nothing under it (SETTLEMENT_NOT_RECORDED). */
+export async function sendSettlement<R extends { status: number; body?: unknown }>(
   storage: Storage, scope: string, payments: Payment[], send: (id: string) => Promise<R>
 ): Promise<R> {
   const pending = beginSettlement(storage, scope, payments);
   const response = await send(pending.id);
-  if (response.status === 200 || (!pending.retrying && [400, 403, 404, 422, 426, 429].includes(response.status))) {
+  const notRecorded = !!response.body && typeof response.body === 'object' && (response.body as { code?: unknown }).code === SETTLEMENT_NOT_RECORDED;
+  if (response.status === 200 || notRecorded || (!pending.retrying && [400, 403, 404, 422, 426, 429].includes(response.status))) {
     finishSettlement(storage, scope, pending.id);
   }
   return response;

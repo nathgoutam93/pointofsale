@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
+import { SETTLEMENT_NOT_RECORDED } from '@pos/contracts';
 import { line, startApp, type TestApp } from './helpers';
 
 // #7: settling a sale and paying from a wallet.
@@ -102,12 +103,14 @@ describe('settling a sale', () => {
     const payments = [{ mode: 'CASH', amount: 60 }];
     expect((await settle(sale.id, payments, key)).status).toBe(200);
     for (const changed of [[{ mode: 'CASH', amount: 61 }], [{ mode: 'CARD', amount: 60 }], [{ mode: 'CASH', amount: 60, tendered: 100 }]]) {
-      expect((await settle(sale.id, changed, key)).status).toBe(400);
+      expect((await settle(sale.id, changed, key)).status).toBe(409);
     }
-    expect((await settle(other.id, payments, key)).status).toBe(400);
+    const reused = await settle(other.id, payments, key);
+    expect(reused.status).toBe(409);
+    expect(reused.body.code).toBeUndefined(); // Money was recorded under this key: the till must keep it.
     const cashier = await t.cashierWithRegister(await t.login(), ctx.branch.id);
     const forbidden = await t.call('POST', `/sales/${sale.id}/settle`, cashier.token, { payments, idempotencyKey: key });
-    expect(forbidden.status).toBe(400);
+    expect(forbidden.status).toBe(409);
     expect(await t.db.payment.count({ where: { invoiceId: sale.id } })).toBe(1);
     expect(await t.db.payment.count({ where: { invoiceId: other.id } })).toBe(0);
   });
@@ -127,12 +130,27 @@ describe('settling a sale', () => {
     expect(await t.db.walletTxn.count({ where: { referenceType: 'SALE', referenceId: sale.id } })).toBe(2);
   });
 
+  it('tells the till a refused retry recorded nothing, so the bill can be paid with new details', async () => {
+    const sale = await draft();
+    const key = randomUUID();
+    // The first attempt's answer was lost; meanwhile the bill was paid in full at another till.
+    expect((await settle(sale.id, [{ mode: 'CASH', amount: 200 }])).status).toBe(200);
+    const retry = await settle(sale.id, [{ mode: 'CASH', amount: 150 }], key);
+    expect(retry.status).toBe(400);
+    expect(retry.body).toMatchObject({ code: SETTLEMENT_NOT_RECORDED, message: expect.stringMatching(/already paid/) });
+    const missing = await settle(randomUUID(), [{ mode: 'CASH', amount: 1 }], key);
+    expect(missing.status).toBe(404);
+    expect(missing.body.code).toBe(SETTLEMENT_NOT_RECORDED);
+  });
+
   it('allows retrying a rejected operation after the payment can succeed', async () => {
     const sale = await draft();
     const key = randomUUID();
     await t.db.walletAccount.update({ where: { customerId }, data: { balance: 0 } });
     const payments = [{ mode: 'WALLET', amount: 60 }];
-    expect((await settle(sale.id, payments, key)).status).toBe(400);
+    const refused = await settle(sale.id, payments, key);
+    expect(refused.status).toBe(400);
+    expect(refused.body).toMatchObject({ message: 'Insufficient wallet balance', code: SETTLEMENT_NOT_RECORDED });
     expect(await t.db.receipt.findUnique({ where: { idempotencyKey: key } })).toBeNull();
     await t.db.walletAccount.update({ where: { customerId }, data: { balance: 100 } });
     expect((await settle(sale.id, payments, key)).status).toBe(200);

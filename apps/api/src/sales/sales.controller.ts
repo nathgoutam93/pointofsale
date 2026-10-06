@@ -1,8 +1,8 @@
-import { Body, Controller, Get, HttpCode, Headers, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { OnlineOnlyGuard } from '../common/mode';
+import { BadRequestException, Body, Controller, Get, HttpCode, Headers, HttpException, NotFoundException, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { isFallback, OnlineOnlyGuard } from '../common/mode';
 import { FailureLimiter } from '../common/rate-limit';
 import { ReceiptEmailService } from './receipt-email.service';
-import { appContract } from '@pos/contracts';
+import { appContract, SETTLEMENT_NOT_RECORDED } from '@pos/contracts';
 import { UserRole } from '@prisma/client';
 import { AccessService } from '../common/access.service';
 import { getSession, requireOpenRegisterSession, RequestHeaders } from '../common/request-session';
@@ -63,12 +63,29 @@ export class SalesController {
 
   @Post('/sales/:id/settle')
   @HttpCode(200)
-  settleSale(
+  async settleSale(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(appContract.sales.settle.body)) body: Parsed<typeof appContract.sales.settle.body>,
     @Headers() headers: RequestHeaders
   ) {
-    return this.sales.settleSale(requireOpenRegisterSession(headers), id, body.payments, body.idempotencyKey);
+    // Outside the try: a register closed since the original attempt says nothing about that attempt.
+    const session = requireOpenRegisterSession(headers);
+    try {
+      return await this.sales.settleSale(session, id, body.payments, body.idempotencyKey);
+    } catch (error) {
+      // Online, a refusal (bad amount, already paid, no such bill) comes after the key was looked up under
+      // its lock, so nothing was ever recorded under it: the till may forget the key and take the payment
+      // again. A fallback counter can't know whether the original reached the online server, so its
+      // refusals keep the key. (Key reuse is a 409 and is not tagged.)
+      if (!isFallback() && (error instanceof BadRequestException || error instanceof NotFoundException)) {
+        const response = error.getResponse();
+        throw new HttpException(
+          { ...(typeof response === 'object' ? response : { message: response }), code: SETTLEMENT_NOT_RECORDED },
+          error.getStatus()
+        );
+      }
+      throw error;
+    }
   }
 
   @Get('/sales')

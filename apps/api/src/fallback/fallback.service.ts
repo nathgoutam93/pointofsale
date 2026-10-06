@@ -20,6 +20,7 @@ import { RegistersService } from '../registers/registers.service';
 import { SequenceService } from '../sequences/sequences.service';
 import { verifyOutbox } from './verify-outbox';
 import { syncConflicts, verificationContext } from './sync-checks';
+import { placeBatchShortfalls } from './batch-shortfalls';
 import { registerBaselineSql } from './register-baseline';
 import { StockService } from '../stock/stock.service';
 
@@ -289,11 +290,13 @@ export class FallbackService {
           if (serverBills.length !== returnedBills.length || serverBills.some((bill) => bill.documentSeries !== invoiceSeries)) {
             fail("a return of another counter's bill");
           }
-          const { invoices: placed, created } = await this.placeCustomers(tx, counter, customers, outbox.invoices);
+          const { invoices: withCustomers, created } = await this.placeCustomers(tx, counter, customers, outbox.invoices);
+          // Batches another till emptied meanwhile: the rest of the sale is counted without a batch.
+          const { invoices: placed, returns: placedReturns, shortfalls } = await placeBatchShortfalls(tx, withCustomers, returns);
           const conflicts = [
-            ...(await syncConflicts(tx, { ...outbox, invoices: placed, returns }, new Set(created.map((row) => String(row.id))))),
+            ...(await syncConflicts(tx, { ...outbox, invoices: placed, returns: placedReturns }, new Set(created.map((row) => String(row.id))))),
             // The money, stock and returns worked out again: the rows come from a computer in the shop.
-            ...verifyOutbox({ ...outbox, invoices: placed, returns }, await verificationContext(tx, outbox, returns))
+            ...verifyOutbox({ ...outbox, invoices: placed, returns: placedReturns }, await verificationContext(tx, outbox, placedReturns))
           ];
           if (conflicts.length) {
             throw new ConflictException({
@@ -314,12 +317,12 @@ export class FallbackService {
               const closedAt = new Date(String(register.openedAt));
               const replaced = await tx.registerSession.findMany({
                 where: { counterId: counter.id, closedAt: null, id: { notIn: [...registerIds] }, openedAt: { lt: closedAt } },
-                select: { id: true, openingBalance: true }
+                select: { id: true }
               });
+              // Its expected cash is worked out with the others below, once the offline rows are in.
               for (const open of replaced) {
                 reconcileRegisters.add(open.id);
-                const cash = await this.registers.registerCash(tx, open.id, toNumber(open.openingBalance));
-                await tx.registerSession.update({ where: { id: open.id }, data: { closedAt, expectedCash: cash.expectedCash } });
+                await tx.registerSession.update({ where: { id: open.id }, data: { closedAt } });
               }
             }
             // A register opened offline is added; one closed offline is closed here too.
@@ -361,7 +364,7 @@ export class FallbackService {
           await insert(tx, rows('Receipt', all((entry) => entry.receipts)));
           const addedReturns = await insert(tx, rows('ReturnInvoice', returns.map((entry) => ({ roundOff: 0, ...entry.ret }))));
           await insert(tx, rows('ReturnInvoiceLine', returns.flatMap((entry) => entry.lines)));
-          const ledger = [...all((entry) => entry.ledger), ...returns.flatMap((entry) => entry.ledger)];
+          const ledger = [...all((entry) => entry.ledger), ...placedReturns.flatMap((entry) => entry.ledger)];
           if (ledger.length) {
             // Stock moves only for movements not already recorded.
             await tx.$executeRawUnsafe(
@@ -382,6 +385,21 @@ export class FallbackService {
                ON CONFLICT ("branchId", "batchId") DO UPDATE SET "qty" = "BatchStock"."qty" + EXCLUDED."qty", "updatedAt" = now()`,
               JSON.stringify(ledger)
             );
+          }
+          // Flagged for the admin: the batch's stock and the item's count need checking.
+          for (const short of shortfalls) {
+            await tx.auditEvent.create({
+              data: {
+                userId: short.userId,
+                userName: short.userName,
+                action: 'OFFLINE_BATCH_SHORT',
+                entityType: 'ItemBatch',
+                entityId: short.batchId,
+                branchId: short.branchId,
+                summary: `Offline sales took ${short.qty} more from batch ${short.batchNo} than it had (another till sold them meanwhile); counted as stock without a batch. Count the item and correct its stock.`,
+                details: { itemId: short.itemId, batchNo: short.batchNo, qty: short.qty }
+              }
+            });
           }
           for (const sequence of outbox.sequences) {
             await tx.$executeRaw`

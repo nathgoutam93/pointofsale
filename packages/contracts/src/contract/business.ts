@@ -55,6 +55,12 @@ export const counterSchema = z.object({
 export const DEVICE_HEADER = 'x-pos-device';
 /** The `code` of the 403 a fallback counter's local copy answers for what it can't do offline. */
 export const FALLBACK_UNAVAILABLE = 'FALLBACK_UNAVAILABLE';
+/**
+ * The `code` of a payment the online server refused before recording anything under its key:
+ * the client may forget the key and take the payment again with new details. A fallback
+ * counter never sends it, since the original may have reached the online server.
+ */
+export const SETTLEMENT_NOT_RECORDED = 'SETTLEMENT_NOT_RECORDED';
 /** The `code` of the 502 the desktop app answers when it can't reach the online server. */
 export const SERVER_UNREACHABLE = 'SERVER_UNREACHABLE';
 /**
