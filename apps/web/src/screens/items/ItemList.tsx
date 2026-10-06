@@ -48,6 +48,7 @@ export function ItemList({
           className="btn-secondary"
           type="button"
           title="A product in sizes and/or colours"
+          data-tour="items-variants"
           onClick={() => {
             resetMutationErrors();
             setPanelMode("product");
@@ -58,6 +59,7 @@ export function ItemList({
         <button
           className="btn-primary"
           type="button"
+          data-tour="items-new"
           onClick={() => {
             resetMutationErrors();
             setForm(initialForm);
@@ -73,12 +75,13 @@ export function ItemList({
         ) : null}
       </div>
       {canManageItems ? (
-        <Link to="/items/import" className="mb-2 inline-block text-xs font-medium text-brand-700 hover:underline">
+        <Link to="/items/import" className="mb-2 inline-block text-xs font-medium text-brand-700 hover:underline" data-tour="items-import">
           Import items from a spreadsheet (CSV or Excel)
         </Link>
       ) : null}
       <input
         className="field"
+        data-tour="items-search"
         placeholder="Search by name, code, category, or UOM"
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
@@ -94,7 +97,7 @@ export function ItemList({
         </p>
       )}
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3" data-tour="items-list">
         {filteredItems.map((item) => {
           const isSelected =
             selectedItemId === item.id && panelMode !== "create";

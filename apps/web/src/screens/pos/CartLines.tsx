@@ -24,7 +24,7 @@ export function CartLines({
   onRemove: (line: CartLine) => void;
 }) {
   return (
-    <div className="flex-1 overflow-y-auto border-b border-slate-200">
+    <div className="flex-1 overflow-y-auto border-b border-slate-200" data-tour="pos-cart">
       {cart.length === 0 ? (
         <div className="grid h-full place-items-center p-6 text-center">
           <div>

@@ -54,7 +54,7 @@ export function CustomerSection({
   const buyerState = buyerGstin?.slice(0, 2) ?? null;
   return (
     <div className="space-y-3 p-4">
-      <div>
+      <div data-tour="pos-customer">
         <div className="mb-1 flex items-center justify-between">
           <span className="field-label mb-0">Customer</span>
           <button
@@ -158,7 +158,7 @@ export function CustomerSection({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-[auto_1fr] gap-2 pt-1">
+      <div className="grid grid-cols-[auto_1fr] gap-2 pt-1" data-tour="pos-pay">
         <button
           className="btn-secondary h-12 px-4"
           onClick={onBack}

@@ -90,19 +90,19 @@ export function ImportItemsPage() {
       </div>
 
       <div className="card grid gap-4 p-5 md:grid-cols-2">
-        <div>
+        <div data-tour="import-template">
           <h3 className="text-sm font-semibold text-slate-900">1. Fill in the template</h3>
           <p className="mt-1 text-sm text-slate-600">One item a row, the first row naming the columns. Codes already there update those items: blank cells leave them as they are.</p>
           <button className="btn-secondary mt-3" type="button" onClick={() => download("items-template.csv", templateCsv())}>
             Download Template
           </button>
         </div>
-        <div>
+        <div data-tour="import-file">
           <h3 className="text-sm font-semibold text-slate-900">2. Choose the file</h3>
           <p className="mt-1 text-sm text-slate-600">Opening stock and reorder levels go to this branch.</p>
           <input className="mt-3 block text-sm" type="file" accept=".csv,.xlsx,text/csv" aria-label="Spreadsheet file" onChange={(e) => void onFile(e.target.files?.[0])} />
         </div>
-        <details className="text-sm text-slate-600 md:col-span-2">
+        <details className="text-sm text-slate-600 md:col-span-2" data-tour="import-columns">
           <summary className="cursor-pointer font-medium text-slate-700">The columns</summary>
           <table className="mt-2 w-full text-left text-xs">
             <tbody>

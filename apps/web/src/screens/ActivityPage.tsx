@@ -68,7 +68,7 @@ export function ActivityPage() {
               Who changed prices, cancelled bills, made returns, corrected stock or wallets, and changed staff or settings.
             </p>
           </div>
-          <label className="w-64 text-xs text-slate-600">
+          <label className="w-64 text-xs text-slate-600" data-tour="activity-filter">
             Show
             <select className="field mt-1" value={action} onChange={(e) => setAction(e.target.value)}>
               <option value="">Everything</option>
@@ -81,7 +81,7 @@ export function ActivityPage() {
           </label>
         </div>
 
-        <div className="card divide-y divide-slate-100">
+        <div className="card divide-y divide-slate-100" data-tour="activity-log">
           {log.isLoading ? <p className="p-4 text-sm text-slate-500">Loading…</p> : null}
           {log.error ? <p className="p-4 text-sm text-rose-700">{(log.error as Error).message}</p> : null}
           {!log.isLoading && entries.length === 0 ? <p className="p-4 text-sm text-slate-500">Nothing recorded yet.</p> : null}

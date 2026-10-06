@@ -66,7 +66,7 @@ export function GstReturnsPage() {
           before filing.
         </p>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-5">
+        <div className="mt-4 grid gap-3 md:grid-cols-5" data-tour="gst-options">
           <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
             Return
             <select className="field" value={returnKind} onChange={(e) => setReturnKind(e.target.value as ReturnKind)}>

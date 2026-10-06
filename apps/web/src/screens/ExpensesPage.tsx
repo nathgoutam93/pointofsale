@@ -61,7 +61,7 @@ export function ExpensesPage() {
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <BranchPicker value={branchId} onChange={setManagedBranch} className="w-56" />
-          <div>
+          <div data-tour="expenses-period">
             <label className="field-label" htmlFor="expenses-from">From</label>
             <input id="expenses-from" className="field" type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
           </div>
@@ -69,7 +69,7 @@ export function ExpensesPage() {
             <label className="field-label" htmlFor="expenses-to">To</label>
             <input id="expenses-to" className="field" type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
           </div>
-          <button className="btn-primary h-10" type="button" onClick={() => setAdding(true)} disabled={adding || !branchId}>
+          <button className="btn-primary h-10" type="button" data-tour="expenses-add" onClick={() => setAdding(true)} disabled={adding || !branchId}>
             Add Expense
           </button>
         </div>
@@ -78,7 +78,7 @@ export function ExpensesPage() {
       {adding ? <ExpenseForm branchId={branchId} onDone={() => setAdding(false)} /> : null}
 
       <div className="grid gap-6 lg:grid-cols-[18rem_1fr]">
-        <div className="card p-5">
+        <div className="card p-5" data-tour="expenses-total">
           <p className="eyebrow">Total</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums">{inr(data?.total ?? 0)}</p>
           <ul className="mt-4 space-y-2 text-sm">
@@ -93,7 +93,7 @@ export function ExpensesPage() {
           </ul>
         </div>
 
-        <div className="card overflow-x-auto">
+        <div className="card overflow-x-auto" data-tour="expenses-list">
           {expenses.isLoading ? (
             <p className="p-5 text-sm text-slate-500">Loading…</p>
           ) : expenses.error ? (

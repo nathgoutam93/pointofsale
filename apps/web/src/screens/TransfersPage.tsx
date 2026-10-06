@@ -227,7 +227,7 @@ function Transfers() {
       )}
 
       {incoming.length > 0 && (
-        <div className="card overflow-hidden">
+        <div className="card overflow-hidden" data-tour="transfers-incoming">
           <div className="border-b border-slate-200 p-5">
             <h3 className="text-sm font-semibold text-slate-900">Arriving here</h3>
             <p className="mt-1 text-xs text-slate-500">Receive a transfer once the goods arrive; the stock is added to this branch.</p>
@@ -237,7 +237,7 @@ function Transfers() {
       )}
 
       {canSend ? (
-      <form onSubmit={onSubmit} className="card overflow-visible">
+      <form onSubmit={onSubmit} className="card overflow-visible" data-tour="transfers-send">
         <div className="border-b border-slate-200 p-5">
           <h2 className="page-title">Send Stock</h2>
           <p className="mt-1 text-sm text-slate-500">
@@ -339,7 +339,7 @@ function Transfers() {
         </div>
       )}
 
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden" data-tour="transfers-history">
         <div className="border-b border-slate-200 p-5">
           <h3 className="text-sm font-semibold text-slate-900">History</h3>
         </div>

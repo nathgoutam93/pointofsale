@@ -23,7 +23,7 @@ export function SalesList({
   salesPages: SalesListState["salesPages"];
 }) {
   return (
-    <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
+    <div className="flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3" data-tour="sales-list">
       {filteredSales.map((invoice) => {
         const pending =
           invoiceDue(invoice);

@@ -292,6 +292,7 @@ export function BranchSettingsPage() {
                   : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"
               }`}
               aria-current={activeTab === tab.id ? "page" : undefined}
+              data-tour={`settings-tab-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
             >
               {tab.label}

@@ -91,7 +91,7 @@ export function ChangePasswordPage() {
 
 function Frame({ children }: { children: ReactNode }) {
   return (
-    <section className="mx-auto grid max-w-2xl gap-4 p-6">
+    <section className="mx-auto grid max-w-2xl gap-4 p-6" data-tour="password-form">
       <div>
         <h2 className="text-lg font-semibold tracking-tight text-slate-900">Change your password</h2>
         <p className="mt-1 text-sm text-slate-600">You stay signed in here; anywhere else you're signed in ends.</p>

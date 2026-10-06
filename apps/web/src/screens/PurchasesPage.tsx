@@ -130,7 +130,7 @@ export function PurchasesPage() {
           </div>
           <BranchPicker value={branchId} onChange={setManagedBranch} />
         </div>
-        <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4" data-tour="purchases-supplier">
           <SupplierPicker value={supplierChoice} onChange={setSupplierChoice} />
           <label className="block text-sm text-slate-600">
             Supplier invoice no. <span className="text-slate-400">(optional)</span>
@@ -152,7 +152,7 @@ export function PurchasesPage() {
           </label>
         </div>
 
-        <div className="space-y-3 border-t border-slate-100 p-5">
+        <div className="space-y-3 border-t border-slate-100 p-5" data-tour="purchases-lines">
           <ItemPicker
             items={items.data ?? []}
             excludeIds={lineIds}
@@ -296,7 +296,7 @@ export function PurchasesPage() {
             />
           </label>
           <div className="flex flex-wrap items-center gap-3">
-            <button className="btn-primary" type="submit" disabled={create.isPending}>
+            <button className="btn-primary" type="submit" data-tour="purchases-save" disabled={create.isPending}>
               {create.isPending ? "Saving..." : "Save Purchase"}
             </button>
             {saved ? <span className="text-sm text-emerald-700">{saved}</span> : null}
@@ -309,7 +309,7 @@ export function PurchasesPage() {
         </div>
       </form>
 
-      <div className="card overflow-hidden">
+      <div className="card overflow-hidden" data-tour="purchases-recent">
         <div className="border-b border-slate-200 p-5">
           <h3 className="text-sm font-semibold text-slate-900">Recent Purchases</h3>
         </div>

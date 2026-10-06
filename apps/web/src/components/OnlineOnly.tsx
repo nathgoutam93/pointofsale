@@ -77,7 +77,7 @@ export function GoOnlineDialog({ title, feature, onClose }: { title: string; fea
 export function GoOnlinePanel({ title, feature }: { title: string; feature: string }) {
   return (
     <section className="p-6">
-      <div className="card max-w-2xl p-6">
+      <div className="card max-w-2xl p-6" data-tour="online-only">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h2>
           <OnlineOnlyBadge />

@@ -348,7 +348,7 @@ export function SalesPage() {
         />
 
         <div className="min-h-0 flex-1 overflow-y-auto p-6 print:overflow-visible print:p-0">
-        <div className="mx-auto grid w-full max-w-6xl items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="mx-auto grid w-full max-w-6xl items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]" data-tour="sales-details">
           <InvoiceDetailsCard
             currentInvoice={currentInvoice}
             currentCustomerName={currentCustomerName}

@@ -176,7 +176,7 @@ export function OpenRegisterPage() {
 
         {branches.length > 1 ? (
           <div className="mt-5 border-b border-slate-200">
-            <nav className="-mb-px flex gap-6 overflow-x-auto" aria-label="Branches">
+            <nav className="-mb-px flex gap-6 overflow-x-auto" aria-label="Branches" data-tour="register-branches">
               {branches.map((branch) => {
                 const branchCounters = summaryByBranch.get(branch.id)?.counters ?? [];
                 const open = branchCounters.filter((entry) => entry.current).length;
@@ -222,7 +222,7 @@ export function OpenRegisterPage() {
             This branch has no active counters. An admin can add one in Settings → Branches.
           </div>
         ) : (
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-tour="register-counters">
             {counters.map(({ counter, current, lastClosed }) => {
               const isSelected = counter.id === selectedCounterId;
               const fallbackElsewhere = !current && elsewhere(counter);
@@ -303,14 +303,14 @@ export function OpenRegisterPage() {
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="card mt-6 grid max-w-md gap-4 p-5">
+        <form onSubmit={onSubmit} className="card mt-6 grid max-w-md gap-4 p-5" data-tour="register-open">
           <div>
             <p className="eyebrow">Opening</p>
             <p className="mt-0.5 text-base font-semibold text-slate-900">
               {selected ? `${selected.counter.name}${selectedBranch ? ` · ${selectedBranch.name}` : ""}` : "Choose a free counter"}
             </p>
           </div>
-          <label className="grid gap-1 text-xs font-medium text-slate-600">
+          <label className="grid gap-1 text-xs font-medium text-slate-600" data-tour="register-float">
             Opening cash balance
             <input
               className="field"

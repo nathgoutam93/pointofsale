@@ -176,7 +176,7 @@ export function ReportsPage() {
               {summary?.timezone ? ` · ${summary.timezone} time` : ""}
             </p>
           </div>
-          <div className="w-64">
+          <div className="w-64" data-tour="reports-branch">
             <label className="field-label" htmlFor="report-branch">Branch</label>
             <select
               id="report-branch"
@@ -202,7 +202,7 @@ export function ReportsPage() {
           </p>
         ) : null}
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-tour="reports-periods">
           {ranges.map((range) => (
             <div key={range.label} className="card p-5">
               <div className="flex items-baseline justify-between gap-2">
@@ -229,7 +229,7 @@ export function ReportsPage() {
         </div>
 
         {ranges.length > 0 ? (
-          <div className="card overflow-x-auto">
+          <div className="card overflow-x-auto" data-tour="reports-breakdown">
             <div className="border-b border-slate-200 px-5 py-3">
               <h3 className="text-sm font-semibold text-slate-900">Breakdown</h3>
             </div>

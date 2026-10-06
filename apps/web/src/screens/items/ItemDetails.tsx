@@ -44,7 +44,7 @@ export function ItemDetails({
       <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="text-lg font-semibold">Item Details</h3>
         {canManageItems ? (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" data-tour="items-actions">
           <Link to="/labels" search={{ itemId: selectedItem.id }} className="btn-ghost">
             Print Labels
           </Link>

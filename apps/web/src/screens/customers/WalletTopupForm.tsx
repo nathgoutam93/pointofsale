@@ -26,6 +26,7 @@ export function WalletTopupForm({
   return (
     <form
       className="card max-w-md p-5 print:hidden"
+      data-tour="customers-wallet"
       onSubmit={(e) => {
         e.preventDefault();
         if (!selectedCustomer) return;
