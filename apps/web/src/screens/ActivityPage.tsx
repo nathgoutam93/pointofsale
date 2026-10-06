@@ -12,6 +12,7 @@ const ACTIONS: Record<string, string> = {
   RETURN_MADE: "Return",
   WALLET_ADJUSTED: "Wallet corrected",
   STOCK_ADJUSTED: "Stock adjusted",
+  OFFLINE_BATCH_SHORT: "Offline sale past batch stock",
   OPENING_STOCK_CORRECTED: "Opening stock corrected",
   USER_CREATED: "Cashier added",
   USER_UPDATED: "Staff changed",

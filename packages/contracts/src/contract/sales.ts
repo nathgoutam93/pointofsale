@@ -158,6 +158,7 @@ const saleInvoiceWithLinesSchema = saleInvoiceSchema.extend({
 });
 
 const saleInvoiceDetailSchema = saleInvoiceSchema.extend({
+  returnedRoundOff: moneySchema.default(0),
   lines: z.array(saleLineSchema.extend({ returnLines: z.array(returnLineForSaleLineSchema) })),
   payments: z.array(paymentSchema)
 });
@@ -175,6 +176,7 @@ const returnSchema = z.object({
   saleInvoiceId: z.string().uuid(),
   returnNo: z.string(),
   totalAmount: moneySchema,
+  roundOff: moneySchema.default(0),
   /** totalAmount split into taxable value and tax by kind. */
   taxableTotal: moneySchema.default(0),
   taxTotal: moneySchema.default(0),
@@ -263,7 +265,11 @@ export const salesRoutes = c.router({
   settle: {
     method: 'POST',
     path: '/sales/:id/settle',
-    body: z.object({ payments: z.array(paymentInputSchema).min(1) }),
+    body: z.object({
+      payments: z.array(paymentInputSchema).min(1),
+      // Retain this ID until payment is confirmed; requests without it cannot safely be retried.
+      idempotencyKey: z.string().uuid()
+    }),
     responses: { 200: z.object({ invoice: saleInvoiceWithLinesSchema, receipt: receiptSchema }) }
   },
   /**

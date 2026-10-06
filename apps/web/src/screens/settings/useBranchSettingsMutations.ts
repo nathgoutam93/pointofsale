@@ -54,6 +54,8 @@ export function useBranchSettingsMutations({
       queryClient.setQueryData(["branch-settings", selectedBranchId], updated);
       setMessage("Branch settings saved.");
       queryClient.invalidateQueries({ queryKey: ["accessible-branches"] });
+      // A branch GSTIN may clear (or raise) the "GSTIN needed" notice.
+      queryClient.invalidateQueries({ queryKey: ["business-settings"] });
     },
     onError: (error) => {
       setMessage((error as Error).message);

@@ -71,6 +71,9 @@ export function ReturnDetails({
             <div>
               <dt className="eyebrow">Total refund</dt>
               <dd className="mt-1 font-semibold text-slate-900 tabular-nums">{inr(returnDetail.data.refundAmount)}</dd>
+              {Number(returnDetail.data.roundOff) !== 0 ? (
+                <dd className="mt-0.5 text-xs text-slate-500">Includes {inr(returnDetail.data.roundOff)} invoice round-off</dd>
+              ) : null}
               {Number(returnDetail.data.dueAdjusted) > 0 ? (
                 <dd className="mt-0.5 text-xs text-slate-500">
                   {inr(returnDetail.data.dueAdjusted)} of {inr(returnDetail.data.totalAmount)} taken off the amount due

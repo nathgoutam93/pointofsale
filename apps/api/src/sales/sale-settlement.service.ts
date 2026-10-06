@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { InvoiceStatus, PaymentMode, Prisma, WalletTxnType } from '@prisma/client';
 import { invoiceDue } from '@pos/contracts';
 import { isFallback } from '../common/mode';
@@ -23,13 +24,21 @@ export class SaleSettlementService {
   ) {}
 
   /** Records payments against an unpaid invoice, inside the caller's transaction. */
-  async settleSaleInTx(tx: Prisma.TransactionClient, session: SessionUser, invoiceId: string, payments: PaymentInput[]) {
+  async settleSaleInTx(tx: Prisma.TransactionClient, session: SessionUser, invoiceId: string, payments: PaymentInput[], idempotencyKey?: string) {
     const sessionBranchId = requireSessionBranchId(session);
     if (payments.length === 0 || payments.some((p) => !Number.isFinite(p.amount) || p.amount <= 0)) {
       throw new BadRequestException('Each payment amount must be greater than zero');
     }
     if (payments.some((p) => p.tendered !== undefined && (p.mode !== PaymentMode.CASH || !(round2(p.tendered) >= round2(p.amount))))) {
       throw new BadRequestException('Cash tendered is for cash payments, and at least the amount paid');
+    }
+    const requestFingerprint = createHash('sha256').update(JSON.stringify(payments.map((p) => ({
+      mode: p.mode, amount: p.amount, tendered: p.tendered ?? null, reference: p.reference ?? null
+    })))).digest('hex');
+    // Serialize use of a key even across different invoices. The unique index is the durable
+    // safeguard; the transaction lock lets a concurrent retry read the winning receipt.
+    if (idempotencyKey) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`settlement:${idempotencyKey}`}, 0))`;
     }
     // Lock the invoice so two settle requests for it run one after the other.
     await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ${invoiceId} FOR UPDATE`;
@@ -43,6 +52,16 @@ export class SaleSettlementService {
 
     if (!invoice) throw new NotFoundException('Invoice not found');
     if (invoice.branchId !== sessionBranchId) throw new ForbiddenException('Branch mismatch');
+    if (idempotencyKey) {
+      const receipt = await tx.receipt.findUnique({ where: { idempotencyKey } });
+      if (receipt) {
+        if (receipt.invoiceId !== invoiceId || receipt.settlementUserId !== session.userId || receipt.requestFingerprint !== requestFingerprint) {
+          throw new ConflictException('This payment key was already used for a different request');
+        }
+        // A replay is valid even if the invoice was paid or returned later.
+        return { invoice, receipt };
+      }
+    }
     if (invoice.status === InvoiceStatus.SETTLED) {
       throw new BadRequestException(`Invoice ${invoice.invoiceNo} is already paid`);
     }
@@ -128,7 +147,8 @@ export class SaleSettlementService {
       data: {
         receiptNo,
         invoiceId: invoice.id,
-        amount: payTotal
+        amount: payTotal,
+        ...(idempotencyKey ? { idempotencyKey, requestFingerprint, settlementUserId: session.userId } : {})
       }
     });
 

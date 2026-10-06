@@ -5,7 +5,7 @@ import { chargesGst, documentTypeFor } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import { isFallback } from '../common/mode';
 import type { PaymentInput, SessionUser, CreateSaleInput } from '../common/types';
-import { toNumber, round3 } from '../common/numbers';
+import { toNumber, round2, round3 } from '../common/numbers';
 import { requireSessionBranchId } from '../common/session';
 import { saleInvoiceInclude } from '../common/selects';
 import { SettingsService } from '../settings/settings.service';
@@ -72,7 +72,11 @@ export class SalesService {
     // The registration type now decides the bill: a composition taxpayer may not charge GST.
     const taxpayer = await this.settings.taxpayerTypeAt(new Date(), tx);
     const chargeTax = chargesGst(taxpayer.taxpayerType);
-    const seller = await this.settings.gstRegistrationFor(input.branchId, tx);
+    const registration = await this.settings.gstRegistrationFor(input.branchId, tx);
+    if (taxpayer.taxpayerType !== 'UNREGISTERED' && !registration.gstin) {
+      throw new BadRequestException('Set a valid seller GSTIN in Business or Branch Settings before billing as a registered business; unregistered shops must choose Unregistered in Tax Settings');
+    }
+    const seller = taxpayer.taxpayerType === 'UNREGISTERED' ? { gstin: null, stateCode: registration.stateCode } : registration;
     const placeOfSupplyStateCode = resolvePlaceOfSupply(seller.stateCode, input.placeOfSupplyStateCode, taxpayer.taxpayerType);
     const interState = !!seller.stateCode && !!placeOfSupplyStateCode && placeOfSupplyStateCode !== seller.stateCode;
     const customer = await tx.customer.findUnique({
@@ -373,11 +377,11 @@ export class SalesService {
     });
   }
 
-  async settleSale(session: SessionUser, invoiceId: string, payments: PaymentInput[]) {
+  async settleSale(session: SessionUser, invoiceId: string, payments: PaymentInput[], idempotencyKey?: string) {
     return this.prisma.$transaction(async (tx) => {
-      const result = await this.settlement.settleSaleInTx(tx, session, invoiceId, payments);
+      const result = await this.settlement.settleSaleInTx(tx, session, invoiceId, payments, idempotencyKey);
       return { ...result, invoice: await this.withLineBatches(tx, result.invoice) };
-    });
+    }, SALE_TRANSACTION);
   }
 
   /** The branch of an invoice (by id or number), or of a receipt; null when there is none. */
@@ -459,11 +463,13 @@ export class SalesService {
           }
         },
         payments: true,
+        returns: { select: { roundOff: true } },
         discounts: true
       }
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
-    return this.withLineBatches(this.prisma, invoice);
+    const { returns, ...sale } = invoice;
+    return { ...await this.withLineBatches(this.prisma, sale), returnedRoundOff: round2(returns.reduce((sum, ret) => sum + toNumber(ret.roundOff), 0)) };
   }
 
   /** The invoice with the batches each line was sold from (printed on the bill for items kept by batch). */

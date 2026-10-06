@@ -129,6 +129,17 @@ export function splitGst(tax: number, interState: boolean) {
   return { cgst, sgst: round2(cents / 100 - cgst), igst: 0 };
 }
 
+/** A return's cumulative share of invoice rounding, less the adjustment already reversed.
+ * Line values/GST remain unchanged; the final return consumes the remaining round-off. */
+export function returnRoundOff(input: {
+  invoiceRoundOff: number; invoiceNetTotal: number; returnedNetTotal: number; returnedRoundOff: number; amount: number;
+}) {
+  if (input.invoiceNetTotal <= 0 || input.amount <= 0) return 0;
+  const cumulative = Math.min(input.invoiceNetTotal, round2(input.returnedNetTotal + input.amount));
+  const target = round2(input.invoiceRoundOff * cumulative / input.invoiceNetTotal);
+  return round2(target - input.returnedRoundOff);
+}
+
 export type DiscountInput = { type: 'PERCENTAGE' | 'FIXED'; value: number };
 export type ResolvedDiscount = DiscountInput & { amount: number };
 

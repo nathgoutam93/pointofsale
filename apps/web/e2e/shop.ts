@@ -13,7 +13,8 @@ export async function call(request: APIRequestContext, method: 'GET' | 'POST' | 
 /** The shop (set up by whichever test runs first) and an admin token for it. */
 export async function openShop(request: APIRequestContext) {
   const setup = await request.post(`${API}/setup`, {
-    data: { businessName: 'Smoke Test Stores', adminUsername: ADMIN.username, adminPassword: ADMIN.password }
+    // A regular GST business, so bills are tax invoices and prices carry GST (a shop without a GSTIN is unregistered).
+    data: { businessName: 'Smoke Test Stores', taxpayerType: 'REGULAR', gstNumber: '29ABCDE1234F1ZW', adminUsername: ADMIN.username, adminPassword: ADMIN.password }
   });
   expect([201, 409], await setup.text()).toContain(setup.status());
   const { token } = await call(request, 'POST', '/auth/login', undefined, ADMIN);

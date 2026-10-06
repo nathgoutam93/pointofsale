@@ -1,4 +1,4 @@
-import { computeSaleTotals, exclusiveBase, round2, round3, type DiscountInput, type TaxMode } from '@pos/contracts';
+import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, gstinProblem, round2, round3, TAXPAYER_TYPES, type DiscountInput, type TaxMode, type TaxpayerType } from '@pos/contracts';
 import type { FallbackOutbox, SyncConflict } from './fallback.service';
 
 /**
@@ -31,6 +31,7 @@ export type OutboxContext = {
   maxDiscountPercentFor: (userId: string) => number | null;
   /** Lines of bills the server already had (by id), for returns of them made offline. */
   serverSaleLines: Map<string, ServerSaleLine>;
+  serverInvoiceRounding?: Map<string, { roundOff: number; returnedRoundOff: number }>;
 };
 
 const num = (value: unknown) => {
@@ -160,8 +161,15 @@ export function verifyOutbox(outbox: FallbackOutbox, context: OutboxContext): Sy
       problem('a line has an impossible quantity, price or tax rate');
       continue;
     }
-    if (invoice.taxpayerType === 'COMPOSITION' && entry.lines.some((line) => num(line.taxRate) !== 0 || num(line.taxAmount) !== 0)) {
-      problem('it charges GST under the composition scheme');
+    const taxpayerType = str(invoice.taxpayerType) as TaxpayerType;
+    if (!TAXPAYER_TYPES.includes(taxpayerType) || invoice.documentType !== documentTypeFor(taxpayerType)) {
+      problem('its document type does not match its GST registration type');
+    }
+    if (taxpayerType === 'UNREGISTERED' ? !!invoice.sellerGstin : !!gstinProblem(str(invoice.sellerGstin))) {
+      problem('its seller GSTIN does not match its registration type');
+    }
+    if (taxpayerType !== 'REGULAR' && entry.lines.some((line) => num(line.taxRate) !== 0 || num(line.taxAmount) !== 0)) {
+      problem('it charges GST while the seller is not a regular registered taxpayer');
     }
     const aboveList = entry.lines.find((line) => line.listRate !== null && line.listRate !== undefined && num(line.rate) > num(line.listRate) + 0.005);
     if (aboveList) problem(`"${str(aboveList.itemName)}" is sold above its list price`);
@@ -177,7 +185,7 @@ export function verifyOutbox(outbox: FallbackOutbox, context: OutboxContext): Sy
     // The cashier discount limit, on the list prices as the bill records them.
     const maxPercent = context.maxDiscountPercentFor(str(invoice.createdBy));
     if (maxPercent !== null) {
-      const chargeTax = invoice.taxpayerType !== 'COMPOSITION';
+      const chargeTax = chargesGst(taxpayerType);
       const listTotal = round2(
         entry.lines.reduce((sum, line) => {
           const listRate = line.listRate === null || line.listRate === undefined ? num(line.rate) : num(line.listRate);
@@ -222,6 +230,8 @@ export function verifyOutbox(outbox: FallbackOutbox, context: OutboxContext): Sy
   // Returns: each part of a sale line given back at most once in all, and stock back to match.
   const returnedSoFar = new Map<string, { qty: number; taxable: number; cgst: number; sgst: number; igst: number }>();
   for (const [id, line] of context.serverSaleLines) returnedSoFar.set(id, { ...line.returned });
+  const invoiceRounding = new Map(context.serverInvoiceRounding ?? []);
+  for (const entry of outbox.invoices) invoiceRounding.set(str(entry.invoice.id), { roundOff: num(entry.invoice.roundOff), returnedRoundOff: 0 });
   for (const entry of outbox.returns ?? []) {
     const ret = entry.ret;
     const document = `Return ${str(ret.returnNo)}`;
@@ -261,7 +271,13 @@ export function verifyOutbox(outbox: FallbackOutbox, context: OutboxContext): Sy
       continue;
     }
     const total = round2(entry.lines.reduce((sum, row) => sum + num(row.amount), 0));
-    if (!same(num(ret.totalAmount), total) || !same(num(ret.totalAmount), num(ret.dueAdjusted) + num(ret.refundAmount))) {
+    const roundOff = num(ret.roundOff);
+    const rounding = invoiceRounding.get(str(ret.saleInvoiceId));
+    if (!(Math.abs(roundOff) <= 0.5) || (rounding && (
+      roundOff * rounding.roundOff < 0 || Math.abs(rounding.returnedRoundOff + roundOff) > Math.abs(rounding.roundOff) + 0.005
+    ))) problem('its rounding reverses more than the original bill rounding');
+    if (rounding) rounding.returnedRoundOff = round2(rounding.returnedRoundOff + roundOff);
+    if (!same(num(ret.totalAmount), total + roundOff) || !same(num(ret.totalAmount), num(ret.dueAdjusted) + num(ret.refundAmount))) {
       problem("its total doesn't match its lines and refund");
     }
     const ledgerIn = entry.ledger.map((row) => ({ itemId: str(row.itemId), qty: num(row.qtyIn), qtyOut: num(row.qtyOut), type: str(row.txnType) }));

@@ -35,8 +35,8 @@ export type InvoiceGst = {
 /** The wording a composition taxpayer must print on every bill of supply. */
 export const COMPOSITION_DECLARATION = 'Composition taxable person, not eligible to collect tax on supplies';
 
-export function gstDocumentTitle(gst: InvoiceGst) {
-  return gst.documentType === 'BILL_OF_SUPPLY' ? 'BILL OF SUPPLY' : 'TAX INVOICE';
+export function gstDocumentTitle(gst: Pick<InvoiceGst, 'documentType'>) {
+  return gst.documentType === 'INVOICE' ? 'INVOICE' : gst.documentType === 'BILL_OF_SUPPLY' ? 'BILL OF SUPPLY' : 'TAX INVOICE';
 }
 
 /**
@@ -47,7 +47,7 @@ export function gstMetadata(gst: InvoiceGst): ReceiptField[] {
   const interState =
     !!gst.placeOfSupplyStateCode && !!gst.sellerStateCode && gst.placeOfSupplyStateCode !== gst.sellerStateCode;
   return [
-    { label: 'GSTIN', value: gst.sellerGstin ?? '' },
+    ...(gst.documentType === 'INVOICE' ? [] : [{ label: 'GSTIN', value: gst.sellerGstin ?? '' }]),
     ...(interState
       ? [{ label: 'Place of Supply', value: gstStateLabel(gst.placeOfSupplyStateCode!), fullLine: true }]
       : []),
@@ -64,7 +64,7 @@ export function gstMetadata(gst: InvoiceGst): ReceiptField[] {
 
 /** The tax included in the total, by kind (CGST and SGST, or IGST). A bill of supply carries no tax. */
 export function gstTaxAmounts(gst: InvoiceGst): Array<{ label: string; amount: number }> {
-  if (gst.documentType === 'BILL_OF_SUPPLY') return [];
+  if (gst.documentType !== 'TAX_INVOICE') return [];
   if (gst.igstTotal > 0) return [{ label: 'incl. IGST', amount: gst.igstTotal }];
   if (gst.cgstTotal > 0 || gst.sgstTotal > 0) {
     return [
@@ -221,6 +221,7 @@ export function returnReceiptDocument(refund: {
   refundMode: 'CASH' | 'WALLET';
   items: ReceiptDocumentItem[];
   totalAmount: number;
+  roundOff?: number;
   /** Of totalAmount, what came off the amount still owed (the rest was refunded). */
   dueAdjusted?: number;
   tax: { cgst: number; sgst: number; igst: number };
@@ -253,8 +254,9 @@ export function returnReceiptDocument(refund: {
     ],
     barcodeValue: null,
     items: refund.items,
-    itemsTotal: null,
+    itemsTotal: refund.roundOff ? round2(refund.totalAmount - refund.roundOff) : null,
     orderDiscount: 0,
+    roundOff: refund.roundOff ?? 0,
     taxTotals,
     grandTotalLabel: dueAdjusted > 0 ? 'RETURNED' : 'REFUND',
     grandTotal: refund.totalAmount,

@@ -43,7 +43,7 @@ type InvoiceRow = {
   documentSeries: string | null;
   createdAt: Date;
   status: InvoiceStatus;
-  taxpayerType: 'REGULAR' | 'COMPOSITION';
+  taxpayerType: 'REGULAR' | 'COMPOSITION' | 'UNREGISTERED';
   compositionCategory: Gstr1Invoice['compositionCategory'];
   sellerGstin: string | null;
   sellerStateCode: string | null;

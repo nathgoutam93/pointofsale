@@ -32,9 +32,11 @@ export class ReportsService {
     range: { label: string; startDate: Date | null; endDate: Date | null }
   ) {
     const inBranches = Prisma.sql`i."branchId" IN (${Prisma.join(branchIds)})`;
+    // Prisma stores these columns as UTC timestamps without a zone, but binds Dates as
+    // timestamptz. Convert the bounds explicitly so the database's timezone cannot shift them.
     const inRange = (column: Prisma.Sql) =>
       range.startDate && range.endDate
-        ? Prisma.sql`AND ${column} >= ${range.startDate} AND ${column} < ${range.endDate}`
+        ? Prisma.sql`AND ${column} >= (${range.startDate} AT TIME ZONE 'UTC') AND ${column} < (${range.endDate} AT TIME ZONE 'UTC')`
         : Prisma.empty;
 
     const [sales, cogs, unpaid, returns, collected] = await Promise.all([
@@ -50,16 +52,15 @@ export class ReportsService {
         SELECT SUM(i."grandTotal" - i."paidTotal" - i."creditedTotal") AS due
         FROM "SaleInvoice" i
         WHERE ${inBranches} AND i."status" IN ('DRAFT', 'PARTIALLY_SETTLED') ${inRange(Prisma.sql`i."createdAt"`)}`,
-      // A return's net (pre-tax) part uses its sale line's own taxable/net ratio; it counts in the
-      // range the return was made in.
+      // Count document totals once, including reversed round-off. Costs still come from
+      // the original sale lines. Returns count in the range they were made in.
       this.prisma.$queryRaw<Array<{ gross: Prisma.Decimal | null; net: Prisma.Decimal | null; cost: Prisma.Decimal | null }>>`
-        SELECT SUM(rl."amount") AS gross,
-               SUM(CASE WHEN sl."netAmount" > 0 THEN rl."amount" * sl."taxableAmount" / sl."netAmount" ELSE 0 END) AS net,
-               SUM(rl."qty" * COALESCE(sl."unitCost", 0)) AS cost
-        FROM "ReturnInvoiceLine" rl
-        JOIN "ReturnInvoice" r ON r."id" = rl."returnInvoiceId"
-        JOIN "SaleInvoiceLine" sl ON sl."id" = rl."saleLineId"
-        JOIN "SaleInvoice" i ON i."id" = sl."invoiceId"
+        SELECT SUM(r."totalAmount") AS gross,
+               SUM(r."taxableTotal" + r."roundOff") AS net,
+               SUM((SELECT SUM(rl."qty" * COALESCE(sl."unitCost", 0))
+                    FROM "ReturnInvoiceLine" rl JOIN "SaleInvoiceLine" sl ON sl."id" = rl."saleLineId"
+                    WHERE rl."returnInvoiceId" = r."id")) AS cost
+        FROM "ReturnInvoice" r JOIN "SaleInvoice" i ON i."id" = r."saleInvoiceId"
         WHERE ${inBranches} AND i."status" <> 'CANCELLED' ${inRange(Prisma.sql`r."createdAt"`)}`,
       // Money taken in the range, by how it was paid, on this branch's bills.
       this.prisma.$queryRaw<Array<{ mode: string; amount: Prisma.Decimal | null }>>`
@@ -157,7 +158,7 @@ export class ReportsService {
     }
     if (branchIds.length === 0) throw new BadRequestException('No branch to report on');
     const inBranches = Prisma.sql`i."branchId" IN (${Prisma.join(branchIds)})`;
-    const madeIn = (column: Prisma.Sql) => Prisma.sql`${column} >= ${start} AND ${column} < ${end}`;
+    const madeIn = (column: Prisma.Sql) => Prisma.sql`${column} >= (${start} AT TIME ZONE 'UTC') AND ${column} < (${end} AT TIME ZONE 'UTC')`;
     type Amount = Prisma.Decimal | null;
 
     const [summary, sold, returned, cashiers, cashierReturns, discounts, registers, expenses] = await Promise.all([

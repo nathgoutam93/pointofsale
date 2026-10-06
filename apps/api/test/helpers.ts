@@ -22,6 +22,7 @@ const TEST_BUSINESS: SetupInput = {
   branchCode: 'MAI',
   timezone: 'Asia/Kolkata',
   taxpayerType: 'REGULAR',
+  gstNumber: '29ABCDE1234F1ZW',
   adminUsername: ADMIN.username,
   adminPassword: ADMIN.password
 };

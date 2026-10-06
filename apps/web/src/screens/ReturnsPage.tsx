@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { invoiceDue, returnLineAmounts, round2, sanitizeReceiptCss, splitReturn } from "@pos/contracts";
+import { invoiceDue, returnLineAmounts, returnRoundOff, round2, sanitizeReceiptCss, splitReturn } from "@pos/contracts";
 import { api, apiErrorMessage, authHeaders, uploadSrc } from "../lib/api";
 import { usePrintTemplate, useReceiptPrinting } from "../lib/printing";
 import { branchReceiptTemplate, rateFromAmounts, receiptStyleFor, renderReceipt, returnReceiptDocument } from "../lib/receipt";
@@ -239,10 +239,18 @@ export function ReturnsPage() {
     });
   }, [itemLeastCountById, itemNameById, lineQtyMap, selectedInvoiceDetails.data?.lines]);
 
-  const totalReturnAmount = useMemo(
+  const returnLineTotal = useMemo(
     () => returnLines.reduce((acc, line) => round2(acc + line.amount), 0),
     [returnLines],
   );
+  const returnRounding = returnRoundOff({
+    invoiceRoundOff: Number(selectedInvoiceDetails.data?.roundOff ?? 0),
+    invoiceNetTotal: round2((selectedInvoiceDetails.data?.lines ?? []).reduce((sum, line) => sum + Number(line.netAmount), 0)),
+    returnedNetTotal: round2((selectedInvoiceDetails.data?.lines ?? []).flatMap((line) => line.returnLines ?? []).reduce((sum, line) => sum + Number(line.amount), 0)),
+    returnedRoundOff: Number(selectedInvoiceDetails.data?.returnedRoundOff ?? 0),
+    amount: returnLineTotal,
+  });
+  const totalReturnAmount = round2(returnLineTotal + returnRounding);
   // A bill not yet paid in full: the return comes off what is still owed first.
   const selectedDue = selectedInvoice ? invoiceDue(selectedInvoice) : 0;
   const returnSplit = splitReturn(totalReturnAmount, selectedDue);
@@ -280,6 +288,7 @@ export function ReturnsPage() {
       refundMode: detail.refundMode,
       items,
       totalAmount: Number(detail.totalAmount),
+      roundOff: Number(detail.roundOff ?? 0),
       dueAdjusted: Number(detail.dueAdjusted ?? 0),
       timeZone: businessSettings.data?.timezone,
       tax: { cgst: Number(detail.cgstTotal), sgst: Number(detail.sgstTotal), igst: Number(detail.igstTotal) },
@@ -394,7 +403,8 @@ export function ReturnsPage() {
             customerById={customerById}
             refundMode={refundMode}
             setRefundMode={setRefundMode}
-            totalReturnAmount={totalReturnAmount}
+          totalReturnAmount={totalReturnAmount}
+          roundOff={returnRounding}
             returnSplit={returnSplit}
             walletAllowed={walletAllowed}
             selectedInvoice={selectedInvoice}

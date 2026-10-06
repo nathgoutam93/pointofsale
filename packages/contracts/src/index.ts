@@ -89,6 +89,7 @@ export {
   priceWithTax,
   resolveDiscountAmounts,
   returnLineAmounts,
+  returnRoundOff,
   round2,
   roundOffFor,
   roundedTotal,
@@ -153,6 +154,7 @@ export {
   registerSessionSchema,
   registerSummarySchema,
   SERVER_UNREACHABLE,
+  SETTLEMENT_NOT_RECORDED,
   taxpayerTypeChangeSchema,
   taxpayerTypeSummarySchema
 } from './contract/business.js';

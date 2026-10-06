@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatReceiptDate, formatReceiptTime, gstMetadata, invoiceDue, invoiceGstOf, invoiceReceiptItems, returnReceiptDocument, saleReceiptDocument, splitReturn } from './receiptDocuments.js';
+import { formatReceiptDate, formatReceiptTime, gstMetadata, gstDocumentTitle, gstTaxAmounts, gstFooterLines, invoiceDue, invoiceGstOf, invoiceReceiptItems, returnReceiptDocument, saleReceiptDocument, splitReturn } from './receiptDocuments.js';
 
 describe('receipt dates', () => {
   it('are written in the business time zone when given one', () => {
@@ -149,5 +149,31 @@ describe('saleReceiptDocument', () => {
       { label: 'Cash tendered', amount: 500 },
       { label: 'Change', amount: 113 }
     ]);
+  });
+});
+
+describe('rounded return receipt', () => {
+  it('shows invoice rounding separately from goods and GST', () => {
+    const doc = returnReceiptDocument({
+      branding: { storeName: 'Shop', headerLines: [], footerLines: [] },
+      returnNo: 'R1', invoiceNo: 'I1', createdAt: '2026-10-03T10:00:00.000Z',
+      customer: 'Customer', refundMode: 'CASH', items: [], totalAmount: 100, roundOff: -0.4,
+      tax: { cgst: 7.65, sgst: 7.66, igst: 0 }
+    });
+    expect(doc.itemsTotal).toBe(100.4);
+    expect(doc.roundOff).toBe(-0.4);
+    expect(doc.grandTotal).toBe(100);
+    expect(doc.payments).toEqual([{ label: 'Refunded by Cash', amount: 100 }]);
+    expect(doc.taxTotals).toEqual([{ label: 'incl. CGST', amount: 7.65 }, { label: 'incl. SGST', amount: 7.66 }]);
+  });
+});
+
+describe('ordinary invoices', () => {
+  it('prints an ordinary title and omits GST amounts, seller GSTIN and composition declaration', () => {
+    const gst = { documentType: 'INVOICE' as const, sellerGstin: null, sellerStateCode: '29', placeOfSupplyStateCode: '29', cgstTotal: 0, sgstTotal: 0, igstTotal: 0 };
+    expect(gstDocumentTitle(gst)).toBe('INVOICE');
+    expect(gstTaxAmounts(gst)).toEqual([]);
+    expect(gstMetadata(gst)).toEqual([]);
+    expect(gstFooterLines(gst)).toEqual([]);
   });
 });

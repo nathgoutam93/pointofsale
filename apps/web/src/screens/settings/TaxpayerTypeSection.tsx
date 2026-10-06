@@ -12,6 +12,7 @@ import { api, apiErrorMessage, authHeaders } from "../../lib/api";
 const todayIn = (timeZone: string) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
 
 function describe(type: TaxpayerType, category: CompositionCategory | null) {
+  if (type === "UNREGISTERED") return "Unregistered";
   if (type === "COMPOSITION" && category) {
     return `Composition: ${COMPOSITION_CATEGORY_LABELS[category]}, ${COMPOSITION_RATES[category]}% of turnover`;
   }
@@ -130,6 +131,7 @@ export function TaxpayerTypeSection({ timeZone }: { timeZone: string }) {
             {current.effectiveDate ? `Since ${current.effectiveDate}. ` : ""}
             {current.taxpayerType === "COMPOSITION"
               ? "Sales charge no GST and print a Bill of Supply."
+              : current.taxpayerType === "UNREGISTERED" ? "Sales charge no GST and print an ordinary invoice."
               : "Sales charge GST and print a Tax Invoice."}
           </p>
         </div>
@@ -160,6 +162,7 @@ export function TaxpayerTypeSection({ timeZone }: { timeZone: string }) {
             >
               <option value="REGULAR">Regular</option>
               <option value="COMPOSITION">Composition</option>
+              <option value="UNREGISTERED">Unregistered</option>
             </select>
           </div>
           {taxpayerType === "COMPOSITION" ? (

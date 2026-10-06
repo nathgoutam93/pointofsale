@@ -112,9 +112,9 @@ describe('the sales register', () => {
     expect(rows).toHaveLength(3);
     // 236 sold, 100 paid; one returned (118): 118 off what was owed, nothing back.
     expect(rows[1]).toBe(
-      `Invoice,${today()},${invoice.invoiceNo},,${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,,200,18,18,0,0,236,100,118,18,,Part paid,CASH 100.00`
+      `Invoice,${today()},${invoice.invoiceNo},,${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,29 - Karnataka,200,18,18,0,0,236,100,118,18,,Part paid,CASH 100.00`
     );
-    expect(rows[2]).toBe(`Credit note,${today()},${ret.returnNo},${invoice.invoiceNo},${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,,-100,-9,-9,0,0,-118,,,,0,,`);
+    expect(rows[2]).toBe(`Credit note,${today()},${ret.returnNo},${invoice.invoiceNo},${branch.branch.code},"'=HYPERLINK(""x"")",9333300000,,29 - Karnataka,-100,-9,-9,0,0,-118,,,,0,,`);
 
     // Admins only; a period the right way round.
     const cashier = await t.cashierWithRegister(admin, branch.branch.id);

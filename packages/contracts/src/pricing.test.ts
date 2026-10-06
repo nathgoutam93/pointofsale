@@ -8,6 +8,7 @@ import {
   lineTax,
   resolveDiscountAmounts,
   returnLineAmounts,
+  returnRoundOff,
   round2,
   round3,
   roundOffFor,
@@ -18,6 +19,29 @@ import {
 } from './pricing.js';
 
 const sum = (values: number[]) => round2(values.reduce((a, b) => a + b, 0));
+
+describe('return invoice rounding', () => {
+  it.each([-0.4, 0, 0.4])('reverses an adjustment of %s exactly over partial returns', (invoiceRoundOff) => {
+    const amounts = [33.46, 0.01, 33.46, 33.47];
+    let returnedNetTotal = 0;
+    let returnedRoundOff = 0;
+    let refunded = 0;
+    for (const amount of amounts) {
+      const adjustment = returnRoundOff({ invoiceRoundOff, invoiceNetTotal: 100.4, returnedNetTotal, returnedRoundOff, amount });
+      expect(amount + adjustment).toBeGreaterThanOrEqual(0);
+      returnedNetTotal = round2(returnedNetTotal + amount);
+      returnedRoundOff = round2(returnedRoundOff + adjustment);
+      refunded = round2(refunded + amount + adjustment);
+    }
+    expect(returnedRoundOff).toBe(invoiceRoundOff);
+    expect(refunded).toBe(round2(100.4 + invoiceRoundOff));
+  });
+
+  it('takes prior historical returns into account without rewriting them', () => {
+    expect(returnRoundOff({ invoiceRoundOff: 0.4, invoiceNetTotal: 100.6, returnedNetTotal: 50.3, returnedRoundOff: 0, amount: 50.3 })).toBe(0.4);
+    expect(returnRoundOff({ invoiceRoundOff: -0.4, invoiceNetTotal: 100.4, returnedNetTotal: 50.2, returnedRoundOff: 0, amount: 50.2 })).toBe(-0.4);
+  });
+});
 
 describe('lineTax', () => {
   it('keeps a tax-inclusive ₹100 at 18% at ₹100.00 (not 84.75 + 15.26 = 100.01)', () => {

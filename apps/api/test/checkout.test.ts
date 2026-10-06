@@ -81,7 +81,7 @@ describe('cancelling an unpaid draft', () => {
     expect(await t.onHand(ctx.token, ctx.branch.id, itemId)).toBe(stock + 2);
     expect(await t.db.stockLedger.count({ where: { referenceId: draft.id, txnType: 'SALE_CANCEL' } })).toBe(1);
     expect((await t.call('POST', `/sales/${draft.id}/cancel`, ctx.token, { reason: 'Test cancel' })).status).toBe(400);
-    expect((await t.call('POST', `/sales/${draft.id}/settle`, ctx.token, { payments: cash(200) })).status).toBe(400);
+    expect((await t.call('POST', `/sales/${draft.id}/settle`, ctx.token, { idempotencyKey: randomUUID(), payments: cash(200) })).status).toBe(400);
     const paid = (await checkout(checkoutBody(ctx.branch.id, ctx.walkIn.id, [line(itemId)], cash()))).body.invoice;
     expect((await t.call('POST', `/sales/${paid.id}/cancel`, ctx.token, { reason: 'Test cancel' })).status).toBe(400);
   });

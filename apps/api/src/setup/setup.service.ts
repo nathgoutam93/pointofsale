@@ -72,7 +72,7 @@ export class SetupService {
       });
       await tx.userBranchAccess.create({ data: { userId: admin.id, branchId: created.id } });
 
-      if (input.taxpayerType === 'COMPOSITION') {
+      if (input.taxpayerType !== 'REGULAR') {
         // In force from now: the business has made no sales yet.
         await tx.taxpayerTypeChange.create({
           data: {

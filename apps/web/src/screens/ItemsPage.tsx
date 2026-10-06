@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api, authHeaders } from "../lib/api";
-import { mrpProblem } from "@pos/contracts";
+import { chargesGst, mrpProblem } from "@pos/contracts";
 import { can } from "../lib/session";
 import { requireSession } from "./route-helpers";
 import { CreateItemForm } from "./items/CreateItemForm";
@@ -50,7 +50,7 @@ export function ItemsPage() {
   });
   const hsnMinDigits = businessSettings.data?.hsnMinDigits ?? 4;
   // Prices may never be above the MRP, which includes GST (while the business charges it).
-  const chargeTax = businessSettings.data?.taxpayerType !== "COMPOSITION";
+  const chargeTax = chargesGst(businessSettings.data?.taxpayerType ?? "REGULAR");
   const formMrpProblem = mrpProblem(Number(form.sellPrice) || 0, Number(form.mrp) || 0, form.taxMode, Number(form.taxRate) || 0, chargeTax);
   const itemAboveMrp = (item: {
     sellPrice: number | string;
