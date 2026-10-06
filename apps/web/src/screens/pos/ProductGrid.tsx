@@ -72,7 +72,7 @@ export function ProductGrid<T extends GridItem>({
     <>
       <div className="shrink-0 space-y-3 border-b border-slate-200 bg-white px-4 py-3">
         <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="relative flex-1">
+          <div className="relative flex-1" data-tour="pos-search">
             <IconSearch className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" width={16} height={16} />
             <input
               className="field pl-9"
@@ -81,7 +81,7 @@ export function ProductGrid<T extends GridItem>({
               onChange={(e) => onSearchChange(e.target.value)}
             />
           </div>
-          <div className="relative flex-1">
+          <div className="relative flex-1" data-tour="pos-scan">
             <IconScan className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" width={16} height={16} />
             <input
               className="field pl-9"
@@ -96,7 +96,7 @@ export function ProductGrid<T extends GridItem>({
             />
           </div>
         </div>
-        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5" data-tour="pos-categories">
           {categories.map((category) => (
             <button
               key={category}
@@ -109,7 +109,7 @@ export function ProductGrid<T extends GridItem>({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4" data-tour="pos-products">
         {items.length === 0 ? (
           <div className="grid h-full place-items-center text-center">
             <div>

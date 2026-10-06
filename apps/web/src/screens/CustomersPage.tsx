@@ -320,6 +320,7 @@ export function CustomersPage() {
                             onClick={() => setShowAgeing((prev) => !prev)}
                             type="button"
                             title="What every customer owes, by age"
+                            data-tour="customers-owed"
                         >
                             Owed
                         </button>
@@ -327,6 +328,7 @@ export function CustomersPage() {
                             className={showCreateForm ? "btn-secondary" : "btn-primary"}
                             onClick={() => setShowCreateForm((prev) => !prev)}
                             type="button"
+                            data-tour="customers-new"
                         >
                             {showCreateForm ? "Cancel" : "New Customer"}
                         </button>
@@ -358,6 +360,7 @@ export function CustomersPage() {
 
                     <input
                         className="field mt-3"
+                        data-tour="customers-search"
                         placeholder="Search by name, phone, or code"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
@@ -393,7 +396,7 @@ export function CustomersPage() {
                         </p>
                     </div>
                 ) : (
-                    <div className="mx-auto max-w-5xl space-y-6">
+                    <div className="mx-auto max-w-5xl space-y-6" data-tour="customers-details">
                         <CustomerCard
                             selectedCustomer={selectedCustomer}
                             isAdmin={isAdmin}

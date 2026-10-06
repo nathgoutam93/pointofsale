@@ -471,3 +471,10 @@ Email (online server: `SMTP_URL` and `MAIL_FROM`; `MAIL_TRANSPORT=log` prints em
 - If active session exists: app opens directly to `/pos`.
 - POS is the primary screen with product grid (left) and order summary/customer/payment (right).
 - Other modules are in the left sidebar (collapsible; a drawer on small screens).
+- Screen tours: the first time someone opens a screen, a guided tour (react-joyride) points out
+  what's on it, with short GIFs of the clicks in the key steps; the round ? button in the corner
+  shows the screen's tour again. The steps are in `apps/web/src/tour/tours.ts` and point at
+  elements marked `data-tour="…"`; steps whose element isn't on screen are skipped. Which tours
+  someone has seen is kept in the browser. The GIFs (`apps/web/src/tour/gifs`) are recorded from
+  the real app on a demo shop: build the API, then `pnpm --filter @pos/web tour:gifs` (all of
+  them, or `ONLY=pos-checkout,items-new` for some) after changing a screen they show.

@@ -16,7 +16,7 @@ export function CartTotals({
   onEditOrderDiscount: () => void;
 }) {
   return (
-    <div className="space-y-1.5 border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+    <div className="space-y-1.5 border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm" data-tour="pos-totals">
       <div className="flex items-center justify-between text-slate-600">
         <span>Taxes</span>
         <span className="tabular-nums">{inr(totalTax)}</span>

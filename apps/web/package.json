@@ -8,7 +8,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "tour:gifs": "playwright test -c playwright.tour-gifs.config.ts"
   },
   "dependencies": {
     "@pos/contracts": "workspace:*",
@@ -17,6 +18,7 @@
     "@ts-rest/core": "^3.52.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-joyride": "^3.2.0",
     "read-excel-file": "^5.8.8"
   },
   "devDependencies": {

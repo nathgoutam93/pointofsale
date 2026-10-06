@@ -9,7 +9,7 @@ export function ExpiryCard({ branchId }: { branchId: string }) {
   const batches = useBatches(branchId, { expiringWithinDays: within });
   const rows = batches.data ?? [];
   return (
-    <div className="card p-5">
+    <div className="card p-5" data-tour="stock-expiry">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">Expiring stock</h3>

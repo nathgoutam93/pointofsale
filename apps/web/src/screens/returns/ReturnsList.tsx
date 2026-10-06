@@ -27,6 +27,7 @@ export function ReturnsList({
         <button
           type="button"
           className="btn-primary text-xs"
+          data-tour="returns-new"
           disabled={!mayReturn}
           title={mayReturn ? undefined : "Ask an admin to allow you to make returns"}
           onClick={onNewReturn}
@@ -34,7 +35,7 @@ export function ReturnsList({
           New Return
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-3" data-tour="returns-list">
 
       {returnsList.isLoading ? (
         <p className="text-sm text-slate-500">Loading returns...</p>

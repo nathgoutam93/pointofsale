@@ -7,6 +7,8 @@ const apiPort = Number(process.env.E2E_API_PORT ?? 3101);
 
 export default defineConfig({
   testDir: 'e2e',
+  // The tour GIF recorder has its own config (playwright.tour-gifs.config.ts).
+  testIgnore: 'tour-gifs/**',
   timeout: 60_000,
   retries: 0,
   workers: 1,
@@ -15,7 +17,9 @@ export default defineConfig({
     ...devices['Desktop Chrome'],
     viewport: { width: 1400, height: 900 },
     baseURL: `http://localhost:${webPort}`,
-    trace: 'retain-on-failure'
+    trace: 'retain-on-failure',
+    // Screen tours start by themselves for a new user, over the screen; tour.spec.ts turns them on.
+    storageState: { cookies: [], origins: [{ origin: `http://localhost:${webPort}`, localStorage: [{ name: 'pos_tours_off', value: '1' }] }] }
   },
   webServer: [
     {

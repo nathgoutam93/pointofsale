@@ -43,6 +43,7 @@ export function SuppliersPage() {
               <button
                 type="button"
                 className="btn-primary text-xs"
+                data-tour="suppliers-new"
                 onClick={() => {
                   setSelectedId(null);
                   setMode("new");
@@ -52,7 +53,7 @@ export function SuppliersPage() {
               </button>
             ) : null}
           </div>
-          <input className="field" placeholder="Search by name or GSTIN" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input className="field" data-tour="suppliers-search" placeholder="Search by name or GSTIN" value={search} onChange={(e) => setSearch(e.target.value)} />
           <label className="flex items-center gap-2 text-xs text-slate-600">
             <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
             Show suppliers no longer used
@@ -63,7 +64,7 @@ export function SuppliersPage() {
         ) : shown.length === 0 ? (
           <p className="p-4 text-sm text-slate-500">No suppliers{needle ? " match" : " yet. They are added here, or when a purchase is recorded"}.</p>
         ) : (
-          <ul className="max-h-[70vh] divide-y divide-slate-100 overflow-y-auto">
+          <ul className="max-h-[70vh] divide-y divide-slate-100 overflow-y-auto" data-tour="suppliers-list">
             {shown.map((supplier) => (
               <li key={supplier.id}>
                 <button
@@ -89,7 +90,7 @@ export function SuppliersPage() {
         )}
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-6" data-tour="suppliers-account">
         {mode === "new" ? (
           <div className="card p-5">
             <h3 className="mb-4 text-sm font-semibold text-slate-900">New supplier</h3>

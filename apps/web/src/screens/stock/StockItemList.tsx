@@ -59,7 +59,7 @@ export function StockItemList({
           Could not load items.
         </p>
       )}
-      <div className="grid gap-2">
+      <div className="grid gap-2" data-tour="stock-search">
         <input
           className="field"
           placeholder="Search by item or code"
@@ -87,7 +87,7 @@ export function StockItemList({
         ) : null}
       </div>
       </div>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3" data-tour="stock-list">
         {filteredItems.map((item) => {
           const isSelected = item.id === selectedItemId;
           const itemOnHand = onHandByItem.get(item.id) ?? 0;

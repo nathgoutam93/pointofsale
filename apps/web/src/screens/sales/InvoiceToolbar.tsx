@@ -47,7 +47,7 @@ export function InvoiceToolbar({
         </h2>
         {currentInvoice ? <StatusBadge status={currentInvoice.status} /> : null}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2" data-tour="sales-actions">
         {canCancelInvoice ? (
           <button
             className="btn-danger"

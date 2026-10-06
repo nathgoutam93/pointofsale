@@ -221,7 +221,7 @@ export function CustomerCard({
               ? `Pay within ${selectedCustomer.paymentTermsDays} ${selectedCustomer.paymentTermsDays === 1 ? "day" : "days"}`
               : "No payment terms"}
           </p>
-          <button className="btn-secondary" type="button" onClick={() => setShowStatement((prev) => !prev)}>
+          <button className="btn-secondary" type="button" data-tour="customers-statement" onClick={() => setShowStatement((prev) => !prev)}>
             {showStatement ? "Hide statement" : "Statement"}
           </button>
         </div>

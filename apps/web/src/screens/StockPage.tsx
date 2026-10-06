@@ -234,7 +234,7 @@ export function StockPage() {
         />
 
         <div className="space-y-6 overflow-y-auto bg-slate-100 p-6">
-          <div className="card p-5">
+          <div className="card p-5" data-tour="stock-item">
             <h2 className="page-title">
               {selectedItem ? selectedItem.name : "Stock Management"}
             </h2>
@@ -266,7 +266,7 @@ export function StockPage() {
               </dl>
             )}
             {canChangeStock ? (
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2" data-tour="stock-actions">
               <button
                 type="button"
                 onClick={() =>

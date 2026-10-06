@@ -371,7 +371,7 @@ export function ReturnsPage() {
         }}
       />
 
-      <div className="overflow-y-auto bg-slate-100 p-6">
+      <div className="overflow-y-auto bg-slate-100 p-6" data-tour="returns-details">
         {createMode ? (
           <NewReturnForm
             onCancel={() => {

@@ -34,6 +34,7 @@ import { BillingBanner } from "../components/BillingBanner";
 import { signOut } from "../lib/api";
 import { CloseRegisterDialog } from "./CloseRegisterDialog";
 import { CashDrawerDialog } from "./CashDrawerDialog";
+import { PageTour } from "../tour/PageTour";
 
 type NavItem = {
   to: string;
@@ -200,7 +201,7 @@ export function AppLayout() {
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-2 py-3">
+        <nav className="flex-1 overflow-y-auto px-2 py-3" data-tour="nav">
           {NAV_SECTIONS.map((section) => {
             const items = section.items.filter(
               (item) => (!item.adminOnly || session?.role === "ADMIN") && (!item.permission || [item.permission].flat().some((permission) => can(session, permission))),
@@ -257,7 +258,7 @@ export function AppLayout() {
           })}
         </nav>
 
-        <div className="shrink-0 border-t border-white/5 p-2">
+        <div className="shrink-0 border-t border-white/5 p-2" data-tour="nav-register">
           {hasRegister && session && can(session, "CASH_AND_EXPENSES") ? (
             <button
               className={`flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm font-medium text-slate-400 hover:bg-shell-800 hover:text-slate-100 ${collapsed ? "lg:justify-center lg:px-0" : ""}`}
@@ -375,6 +376,7 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+      {session && signedIn ? <PageTour path={location} userId={session.userId} /> : null}
       {closingRegister ? <CloseRegisterDialog onCancel={() => setClosingRegister(false)} /> : null}
       {movingCash ? <CashDrawerDialog onClose={() => setMovingCash(false)} /> : null}
     </div>

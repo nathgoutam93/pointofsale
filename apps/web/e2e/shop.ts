@@ -4,7 +4,7 @@ import { expect, type APIRequestContext } from '@playwright/test';
 export const API = `http://localhost:${process.env.E2E_API_PORT ?? 3101}`;
 export const ADMIN = { username: 'admin', password: 'admin-pass-123' };
 
-export async function call(request: APIRequestContext, method: 'GET' | 'POST', path: string, token?: string, data?: unknown) {
+export async function call(request: APIRequestContext, method: 'GET' | 'POST' | 'PUT', path: string, token?: string, data?: unknown) {
   const res = await request.fetch(`${API}${path}`, { method, data, headers: token ? { authorization: `Bearer ${token}` } : {} });
   expect(res.ok(), `${method} ${path}: ${await res.text()}`).toBe(true);
   return res.json();

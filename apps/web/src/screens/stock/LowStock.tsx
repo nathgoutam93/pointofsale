@@ -108,7 +108,7 @@ export function LowStockCard({ branchId, onSelect }: { branchId: string; onSelec
   });
   const rows = low.data ?? [];
   return (
-    <div className="card p-5">
+    <div className="card p-5" data-tour="stock-low">
       <div className="mb-3">
         <h3 className="text-sm font-semibold text-slate-900">Low stock</h3>
         <p className="text-xs text-slate-500">Items at or below their reorder level at this branch. Set an item's level above, under its stock.</p>

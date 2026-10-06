@@ -18,13 +18,13 @@ export function DraftList({
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="border-b border-slate-200 p-4">
-        <button className="btn-primary h-14 w-full text-lg" onClick={onNewOrder}>
+        <button className="btn-primary h-14 w-full text-lg" data-tour="pos-new-order" onClick={onNewOrder}>
           <IconPlus width={20} height={20} />
           New Order
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4" data-tour="pos-held">
         <div className="mb-3 flex items-center justify-between">
           <p className="eyebrow">Held orders</p>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">

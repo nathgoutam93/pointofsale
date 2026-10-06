@@ -178,7 +178,7 @@ export function LabelsPage() {
           <BranchPicker value={branchId} onChange={setManagedBranch} className="w-56" />
         </div>
 
-        <div className="card p-4">
+        <div className="card p-4" data-tour="labels-add">
           <input className="field" placeholder="Add an item: search by name, code or barcode" value={term} onChange={(e) => setTerm(e.target.value)} aria-label="Search items" />
           {matches.length > 0 ? (
             <ul className="mt-2 divide-y divide-slate-100 rounded-md border border-slate-200">
@@ -201,7 +201,7 @@ export function LabelsPage() {
           ) : null}
         </div>
 
-        <div className="card overflow-x-auto">
+        <div className="card overflow-x-auto" data-tour="labels-lines">
           {lines.length === 0 ? (
             <p className="p-5 text-sm text-slate-500">{purchase.isLoading || items.isLoading ? "Loading…" : "No items yet. Add some above."}</p>
           ) : (
@@ -286,7 +286,7 @@ export function LabelsPage() {
       </div>
 
       <div className="space-y-4">
-        <div className="card grid gap-3 p-4">
+        <div className="card grid gap-3 p-4" data-tour="labels-options">
           <div>
             <label className="field-label" htmlFor="label-layout">Print on</label>
             <select
@@ -324,7 +324,7 @@ export function LabelsPage() {
           {problems.map((problem) => (
             <p key={problem} className="text-sm text-rose-700">{problem}</p>
           ))}
-          <button className="btn-primary h-10" type="button" disabled={!html} onClick={() => printDocument(html)}>
+          <button className="btn-primary h-10" type="button" data-tour="labels-print" disabled={!html} onClick={() => printDocument(html)}>
             Print {labels.length} {labels.length === 1 ? "label" : "labels"}
           </button>
           <p className="text-xs text-slate-500">In the print dialog, pick the label printer (or the A4 printer), set margins to none and scale to 100%.</p>

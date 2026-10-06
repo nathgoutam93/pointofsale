@@ -155,7 +155,7 @@ export function ItemsPage() {
       />
 
       <div className="overflow-y-auto bg-slate-100 p-6">
-      <div className="card mx-auto max-w-5xl p-5">
+      <div className="card mx-auto max-w-5xl p-5" data-tour="items-details">
         {panelMode === "create" ? (
           <CreateItemForm
             form={form}
