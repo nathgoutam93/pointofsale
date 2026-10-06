@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import {
+  documentTypeFor,
+  gstDocumentTitle,
   presetTemplate,
   RECEIPT_PAPER_IDS,
   RECEIPT_PAPERS,
@@ -71,14 +73,17 @@ export function ReceiptTemplateSection({
     }),
     [store.storeDisplayName, store.invoiceHeaderLines, store.invoiceFooterLines, store.receiptFooterLines],
   );
-  const gstin = store.branchSettings.data?.gstin ?? store.businessSettings.data?.gstNumber ?? null;
+  // Titled and labelled as this business's real bills: an unregistered shop prints an ordinary invoice, with no GSTIN.
+  const taxpayerType = store.businessSettings.data?.taxpayerType ?? "REGULAR";
+  const gstin =
+    taxpayerType === "UNREGISTERED" ? null : (store.branchSettings.data?.gstin ?? store.businessSettings.data?.gstNumber ?? null);
   const preview = useMemo(
     () =>
       renderReceipt(
-        sampleReceiptDocument(branding, { title: store.chargeTax ? "TAX INVOICE" : "BILL OF SUPPLY", gstin }),
+        sampleReceiptDocument(branding, { title: gstDocumentTitle({ documentType: documentTypeFor(taxpayerType) }), gstin }),
         draft,
       ),
-    [branding, draft, gstin, store.chargeTax],
+    [branding, draft, gstin, taxpayerType],
   );
 
   const changed = !sameTemplate(draft, saved);

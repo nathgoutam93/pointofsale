@@ -65,10 +65,10 @@ These changes have been applied and tested locally. No production database was m
    - `20261022110000_return_round_off`
    - `20261022120000_fallback_register_baseline`
    - `20261022130000_unregistered_taxpayer`
-3. Follow the existing release process: choose a new product version and update the root package, desktop package and `APP_VERSION` together. The working tree still uses `0.1.5`; it has not been tagged or packaged for release.
+3. The product version is now `0.1.6` (root package, desktop package and `APP_VERSION`). Release it through a pull request so CI, including the browser end-to-end job, runs before it reaches main; it has not been tagged or packaged yet.
 4. Deploy the rebuilt API and run `node dist/tenancy/cli.js migrate` from `apps/api`, using the deployment's existing environment, before starting the new API. This migrates control and all business schemas. Local desktop installations use their existing startup migration process.
-5. Ship the corresponding web/desktop clients and set `MIN_CLIENT_VERSION` to the new product version. Settlement callers now need `idempotencyKey`; custom integrations must retain it until the payment is confirmed. Reload browser clients and refresh fallback snapshots after the upgrade.
-6. For existing shops without a GSTIN that still have the legacy regular classification, have the owner choose Unregistered in Settings or configure the registered seller details. The migration does not reclassify existing businesses or rewrite historical invoices.
+5. Ship the corresponding web/desktop clients and set `MIN_CLIENT_VERSION=0.1.6` in the API deployment's environment. Settlement callers now need `idempotencyKey`; custom integrations must retain it until the payment is confirmed. Reload browser clients and refresh fallback snapshots after the upgrade.
+6. Existing shops without a GSTIN that still have the legacy regular classification can't bill until the owner enters the GSTIN or chooses Unregistered in Settings. Every screen shows a notice naming the branches without a GSTIN (cashiers see it for their own branch), with a link to Settings for admins. Fallback counters can't change settings, so resolve this while online and refresh fallback snapshots afterwards. Switching to Regular or Composition is refused while no branch has a GSTIN. The migration does not reclassify existing businesses or rewrite historical invoices.
 7. Smoke-test a packaged desktop with the shop's scanner and printer; exercise an outage, reconnect, drawer close and restore on a spare installation before the pilot.
 
 ### Historical data and remaining scope

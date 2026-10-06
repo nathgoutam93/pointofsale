@@ -31,6 +31,7 @@ import { api } from "../lib/api";
 import { can, getSession, updateSession } from "../lib/session";
 import { FallbackBanner } from "../components/FallbackBanner";
 import { BillingBanner } from "../components/BillingBanner";
+import { GstinNeededBanner } from "../components/GstinNeededBanner";
 import { signOut } from "../lib/api";
 import { CloseRegisterDialog } from "./CloseRegisterDialog";
 import { CashDrawerDialog } from "./CashDrawerDialog";
@@ -369,6 +370,7 @@ export function AppLayout() {
 
         <FallbackBanner />
         <BillingBanner />
+        <GstinNeededBanner />
         {session?.role === "ADMIN" ? <CrashReportsPrompt /> : null}
         <MoveOnlineNotice />
         <RecoveryCodeNotice />

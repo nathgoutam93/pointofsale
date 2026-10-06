@@ -18,6 +18,10 @@ export type TaxpayerTypeInForce = {
 const describeType = (type: TaxpayerType, category: CompositionCategory | null) =>
   type === 'UNREGISTERED' ? 'unregistered' : type === 'COMPOSITION' && category ? `composition (${COMPOSITION_CATEGORY_LABELS[category].toLowerCase()})` : 'regular';
 
+/** A branch's own GSTIN, else the business GSTIN when it is for the branch's state (or the state isn't set yet). */
+const sellerGstinFor = (branch: { gstin: string | null; stateCode: string | null }, businessGstin: string | null) =>
+  branch.gstin ?? (businessGstin && (!branch.stateCode || businessGstin.slice(0, 2) === branch.stateCode) ? businessGstin : null);
+
 const formatDate = (date: { year: number; month: number; day: number }) =>
   `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`;
 
@@ -51,7 +55,9 @@ export class SettingsService {
       ...settings,
       cashierMaxDiscountPercent: toNumber(settings.cashierMaxDiscountPercent),
       taxpayerType,
-      compositionCategory
+      compositionCategory,
+      // A registered business bills only from branches with a GSTIN; the app asks for one (or Unregistered).
+      branchesMissingGstin: taxpayerType === 'UNREGISTERED' ? [] : await this.branchesWithoutGstin()
     };
   }
 
@@ -201,11 +207,21 @@ export class SettingsService {
     if (!branch) {
       throw new BadRequestException(`Invalid branchId: ${branchId}`);
     }
-    const businessGstin = business.gstNumber?.trim().toUpperCase() || null;
-    const gstin =
-      branch.gstin ??
-      (businessGstin && (!branch.stateCode || businessGstin.slice(0, 2) === branch.stateCode) ? businessGstin : null);
+    const gstin = sellerGstinFor(branch, business.gstNumber?.trim().toUpperCase() || null);
     return { gstin, stateCode: branch.stateCode ?? gstin?.slice(0, 2) ?? null };
+  }
+
+  /** Branches that resolve no seller GSTIN (see gstRegistrationFor), so can't bill as a registered business. */
+  async branchesWithoutGstin(tx?: Prisma.TransactionClient) {
+    const client = tx ?? this.prisma;
+    const [branches, business] = await Promise.all([
+      client.branch.findMany({ select: { id: true, name: true, gstin: true, stateCode: true }, orderBy: { name: 'asc' } }),
+      this.ensureBusinessSettings(tx)
+    ]);
+    const businessGstin = business.gstNumber?.trim().toUpperCase() || null;
+    return branches
+      .filter((branch) => !sellerGstinFor(branch, businessGstin))
+      .map(({ id, name }) => ({ id, name }));
   }
 
   async getCustomerScope(tx?: Prisma.TransactionClient) {
@@ -280,6 +296,16 @@ export class SettingsService {
       const current = await this.taxpayerTypeAt(now, tx);
       if (current.taxpayerType === input.taxpayerType && current.compositionCategory === compositionCategory) {
         throw new BadRequestException(`The business is already ${describeType(current.taxpayerType, current.compositionCategory)}`);
+      }
+      // Sales as a registered business need the seller's GSTIN; with none anywhere the change would stop all
+      // billing. Branches still without one are named in the app until it is entered.
+      if (input.taxpayerType !== 'UNREGISTERED') {
+        const [missing, branches] = await Promise.all([this.branchesWithoutGstin(tx), tx.branch.count()]);
+        if (missing.length === branches) {
+          throw new BadRequestException(
+            `Enter the GSTIN in Business or Branch Settings first: no branch has one to bill as ${describeType(input.taxpayerType, compositionCategory)}`
+          );
+        }
       }
 
       const [year, month, day] = input.effectiveDate.split('-').map(Number);

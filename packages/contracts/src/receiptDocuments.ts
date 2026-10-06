@@ -35,7 +35,7 @@ export type InvoiceGst = {
 /** The wording a composition taxpayer must print on every bill of supply. */
 export const COMPOSITION_DECLARATION = 'Composition taxable person, not eligible to collect tax on supplies';
 
-export function gstDocumentTitle(gst: InvoiceGst) {
+export function gstDocumentTitle(gst: Pick<InvoiceGst, 'documentType'>) {
   return gst.documentType === 'INVOICE' ? 'INVOICE' : gst.documentType === 'BILL_OF_SUPPLY' ? 'BILL OF SUPPLY' : 'TAX INVOICE';
 }
 

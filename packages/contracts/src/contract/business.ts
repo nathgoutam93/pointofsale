@@ -158,7 +158,9 @@ export const businessSettingsSchema = z.object({
   /** Admins (and cashiers allowed to) may sell more than the stock count shows. */
   allowNegativeStock: z.boolean().default(false),
   /** How the weighing scale's labels are laid out; null without a scale. */
-  scaleBarcode: scaleBarcodeSchema.nullable().default(null)
+  scaleBarcode: scaleBarcodeSchema.nullable().default(null),
+  /** Registered businesses only: branches with no GSTIN, which can't bill until one is entered or the business turns Unregistered. */
+  branchesMissingGstin: z.array(z.object({ id: z.string(), name: z.string() })).default([])
 });
 
 export const taxpayerTypeChangeSchema = z.object({

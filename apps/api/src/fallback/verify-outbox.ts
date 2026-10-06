@@ -1,4 +1,4 @@
-import { computeSaleTotals, documentTypeFor, exclusiveBase, gstinProblem, round2, round3, TAXPAYER_TYPES, type DiscountInput, type TaxMode, type TaxpayerType } from '@pos/contracts';
+import { chargesGst, computeSaleTotals, documentTypeFor, exclusiveBase, gstinProblem, round2, round3, TAXPAYER_TYPES, type DiscountInput, type TaxMode, type TaxpayerType } from '@pos/contracts';
 import type { FallbackOutbox, SyncConflict } from './fallback.service';
 
 /**
@@ -185,7 +185,7 @@ export function verifyOutbox(outbox: FallbackOutbox, context: OutboxContext): Sy
     // The cashier discount limit, on the list prices as the bill records them.
     const maxPercent = context.maxDiscountPercentFor(str(invoice.createdBy));
     if (maxPercent !== null) {
-      const chargeTax = invoice.taxpayerType !== 'COMPOSITION';
+      const chargeTax = chargesGst(taxpayerType);
       const listTotal = round2(
         entry.lines.reduce((sum, line) => {
           const listRate = line.listRate === null || line.listRate === undefined ? num(line.rate) : num(line.listRate);

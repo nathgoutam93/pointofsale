@@ -53,13 +53,37 @@ describe('unregistered retail billing', () => {
   it('requires seller registration when switching back to registered billing', async () => {
     await t.ok('PATCH', '/business/settings', ctx.token, { gstNumber: null });
     expect((await sale()).status).toBe(200); // Still unregistered.
+    expect((await t.ok('GET', '/business/settings', ctx.token)).branchesMissingGstin).toEqual([]);
+    // Registering with no GSTIN anywhere would stop billing, so it is refused.
+    const branchGstins = await t.db.branch.findMany({ where: { gstin: { not: null } }, select: { id: true, gstin: true } });
+    await t.db.branch.updateMany({ data: { gstin: null } });
+    try {
+      const refused = await t.call('POST', '/business/taxpayer-type', ctx.token, { taxpayerType: 'REGULAR', effectiveDate: today });
+      expect(refused.status).toBe(400);
+      expect(refused.body.message).toMatch(/Enter the GSTIN/);
+    } finally {
+      for (const branch of branchGstins) await t.db.branch.update({ where: { id: branch.id }, data: { gstin: branch.gstin } });
+    }
+
+    await t.ok('PATCH', '/business/settings', ctx.token, { gstNumber: originalGstin });
     await change('REGULAR');
+    expect((await sale()).status).toBe(200);
+  });
+
+  it('asks a registered shop without a GSTIN to enter one before billing', async () => {
+    // A legacy regular shop that never entered its GSTIN.
+    await t.ok('PATCH', '/business/settings', ctx.token, { gstNumber: null });
+    const settings = await t.ok('GET', '/business/settings', ctx.token);
+    expect(settings.taxpayerType).toBe('REGULAR');
+    expect(settings.branchesMissingGstin).toContainEqual({ id: ctx.branch.id, name: ctx.branch.name });
     const before = await t.db.saleInvoice.count();
     const rejected = await sale();
     expect(rejected.status).toBe(400);
     expect(rejected.body.message).toMatch(/seller GSTIN/);
     expect(await t.db.saleInvoice.count()).toBe(before);
+
     await t.ok('PATCH', '/business/settings', ctx.token, { gstNumber: originalGstin });
+    expect((await t.ok('GET', '/business/settings', ctx.token)).branchesMissingGstin).not.toContainEqual(expect.objectContaining({ id: ctx.branch.id }));
     expect((await sale()).status).toBe(200);
   });
 });
