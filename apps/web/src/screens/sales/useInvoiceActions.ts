@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { batchLabel, invoiceReceiptItems } from "@pos/contracts";
-import { api, apiErrorMessage, authHeaders } from "../../lib/api";
+import { api, apiErrorMessage, authHeaders, API_BASE_URL } from "../../lib/api";
+import { getSession } from "../../lib/session";
+import { sendSettlement } from "../../lib/pendingSettlement";
 import { invoiceGstOf } from "../../lib/gstReceipt";
 import { getItemDiscountAmount } from "./salesFormat";
 import type { PaymentMode, SettledSummary } from "./types";
@@ -57,11 +59,14 @@ export function useInvoiceActions({
       invoiceId: string;
       payments: Array<{ mode: PaymentMode; amount: number }>;
     }) => {
-      const res = await api.sales.settle({
+      const userId = getSession()?.userId;
+      if (!userId) throw new Error("Sign in before taking payment.");
+      const scope = JSON.stringify([API_BASE_URL, userId, payload.invoiceId]);
+      const res = await sendSettlement(localStorage, scope, payload.payments, (idempotencyKey) => api.sales.settle({
         params: { id: payload.invoiceId },
-        body: { payments: payload.payments },
+        body: { payments: payload.payments, idempotencyKey },
         extraHeaders: authHeaders(),
-      });
+      }));
       if (res.status !== 200) {
         throw new Error(apiErrorMessage(res.body, "Failed to settle invoice"));
       }

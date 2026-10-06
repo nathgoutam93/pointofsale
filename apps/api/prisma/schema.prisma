@@ -113,6 +113,7 @@ enum RoundOffMode {
 enum TaxpayerType {
   REGULAR
   COMPOSITION
+  UNREGISTERED
 }
 
 /// Sets the composition rate: 1% for manufacturers and traders, 5% for restaurants, 6% for services.
@@ -135,6 +136,7 @@ enum GstSupplyType {
 enum GstDocumentType {
   TAX_INVOICE
   BILL_OF_SUPPLY
+  INVOICE
 }
 
 enum DiscountScope {
@@ -774,6 +776,10 @@ model Receipt {
   invoice   SaleInvoice @relation(fields: [invoiceId], references: [id])
   amount    Decimal     @db.Decimal(14, 2)
   createdAt DateTime    @default(now())
+  /// Settlement retries return this receipt without taking the payment again. Null for legacy receipts/checkout.
+  idempotencyKey String? @unique
+  requestFingerprint String?
+  settlementUserId String?
 
   @@index([invoiceId])
 }
@@ -787,6 +793,8 @@ model ReturnInvoice {
   documentSeries    String?
   fiscalYear        Int?
   totalAmount       Decimal             @db.Decimal(14, 2)
+  /// This return's share of the original invoice rounding; GST line amounts stay unchanged.
+  roundOff          Decimal             @default(0) @db.Decimal(14, 2)
   /// totalAmount split into taxable value and tax by kind; the sums of the lines'.
   taxableTotal      Decimal             @default(0) @db.Decimal(14, 2)
   taxTotal          Decimal             @default(0) @db.Decimal(14, 2)
@@ -1066,6 +1074,20 @@ model AuditEvent {
 model FallbackBalance {
   customerId String  @id
   owed       Decimal @db.Decimal(14, 2)
+}
+
+/// Online register movements as of the fallback snapshot. Local transactions add to these.
+model FallbackRegisterBalance {
+  registerId String @id
+  cashSales Decimal @default(0) @db.Decimal(14, 2)
+  cashTopups Decimal @default(0) @db.Decimal(14, 2)
+  cashRefunds Decimal @default(0) @db.Decimal(14, 2)
+  cashPaidOut Decimal @default(0) @db.Decimal(14, 2)
+  cashIn Decimal @default(0) @db.Decimal(14, 2)
+  cashOut Decimal @default(0) @db.Decimal(14, 2)
+  cashExpenses Decimal @default(0) @db.Decimal(14, 2)
+  cardSales Decimal @default(0) @db.Decimal(14, 2)
+  upiSales Decimal @default(0) @db.Decimal(14, 2)
 }
 
 /// Fallback copies only (empty on the server): bills and returns that came with the copy (the

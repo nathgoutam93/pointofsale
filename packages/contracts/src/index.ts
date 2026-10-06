@@ -89,6 +89,7 @@ export {
   priceWithTax,
   resolveDiscountAmounts,
   returnLineAmounts,
+  returnRoundOff,
   round2,
   roundOffFor,
   roundedTotal,

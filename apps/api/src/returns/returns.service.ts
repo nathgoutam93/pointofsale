@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { DocumentKind, InvoiceStatus, PaymentMode, Prisma, StockTxnType, UserRole, WalletTxnType } from '@prisma/client';
-import { invoiceDue, returnLineAmounts, splitReturn, type GstAmounts } from '@pos/contracts';
+import { invoiceDue, returnLineAmounts, returnRoundOff, splitReturn, type GstAmounts } from '@pos/contracts';
 import { PrismaService } from '../prisma.service';
 import type { SessionUser } from '../common/types';
 import { toNumber, round2, round3 } from '../common/numbers';
@@ -90,7 +90,7 @@ export class ReturnsService {
         where: { id: saleInvoiceId },
         include: {
           lines: { include: { returnLines: true } },
-          returns: { select: { totalAmount: true, refundAmount: true } },
+          returns: { select: { totalAmount: true, refundAmount: true, roundOff: true } },
           customer: { select: { isWalkIn: true } },
           branch: { select: { name: true } }
         }
@@ -185,7 +185,16 @@ export class ReturnsService {
       }
       const total = (pick: (line: (typeof returnLineCreates)[number]) => number) =>
         round2(returnLineCreates.reduce((acc, line) => acc + pick(line), 0));
-      const totalAmount = total((line) => line.amount);
+      const lineTotal = total((line) => line.amount);
+      const roundOff = returnRoundOff({
+        invoiceRoundOff: toNumber(invoice.roundOff),
+        invoiceNetTotal: round2(invoice.lines.reduce((sum, line) => sum + toNumber(line.netAmount), 0)),
+        returnedNetTotal: round2(invoice.lines.flatMap((line) => line.returnLines).reduce((sum, line) => sum + toNumber(line.amount), 0)),
+        returnedRoundOff: round2(invoice.returns.reduce((sum, ret) => sum + toNumber(ret.roundOff), 0)),
+        amount: lineTotal
+      });
+      const totalAmount = round2(lineTotal + roundOff);
+      if (totalAmount < 0) throw new BadRequestException('Earlier returns need reconciliation before the remaining invoice round-off can be reversed');
 
       // A bill not yet paid in full is brought down first (a credit sale returned in full owes
       // nothing and gets nothing back); only what is left over is handed back.
@@ -227,6 +236,7 @@ export class ReturnsService {
           documentSeries,
           fiscalYear,
           totalAmount,
+          roundOff,
           taxableTotal: total((line) => line.taxableAmount),
           taxTotal: total((line) => line.taxAmount),
           cgstTotal: total((line) => line.cgstAmount),
@@ -341,6 +351,7 @@ export class ReturnsService {
       saleInvoiceId: row.saleInvoiceId,
       returnNo: row.returnNo,
       totalAmount: row.totalAmount,
+      roundOff: row.roundOff,
       dueAdjusted: row.dueAdjusted,
       refundAmount: row.refundAmount,
       refundMode: row.refundMode,
@@ -388,6 +399,7 @@ export class ReturnsService {
       saleInvoiceId: returnInvoice.saleInvoiceId,
       returnNo: returnInvoice.returnNo,
       totalAmount: returnInvoice.totalAmount,
+      roundOff: returnInvoice.roundOff,
       taxableTotal: returnInvoice.taxableTotal,
       taxTotal: returnInvoice.taxTotal,
       cgstTotal: returnInvoice.cgstTotal,

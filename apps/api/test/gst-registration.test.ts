@@ -5,6 +5,7 @@ import { checkoutBody, line, startApp, type TestApp } from './helpers';
 // GST #31: each branch's GSTIN and state, and each sale's seller and place of supply.
 let t: TestApp;
 let admin: string;
+let originalBusinessGstin: string | null;
 
 /** A made-up GSTIN for `state` with a valid check character. */
 const gstin = (state: string, pan = 'ABCDE1234F') => {
@@ -31,11 +32,12 @@ beforeAll(async () => {
   t = await startApp();
   admin = await t.login();
   await t.db.taxpayerTypeChange.deleteMany({});
+  originalBusinessGstin = (await t.ok('GET', '/business/settings', admin)).gstNumber;
   await setBusinessGstin(null);
 });
 afterAll(async () => {
   await t.db.taxpayerTypeChange.deleteMany({});
-  await setBusinessGstin(null);
+  await setBusinessGstin(originalBusinessGstin);
   await t.close();
 });
 
@@ -90,14 +92,14 @@ describe('seller and place of supply on each sale', () => {
     expect((await s.sell({ placeOfSupplyStateCode: '28' })).status).toBe(400); // retired code
   });
 
-  it('needs the branch state before a place of supply can be chosen', async () => {
+  it('requires seller registration before billing as a registered shop', async () => {
     const s = await shop();
     const res = await s.sell({ placeOfSupplyStateCode: '29' });
     expect(res.status).toBe(400);
-    expect(String(res.body.message)).toMatch(/Set this branch's state/);
+    expect(String(res.body.message)).toMatch(/seller GSTIN/);
     const counter = await s.sell();
-    expect(counter.status).toBe(200);
-    expect(counter.body.invoice).toMatchObject({ sellerGstin: null, sellerStateCode: null, placeOfSupplyStateCode: null });
+    expect(counter.status).toBe(400);
+    expect(String(counter.body.message)).toMatch(/seller GSTIN/);
   });
 
   it('falls back to the business GSTIN only for a branch in its state', async () => {
@@ -112,10 +114,10 @@ describe('seller and place of supply on each sale', () => {
 
     const otherState = await shop();
     await t.ok('PATCH', `/branches/${otherState.branch.id}`, admin, { stateCode: '27' });
-    expect((await otherState.sell()).body.invoice).toMatchObject({ sellerGstin: null, sellerStateCode: '27' });
+    expect((await otherState.sell()).status).toBe(400);
 
     const noState = await shop();
-    expect((await noState.sell()).body.invoice).toMatchObject({ sellerGstin: BUSINESS, sellerStateCode: null });
+    expect((await noState.sell()).body.invoice).toMatchObject({ sellerGstin: BUSINESS, sellerStateCode: '29' });
     await setBusinessGstin(null);
   });
 

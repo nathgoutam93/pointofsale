@@ -2,6 +2,7 @@ import { Prisma, UserRole } from '@prisma/client';
 import { toNumber } from '../common/numbers';
 import type { FallbackOutbox, SyncConflict } from './fallback.service';
 import type { ServerSaleLine } from './verify-outbox';
+import { localDate } from '../reports/zoned-dates';
 
 /**
  * What the server looks up before it takes a fallback counter's offline sales, inside the sync's
@@ -74,9 +75,16 @@ export async function verificationContext(
       ];
     })
   );
+  const bills = serverBillIds.length ? await tx.saleInvoice.findMany({
+    where: { id: { in: serverBillIds } },
+    select: { id: true, roundOff: true, returns: { where: { id: { notIn: returnIds } }, select: { roundOff: true } } }
+  }) : [];
   return {
     maxDiscountPercentFor: (userId: string) => (admins.has(userId) ? null : cashierLimit),
-    serverSaleLines
+    serverSaleLines,
+    serverInvoiceRounding: new Map(bills.map((bill) => [bill.id, {
+      roundOff: toNumber(bill.roundOff), returnedRoundOff: bill.returns.reduce((sum, ret) => sum + toNumber(ret.roundOff), 0)
+    }]))
   };
 }
 
@@ -94,6 +102,39 @@ export async function syncConflicts(
   const timezone = (await tx.businessSettings.findUnique({ where: { id: 'default' }, select: { timezone: true } }))?.timezone ?? 'Asia/Kolkata';
   const when = (date: Date) => date.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: timezone });
   const conflicts: SyncConflict[] = [];
+  const movements = [...outbox.invoices.flatMap((entry) => entry.ledger), ...outbox.returns.flatMap((entry) => entry.ledger)];
+  const knownMovements = new Set((await tx.stockLedger.findMany({ where: { id: { in: movements.map((row) => String(row.id)) } }, select: { id: true } })).map((row) => row.id));
+  const fresh = movements.filter((row) => !knownMovements.has(String(row.id)) && row.batchId);
+  const batchIds = [...new Set(fresh.map((row) => String(row.batchId)))];
+  const batches = new Map((await tx.itemBatch.findMany({ where: { id: { in: batchIds } }, include: { stocks: true } })).map((batch) => [batch.id, batch]));
+  const changes = new Map<string, { branchId: string; batchId: string; change: number }>();
+  for (const row of fresh) {
+    const batch = batches.get(String(row.batchId));
+    const document = `Stock movement ${String(row.id)}`;
+    if (!batch || batch.itemId !== String(row.itemId)) {
+      conflicts.push({ document, problem: 'Its batch does not belong to the item it moves.' });
+      continue;
+    }
+    const at = new Date(String(row.createdAt));
+    let expired = false;
+    if (Number.isFinite(at.getTime()) && batch.expiryDate) {
+      const { year, month, day } = localDate(at, timezone);
+      expired = batch.expiryDate < `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+    if (row.txnType === 'SALE' && (!Number.isFinite(at.getTime()) || expired)) {
+      conflicts.push({ document, problem: `Batch ${batch.batchNo} was expired when it was sold offline.` });
+    }
+    const branchId = String(row.branchId);
+    const key = `${branchId}:${batch.id}`;
+    const change = Number(row.qtyIn ?? 0) - Number(row.qtyOut ?? 0);
+    changes.set(key, { branchId, batchId: batch.id, change: (changes.get(key)?.change ?? 0) + change });
+  }
+  for (const { branchId, batchId, change } of changes.values()) {
+    const batch = batches.get(batchId)!;
+    if (toNumber(batch.stocks.find((stock) => stock.branchId === branchId)?.qty) + change < -0.0005) {
+      conflicts.push({ document: `Batch ${batch.batchNo}`, problem: 'The offline movements would take this batch below zero; reconcile the stock used by other tills.' });
+    }
+  }
   const ids = (rows: Array<Record<string, unknown>>) => rows.map((row) => String(row.id));
   const invoiceNoOf = new Map(outbox.invoices.map((entry) => [String(entry.invoice.id), String(entry.invoice.invoiceNo)]));
 

@@ -47,7 +47,7 @@ export async function takeFromBatches(
     const { lots, unbatched } = await lotsOf(tx, branchId, itemId);
     const picked = pickBatches({ lots, unbatched, qty, today: options.today, includeExpired: options.includeExpired });
     if (picked.short > 0) {
-      if (picked.expired > 0 && !options.allowShort) {
+      if (picked.expired > 0) {
         const soonest = lots.filter((lot) => lot.qty > 0 && isExpired(lot.expiryDate, options.today)).sort((a, b) => (a.expiryDate ?? '').localeCompare(b.expiryDate ?? ''))[0];
         throw new BadRequestException(
           `${name}: only ${round3(qty - picked.short)} can be sold; ${picked.expired} more is expired stock (batch ${soonest.batchNo}, expired ${soonest.expiryDate}). Write expired stock off with a stock adjustment.`

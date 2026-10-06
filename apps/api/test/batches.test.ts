@@ -1,6 +1,5 @@
 import { randomUUID } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { placeOfflineMovementsInBatches } from '../src/fallback/offline-batches';
 import { addDays } from '../src/suppliers/supplier-ledger';
 import { pickBatches, putBack, splitOverShares } from '../src/stock/batches';
 import { checkoutBody, line, startApp, type TestApp } from './helpers';
@@ -76,6 +75,24 @@ describe('batches and expiry', () => {
     expect(await batches()).toEqual([['C-3', 3, true], ['A-1', 5, false], ['B-2', 5, false]]);
   });
 
+  it('keeps expired stock blocked when an admin may sell below zero', async () => {
+    const previous = await t.db.businessSettings.findUniqueOrThrow({ where: { id: 'default' } });
+    await t.db.businessSettings.update({ where: { id: 'default' }, data: { allowNegativeStock: true } });
+    const before = await batches();
+    try {
+      const rejected = await sell(11); // 10 fresh and 3 expired; total stock covers the request.
+      expect(rejected.status).toBe(400);
+      expect(rejected.body.message).toMatch(/expired stock/);
+      expect(await batches()).toEqual(before);
+      const overTotal = await sell(14);
+      expect(overTotal.status).toBe(400);
+      expect(overTotal.body.message).toMatch(/expired stock/);
+      expect(await batches()).toEqual(before);
+    } finally {
+      await t.db.businessSettings.update({ where: { id: 'default' }, data: { allowNegativeStock: previous.allowNegativeStock } });
+    }
+  });
+
   it('send the earliest expiry to another branch, in the same batches', async () => {
     const other = await t.branchWithRegister(admin);
     const sent = await t.ok('POST', '/stock-transfers', admin, { fromBranchId: ctx.branch.id, toBranchId: other.branch.id, lines: [{ itemId, qty: 7 }] });
@@ -112,26 +129,6 @@ describe('batches and expiry', () => {
     const eLine = purchase.body.lines.find((row: { batch: { batchNo: string } }) => row.batch.batchNo === 'E-5');
     await t.ok('POST', `/purchases/${purchase.body.id}/returns`, admin, { lines: [{ purchaseLineId: eLine.id, qty: 4 }], reason: 'Short dated' });
     expect(await batches()).toEqual([['D-4', 10, false], ['B-2', 3, false], ['E-5', 6, false]]);
-  });
-});
-
-describe('offline sales of items kept by batch', () => {
-  it('are put in batches when they reach the server, once', async () => {
-    // What a fallback counter sends: a sale of 12 without a batch (its copy has none), already
-    // taken off the item's stock.
-    const before = await batches();
-    expect(before).toEqual([['D-4', 10, false], ['B-2', 3, false], ['E-5', 6, false]]);
-    const id = randomUUID();
-    await t.db.stockLedger.create({ data: { id, branchId: ctx.branch.id, itemId, txnType: 'SALE', qtyIn: 0, qtyOut: 12, referenceType: 'SALE', referenceId: randomUUID(), lineId: randomUUID() } });
-    await t.db.itemStock.update({ where: { branchId_itemId: { branchId: ctx.branch.id, itemId } }, data: { qty: { decrement: 12 } } });
-
-    await t.db.$transaction((tx) => placeOfflineMovementsInBatches(tx, [id]));
-    expect(await batches()).toEqual([['B-2', 1, false], ['E-5', 6, false]]);
-    const rows = await t.db.stockLedger.findMany({ where: { lineId: (await t.db.stockLedger.findUniqueOrThrow({ where: { id } })).lineId } });
-    expect(rows.map((row) => Number(row.qtyOut)).sort((a, b) => b - a)).toEqual([10, 2]);
-    // Sent again: nothing moves.
-    await t.db.$transaction((tx) => placeOfflineMovementsInBatches(tx, [id]));
-    expect(await batches()).toEqual([['B-2', 1, false], ['E-5', 6, false]]);
   });
 });
 

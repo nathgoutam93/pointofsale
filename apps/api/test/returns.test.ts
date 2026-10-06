@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkoutBody, line, startApp, type TestApp } from './helpers';
 
@@ -48,7 +49,7 @@ describe('returns', () => {
     // With a credit note against it, the bill can't be cancelled any more.
     expect((await t.call('POST', `/sales/${credit.id}/cancel`, ctx.token, { reason: 'Test cancel' })).status).toBe(400);
     // Paying what is left settles it; nothing more can be paid.
-    expect((await t.call('POST', `/sales/${credit.id}/settle`, ctx.token, { payments: [{ mode: 'WALLET', amount: 250 }] })).status).toBe(400);
+    expect((await t.call('POST', `/sales/${credit.id}/settle`, ctx.token, { idempotencyKey: randomUUID(), payments: [{ mode: 'WALLET', amount: 250 }] })).status).toBe(400);
 
     const rest = await ret(credit, [{ saleLineId: credit.lines[0].id, qty: 2 }]);
     expect(money(rest.body)).toMatchObject({ dueAdjusted: 200, refundAmount: 0 });
@@ -80,8 +81,8 @@ describe('returns', () => {
     const sale = (await t.ok('POST', '/sales/checkout', ctx.token, checkoutBody(ctx.branch.id, customerId, [line(itemId, { qty: 4 })], [{ mode: 'CASH', amount: 100 }]))).invoice;
     // 400 billed, 100 paid: returning one (100) leaves 200 owed.
     expect(money((await ret(sale, [{ saleLineId: sale.lines[0].id, qty: 1 }])).body)).toMatchObject({ dueAdjusted: 100, refundAmount: 0 });
-    expect((await t.call('POST', `/sales/${sale.id}/settle`, ctx.token, { payments: [{ mode: 'WALLET', amount: 250 }] })).status).toBe(400);
-    const settled = await t.ok('POST', `/sales/${sale.id}/settle`, ctx.token, { payments: [{ mode: 'CASH', amount: 200 }] });
+    expect((await t.call('POST', `/sales/${sale.id}/settle`, ctx.token, { idempotencyKey: randomUUID(), payments: [{ mode: 'WALLET', amount: 250 }] })).status).toBe(400);
+    const settled = await t.ok('POST', `/sales/${sale.id}/settle`, ctx.token, { idempotencyKey: randomUUID(), payments: [{ mode: 'CASH', amount: 200 }] });
     const after = settled.invoice ?? settled;
     expect({ ...money(after), status: after.status }).toMatchObject({ paidTotal: 300, creditedTotal: 100, status: 'SETTLED' });
   });

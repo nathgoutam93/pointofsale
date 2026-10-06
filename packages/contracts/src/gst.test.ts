@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  chargesGst,
+  documentTypeFor,
   defaultSupplyType,
   branchCodeProblem,
   documentNumber,
@@ -20,6 +22,17 @@ import {
   supplyTypeProblem,
   UOM_TO_UQC
 } from './gst';
+
+describe('registration-aware documents', () => {
+  it('gives unregistered shops ordinary invoices without GST', () => {
+    expect(chargesGst('UNREGISTERED')).toBe(false);
+    expect(documentTypeFor('UNREGISTERED')).toBe('INVOICE');
+    expect(chargesGst('REGULAR')).toBe(true);
+    expect(documentTypeFor('REGULAR')).toBe('TAX_INVOICE');
+    expect(chargesGst('COMPOSITION')).toBe(false);
+    expect(documentTypeFor('COMPOSITION')).toBe('BILL_OF_SUPPLY');
+  });
+});
 
 describe('gstinProblem', () => {
   it('accepts GSTINs with the right check character', () => {

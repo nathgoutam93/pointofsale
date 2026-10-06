@@ -16,7 +16,7 @@ export type TaxpayerTypeInForce = {
 };
 
 const describeType = (type: TaxpayerType, category: CompositionCategory | null) =>
-  type === 'COMPOSITION' && category ? `composition (${COMPOSITION_CATEGORY_LABELS[category].toLowerCase()})` : 'regular';
+  type === 'UNREGISTERED' ? 'unregistered' : type === 'COMPOSITION' && category ? `composition (${COMPOSITION_CATEGORY_LABELS[category].toLowerCase()})` : 'regular';
 
 const formatDate = (date: { year: number; month: number; day: number }) =>
   `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`;
@@ -205,7 +205,7 @@ export class SettingsService {
     const gstin =
       branch.gstin ??
       (businessGstin && (!branch.stateCode || businessGstin.slice(0, 2) === branch.stateCode) ? businessGstin : null);
-    return { gstin, stateCode: branch.stateCode };
+    return { gstin, stateCode: branch.stateCode ?? gstin?.slice(0, 2) ?? null };
   }
 
   async getCustomerScope(tx?: Prisma.TransactionClient) {

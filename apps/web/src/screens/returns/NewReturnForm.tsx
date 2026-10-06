@@ -19,6 +19,7 @@ export function NewReturnForm({
   refundMode,
   setRefundMode,
   totalReturnAmount,
+  roundOff,
   returnSplit,
   walletAllowed,
   selectedInvoice,
@@ -43,6 +44,7 @@ export function NewReturnForm({
   refundMode: ReturnRefundMode;
   setRefundMode: (mode: ReturnRefundMode) => void;
   totalReturnAmount: number;
+  roundOff: number;
   /** How the return splits between what is still owed and what is refunded. */
   returnSplit: ReturnType<typeof splitReturn>;
   /** Wallet credit only for registered customers. */
@@ -184,6 +186,12 @@ export function NewReturnForm({
               ))}
             </tbody>
             <tfoot>
+              {roundOff !== 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-2 py-2 text-right text-slate-600">Invoice round-off reversed</td>
+                  <td className="px-2 py-2 text-right">{inr(roundOff)}</td>
+                </tr>
+              ) : null}
               {returnSplit.dueAdjusted > 0 ? (
                 <>
                   <tr className="border-t border-slate-200">

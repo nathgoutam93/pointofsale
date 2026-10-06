@@ -4,13 +4,13 @@
  * flat rate on its turnover instead.
  */
 
-export type TaxpayerType = 'REGULAR' | 'COMPOSITION';
+export type TaxpayerType = 'REGULAR' | 'COMPOSITION' | 'UNREGISTERED';
 export type CompositionCategory = 'MANUFACTURER' | 'TRADER' | 'RESTAURANT' | 'SERVICES';
-export type GstDocumentType = 'TAX_INVOICE' | 'BILL_OF_SUPPLY';
+export type GstDocumentType = 'TAX_INVOICE' | 'BILL_OF_SUPPLY' | 'INVOICE';
 
-export const TAXPAYER_TYPES = ['REGULAR', 'COMPOSITION'] as const;
+export const TAXPAYER_TYPES = ['REGULAR', 'COMPOSITION', 'UNREGISTERED'] as const;
 export const COMPOSITION_CATEGORIES = ['MANUFACTURER', 'TRADER', 'RESTAURANT', 'SERVICES'] as const;
-export const GST_DOCUMENT_TYPES = ['TAX_INVOICE', 'BILL_OF_SUPPLY'] as const;
+export const GST_DOCUMENT_TYPES = ['TAX_INVOICE', 'BILL_OF_SUPPLY', 'INVOICE'] as const;
 
 /** Tax a composition taxpayer pays on turnover, in percent (half CGST, half SGST). */
 export const COMPOSITION_RATES: Record<CompositionCategory, number> = {
@@ -28,7 +28,7 @@ export const COMPOSITION_CATEGORY_LABELS: Record<CompositionCategory, string> = 
 };
 
 export function documentTypeFor(taxpayerType: TaxpayerType): GstDocumentType {
-  return taxpayerType === 'COMPOSITION' ? 'BILL_OF_SUPPLY' : 'TAX_INVOICE';
+  return taxpayerType === 'UNREGISTERED' ? 'INVOICE' : taxpayerType === 'COMPOSITION' ? 'BILL_OF_SUPPLY' : 'TAX_INVOICE';
 }
 
 /** Whether sales charge GST on the bill. Composition taxpayers may not. */

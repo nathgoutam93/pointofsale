@@ -154,7 +154,7 @@ export class ExportsService {
         -toNumber(ret.cgstTotal),
         -toNumber(ret.sgstTotal),
         -toNumber(ret.igstTotal),
-        0,
+        -toNumber(ret.roundOff),
         -toNumber(ret.totalAmount),
         null,
         null,

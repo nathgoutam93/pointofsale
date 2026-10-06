@@ -61,7 +61,7 @@ async function create(args: string[]) {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   try {
     const { business } = await app.get(ProvisioningService).createBusiness(
-      { businessName: name, adminUsername, adminPassword, timezone: 'Asia/Kolkata', taxpayerType: 'REGULAR', branchCode: 'MAI' },
+      { businessName: name, adminUsername, adminPassword, timezone: 'Asia/Kolkata', taxpayerType: 'UNREGISTERED', branchCode: 'MAI' },
       { code: option(args, 'code')?.toUpperCase() }
     );
     process.stdout.write(`Created "${business.name}". Business code: ${business.code}\n`);

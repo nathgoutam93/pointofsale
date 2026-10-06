@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ADMIN, checkoutBody, line, startApp, type TestApp } from './helpers';
 
@@ -60,7 +61,7 @@ describe('sales summary', () => {
     expect((await overall(ctx.token, ctx.branch.id)).costOfGoodsSold).toBe(170);
 
     // Paying the credit bill later doesn't change the sales; it is money collected (by UPI here).
-    await t.ok('POST', `/sales/${credit.invoice.id}/settle`, ctx.token, { payments: [{ mode: 'UPI', amount: 118 }] });
+    await t.ok('POST', `/sales/${credit.invoice.id}/settle`, ctx.token, { idempotencyKey: randomUUID(), payments: [{ mode: 'UPI', amount: 118 }] });
     expect(await overall(ctx.token, ctx.branch.id)).toMatchObject({
       ...before,
       unpaidSales: 0,

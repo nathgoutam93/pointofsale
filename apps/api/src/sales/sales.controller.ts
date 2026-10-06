@@ -68,7 +68,7 @@ export class SalesController {
     @Body(new ZodValidationPipe(appContract.sales.settle.body)) body: Parsed<typeof appContract.sales.settle.body>,
     @Headers() headers: RequestHeaders
   ) {
-    return this.sales.settleSale(requireOpenRegisterSession(headers), id, body.payments);
+    return this.sales.settleSale(requireOpenRegisterSession(headers), id, body.payments, body.idempotencyKey);
   }
 
   @Get('/sales')

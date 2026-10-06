@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { FALLBACK_SYNC_CONFLICT, FALLBACK_UNAVAILABLE } from '@pos/contracts';
 import { restoreBackup } from '../src/backup/local-backup';
+import { addDays } from '../src/suppliers/supplier-ledger';
 import { ADMIN, checkoutBody, line, startApp, type TestApp } from './helpers';
 
 // A fallback counter: the online server binds it to one computer and gives that computer a copy
@@ -35,6 +36,8 @@ let walkInId: string;
 let registerToken: string;
 let creditCoId: string;
 let copiedSale: { id: string; lines: Array<{ id: string }> };
+let freshExpiry: string;
+let groupId: string;
 const deviceId = randomUUID();
 const device = { 'x-pos-device': deviceId };
 
@@ -92,16 +95,24 @@ describe('fallback counter, on the server', () => {
     registerToken = here.body.token;
 
     // An item, its stock, and one sale online, so the counter's series is at 1.
-    const item = await t.item(registerToken, branchId, { sellPrice: 118, taxRate: 18, taxMode: 'INCLUSIVE', stock: 10 });
+    const item = await t.item(registerToken, branchId, { sellPrice: 118, taxRate: 18, taxMode: 'INCLUSIVE', stock: 0 });
     itemId = item.id;
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    freshExpiry = addDays(today, 30);
+    const group = await t.db.itemGroup.create({ data: { name: `Fallback variants ${randomUUID()}`, option1Name: 'Size', option1Values: ['Standard'], option2Values: [] } });
+    groupId = group.id;
+    await t.db.item.update({ where: { id: itemId }, data: { tracksBatches: true, groupId, option1: 'Standard' } });
+    await t.ok('POST', '/stock/opening', registerToken, { branchId, itemId, qty: 20, batchNo: 'LIVE', expiryDate: freshExpiry });
+    await t.ok('POST', '/stock/opening', registerToken, { branchId, itemId, qty: 4, batchNo: 'OLD', expiryDate: addDays(today, -1) });
     walkInId = (await t.ok('GET', `/customers/walk-in/${branchId}`, registerToken)).id;
-    const sale = await t.ok('POST', '/sales/checkout', registerToken, checkoutBody(branchId, walkInId, [line(itemId, { rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], [{ mode: 'CASH', amount: 118 }]));
+    const sale = await t.ok('POST', '/sales/checkout', registerToken, checkoutBody(branchId, walkInId, [line(itemId, { qty: 2, rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], [{ mode: 'CASH', amount: 236 }]));
     expect(sale.invoice.invoiceNo).toMatch(new RegExp(`^${branchCode}/${counterNumber}/\\d{2}/00001$`));
     copiedSale = sale.invoice;
+    await t.ok('POST', `/sales/${copiedSale.id}/return`, registerToken, { lines: [{ saleLineId: copiedSale.lines[0].id, qty: 1 }], refundMode: 'CASH', reason: 'Returned before snapshot' });
 
     // A customer with a credit limit who owes 118 from a credit sale at another branch.
     const other = await t.branchWithRegister(admin);
-    await t.ok('POST', '/stock/opening', other.token, { branchId: other.branch.id, itemId, qty: 5 });
+    await t.ok('POST', '/stock/opening', other.token, { branchId: other.branch.id, itemId, qty: 5, batchNo: 'LIVE', expiryDate: freshExpiry });
     creditCoId = (await t.ok('POST', '/customers', admin, { branchId: other.branch.id, name: 'Credit Co', creditLimit: 300 })).id;
     await t.ok('POST', '/sales/checkout', other.token, checkoutBody(other.branch.id, creditCoId, [line(itemId, { rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], []));
   });
@@ -135,10 +146,15 @@ describe('fallback counter, working offline', () => {
     // returns), and what customers owe.
     expect(tables.Counter).toBeGreaterThanOrEqual(1);
     expect(tables.RegisterSession).toBe(1);
-    expect(tables.DocumentSequence).toBe(1);
+    expect(tables.DocumentSequence).toBe(2);
     expect(tables.SaleInvoice).toBe(1);
-    expect(tables.FallbackCopiedDocument).toBe(1);
-    expect(tables.ReturnInvoice).toBe(0);
+    expect(tables.FallbackCopiedDocument).toBe(2);
+    expect(tables.ReturnInvoice).toBe(1);
+    expect(tables.ItemBatch).toBe(2);
+    expect(tables.BatchStock).toBe(2);
+    expect(tables.StockLedger).toBe(2);
+    expect(tables.ItemGroup).toBeGreaterThanOrEqual(1);
+    expect(tables.FallbackRegisterBalance).toBe(1);
     expect(tables.ItemStock).toBe(1);
     const copy = new PrismaClient({ datasourceUrl: localDbUrl });
     try {
@@ -186,6 +202,11 @@ describe('fallback counter, working offline', () => {
     expect(login.status).toBe(200);
     expect(login.body.registerId).toBeTruthy();
     localToken = login.body.token;
+    const current = await call(base, 'GET', '/registers/current', { token: localToken });
+    expect(current.body).toMatchObject({ cashSales: 236, cashRefunds: 118, expectedCash: 218 });
+    const groups = await call(base, 'GET', '/item-groups', { token: localToken });
+    expect(groups.status).toBe(200);
+    expect(groups.body.some((group: { id: string }) => group.id === groupId)).toBe(true);
 
     const sale = await call(base, 'POST', '/sales/checkout', {
       token: localToken,
@@ -197,9 +218,25 @@ describe('fallback counter, working offline', () => {
     expect(sale.body.invoice.invoiceNo).toMatch(new RegExp(`^${branchCode}/${counterNumber}/\\d{2}/00003$`));
     expect(sale.body.receipt.receiptNo).toMatch(new RegExp(`-${branchCode}-F${counterNumber}-000001$`));
     offlineInvoiceId = sale.body.invoice.id;
+    expect(sale.body.invoice.lines[0].batches).toEqual([{ batchNo: 'LIVE', expiryDate: freshExpiry, qty: 2 }]);
   });
 
   it('does only what needs no server', async () => {
+    const localDb = new PrismaClient({ datasourceUrl: localDbUrl });
+    try {
+      await localDb.businessSettings.update({ where: { id: 'default' }, data: { allowNegativeStock: true } });
+      const fresh = await localDb.batchStock.findFirstOrThrow({ where: { branchId, batch: { itemId, batchNo: 'LIVE' } } });
+      const qty = Number(fresh.qty) + 1;
+      const before = await localDb.stockLedger.count();
+      const expired = await call(base, 'POST', '/sales/checkout', { token: localToken,
+        body: checkoutBody(branchId, walkInId, [line(itemId, { qty, rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], [{ mode: 'CASH', amount: qty * 118 }]) });
+      expect(expired.status).toBe(400);
+      expect(expired.body.message).toMatch(/expired stock/);
+      expect(await localDb.stockLedger.count()).toBe(before);
+    } finally {
+      await localDb.businessSettings.update({ where: { id: 'default' }, data: { allowNegativeStock: false } });
+      await localDb.$disconnect();
+    }
     const edit = await call(base, 'PATCH', `/customers/${creditCoId}`, { token: localToken, body: { name: 'Renamed' } });
     expect(edit.status).toBe(403);
     expect(edit.body.code).toBe(FALLBACK_UNAVAILABLE);
@@ -251,16 +288,38 @@ describe('fallback counter, working offline', () => {
     expect(credit.body.invoice.status).toBe('DRAFT');
     expect((await local('GET', `/customers/${creditCoId}/account`)).body).toMatchObject({ outstanding: 236, available: 64 });
 
+    // Cancellation is outside the fallback write allowlist. It must never create an
+    // unsyncable CANCELLED bill, nor put its stock back locally.
+    const localDb = new PrismaClient({ datasourceUrl: localDbUrl });
+    try {
+      const beforeStock = await localDb.itemStock.findUniqueOrThrow({ where: { branchId_itemId: { branchId, itemId } } });
+      const beforeLedger = await localDb.stockLedger.findMany({ where: { referenceId: credit.body.invoice.id } });
+      const rejected = await local('POST', `/sales/${credit.body.invoice.id}/cancel`, { reason: 'Customer left' });
+      expect(rejected.status).toBe(403);
+      expect(rejected.body.code).toBe(FALLBACK_UNAVAILABLE);
+      expect((await localDb.saleInvoice.findUniqueOrThrow({ where: { id: credit.body.invoice.id } })).status).toBe('DRAFT');
+      expect(await localDb.stockLedger.findMany({ where: { referenceId: credit.body.invoice.id } })).toEqual(beforeLedger);
+      expect(await localDb.itemStock.findUniqueOrThrow({ where: { branchId_itemId: { branchId, itemId } } })).toEqual(beforeStock);
+    } finally {
+      await localDb.$disconnect();
+    }
+
     // A new customer, sold to on credit, then paying part of it.
     const shop = await local('POST', '/customers', { branchId, name: 'Offline Shop', phone: '9111100000' });
     expect(shop.status).toBe(201);
     expect(shop.body.code).toMatch(/^OFF-[0-9A-F]{8}$/);
     const shopSale = await sell(shop.body.id, 1, []);
-    const paid = await local('POST', `/sales/${shopSale.body.invoice.id}/settle`, { payments: [{ mode: 'CASH', amount: 50 }] });
+    const settlementKey = randomUUID();
+    const settlementBody = { payments: [{ mode: 'CASH', amount: 50 }], idempotencyKey: settlementKey };
+    const paid = await local('POST', `/sales/${shopSale.body.invoice.id}/settle`, settlementBody);
     expect(paid.status).toBe(200);
     expect(paid.body.invoice.status).toBe('PARTIALLY_SETTLED');
+    const retry = await local('POST', `/sales/${shopSale.body.invoice.id}/settle`, settlementBody);
+    expect(retry.status).toBe(200);
+    expect(retry.body.receipt.id).toBe(paid.body.receipt.id);
+    expect(retry.body.invoice.paidTotal).toBe('50');
     // The wallet stays out of it offline.
-    expect((await local('POST', `/sales/${shopSale.body.invoice.id}/settle`, { payments: [{ mode: 'CASH', amount: 500 }] })).status).toBe(400);
+    expect((await local('POST', `/sales/${shopSale.body.invoice.id}/settle`, { idempotencyKey: randomUUID(), payments: [{ mode: 'CASH', amount: 500 }] })).status).toBe(400);
 
     // A customer the server added after the copy was made, added again offline by phone.
     const late = await t.ok('POST', '/customers', admin, { branchId, name: 'Late Online', phone: '9222200000' });
@@ -272,7 +331,7 @@ describe('fallback counter, working offline', () => {
     expect((await local('POST', `/sales/${copiedSale.id}/return`, { refundMode: 'WALLET', reason: 'Test return', lines: [{ saleLineId: copiedSale.lines[0].id, qty: 1 }] })).status).toBe(400);
     const copiedReturn = await local('POST', `/sales/${copiedSale.id}/return`, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: copiedSale.lines[0].id, qty: 1 }] });
     expect(copiedReturn.status).toBe(201);
-    expect(copiedReturn.body.returnNo).toMatch(new RegExp(`^${branchCode}R/${counterNumber}/\\d{2}/00001$`));
+    expect(copiedReturn.body.returnNo).toMatch(new RegExp(`^${branchCode}R/${counterNumber}/\\d{2}/00002$`));
     const shopReturn = await local('POST', `/sales/${shopSale.body.invoice.id}/return`, { refundMode: 'CASH', reason: 'Test return', lines: [{ saleLineId: shopSale.body.invoice.lines[0].id, qty: 1 }] });
     expect(shopReturn.body).toMatchObject({ dueAdjusted: '68', refundAmount: '50' });
 
@@ -288,6 +347,12 @@ describe('fallback counter, working offline', () => {
     // Sold 3, 2 came back.
     expect(await t.onHand(registerToken, branchId, itemId)).toBe(stockBefore - 1);
 
+    // A lost offline answer retried after reconnecting reuses the receipt imported by sync.
+    const onlineRetry = await t.call('POST', `/sales/${shopSale.body.invoice.id}/settle`, registerToken, settlementBody);
+    expect(onlineRetry.status).toBe(200);
+    expect(onlineRetry.body.receipt.id).toBe(paid.body.receipt.id);
+    expect(await t.db.payment.count({ where: { invoiceId: shopSale.body.invoice.id } })).toBe(1);
+
     // The new customer, with a code from the server and a wallet; what they owe is right.
     const added = await t.db.customer.findUniqueOrThrow({ where: { id: shop.body.id } });
     expect(added.code).toMatch(new RegExp(`^CUST-${branchCode}-\\d{6}$`));
@@ -298,7 +363,7 @@ describe('fallback counter, working offline', () => {
     expect((await t.db.saleInvoice.findUniqueOrThrow({ where: { id: lateSale.body.invoice.id } })).customerId).toBe(late.id);
     expect(await t.db.customer.findUnique({ where: { id: lateHere.body.id } })).toBeNull();
     // The copied bill's return is on the server's bill.
-    expect(await t.db.returnInvoice.count({ where: { saleInvoiceId: copiedSale.id } })).toBe(1);
+    expect(await t.db.returnInvoice.count({ where: { saleInvoiceId: copiedSale.id } })).toBe(2);
 
     // Sent again: nothing changes.
     const again = await call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body: outbox.body });
@@ -360,8 +425,9 @@ describe('fallback counter, working offline', () => {
 
     const refused = await call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body: clashing });
     expect(refused.status).toBe(409);
-    expect(refused.body).toMatchObject({ code: FALLBACK_SYNC_CONFLICT, message: expect.stringMatching(/3 places. Nothing was added/) });
+    expect(refused.body).toMatchObject({ code: FALLBACK_SYNC_CONFLICT, message: expect.stringMatching(/4 places. Nothing was added/) });
     expect(refused.body.conflicts).toEqual([
+      { document: `Stock movement ${entry.ledger[0].id}`, problem: expect.stringMatching(/batch does not belong/) },
       { document: `Invoice ${entry.invoice.invoiceNo}`, problem: expect.stringMatching(/also used online/) },
       { document: `Receipt ${entry.receipts[0].receiptNo}`, problem: expect.stringMatching(/also used online/) },
       { document: `Invoice ${entry.invoice.invoiceNo}`, problem: expect.stringMatching(/item ".+" is no longer on the server/) }
@@ -424,9 +490,35 @@ describe('fallback counter, working offline', () => {
     expect(await t.db.stockLedger.count()).toBe(ledgerBefore);
   });
 
+  it('recomputes an offline close from all server payments and ignores a supplied expected balance', async () => {
+    const localCurrent = await call(base, 'GET', '/registers/current', { token: localToken });
+    expect(localCurrent.status).toBe(200);
+    const actual = await t.ok('GET', '/registers/current', registerToken);
+    // Two more online sales after the snapshot: the server must include them at reconciliation.
+    expect(actual.expectedCash - localCurrent.body.expectedCash).toBe(236);
+    const closed = await call(base, 'POST', '/registers/close', { token: localToken, body: { closingBalance: actual.expectedCash } });
+    expect(closed.status).toBe(200);
+    const outbox = await call(base, 'GET', '/fallback/outbox', { headers: { 'x-pos-fallback-secret': secret } });
+    const reg = outbox.body.registers[0];
+    reg.expectedCash = '999999';
+    reg.cashDifference = '-999999';
+    const sync = await call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body: outbox.body });
+    expect(sync.status).toBe(200);
+    const saved = await t.db.registerSession.findUniqueOrThrow({ where: { id: reg.id } });
+    expect(Number(saved.expectedCash)).toBe(actual.expectedCash);
+    expect(Number(saved.closingBalance)).toBe(actual.expectedCash);
+    expect(Number(saved.cashDifference)).toBe(0);
+    const again = await call(t.baseUrl, 'POST', '/fallback/sync', { headers: { 'x-pos-fallback-key': key }, body: outbox.body });
+    expect(again.status).toBe(200);
+    expect((await t.db.registerSession.findUniqueOrThrow({ where: { id: reg.id } })).expectedCash).toEqual(saved.expectedCash);
+  });
+
   it('closes the online register an offline one replaced, with its expected cash and no count', async () => {
     const outbox = await call(base, 'GET', '/fallback/outbox', { headers: { 'x-pos-fallback-secret': secret } });
-    const online = outbox.body.registers[0];
+    const openedOnline = await call(t.baseUrl, 'POST', '/registers/open', { token: admin, headers: device, body: { branchId, counterId, openingBalance: 100 } });
+    expect(openedOnline.status).toBe(200);
+    await t.ok('POST', '/sales/checkout', openedOnline.body.token, checkoutBody(branchId, walkInId, [line(itemId, { rate: 118, taxRate: 18, taxMode: 'INCLUSIVE' })], [{ mode: 'CASH', amount: 118 }]));
+    const online = await t.db.registerSession.findUniqueOrThrow({ where: { id: openedOnline.body.register.id } });
     // A register opened offline when the copy didn't know about the one still open online.
     const opened = { ...online, id: randomUUID(), openedAt: new Date().toISOString(), openingBalance: '0', closedAt: null };
     const sync = await call(t.baseUrl, 'POST', '/fallback/sync', {

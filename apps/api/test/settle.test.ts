@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { randomUUID } from 'crypto';
 import { line, startApp, type TestApp } from './helpers';
 
 // #7: settling a sale and paying from a wallet.
@@ -17,9 +18,15 @@ afterAll(async () => { await t.close(); });
 const balance = async () => (await t.ok('GET', `/customers/${customerId}/wallet`, ctx.token)).balance as number;
 const draft = (customer = customerId) =>
   t.ok('POST', '/sales', ctx.token, { branchId: ctx.branch.id, customerId: customer, lines: [line(itemId, { rate: 200 })] });
-const settle = (id: string, payments: unknown[]) => t.call('POST', `/sales/${id}/settle`, ctx.token, { payments });
+const settle = (id: string, payments: unknown[], idempotencyKey = randomUUID()) => t.call('POST', `/sales/${id}/settle`, ctx.token, { payments, idempotencyKey });
 
 describe('settling a sale', () => {
+  it('requires a durable payment ID before recording any money', async () => {
+    const sale = await draft();
+    const rejected = await t.call('POST', `/sales/${sale.id}/settle`, ctx.token, { payments: [{ mode: 'CASH', amount: 60 }] });
+    expect(rejected.status).toBe(400);
+    expect(await t.db.payment.count({ where: { invoiceId: sale.id } })).toBe(0);
+  });
   it('adds up every wallet line and never lets the wallet pay more than is due', async () => {
     await t.ok('POST', `/customers/${customerId}/wallet/topup`, ctx.token, { amount: 5, mode: 'CASH' });
     const sale = await draft();
@@ -68,5 +75,67 @@ describe('settling a sale', () => {
     const results = await Promise.all([settle(a.id, [{ mode: 'WALLET', amount: 200 }]), settle(b.id, [{ mode: 'WALLET', amount: 200 }])]);
     expect(results.map((r) => r.status).sort()).toEqual([200, 400]);
     expect(await balance()).toBe(0);
+  });
+
+  it('replays a concurrent partial payment without taking more money or issuing another receipt', async () => {
+    const sale = await draft();
+    const key = randomUUID();
+    const payments = [{ mode: 'CASH', amount: 60 }];
+    const results = await Promise.all(Array.from({ length: 5 }, () => settle(sale.id, payments, key)));
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(new Set(results.map((r) => r.body.receipt.id)).size).toBe(1);
+    expect(results[0].body.invoice.paidTotal).toBe('60');
+    expect(await t.db.payment.count({ where: { invoiceId: sale.id } })).toBe(1);
+    expect(await t.db.receipt.count({ where: { invoiceId: sale.id } })).toBe(1);
+    // A later, intentional part payment has its own ID.
+    const next = await settle(sale.id, [{ mode: 'CASH', amount: 140 }], randomUUID());
+    expect(next.body.invoice.status).toBe('SETTLED');
+    const retryAfterPaid = await settle(sale.id, payments, key);
+    expect(retryAfterPaid.status).toBe(200);
+    expect(retryAfterPaid.body.receipt.id).toBe(results[0].body.receipt.id);
+    expect(retryAfterPaid.body.invoice.paidTotal).toBe('200');
+  });
+
+  it('rejects a payment ID reused with different details, an invoice, or another cashier', async () => {
+    const [sale, other] = [await draft(), await draft()];
+    const key = randomUUID();
+    const payments = [{ mode: 'CASH', amount: 60 }];
+    expect((await settle(sale.id, payments, key)).status).toBe(200);
+    for (const changed of [[{ mode: 'CASH', amount: 61 }], [{ mode: 'CARD', amount: 60 }], [{ mode: 'CASH', amount: 60, tendered: 100 }]]) {
+      expect((await settle(sale.id, changed, key)).status).toBe(400);
+    }
+    expect((await settle(other.id, payments, key)).status).toBe(400);
+    const cashier = await t.cashierWithRegister(await t.login(), ctx.branch.id);
+    const forbidden = await t.call('POST', `/sales/${sale.id}/settle`, cashier.token, { payments, idempotencyKey: key });
+    expect(forbidden.status).toBe(400);
+    expect(await t.db.payment.count({ where: { invoiceId: sale.id } })).toBe(1);
+    expect(await t.db.payment.count({ where: { invoiceId: other.id } })).toBe(0);
+  });
+
+  it('does not debit the wallet or credit overpayment twice on retry', async () => {
+    await t.db.walletAccount.update({ where: { customerId }, data: { balance: 100 } });
+    const sale = await draft();
+    const key = randomUUID();
+    const payments = [{ mode: 'WALLET', amount: 60 }, { mode: 'CARD', amount: 200 }];
+    const first = await settle(sale.id, payments, key);
+    expect(first.status).toBe(200);
+    expect(await balance()).toBe(100); // 60 spent; 60 in overpayment credited.
+    const again = await settle(sale.id, payments, key);
+    expect(again.status).toBe(200);
+    expect(again.body.receipt.id).toBe(first.body.receipt.id);
+    expect(await balance()).toBe(100);
+    expect(await t.db.walletTxn.count({ where: { referenceType: 'SALE', referenceId: sale.id } })).toBe(2);
+  });
+
+  it('allows retrying a rejected operation after the payment can succeed', async () => {
+    const sale = await draft();
+    const key = randomUUID();
+    await t.db.walletAccount.update({ where: { customerId }, data: { balance: 0 } });
+    const payments = [{ mode: 'WALLET', amount: 60 }];
+    expect((await settle(sale.id, payments, key)).status).toBe(400);
+    expect(await t.db.receipt.findUnique({ where: { idempotencyKey: key } })).toBeNull();
+    await t.db.walletAccount.update({ where: { customerId }, data: { balance: 100 } });
+    expect((await settle(sale.id, payments, key)).status).toBe(200);
+    expect(await balance()).toBe(40);
   });
 });

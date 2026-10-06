@@ -18,9 +18,10 @@ import { BranchesService } from '../branches/branches.service';
 import { toNumber } from '../common/numbers';
 import { RegistersService } from '../registers/registers.service';
 import { SequenceService } from '../sequences/sequences.service';
-import { placeOfflineMovementsInBatches } from './offline-batches';
 import { verifyOutbox } from './verify-outbox';
 import { syncConflicts, verificationContext } from './sync-checks';
+import { registerBaselineSql } from './register-baseline';
+import { StockService } from '../stock/stock.service';
 
 /** How far back the copy carries the counter's own paid bills, so their goods can be returned offline. */
 export const FALLBACK_RETURNABLE_DAYS = 7;
@@ -80,7 +81,8 @@ export class FallbackService {
     private readonly tenancy: TenancyService,
     private readonly branches: BranchesService,
     private readonly registers: RegistersService,
-    private readonly sequences: SequenceService
+    private readonly sequences: SequenceService,
+    private readonly stock: StockService
   ) {}
 
   /** Makes `counterId` the branch's fallback counter on `deviceId`; answers the computer's key. */
@@ -176,12 +178,17 @@ export class FallbackService {
       { name: 'ReturnInvoice', where: `"id" IN (${ownReturns})` },
       { name: 'ReturnInvoiceLine', where: `"returnInvoiceId" IN (${ownReturns})` },
       { name: 'FallbackCopiedDocument', from: `${ownBills} UNION ALL ${ownReturns}` },
+      { name: 'ItemGroup' },
       { name: 'Item' },
+      { name: 'ItemBatch' },
+      { name: 'BatchStock', where: `"branchId" = ${branchId}` },
+      { name: 'StockLedger', where: `"referenceId" IN (${ownBills}) OR "referenceId" IN (${ownReturns})` },
       { name: 'ItemSaleUom' },
       { name: 'ItemBarcode' },
       { name: 'ItemBranchPrice', where: `"branchId" = ${branchId}` },
       { name: 'ItemStock', where: `"branchId" = ${branchId}` },
-      { name: 'RegisterSession', where: `"counterId" = ${lit(counter.id)} AND "closedAt" IS NULL` }
+      { name: 'RegisterSession', where: `"counterId" = ${lit(counter.id)} AND "closedAt" IS NULL` },
+      { name: 'FallbackRegisterBalance', from: registerBaselineSql(counter.id) }
     ];
     // The logos, for printed receipts.
     const uploadFiles = [settings?.logoUrl, branch.logoUrl]
@@ -272,6 +279,10 @@ export class FallbackService {
       return await this.prisma.$transaction(
         async (tx) => {
           await lockBranchRegisters(tx, counter.branchId);
+          const touchedBills = [...new Set([...outbox.invoices.map((entry) => String(entry.invoice.id)), ...returns.map((entry) => String(entry.ret.saleInvoiceId))])].sort();
+          await tx.$queryRaw`SELECT id FROM "SaleInvoice" WHERE id = ANY(${touchedBills}::text[]) ORDER BY id FOR UPDATE`;
+          await this.stock.lockItemStock(tx, counter.branchId, [...outbox.invoices.flatMap((entry) => entry.ledger), ...returns.flatMap((entry) => entry.ledger)].map((row) => String(row.itemId)));
+          const reconcileRegisters = new Set(outbox.registers.filter((row) => row.closedAt).map((row) => String(row.id)));
           // A return offline is of a bill made offline, or of one of the counter's own that came with the copy.
           const returnedBills = [...new Set(returns.map((entry) => String(entry.ret.saleInvoiceId)))].filter((id) => !outboxInvoiceIds.has(id));
           const serverBills = await tx.saleInvoice.findMany({ where: { id: { in: returnedBills } }, select: { id: true, documentSeries: true } });
@@ -306,6 +317,7 @@ export class FallbackService {
                 select: { id: true, openingBalance: true }
               });
               for (const open of replaced) {
+                reconcileRegisters.add(open.id);
                 const cash = await this.registers.registerCash(tx, open.id, toNumber(open.openingBalance));
                 await tx.registerSession.update({ where: { id: open.id }, data: { closedAt, expectedCash: cash.expectedCash } });
               }
@@ -347,26 +359,29 @@ export class FallbackService {
           await insert(tx, rows('DiscountAllocation', all((entry) => entry.allocations)));
           await insert(tx, rows('Payment', all((entry) => entry.payments)));
           await insert(tx, rows('Receipt', all((entry) => entry.receipts)));
-          const addedReturns = await insert(tx, rows('ReturnInvoice', returns.map((entry) => entry.ret)));
+          const addedReturns = await insert(tx, rows('ReturnInvoice', returns.map((entry) => ({ roundOff: 0, ...entry.ret }))));
           await insert(tx, rows('ReturnInvoiceLine', returns.flatMap((entry) => entry.lines)));
           const ledger = [...all((entry) => entry.ledger), ...returns.flatMap((entry) => entry.ledger)];
           if (ledger.length) {
             // Stock moves only for movements not already recorded.
-            const added = await tx.$queryRawUnsafe<Array<{ id: string }>>(
+            await tx.$executeRawUnsafe(
               `WITH added AS (
                  INSERT INTO "StockLedger" SELECT * FROM json_populate_recordset(NULL::"StockLedger", $1::json)
-                 ON CONFLICT ("id") DO NOTHING RETURNING "id", "branchId", "itemId", "qtyIn" - "qtyOut" AS change
+                 ON CONFLICT ("id") DO NOTHING RETURNING "id", "branchId", "itemId", "batchId", "qtyIn" - "qtyOut" AS change
                ), totals AS (SELECT "branchId", "itemId", SUM(change) AS change FROM added GROUP BY 1, 2),
                stock AS (
                  INSERT INTO "ItemStock" ("branchId", "itemId", "qty", "updatedAt")
                  SELECT "branchId", "itemId", change, now() FROM totals
                  ON CONFLICT ("branchId", "itemId") DO UPDATE SET "qty" = "ItemStock"."qty" + EXCLUDED."qty", "updatedAt" = now()
                  RETURNING 1
+               ), batch_totals AS (
+                 SELECT "branchId", "batchId", SUM(change) AS change FROM added WHERE "batchId" IS NOT NULL GROUP BY 1, 2
                )
-               SELECT "id" FROM added`,
+               INSERT INTO "BatchStock" ("branchId", "batchId", "qty", "updatedAt")
+               SELECT "branchId", "batchId", change, now() FROM batch_totals
+               ON CONFLICT ("branchId", "batchId") DO UPDATE SET "qty" = "BatchStock"."qty" + EXCLUDED."qty", "updatedAt" = now()`,
               JSON.stringify(ledger)
             );
-            await placeOfflineMovementsInBatches(tx, added.map((row) => row.id));
           }
           for (const sequence of outbox.sequences) {
             await tx.$executeRaw`
@@ -376,6 +391,16 @@ export class FallbackService {
           }
           await tx.$executeRaw`
             UPDATE "Counter" SET "fallbackReceiptSeq" = GREATEST("fallbackReceiptSeq", ${outbox.receiptSeq}) WHERE "id" = ${counter.id}`;
+          // Counted cash is evidence from the till; expected cash is recomputed from all online
+          // and imported transactions. Never accept an offline expected balance as authoritative.
+          for (const id of reconcileRegisters) {
+            const register = await tx.registerSession.findUniqueOrThrow({ where: { id } });
+            const cash = await this.registers.registerCash(tx, id, toNumber(register.openingBalance));
+            await tx.registerSession.update({ where: { id }, data: {
+              expectedCash: cash.expectedCash,
+              cashDifference: register.closingBalance === null ? null : Math.round((toNumber(register.closingBalance) - cash.expectedCash) * 100) / 100
+            } });
+          }
           return { invoices, registers: outbox.registers.length, customers: created.length, returns: addedReturns };
         },
         { timeout: 120_000, maxWait: 30_000 }

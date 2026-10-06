@@ -117,7 +117,7 @@ const businessSetupSchema = z.object({
   /** Where the shop is; taken from the GSTIN when one is given. */
   stateCode: gstStateCodeSchema.nullable().optional(),
   timezone: timeZoneSchema.default('Asia/Kolkata'),
-  taxpayerType: taxpayerTypeSchema.default('REGULAR'),
+  taxpayerType: taxpayerTypeSchema.optional(),
   compositionCategory: compositionCategorySchema.nullable().optional(),
   /** Starts every invoice number; MAI if not given. */
   branchCode: branchCodeSchema.default('MAI'),
@@ -125,11 +125,22 @@ const businessSetupSchema = z.object({
   adminPassword: passwordSchema
 });
 
+function resolveBusinessSetup<T extends { taxpayerType?: z.infer<typeof taxpayerTypeSchema>; gstNumber?: string | null }>(body: T) {
+  return { ...body, taxpayerType: body.taxpayerType ?? (body.gstNumber ? 'REGULAR' as const : 'UNREGISTERED' as const) };
+}
+
 function checkBusinessSetup(
-  body: { taxpayerType: string; compositionCategory?: string | null; gstNumber?: string | null; stateCode?: string | null },
+  body: { taxpayerType?: string; compositionCategory?: string | null; gstNumber?: string | null; stateCode?: string | null },
   ctx: z.RefinementCtx
 ) {
-  if ((body.taxpayerType === 'COMPOSITION') !== !!body.compositionCategory) {
+  const taxpayerType = body.taxpayerType ?? (body.gstNumber ? 'REGULAR' : 'UNREGISTERED');
+  if (taxpayerType !== 'UNREGISTERED' && !body.gstNumber) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Enter the GSTIN for a registered business', path: ['gstNumber'] });
+  }
+  if (taxpayerType === 'UNREGISTERED' && body.gstNumber) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a registered tax type when supplying a GSTIN', path: ['taxpayerType'] });
+  }
+  if ((taxpayerType === 'COMPOSITION') !== !!body.compositionCategory) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'A composition taxpayer needs a category, and a regular one must not have one',
@@ -164,7 +175,7 @@ export const setupRoutes = c.router({
   run: {
     method: 'POST',
     path: '/setup',
-    body: businessSetupSchema.superRefine(checkBusinessSetup),
+    body: businessSetupSchema.superRefine(checkBusinessSetup).transform(resolveBusinessSetup),
     responses: {
       201: loginResponseSchema.extend({
         /** Shown once: resets a forgotten admin password (see auth.recover). */
@@ -184,7 +195,7 @@ export const businessesRoutes = c.router({
     path: '/businesses',
     body: businessSetupSchema
       .extend({ ownerEmail: emailSchema, ownerPassword: passwordSchema, emailCode: emailCodeSchema })
-      .superRefine(checkBusinessSetup),
+      .superRefine(checkBusinessSetup).transform(resolveBusinessSetup),
     responses: {
       201: z.object({ business: ownedBusinessSchema, session: loginResponseSchema, accountToken: z.string() })
     }

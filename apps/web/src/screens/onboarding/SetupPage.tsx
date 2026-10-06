@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
-import { COMPOSITION_CATEGORY_LABELS, GST_STATES } from "@pos/contracts";
+import { COMPOSITION_CATEGORY_LABELS, GST_STATES, type TaxpayerType } from "@pos/contracts";
 import { FormEvent, useState } from "react";
 import { api, apiErrorMessage } from "../../lib/api";
 import { desktop } from "../../lib/desktop";
@@ -45,7 +45,8 @@ export function SetupPage({ online = false }: { online?: boolean }) {
   const [businessName, setBusinessName] = useState("");
   const [gstNumber, setGstNumber] = useState("");
   const [stateCode, setStateCode] = useState("");
-  const [composition, setComposition] = useState(false);
+  const [taxpayerType, setTaxpayerType] = useState<TaxpayerType>("UNREGISTERED");
+  const composition = taxpayerType === "COMPOSITION";
   const [category, setCategory] = useState<CompositionCategory>("TRADER");
   const [branchCode, setBranchCode] = useState("MAI");
   const [adminUsername, setAdminUsername] = useState("admin");
@@ -60,7 +61,7 @@ export function SetupPage({ online = false }: { online?: boolean }) {
     gstNumber: gstin || null,
     stateCode: gstin ? null : stateCode || null,
     timezone: localTimeZone(),
-    taxpayerType: composition ? ("COMPOSITION" as const) : ("REGULAR" as const),
+    taxpayerType,
     compositionCategory: composition ? category : null,
     branchCode,
     adminUsername,
@@ -97,7 +98,7 @@ export function SetupPage({ online = false }: { online?: boolean }) {
           gstNumber: gstin || null,
           stateCode: gstin ? null : stateCode || null,
           timezone: localTimeZone(),
-          taxpayerType: composition ? "COMPOSITION" : "REGULAR",
+          taxpayerType,
           compositionCategory: composition ? category : null,
           branchCode,
           adminUsername,
@@ -231,11 +232,13 @@ export function SetupPage({ online = false }: { online?: boolean }) {
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label className="field-label" htmlFor="setup-gstin">GSTIN (optional)</label>
+              <label className="field-label" htmlFor="setup-gstin">GSTIN (required for registered shops)</label>
               <input
                 id="setup-gstin"
                 className="field h-10 font-mono uppercase"
                 value={gstNumber}
+                disabled={taxpayerType === "UNREGISTERED"}
+                required={taxpayerType !== "UNREGISTERED"}
                 onChange={(e) => setGstNumber(e.target.value)}
                 maxLength={15}
                 placeholder="29ABCDE1234F1ZW"
@@ -264,9 +267,10 @@ export function SetupPage({ online = false }: { online?: boolean }) {
               <select
                 id="setup-taxpayer"
                 className="field h-10"
-                value={composition ? "COMPOSITION" : "REGULAR"}
-                onChange={(e) => setComposition(e.target.value === "COMPOSITION")}
+                value={taxpayerType}
+                onChange={(e) => { setTaxpayerType(e.target.value as TaxpayerType); if (e.target.value === "UNREGISTERED") setGstNumber(""); }}
               >
+                <option value="UNREGISTERED">Unregistered</option>
                 <option value="REGULAR">Regular</option>
                 <option value="COMPOSITION">Composition</option>
               </select>

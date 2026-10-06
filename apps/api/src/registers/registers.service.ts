@@ -48,6 +48,8 @@ export class RegistersService {
    * checking against their settlements.
    */
   async registerCash(client: Prisma.TransactionClient | PrismaService, registerId: string, openingBalance: number) {
+    const baseline = isFallback() ? await client.fallbackRegisterBalance.findUnique({ where: { registerId } }) : null;
+    const copiedIds = isFallback() ? (await client.fallbackCopiedDocument.findMany({ select: { id: true } })).map((row) => row.id) : [];
     const [takenByMode, topupsByMode, cashOut, paidOut, movements, expenses] = await Promise.all([
       client.payment.groupBy({
         by: ['mode'],
@@ -60,7 +62,7 @@ export class RegistersService {
         _sum: { amount: true }
       }),
       client.returnInvoice.aggregate({
-        where: { registerSessionId: registerId, refundMode: PaymentMode.CASH },
+        where: { registerSessionId: registerId, refundMode: PaymentMode.CASH, ...(copiedIds.length ? { id: { notIn: copiedIds } } : {}) },
         _sum: { refundAmount: true }
       }),
       client.supplierPayment.aggregate({ where: { registerSessionId: registerId }, _sum: { amount: true } }),
@@ -71,13 +73,13 @@ export class RegistersService {
     const topups = (mode: PaymentMode) => round2(toNumber(topupsByMode.find((row) => row.paymentMode === mode)?._sum.amount));
     const taken = (mode: PaymentMode) =>
       round2(toNumber(takenByMode.find((row) => row.mode === mode)?._sum.amount) + (mode === PaymentMode.CASH ? 0 : topups(mode)));
-    const cashSales = taken(PaymentMode.CASH);
-    const cashTopups = topups(PaymentMode.CASH);
-    const cashRefunds = round2(toNumber(cashOut._sum.refundAmount));
-    const cashPaidOut = round2(toNumber(paidOut._sum.amount));
-    const cashIn = moved(CashMovementType.CASH_IN);
-    const cashTakenOut = moved(CashMovementType.CASH_OUT);
-    const cashExpenses = round2(toNumber(expenses._sum.amount));
+    const cashSales = round2(taken(PaymentMode.CASH) + toNumber(baseline?.cashSales));
+    const cashTopups = round2(topups(PaymentMode.CASH) + toNumber(baseline?.cashTopups));
+    const cashRefunds = round2(toNumber(cashOut._sum.refundAmount) + toNumber(baseline?.cashRefunds));
+    const cashPaidOut = round2(toNumber(paidOut._sum.amount) + toNumber(baseline?.cashPaidOut));
+    const cashIn = round2(moved(CashMovementType.CASH_IN) + toNumber(baseline?.cashIn));
+    const cashTakenOut = round2(moved(CashMovementType.CASH_OUT) + toNumber(baseline?.cashOut));
+    const cashExpenses = round2(toNumber(expenses._sum.amount) + toNumber(baseline?.cashExpenses));
     return {
       cashSales,
       cashTopups,
@@ -87,8 +89,8 @@ export class RegistersService {
       cashOut: cashTakenOut,
       cashExpenses,
       expectedCash: round2(openingBalance + cashSales + cashTopups + cashIn - cashRefunds - cashPaidOut - cashTakenOut - cashExpenses),
-      cardSales: taken(PaymentMode.CARD),
-      upiSales: taken(PaymentMode.UPI)
+      cardSales: round2(taken(PaymentMode.CARD) + toNumber(baseline?.cardSales)),
+      upiSales: round2(taken(PaymentMode.UPI) + toNumber(baseline?.upiSales))
     };
   }
 
