@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { IconStore } from "../components/icons";
 import { api, apiErrorMessage } from "../lib/api";
 import { setSession } from "../lib/session";
+import { desktop } from "../lib/desktop";
 import { useServerMode } from "../lib/mode";
 import { rememberBusinessCode, rememberedBusinessCode } from "../lib/business-code";
 
@@ -129,6 +130,11 @@ export function LoginPage() {
             {serverMode ? (
               <Link to="/recover" className="text-center text-sm text-slate-600 hover:text-slate-900">
                 Forgot your password?
+              </Link>
+            ) : null}
+            {online && !desktop ? (
+              <Link to="/create-business" className="text-center text-sm text-slate-600 hover:text-slate-900">
+                New here? Create a business
               </Link>
             ) : null}
             {online ? (

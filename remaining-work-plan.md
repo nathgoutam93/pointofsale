@@ -23,8 +23,9 @@ These need an answer from the product owner before the work that depends on them
 - ~~**Hosting:** provider and domain for the online server.~~ Decided: `pos.hackd.in` on Oracle
   Cloud (item 3). The domain may change later; see "Hosting modes".
 - **Code signing:** Windows and macOS certificates (needed for item 2).
-- **Browser use:** should online businesses also use the web app in a plain browser? It works
-  today if the web app and API are on the same site with the web app in `CORS_ORIGINS`.
+- ~~**Browser use:** should online businesses also use the web app in a plain browser?~~
+  Decided: yes, with sign-up there too. `deploy/nginx-pos-web.conf` serves it and `deploy.sh`
+  publishes it (README, "The web app in a browser").
 - **After moving online:** how long to keep the computer's read-only copy, and whether to offer
   deleting it.
 - **Pricing and limits:** plans for managed hosting: price per month and year, how many branches
