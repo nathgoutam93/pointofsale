@@ -1,8 +1,8 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
-import { COMPOSITION_CATEGORY_LABELS, GST_STATES, type TaxpayerType } from "@pos/contracts";
+import { COMPOSITION_CATEGORY_LABELS, EMAIL_VERIFICATION_REQUIRED, GST_STATES, type TaxpayerType } from "@pos/contracts";
 import { FormEvent, useState } from "react";
-import { api, apiErrorMessage } from "../../lib/api";
+import { API_BASE_URL, api, apiErrorMessage } from "../../lib/api";
 import { desktop } from "../../lib/desktop";
 import { rememberBusinessCode } from "../../lib/business-code";
 import { setSession, type Session } from "../../lib/session";
@@ -26,8 +26,9 @@ type Created = { session: Session; code: string; name: string; server: string };
 /**
  * A new business: its details and the admin account.
  * - Offline (one counter): first run of the local API, which accepts it only while it has no users.
- * - Online (desktop app, first launch): also the owner's account; the server creates the
- *   business and answers its code, which staff need on every other computer.
+ * - Online (desktop app on first launch, or a browser on the online server): also the owner's
+ *   account; the server creates the business and answers its code, which staff need on every
+ *   other computer.
  */
 export function SetupPage({ online = false }: { online?: boolean }) {
   const navigate = useNavigate();
@@ -69,22 +70,31 @@ export function SetupPage({ online = false }: { online?: boolean }) {
   });
 
   /**
-   * Online: the server (checked by the desktop app) creates the business. null when it emailed
-   * a code to verify the owner's address first (`withCode` false sends a new one).
+   * Online: the server creates the business (sent by the desktop app, or by the page in a
+   * browser). null when it emailed a code to verify the owner's address first (`withCode` false
+   * sends a new one).
    */
   const createOnline = async (withCode: boolean): Promise<Created | null> => {
-    if (!desktop) throw new Error("Creating an online business needs the desktop app.");
-    const created = await desktop.createOnlineBusiness(server, {
-      ...details(),
-      ownerEmail,
-      ownerPassword,
-      ...(withCode && emailCode ? { emailCode } : {}),
-    });
-    if (created.emailCodeRequired) {
-      setCodeMessage(created.message);
+    const body = { ...details(), ownerEmail, ownerPassword, ...(withCode && emailCode ? { emailCode } : {}) };
+    const askForCode = (message: string) => {
+      setCodeMessage(message);
       setEmailCode("");
       return null;
+    };
+    if (!desktop) {
+      // A browser works with one server, the one it was built for; the admin's sign-in comes back as the cookie.
+      const res = await api.businesses.create({ body });
+      if (res.status === 201) {
+        return { session: res.body.session as Session, code: res.body.business.code, name: res.body.business.name, server: API_BASE_URL };
+      }
+      const answer = res.body as { code?: unknown; message?: unknown } | null;
+      if (res.status === 400 && answer?.code === EMAIL_VERIFICATION_REQUIRED) {
+        return askForCode(String(answer.message ?? "Enter the code emailed to you."));
+      }
+      throw new Error(apiErrorMessage(res.body, "The business couldn't be created. Check the details and try again."));
     }
+    const created = await desktop.createOnlineBusiness(server, body);
+    if (created.emailCodeRequired) return askForCode(created.message);
     return { session: created.session as Session, code: created.business.code, name: created.business.name, server: created.server };
   };
 
@@ -132,7 +142,12 @@ export function SetupPage({ online = false }: { online?: boolean }) {
 
   /** Online: from now on the app works with the server; it reloads straight into the business. */
   const continueOnline = async () => {
-    if (!created || !desktop) return;
+    if (!created) return;
+    // A browser already works with the server and is signed in.
+    if (!desktop) {
+      navigate({ to: "/open-register" });
+      return;
+    }
     setSwitching(true);
     await desktop.chooseMode({ mode: "online", apiBaseUrl: created.server });
   };
@@ -184,7 +199,7 @@ export function SetupPage({ online = false }: { online?: boolean }) {
               </Link>
               ).
             </p>
-            {defaultServer ? null : (
+            {defaultServer || !desktop ? null : (
               <div>
                 <label className="field-label" htmlFor="setup-server">Server address</label>
                 <input id="setup-server" className="field h-10" value={server} onChange={(e) => setServer(e.target.value)} placeholder="https://pos.example.com" inputMode="url" required />
@@ -323,7 +338,12 @@ export function SetupPage({ online = false }: { online?: boolean }) {
 
         {setup.error ? <ErrorNote message={(setup.error as Error).message} /> : null}
 
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-4">
+          {online && !desktop ? (
+            <Link to="/" className="text-sm text-slate-600 hover:text-slate-900">
+              Already have a business? Sign in
+            </Link>
+          ) : null}
           <button className="btn-primary h-10 px-5" type="submit" disabled={setup.isPending}>
             {setup.isPending ? (online ? "Creating your business…" : "Setting up…") : "Create business"}
           </button>
@@ -341,7 +361,7 @@ export function BusinessCodeCard({ code }: { code: string }) {
       <p className="mt-2 font-mono text-4xl font-semibold tracking-[0.3em] text-slate-900">{code}</p>
       <p className="mt-3 text-sm text-slate-600">
         Write it down. On another computer, choose <span className="font-medium">Join an existing business</span> and enter it
-        with a username and password.
+        with a username and password{desktop ? null : <>, or sign in with it at this web address</>}.
       </p>
     </div>
   );

@@ -60,7 +60,8 @@ The API runs in one of two modes (`POS_MODE` in `apps/api/.env`):
   pnpm --filter @pos/api business:create -- --name "My Shop" --admin admin --password <password> --code DEV
   ```
   Staff sign in with the business code, their username and password. Owners can also create
-  businesses with `POST /businesses` (email and password for their owner account).
+  businesses with `POST /businesses` (email and password for their owner account), which the
+  desktop app's first launch and the web app's "Create a business" (in a browser) use.
   `POS_HOSTING` says which kind of online server it is: `managed` on our hosted service,
   `self` (the default) on a business's own server. `GET /meta` reports it as `hosting`.
 
@@ -291,13 +292,57 @@ the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud.
     (`deploy/deploy.sh` does this itself when `.env` has `MIGRATE_DATABASE_URL=` with that direct URL). Keep
     `default_pool_size` well under `max_connections`.
 
+13. **The web app in a browser (optional):** online businesses can also work in a browser,
+    without the desktop app; see "The web app in a browser" below.
+
+### The web app in a browser
+Online businesses can use the POS in a browser as well as in the desktop app: the same screens,
+signed in with the business code. New owners can sign up there too ("New here? Create a
+business" on the sign-in screen). What only the desktop app does: one-click printing to a receipt
+printer and opening the cash drawer (a browser prints through its print dialog), the fallback
+counter that keeps selling while the server is down, and offline (one-counter) businesses.
+
+The web app goes on its own domain on the same site as the API, here `app.example.com` next to
+the API's `pos.example.com` (any two names under one domain): the sign-in cookie only travels
+within a site. Keep the API on its own address: desktop apps already work with it.
+
+1. **DNS:** an A record for `app.example.com` pointing at the same VPS.
+2. **Where nginx serves it from**, writable by the user that deploys:
+   ```bash
+   sudo mkdir -p /var/www/pos-web && sudo chown ubuntu:ubuntu /var/www/pos-web
+   ```
+   (Another folder: set `POS_WEB_ROOT` when running `deploy.sh`, and `root` in the nginx file.)
+3. **Where the web app finds the API**, read when it's built:
+   ```bash
+   echo 'VITE_API_BASE_URL=https://pos.example.com' > /opt/pos/apps/web/.env
+   ```
+4. **The API accepts the web app:** in `/opt/pos/apps/api/.env` add
+   `CORS_ORIGINS=https://app.example.com` (only listed origins may use the sign-in cookie), then
+   `sudo systemctl restart pos-api`.
+5. **nginx and HTTPS:** `deploy/nginx-pos-web.conf` serves the build, sends every screen's path
+   to `index.html`, lets browsers keep the built files (their names change with each build) but
+   check `index.html` on every load, and only lets the page talk to itself and the API.
+   ```bash
+   sudo sed -e 's/app\.example\.com/<web app domain>/g' -e 's/pos\.example\.com/<API domain>/g' \
+     /opt/pos/deploy/nginx-pos-web.conf | sudo tee /etc/nginx/sites-available/pos-web > /dev/null
+   sudo ln -sf /etc/nginx/sites-available/pos-web /etc/nginx/sites-enabled/pos-web
+   sudo nginx -t && sudo systemctl reload nginx
+   sudo certbot --nginx -d <web app domain>
+   ```
+6. **Build and publish it:** `/opt/pos/deploy/deploy.sh`. With `apps/web/.env` present it builds
+   the web app after the API is up and copies it into `/var/www/pos-web` (index.html last, so a
+   page already open keeps loading its own files; built files older than 30 days are removed).
+   Browsers don't send the app version, so `MIN_CLIENT_VERSION` doesn't apply to them: deploying
+   both together is what keeps them in step.
+
 ### Deploying an update
 On the server, as `ubuntu`:
 ```bash
 /opt/pos/deploy/deploy.sh                 # the checked-out branch, or: deploy.sh <branch>
 ```
 It pulls the branch, installs and builds, runs the migrations (control schema and every
-business), restarts the service and waits for `/meta` to answer. Migrations always run before
+business), restarts the service and waits for `/meta` to answer, then publishes the web app if
+this server serves it (`apps/web/.env`, see above). Migrations always run before
 the new API starts. Deploy the server before publishing a desktop release, and set
 `MIN_CLIENT_VERSION` in `.env` when older apps can't work with the new server.
 

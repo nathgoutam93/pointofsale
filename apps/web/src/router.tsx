@@ -38,6 +38,16 @@ type SalesSearch = {
   status?: string;
 };
 
+/** offline or online, as the API says; null when it can't be reached. */
+async function serverMode() {
+  try {
+    const res = await api.meta.get();
+    return res.status === 200 ? res.body.mode : null;
+  } catch {
+    return null;
+  }
+}
+
 /** True when the API is a fresh offline install that needs its business and admin created. */
 async function setupRequired() {
   try {
@@ -119,12 +129,15 @@ const ownerRoute = createRoute({
   component: OwnerPage
 });
 
-/** Desktop app, first launch: create a business on the online server. */
+/**
+ * Create a business on the online server: the desktop app on first launch, or a browser
+ * (signed out) working with an online server.
+ */
 const createBusinessRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/create-business',
-  beforeLoad: () => {
-    if (!desktop || desktop.config.mode) {
+  beforeLoad: async () => {
+    if (desktop ? desktop.config.mode : getSession() || (await serverMode()) !== 'online') {
       throw redirect({ to: '/' });
     }
   },
