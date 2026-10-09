@@ -1,0 +1,21 @@
+{
+  "name": "@hackd/checkout-contracts",
+  "version": "0.0.1",
+  "private": true,
+  "description": "What products and the checkout service send each other: sessions, payment notices and their signatures.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -w -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "vitest": "^2"
+  }
+}

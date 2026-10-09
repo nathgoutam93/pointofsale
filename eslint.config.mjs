@@ -1,4 +1,5 @@
-// One lint setup for the workspace: `pnpm lint` at the root (CI runs it too).
+// One lint setup for every product: `pnpm lint` at the root, or `pnpm exec eslint apps/<product>`
+// (each product's CI lints its own folder).
 import js from '@eslint/js';
 import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
@@ -6,7 +7,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/release/**', '**/stage/**', 'apps/api/uploads/**', 'apps/api/prisma/migrations/**']
+    ignores: ['**/dist/**', '**/node_modules/**', '**/release/**', '**/stage/**', 'apps/*/*/uploads/**', 'apps/*/*/prisma/**/migrations/**']
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -28,7 +29,7 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-require-imports': 'off' }
   },
   {
-    files: ['apps/web/**/*.{ts,tsx}'],
+    files: ['apps/*/web/**/*.{ts,tsx}'],
     languageOptions: { globals: { ...globals.browser } },
     plugins: { 'react-hooks': reactHooks },
     rules: reactHooks.configs.recommended.rules

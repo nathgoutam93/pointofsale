@@ -30,8 +30,66 @@ importers:
         specifier: ^8.71.0
         version: 8.71.0(eslint@9.39.5(jiti@2.6.1))(typescript@5.9.3)
 
-  apps/api:
+  apps/checkout/api:
     dependencies:
+      '@hackd/checkout-contracts':
+        specifier: workspace:*
+        version: link:../../../packages/checkout-contracts
+      '@nestjs/common':
+        specifier: ^10.4.15
+        version: 10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/core':
+        specifier: ^10.4.15
+        version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@10.4.22)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      '@nestjs/platform-express':
+        specifier: ^10.4.15
+        version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22)
+      '@prisma/client':
+        specifier: ^5.22.0
+        version: 5.22.0(prisma@5.22.0)
+      express:
+        specifier: 4.22.1
+        version: 4.22.1
+      prisma:
+        specifier: ^5.22.0
+        version: 5.22.0
+      reflect-metadata:
+        specifier: ^0.2.2
+        version: 0.2.2
+      rxjs:
+        specifier: ^7.8.1
+        version: 7.8.2
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@nestjs/cli':
+        specifier: ^10.4.8
+        version: 10.4.9(@swc/core@1.16.13)(esbuild@0.21.5)
+      '@nestjs/schematics':
+        specifier: ^10.2.3
+        version: 10.2.3(chokidar@3.6.0)(typescript@5.9.3)
+      '@swc/core':
+        specifier: ^1.16.13
+        version: 1.16.13
+      '@types/express':
+        specifier: ^4
+        version: 4.17.25
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.19.15
+      unplugin-swc:
+        specifier: ^2.0.0
+        version: 2.0.0(@swc/core@1.16.13)(esbuild@0.21.5)(rollup@4.59.0)(vite@5.4.21(@types/node@22.19.15)(lightningcss@1.31.1)(terser@5.46.0))(webpack@5.97.1(@swc/core@1.16.13)(esbuild@0.21.5))
+      vitest:
+        specifier: ^2
+        version: 2.1.9(@types/node@22.19.15)(jsdom@25.0.1)(lightningcss@1.31.1)(terser@5.46.0)
+
+  apps/pos/api:
+    dependencies:
+      '@hackd/checkout-contracts':
+        specifier: workspace:*
+        version: link:../../../packages/checkout-contracts
       '@nestjs/common':
         specifier: ^10.4.15
         version: 10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -43,10 +101,10 @@ importers:
         version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22)
       '@pos/contracts':
         specifier: workspace:*
-        version: link:../../packages/contracts
+        version: link:../contracts
       '@pos/types':
         specifier: workspace:*
-        version: link:../../packages/types
+        version: link:../types
       '@prisma/client':
         specifier: ^5.22.0
         version: 5.22.0(prisma@5.22.0)
@@ -115,7 +173,23 @@ importers:
         specifier: ^2
         version: 2.1.9(@types/node@22.19.15)(jsdom@25.0.1)(lightningcss@1.31.1)(terser@5.46.0)
 
-  apps/desktop:
+  apps/pos/contracts:
+    dependencies:
+      '@pos/types':
+        specifier: workspace:*
+        version: link:../types
+      '@ts-rest/core':
+        specifier: ^3.52.1
+        version: 3.52.1(@types/node@24.19.1)(zod@3.25.76)
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^2
+        version: 2.1.9(@types/node@24.19.1)(jsdom@25.0.1)(lightningcss@1.31.1)(terser@5.46.0)
+
+  apps/pos/desktop:
     dependencies:
       electron-updater:
         specifier: ^6
@@ -150,11 +224,13 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
-  apps/web:
+  apps/pos/types: {}
+
+  apps/pos/web:
     dependencies:
       '@pos/contracts':
         specifier: workspace:*
-        version: link:../../packages/contracts
+        version: link:../contracts
       '@tanstack/react-query':
         specifier: ^5.62.8
         version: 5.90.21(react@18.3.1)
@@ -211,23 +287,18 @@ importers:
         specifier: ^2
         version: 2.1.9(@types/node@24.19.1)(jsdom@25.0.1)(lightningcss@1.31.1)(terser@5.46.0)
 
-  packages/contracts:
+  packages/checkout-contracts:
     dependencies:
-      '@pos/types':
-        specifier: workspace:*
-        version: link:../types
-      '@ts-rest/core':
-        specifier: ^3.52.1
-        version: 3.52.1(@types/node@24.19.1)(zod@3.25.76)
       zod:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.19.15
       vitest:
         specifier: ^2
-        version: 2.1.9(@types/node@24.19.1)(jsdom@25.0.1)(lightningcss@1.31.1)(terser@5.46.0)
-
-  packages/types: {}
+        version: 2.1.9(@types/node@22.19.15)(jsdom@25.0.1)(lightningcss@1.31.1)(terser@5.46.0)
 
 packages:
 
@@ -2721,10 +2792,6 @@ packages:
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
-  js-yaml@4.1.1:
-    resolution: {integrity: sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==}
-    hasBin: true
-
   js-yaml@4.3.2:
     resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
     hasBin: true
@@ -4834,6 +4901,17 @@ snapshots:
     transitivePeerDependencies:
       - chokidar
 
+  '@nestjs/schematics@10.2.3(chokidar@3.6.0)(typescript@5.9.3)':
+    dependencies:
+      '@angular-devkit/core': 17.3.11(chokidar@3.6.0)
+      '@angular-devkit/schematics': 17.3.11(chokidar@3.6.0)
+      comment-json: 4.2.5
+      jsonc-parser: 3.3.1
+      pluralize: 8.0.0
+      typescript: 5.9.3
+    transitivePeerDependencies:
+      - chokidar
+
   '@nestjs/testing@10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22)(@nestjs/platform-express@10.4.22)':
     dependencies:
       '@nestjs/common': 10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -5705,7 +5783,7 @@ snapshots:
       hosted-git-info: 4.1.0
       isbinaryfile: 5.0.7
       jiti: 2.6.1
-      js-yaml: 4.1.1
+      js-yaml: 4.3.2
       json5: 2.2.3
       lazy-val: 1.0.5
       minimatch: 10.2.6
@@ -5903,7 +5981,7 @@ snapshots:
       fs-extra: 10.1.0
       http-proxy-agent: 7.0.2
       https-proxy-agent: 7.0.6
-      js-yaml: 4.1.1
+      js-yaml: 4.3.2
       sanitize-filename: 1.6.4
       source-map-support: 0.5.21
       stat-mode: 1.0.0
@@ -6204,7 +6282,7 @@ snapshots:
       app-builder-lib: 26.15.3(dmg-builder@26.15.3)(electron-builder-squirrel-windows@26.15.3)
       builder-util: 26.15.3
       fs-extra: 10.1.0
-      js-yaml: 4.1.1
+      js-yaml: 4.3.2
     transitivePeerDependencies:
       - electron-builder-squirrel-windows
       - supports-color
@@ -6280,7 +6358,7 @@ snapshots:
     dependencies:
       builder-util-runtime: 9.7.0
       fs-extra: 10.1.0
-      js-yaml: 4.1.1
+      js-yaml: 4.3.2
       lazy-val: 1.0.5
       lodash.escaperegexp: 4.1.2
       lodash.isequal: 4.5.0
@@ -6965,10 +7043,6 @@ snapshots:
   jiti@2.6.1: {}
 
   js-tokens@4.0.0: {}
-
-  js-yaml@4.1.1:
-    dependencies:
-      argparse: 2.0.1
 
   js-yaml@4.3.2:
     dependencies:

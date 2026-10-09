@@ -1,0 +1,83 @@
+# The POS's checks, on pull requests that change the POS (apps/pos), a shared package it uses, or
+# the workspace's own setup: lint and types, the unit tests (contracts, web), the API's tests
+# against a real PostgreSQL (see apps/pos/api/test), and browser tests of the web app on the real
+# API (apps/pos/web/e2e). Changes to other products don't run it, nor do changes to docs alone.
+name: POS
+
+on:
+  pull_request:
+    paths:
+      - 'apps/pos/**'
+      - 'packages/checkout-contracts/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'eslint.config.mjs'
+      - 'turbo.json'
+      - '.github/workflows/pos.yml'
+      - '!**/*.md'
+
+concurrency:
+  group: pos-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/pos_test?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate the Prisma clients and build what the apps use
+        run: |
+          pnpm --filter @pos/api prisma:generate
+          pnpm --filter "@pos/api^..." --filter "@pos/web^..." build
+      - name: Lint
+        run: pnpm exec eslint apps/pos packages/checkout-contracts
+      - name: Typecheck
+        run: pnpm --filter "./apps/pos/*" --filter @hackd/checkout-contracts typecheck
+      - name: Contracts tests
+        run: pnpm --filter @pos/contracts --filter @hackd/checkout-contracts test
+      - name: Web tests
+        run: pnpm --filter @pos/web test
+      - name: API tests
+        run: pnpm --filter @pos/api test
+      - name: Web app builds
+        run: pnpm --filter @pos/web build
+      - name: Browser tests (sell, return and close the register; suppliers; batches; A4 invoices; labels; variants and drawer expenses; item import)
+        env:
+          E2E_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/pos_e2e?schema=public
+        run: |
+          pnpm --filter @pos/api build
+          pnpm --filter @pos/web exec playwright install --with-deps chromium
+          pnpm --filter @pos/web e2e
+      - name: Keep the browser tests' report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/pos/web/playwright-report
+          retention-days: 7

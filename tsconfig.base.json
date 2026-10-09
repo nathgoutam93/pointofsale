@@ -13,8 +13,15 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@pos/types": ["packages/types/src"],
-      "@pos/contracts": ["packages/contracts/src"]
+      "@pos/types": [
+        "apps/pos/types/src"
+      ],
+      "@pos/contracts": [
+        "apps/pos/contracts/src"
+      ],
+      "@hackd/checkout-contracts": [
+        "packages/checkout-contracts/src"
+      ]
     }
   }
 }

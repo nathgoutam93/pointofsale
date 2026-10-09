@@ -1,0 +1,73 @@
+// The checkout service's own database: nothing here is shared with any product's.
+
+// Its own client, in this package's node_modules: @prisma/client is shared by every product in
+// the workspace (pnpm keeps one copy), so the default place would overwrite another product's.
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/checkout-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// One payment a product asked for (POST /sessions). Final once paid or failed.
+model Session {
+  id            String         @id
+  /// The product that started it (CHECKOUT_PRODUCTS), from its API key.
+  product       String
+  /// The product's own id for the payment; one session per product and reference.
+  reference     String
+  /// Paise, taxes included.
+  amount        Int
+  currency      String         @default("INR")
+  description   String
+  customerEmail String?
+  customerName  String?
+  returnUrl     String?
+  metadata      Json           @default("{}")
+  /// pending, paid or failed.
+  status        String         @default("pending")
+  /// The payment provider that takes it (CHECKOUT_PROVIDER when it was made), its id there,
+  /// and where its page is (absolute, or relative to /pay/<id>).
+  provider      String
+  providerRef   String
+  redirectUrl   String
+  createdAt     DateTime       @default(now())
+  /// When it was paid or failed.
+  settledAt     DateTime?
+  failureReason String?
+  notifications Notification[]
+
+  @@unique([product, reference])
+  @@unique([provider, providerRef])
+}
+
+/// Provider webhook events already handled, so a retried delivery changes nothing.
+model ProviderEvent {
+  provider   String
+  eventId    String
+  receivedAt DateTime @default(now())
+
+  @@id([provider, eventId])
+}
+
+/// A notice to a product about one of its sessions, sent until the product answers 2xx.
+model Notification {
+  /// The notice's id, the same on every attempt.
+  id            String    @id
+  sessionId     String
+  session       Session   @relation(fields: [sessionId], references: [id])
+  product       String
+  type          String
+  /// The exact JSON sent; signed afresh on each attempt.
+  body          String
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  deliveredAt   DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([deliveredAt, nextAttemptAt])
+}

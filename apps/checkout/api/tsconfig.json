@@ -1,0 +1,11 @@
+// The checkout service: NestJS, which needs decorator metadata. Builds with tsconfig.build.json.
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"]
+}
