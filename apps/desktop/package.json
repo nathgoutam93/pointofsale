@@ -7,7 +7,7 @@
   "author": "Point of Sale",
   "type": "module",
   "main": "dist/main.js",
-  "posServerUrl": "https://pos.hackd.in",
+  "posServerUrl": "https://api.hackd.in/v1/pos",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

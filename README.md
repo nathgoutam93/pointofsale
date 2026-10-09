@@ -142,7 +142,8 @@ data and logs are in the OS's app-data folder under "Point of Sale". See
 How the hosted server (online mode) was set up on a VPS. It's one machine: PostgreSQL, the API
 (a systemd service on `127.0.0.1:3001`) and nginx in front of it for HTTPS. The steps assume
 Ubuntu 24.04 and a login user `ubuntu` (Oracle Cloud's default); replace `pos.example.com` with
-the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud.
+the server's domain. The current server is `pos.hackd.in`, on Oracle Cloud; new installs reach it
+through the API gateway at `https://api.hackd.in/v1/pos` (see "One API gateway for every product").
 
 1. **DNS:** an A record for the domain pointing at the VPS's public IP address. Set it first, as
    the HTTPS certificate (step 8) needs it.
@@ -303,8 +304,9 @@ printer and opening the cash drawer (a browser prints through its print dialog),
 counter that keeps selling while the server is down, and offline (one-counter) businesses.
 
 The web app goes on its own domain on the same site as the API, here `app.example.com` next to
-the API's `pos.example.com` (any two names under one domain): the sign-in cookie only travels
-within a site. Keep the API on its own address: desktop apps already work with it.
+the API gateway's `api.example.com` (any two names under one domain): the sign-in cookie only
+travels within a site. The POS API is at `https://api.example.com/v1/pos` (see "One API gateway
+for every product" below).
 
 1. **DNS:** an A record for `app.example.com` pointing at the same VPS.
 2. **Where nginx serves it from**, writable by the user that deploys:
@@ -314,7 +316,7 @@ within a site. Keep the API on its own address: desktop apps already work with i
    (Another folder: set `POS_WEB_ROOT` when running `deploy.sh`, and `root` in the nginx file.)
 3. **Where the web app finds the API**, read when it's built:
    ```bash
-   echo 'VITE_API_BASE_URL=https://pos.example.com' > /opt/pos/apps/web/.env
+   echo 'VITE_API_BASE_URL=https://api.example.com/v1/pos' > /opt/pos/apps/web/.env
    ```
 4. **The API accepts the web app:** in `/opt/pos/apps/api/.env` add
    `CORS_ORIGINS=https://app.example.com` (only listed origins may use the sign-in cookie), then
@@ -323,7 +325,7 @@ within a site. Keep the API on its own address: desktop apps already work with i
    to `index.html`, lets browsers keep the built files (their names change with each build) but
    check `index.html` on every load, and only lets the page talk to itself and the API.
    ```bash
-   sudo sed -e 's/app\.example\.com/<web app domain>/g' -e 's/pos\.example\.com/<API domain>/g' \
+   sudo sed -e 's/app\.example\.com/<web app domain>/g' -e 's/api\.example\.com/<API gateway domain>/g' \
      /opt/pos/deploy/nginx-pos-web.conf | sudo tee /etc/nginx/sites-available/pos-web > /dev/null
    sudo ln -sf /etc/nginx/sites-available/pos-web /etc/nginx/sites-enabled/pos-web
    sudo nginx -t && sudo systemctl reload nginx
@@ -337,7 +339,7 @@ within a site. Keep the API on its own address: desktop apps already work with i
 
 ### One API gateway for every product
 Instead of a domain per product, one domain can carry every product's API under its own path:
-`https://api.example.com/v1/pos`, `/v1/auth`, `/v1/inventory`, and so on.
+`https://api.example.com/v1/pos`, `/v1/auth`, `/v1/inventory`, `/v1/checkout`, and so on.
 `deploy/nginx-api-gateway.conf` does this. Each product's service runs on its own local port. The
 gateway strips the path before passing a request on, so the POS API needs no changes. A new
 product is one `upstream` and one `location` in that file.
@@ -366,12 +368,17 @@ What the gateway does for the POS API:
 2. **Keep the old API domain working.** Installed desktop apps keep the server address they
    were set up with, and their fallback counters are tied to it. Leave `deploy/nginx-pos.conf`
    in place: both domains reach the same API.
-3. **New installs and the web app:**
-   - Set `"posServerUrl"` in `apps/desktop/package.json` to `https://<gateway domain>/v1/pos`.
-   - Set `VITE_API_BASE_URL` in `apps/web/.env` to the same address.
-   - In the web app's nginx file, the CSP names the API's domain: change it to the gateway's.
+3. **New installs and the web app** use `https://api.hackd.in/v1/pos`. The desktop app's
+   `"posServerUrl"` (`apps/desktop/package.json`) already names it. On the server:
+   - Set `VITE_API_BASE_URL=https://api.hackd.in/v1/pos` in `/opt/pos/apps/web/.env`, then
+     `deploy.sh` to rebuild the web app.
+   - Install the web app's nginx file again (step 5 of "The web app in a browser"), with
+     `api.hackd.in` as the API gateway domain, so its CSP lets the page reach the gateway.
    - Keep the web app's domain in the API's `CORS_ORIGINS`.
-4. **Payment webhooks** go to `https://<gateway domain>/v1/pos/billing/webhooks/<gateway name>`.
+4. **Payments** go through the checkout service at `/v1/checkout`, one for every product. The
+   payment provider's webhooks are pointed at it (e.g.
+   `https://api.hackd.in/v1/checkout/webhooks/razorpay`), not at the POS API. Its port (8004 in
+   the file) is a placeholder until the service exists.
 
 ### Deploying an update
 On the server, as `ubuntu`:

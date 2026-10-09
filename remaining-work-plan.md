@@ -468,8 +468,11 @@ managed hosting is selling.
     the owner's "Payment received" email went out; past the grace period the read-only banner
     and the Billing tab said so.
   - [ ] Pricing decision: replace the placeholder plans and prices.
-  - [ ] A real gateway (Razorpay likely): its `PaymentGateway` class, keys in the environment,
-        its webhook pointed at `/billing/webhooks/<name>`, then a test-mode payment end to end.
+  - [ ] A real gateway: **decided 2026-10-09**, payments go through our own checkout service at
+        `https://api.hackd.in/v1/checkout`, one for every product. It holds the provider
+        (Razorpay likely), its keys and its webhooks. The POS gets one `PaymentGateway` class
+        that starts a payment there and reads the checkout service's signed notices at
+        `/billing/webhooks/<name>`. Then a test-mode payment end to end.
   - [ ] Automatic renewal (the gateway's subscriptions, e.g. UPI AutoPay): each renewal charge
         arrives as another `payment.succeeded` for a new checkout.
   - [ ] Our seller details for invoices (`BILLING_SELLER_*`) and the SAC code.
@@ -629,3 +632,4 @@ managed hosting is selling.
 - 2026-10-05: Version 0.1.4 prepared: ships the pre-launch audit (pre-launch-audit.md A–E: UPI, cash and change, round-off, barcodes and scale labels, reports, audit log, suppliers and purchase GST, batches and expiry, A4 invoices, cost hiding, business deletion, low stock, cash in/out and expenses, barcode labels, size/colour variants, item import). Deploy the server first (18 new migrations, and one on the control schema). Then set `MIN_CLIENT_VERSION=0.1.4`: a 0.1.3 fallback counter can't load the new offline copy (new tables and migrations) and its offline sales are refused until it updates.
 - 2026-10-06: Version 0.1.5 prepared: ships the guided screen tours (a tour on each screen the first time it's opened, with GIFs of the clicks, and a ? button to see it again). Web app only: no migrations, so the server needs no deploy first and `MIN_CLIENT_VERSION` stays as it is.
 - 2026-10-07: Version 0.1.6 prepared: ships the retail POS fixes (retry-safe payments, round-off on returns, offline batches and drawer cash, unregistered shops; see retail-pos-fix-plan.md). Deploy the server first (four new migrations). Then set `MIN_CLIENT_VERSION=0.1.6`: settlement now needs an operation ID that 0.1.5 clients don't send, and a 0.1.5 fallback counter can't load the new offline copy. Registered shops without a GSTIN are asked to enter it or turn Unregistered before they can bill.
+- 2026-10-09: One API gateway for every product (`deploy/nginx-api-gateway.conf`): the POS API at `https://api.hackd.in/v1/pos` (new installs and the web app use it; `pos.hackd.in` stays for installed apps), payments for every product through a checkout service at `/v1/checkout` (item 14).
