@@ -335,6 +335,44 @@ within a site. Keep the API on its own address: desktop apps already work with i
    Browsers don't send the app version, so `MIN_CLIENT_VERSION` doesn't apply to them: deploying
    both together is what keeps them in step.
 
+### One API gateway for every product
+Instead of a domain per product, one domain can carry every product's API under its own path:
+`https://api.example.com/v1/pos`, `/v1/auth`, `/v1/inventory`, and so on.
+`deploy/nginx-api-gateway.conf` does this. Each product's service runs on its own local port. The
+gateway strips the path before passing a request on, so the POS API needs no changes. A new
+product is one `upstream` and one `location` in that file.
+
+What the gateway does for the POS API:
+- It sends `X-Forwarded-Proto`, which the sign-in cookie needs to be `Secure`.
+- It keeps the POS sign-in cookie to `/v1/pos/`, so the other services never receive it.
+- It allows business imports up to 2 GB.
+- It leaves CORS to the API (`CORS_ORIGINS`). For the other products, the gateway answers CORS
+  for any `https://` page on the domain.
+
+1. **The snippets and the site:**
+   ```bash
+   sudo cp /opt/pos/deploy/nginx-gateway-proxy.conf /etc/nginx/snippets/gateway-proxy.conf
+   sudo cp /opt/pos/deploy/nginx-gateway-cors.conf /etc/nginx/snippets/gateway-cors.conf
+   # e.g. gateway api.hackd.in, domain hackd.in. The CORS pattern needs the domain with \. for dots.
+   sudo sed -e 's/api\.example\.com/api.hackd.in/g' -e 's/example\\\.com/hackd\\.in/g' \
+     -e 's/example\.com/hackd.in/g' \
+     /opt/pos/deploy/nginx-api-gateway.conf | sudo tee /etc/nginx/sites-available/api-gateway > /dev/null
+   sudo ln -sf /etc/nginx/sites-available/api-gateway /etc/nginx/sites-enabled/api-gateway
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+   Check that the certificate paths match yours (`ls /etc/letsencrypt/live/`). Also check that the
+   upstream ports match your services: the POS API is on 3001 (`deploy/pos-api.service`).
+   `https://<gateway domain>/v1/pos/meta` now answers JSON.
+2. **Keep the old API domain working.** Installed desktop apps keep the server address they
+   were set up with, and their fallback counters are tied to it. Leave `deploy/nginx-pos.conf`
+   in place: both domains reach the same API.
+3. **New installs and the web app:**
+   - Set `"posServerUrl"` in `apps/desktop/package.json` to `https://<gateway domain>/v1/pos`.
+   - Set `VITE_API_BASE_URL` in `apps/web/.env` to the same address.
+   - In the web app's nginx file, the CSP names the API's domain: change it to the gateway's.
+   - Keep the web app's domain in the API's `CORS_ORIGINS`.
+4. **Payment webhooks** go to `https://<gateway domain>/v1/pos/billing/webhooks/<gateway name>`.
+
 ### Deploying an update
 On the server, as `ubuntu`:
 ```bash
