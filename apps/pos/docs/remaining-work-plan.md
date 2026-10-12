@@ -474,8 +474,13 @@ managed hosting is selling.
         (`apps/checkout`, with a dummy provider), its contract with products
         (`packages/checkout-contracts`), and the POS's `BILLING_GATEWAY=checkout`
         (`checkout-gateway.ts`, notices at `/billing/webhooks/checkout`); a payment went end to
-        end through both. Left: Razorpay as the service's provider (`apps/checkout/README.md`,
-        "Adding Razorpay"), running the service on the server, then a test-mode payment.
+        end through both. **Ready for real money except the provider (2026-10-12):** the dummy
+        provider only runs with `CHECKOUT_ALLOW_TEST_PAYMENTS=true`; a failed attempt leaves the
+        session open for a retry (as Razorpay's orders allow); sessions expire after a day; money
+        taken that no session counts is recorded and emailed to `CHECKOUT_ALERT_EMAIL`, as are
+        notices a product never took; `deploy/checkout/backup.sh` backs up its database.
+        Left: Razorpay as the service's provider (`apps/checkout/README.md`, "Adding Razorpay"),
+        running the service on the server with its backups and alerts, then a test-mode payment.
   - [ ] Automatic renewal (the gateway's subscriptions, e.g. UPI AutoPay): each renewal charge
         arrives as another `payment.succeeded` for a new checkout.
   - [ ] Our seller details for invoices (`BILLING_SELLER_*`) and the SAC code.

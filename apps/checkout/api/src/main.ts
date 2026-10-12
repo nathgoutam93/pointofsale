@@ -3,14 +3,15 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { configureApp } from './app-config';
-import { listenAddress, notifyIntervalSeconds, products, publicUrl } from './config';
+import { listenAddress, products, publicUrl, timerSeconds } from './config';
 import { paymentProvider } from './providers/providers';
 
 async function bootstrap() {
   // Fail now on a missing or malformed setting, not on the first payment.
   publicUrl();
-  paymentProvider();
-  notifyIntervalSeconds();
+  // Also refuses the dummy without CHECKOUT_ALLOW_TEST_PAYMENTS, and a real one without alerts.
+  const provider = paymentProvider();
+  timerSeconds();
   if (products().length === 0) throw new Error('CHECKOUT_PRODUCTS is empty: no product could take payments');
   const { port, host } = listenAddress();
 
@@ -22,7 +23,7 @@ async function bootstrap() {
   } else {
     await app.listen(port);
   }
-  process.stdout.write(`${JSON.stringify({ event: 'listening', service: 'checkout', port })}\n`);
+  process.stdout.write(`${JSON.stringify({ event: 'listening', service: 'checkout', port, provider: provider.name })}\n`);
 }
 
 bootstrap();

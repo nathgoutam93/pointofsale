@@ -174,6 +174,19 @@ describe('paying through the checkout service', () => {
     expect(checkout.status).toBe('FAILED');
   });
 
+  it("doesn't tell the owner a payment failed when they have paid with another since", async () => {
+    const abandoned = await startPayment();
+    const retried = await startPayment();
+    expect((await deliver(notice(retried.sessionId, retried.checkoutId))).status).toBe(200);
+    mailOutbox.length = 0;
+    // A day later the service says the first one expired unpaid.
+    const expired = notice(abandoned.sessionId, abandoned.checkoutId, { type: 'payment.failed', reason: 'The payment link expired' });
+    expect((await deliver(expired)).status).toBe(200);
+    const checkout = await control().billingCheckout.findUniqueOrThrow({ where: { id: abandoned.checkoutId }, select: { status: true } });
+    expect(checkout.status).toBe('FAILED');
+    expect(mailOutbox).toEqual([]);
+  });
+
   it("says so when the service can't start a payment", async () => {
     answer = 503;
     const res = await t.call('POST', '/billing/checkout', admin, { plan: 'growth', period: 'month' });

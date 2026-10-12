@@ -424,14 +424,17 @@ or enforced until a payment gateway is set (`BILLING_GATEWAY`), and never on a s
 - **Real payments: `BILLING_GATEWAY=checkout`.** Payments for every product go through our
   checkout service (`apps/checkout`, see its README), which holds the payment provider, its keys
   and its webhooks. The POS starts a session there and sends the payer to the service's page; the
-  service then posts a signed notice to `/billing/webhooks/checkout`. Set `CHECKOUT_URL` (on the
+  service then posts a signed notice to `/billing/webhooks/checkout` once the session ends: paid,
+  or failed when it expired unpaid a day later (the payer can retry a failed attempt on the
+  service's page until then, so a failed attempt isn't a notice). Set `CHECKOUT_URL` (on the
   same server `http://127.0.0.1:8004`), `CHECKOUT_API_KEY` and `CHECKOUT_NOTIFY_SECRET` to the
   values the service has as `CHECKOUT_POS_API_KEY` and `CHECKOUT_POS_NOTIFY_SECRET`. What the two
   send each other is `packages/checkout-contracts`; the code is
   `apps/pos/api/src/billing/checkout-gateway.ts`, and `test/checkout-gateway.test.ts` tests it.
 - **Trying it:** `POS_HOSTING=managed BILLING_GATEWAY=dummy` on a local online API. The dummy
   gateway's checkout page has buttons to pay or fail; no money moves. Or run the checkout service
-  too (its own provider is a dummy as well) with `BILLING_GATEWAY=checkout`, to try the real path.
+  too (its own provider is a dummy as well, with `CHECKOUT_ALLOW_TEST_PAYMENTS=true`) with
+  `BILLING_GATEWAY=checkout`, to try the real path.
 - **Another gateway** (code in `apps/pos/api/src/billing/`) is a class implementing
   `PaymentGateway` (`payment-gateway.ts`), listed in `GATEWAYS` (`gateways.ts`). A new payment
   provider belongs in the checkout service instead, where every product gets it.

@@ -278,6 +278,7 @@ export class BillingService {
         amount: true,
         gst: true,
         total: true,
+        createdAt: true,
         business: { select: { id: true, code: true, name: true, schemaName: true, dbServer: true } }
       }
     });
@@ -300,7 +301,10 @@ export class BillingService {
           this.logger.error(`Payment ${event.gatewayRef} for ${business.code} was ${event.amount}, not ${checkout.total}; not counted`);
         }
         await tx.billingCheckout.update({ where: { id: checkout.id }, data: { status: 'FAILED', settledAt: now } });
-        return { paid: false as const, reason: event.reason ?? null };
+        // An owner who left this payment and paid with another since needn't hear it failed (the
+        // checkout service tells us when an abandoned one expires, a day later).
+        const paidSince = await tx.billingCheckout.count({ where: { businessId: business.id, status: 'PAID', settledAt: { gt: checkout.createdAt } } });
+        return { paid: false as const, reason: event.reason ?? null, quiet: paidSince > 0 };
       }
 
       const [locked] = await tx.$queryRaw<Array<{ plan: string; trialEndsAt: Date | null; paidUntil: Date | null }>>`
@@ -336,6 +340,7 @@ export class BillingService {
     if (!outcome) return;
 
     this.tenancy.forget(business.id);
+    if (!outcome.paid && outcome.quiet) return;
     const owners = await this.ownerEmails(business.id);
     for (const to of owners) {
       await this.mailer.sendNotice(

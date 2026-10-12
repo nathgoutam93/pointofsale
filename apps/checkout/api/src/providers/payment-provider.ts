@@ -27,9 +27,19 @@ export type PaymentRequest = {
   description: string;
   customerEmail: string | null;
   customerName: string | null;
+  /**
+   * When the session's link stops leading here. A provider whose page can stop taking payments
+   * at a time (Razorpay Checkout's `timeout`, a payment link's `expire_by`) should stop by then:
+   * a payment that lands after the session closes has to be refunded.
+   */
+  expiresAt: Date;
 };
 
-/** A payment the provider reports, in our terms. `eventId` is unique per event, so a retried delivery is recognised. */
+/**
+ * A payment the provider reports, in our terms. `eventId` is unique per event, so a retried
+ * delivery is recognised. Report every attempt: a failed one leaves the session open for the
+ * payer to try again, so a provider that allows retries on one payment (Razorpay's orders) fits.
+ */
 export type ProviderPaymentEvent = {
   eventId: string;
   type: 'payment.succeeded' | 'payment.failed';

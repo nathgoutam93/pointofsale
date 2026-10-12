@@ -1,7 +1,7 @@
 /**
  * The service's settings, read from the environment (.env) when used, so tests can change them.
- * main.ts checks them all at startup (assertConfigured), so a bad value stops the service
- * instead of the first payment.
+ * main.ts checks them all at startup, so a bad value stops the service instead of the first
+ * payment.
  */
 
 /** A product that may take payments here: its API key, and where and how its notices go. */
@@ -74,13 +74,46 @@ export function providerName() {
   return required('CHECKOUT_PROVIDER').toLowerCase();
 }
 
-/** CHECKOUT_NOTIFY_INTERVAL_SECONDS: how often notices that failed are tried again (default 30; 0 turns it off). */
-export function notifyIntervalSeconds() {
-  const raw = process.env.CHECKOUT_NOTIFY_INTERVAL_SECONDS?.trim();
+/**
+ * CHECKOUT_ALLOW_TEST_PAYMENTS=true: lets CHECKOUT_PROVIDER=dummy run. Its page marks a payment
+ * paid without money moving, so it must never run where real customers pay.
+ */
+export function testPaymentsAllowed() {
+  return process.env.CHECKOUT_ALLOW_TEST_PAYMENTS?.trim().toLowerCase() === 'true';
+}
+
+/** CHECKOUT_TIMER_SECONDS: how often timed work runs (closing expired sessions, sending notices and alerts again); default 30, 0 turns it off. */
+export function timerSeconds() {
+  const raw = process.env.CHECKOUT_TIMER_SECONDS?.trim();
   if (!raw) return 30;
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0) throw new Error(`CHECKOUT_NOTIFY_INTERVAL_SECONDS must be a whole number of seconds, not "${raw}"`);
+  if (!Number.isInteger(value) || value < 0) throw new Error(`CHECKOUT_TIMER_SECONDS must be a whole number of seconds, not "${raw}"`);
   return value;
+}
+
+/** CHECKOUT_ALERT_EMAIL: who hears about payments to refund and notices products never took (comma-separated). */
+export function alertRecipients() {
+  return (process.env.CHECKOUT_ALERT_EMAIL ?? '')
+    .split(',')
+    .map((address) => address.trim())
+    .filter(Boolean);
+}
+
+/**
+ * How alerts are emailed: SMTP_URL (with MAIL_FROM), or MAIL_TRANSPORT=log (printed to the log;
+ * development) or memory (kept for tests). Null when none is set.
+ */
+export function mailMode(): 'smtp' | 'log' | 'memory' | null {
+  const transport = process.env.MAIL_TRANSPORT?.trim().toLowerCase();
+  if (transport === 'log' || transport === 'memory') return transport;
+  return process.env.SMTP_URL?.trim() ? 'smtp' : null;
+}
+
+/** A provider that moves real money needs alerts that reach someone: money to refund must not sit in a log. */
+export function requireAlerts(provider: string) {
+  if (alertRecipients().length === 0 || mailMode() === null) {
+    throw new Error(`CHECKOUT_PROVIDER=${provider} moves real money, so CHECKOUT_ALERT_EMAIL and SMTP_URL must be set: payments to refund are emailed there`);
+  }
 }
 
 /** PORT (default 8004, the API gateway's upstream for /v1/checkout) and HOST. */

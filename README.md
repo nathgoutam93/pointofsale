@@ -19,7 +19,7 @@ of them.
 apps/<product>/<app>     a product's apps and its own libraries (apps/pos/api, apps/pos/web,
                          apps/pos/contracts…); nothing outside the product imports them
 packages/<name>          code more than one product uses (packages/checkout-contracts)
-deploy/<product>/        how a product runs on the server (service, deploy script, nginx)
+deploy/<product>/        how a product runs on the server (service, deploy script, backups, nginx)
 deploy/gateway/          the API gateway in front of every product
 .github/workflows/       one workflow per product (pos.yml, checkout.yml), plus releases
 ```
@@ -73,8 +73,9 @@ requests for other products.
    new product to the `paths` of shared packages' other users only if they use what it adds.
 4. **Shared code** goes in `packages/<name>` (`@hackd/<name>`), never imported from another
    product's folder.
-5. **On the server:** `deploy/<product>/` with its systemd unit and deploy script (copy
-   `deploy/checkout/`), and an `upstream` and `location` in `deploy/gateway/nginx-api-gateway.conf`.
+5. **On the server:** `deploy/<product>/` with its systemd unit, deploy script and, if it keeps
+   data, a backup script (copy `deploy/checkout/`), and an `upstream` and `location` in
+   `deploy/gateway/nginx-api-gateway.conf`.
 6. **Taking payments:** add it to the checkout service's `CHECKOUT_PRODUCTS` with its own API key,
    notify secret and notify URL (`apps/checkout/README.md`), and use `packages/checkout-contracts`
    to start sessions and check notices, as `apps/pos/api/src/billing/checkout-gateway.ts` does.

@@ -17,13 +17,17 @@ export default defineConfig({
       DATABASE_URL: process.env.CHECKOUT_TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/checkout_test?schema=public',
       CHECKOUT_PUBLIC_URL: 'https://api.example.com/v1/checkout',
       CHECKOUT_PROVIDER: 'dummy',
+      CHECKOUT_ALLOW_TEST_PAYMENTS: 'true',
       CHECKOUT_PRODUCTS: 'pos',
       CHECKOUT_POS_API_KEY: 'pos-api-key-for-tests-0123456789abcdef',
       CHECKOUT_POS_NOTIFY_SECRET: 'pos-notify-secret-for-tests-0123456789',
       // Each test file points this at its own little server that records notices.
       CHECKOUT_POS_NOTIFY_URL: 'http://127.0.0.1:9/unused',
-      // Tests deliver notices themselves (NotificationsService.deliverDue), not on a timer.
-      CHECKOUT_NOTIFY_INTERVAL_SECONDS: '0'
+      // Tests run the timed work themselves (JobsService.run), not on a timer.
+      CHECKOUT_TIMER_SECONDS: '0',
+      // Alerts are kept in mailOutbox (src/alerts/mail.ts).
+      CHECKOUT_ALERT_EMAIL: 'ops@example.com',
+      MAIL_TRANSPORT: 'memory'
     },
     fileParallelism: false,
     testTimeout: 30000,

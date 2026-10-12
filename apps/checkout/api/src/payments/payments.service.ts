@@ -3,6 +3,7 @@ import type { CheckoutNotification, CheckoutSession, createSessionRequestSchema,
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, type Session } from '.prisma/checkout-client';
 import type { z } from 'zod';
+import { AlertsService } from '../alerts/alerts.service';
 import { publicUrl } from '../config';
 import { escapeHtml, rupees, simplePage } from '../common/page';
 import { PrismaService } from '../common/prisma.service';
@@ -18,6 +19,13 @@ export type SessionInput = z.output<typeof createSessionRequestSchema>;
 const newSessionId = () => `ses_${randomBytes(24).toString('base64url')}`;
 const newNoticeId = () => `evt_${randomBytes(18).toString('base64url')}`;
 
+/** How long a session's link leads to the provider. Longer would let a payer pay an old price weeks later. */
+export const SESSION_LIFETIME_MS = 24 * 60 * 60_000;
+/** After its link expires, how long a session still waits for a payment already under way before it closes unpaid. */
+export const CLOSE_AFTER_EXPIRY_MS = 30 * 60_000;
+
+const expiredPage = () => simplePage('This payment link has expired', '<p>Nothing more can be paid here. Go back and start the payment again.</p>');
+
 /** What a page shows instead of the provider's: a status code and the HTML. */
 export type PayTarget = { redirect: string } | { status: number; page: string };
 
@@ -27,7 +35,8 @@ export class PaymentsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly notifications: NotificationsService
+    private readonly notifications: NotificationsService,
+    private readonly alerts: AlertsService
   ) {}
 
   /**
@@ -40,13 +49,15 @@ export class PaymentsService {
 
     const provider = paymentProvider();
     const id = newSessionId();
+    const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
     const payment = await provider.createPayment({
       sessionId: id,
       amount: request.amount,
       currency: request.currency,
       description: request.description,
       customerEmail: request.customer.email,
-      customerName: request.customer.name
+      customerName: request.customer.name,
+      expiresAt
     });
     try {
       const session = await this.prisma.session.create({
@@ -63,7 +74,8 @@ export class PaymentsService {
           metadata: request.metadata,
           provider: provider.name,
           providerRef: payment.providerRef,
-          redirectUrl: payment.redirectUrl
+          redirectUrl: payment.redirectUrl,
+          expiresAt
         }
       });
       return this.view(session);
@@ -113,12 +125,8 @@ export class PaymentsService {
       if (session.returnUrl) return { redirect: session.returnUrl };
       return { status: 200, page: simplePage('Already paid', '<p>This payment is complete. You can close this window.</p>') };
     }
-    if (session.status === 'failed') {
-      return {
-        status: 200,
-        page: simplePage("This payment didn't go through", '<p>Nothing more can be paid here. Go back and start the payment again.</p>')
-      };
-    }
+    // Closed unpaid, or about to: the payer starts again from the product, at today's price.
+    if (session.status === 'failed' || session.expiresAt <= new Date()) return { status: 200, page: expiredPage() };
     return { redirect: session.redirectUrl };
   }
 
@@ -142,71 +150,140 @@ export class PaymentsService {
 
   /**
    * One provider event, at most once: a retried delivery finds its event recorded and changes
-   * nothing. A payment counts only for the session's full amount. The session's product gets a
-   * notice, sent now and retried until it answers.
+   * nothing. A failed attempt leaves the session open, as the payer can try again on the
+   * provider's page until it expires. Money taken counts only for an open session's full amount
+   * (the session is paid and its product gets a notice, sent now and retried until it answers);
+   * any other is recorded to refund, with an alert.
    */
   async applyEvent(providerName: string, event: ProviderPaymentEvent) {
-    const noticeId = await this.prisma.$transaction(async (tx) => {
+    const outcome = await this.prisma.$transaction(async (tx) => {
       const recorded = await tx.providerEvent.createMany({ data: [{ provider: providerName, eventId: event.eventId }], skipDuplicates: true });
       if (recorded.count === 0) return null;
       const [locked] = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM "Session" WHERE provider = ${providerName} AND "providerRef" = ${event.providerRef} FOR UPDATE`;
-      if (!locked) {
-        this.logger.warn(`A ${providerName} event for an unknown payment (${event.providerRef}) was ignored`);
-        return null;
-      }
-      const session = await tx.session.findUniqueOrThrow({ where: { id: locked.id } });
-      if (session.status !== 'pending') {
-        if (event.type === 'payment.succeeded') {
-          // The provider took money for a session that had already closed: someone must refund it.
-          this.logger.error(
-            `${providerName} payment ${event.providerRef} of ${event.amount} paise arrived for session ${session.id} (${session.product} ` +
-              `${session.reference}), which is already ${session.status}. Not counted: refund it with the provider.`
-          );
+      const session = locked ? await tx.session.findUniqueOrThrow({ where: { id: locked.id } }) : null;
+
+      if (event.type === 'payment.failed') {
+        if (!session) {
+          this.logger.warn(`A ${providerName} event for an unknown payment (${event.providerRef}) was ignored`);
+        } else if (session.status === 'pending') {
+          await tx.session.update({ where: { id: session.id }, data: { failureReason: event.reason?.trim().slice(0, 500) || 'The payment failed' } });
         }
         return null;
       }
 
-      const paid = event.type === 'payment.succeeded' && event.amount === session.amount;
-      let reason: string | null = null;
-      if (!paid) {
-        reason =
-          event.type === 'payment.succeeded'
-            ? `Paid ${event.amount} paise, not the ${session.amount} asked for`
-            : (event.reason?.trim().slice(0, 500) ?? 'The payment failed');
-        if (event.type === 'payment.succeeded') this.logger.error(`Session ${session.id}: ${reason}; not counted, refund it with the provider.`);
+      const problem = !session
+        ? `it was for a ${providerName} payment this service doesn't know`
+        : session.status === 'paid'
+          ? `session ${session.id} was already paid`
+          : session.status !== 'pending'
+            ? `session ${session.id} had already closed unpaid (${session.failureReason ?? session.status})`
+            : event.amount !== session.amount
+              ? `it was ${rupees(event.amount)}, not the ${rupees(session.amount)} session ${session.id} asked for`
+              : null;
+      if (problem) {
+        await this.recordUncounted(tx, providerName, event, session, problem);
+        return { alerted: true };
       }
-      const now = new Date();
-      await tx.session.update({ where: { id: session.id }, data: { status: paid ? 'paid' : 'failed', settledAt: now, failureReason: reason } });
 
-      const type: NotificationType = paid ? 'payment.succeeded' : 'payment.failed';
-      const id = newNoticeId();
-      const notice: CheckoutNotification = {
-        id,
-        type,
-        sessionId: session.id,
-        product: session.product,
-        reference: session.reference,
-        amount: event.amount,
-        currency: 'INR',
-        reason,
-        metadata: session.metadata as Record<string, string>,
-        occurredAt: now.toISOString()
-      };
-      await tx.notification.create({ data: { id, sessionId: session.id, product: session.product, type, body: JSON.stringify(notice) } });
-      return id;
+      const now = new Date();
+      await tx.session.update({ where: { id: session!.id }, data: { status: 'paid', settledAt: now, failureReason: null } });
+      return { noticeId: await this.queueNotice(tx, session!, 'payment.succeeded', event.amount, null, now) };
     });
     // After the commit; a product that's slow or down doesn't hold up the provider's webhook.
-    if (noticeId) void this.notifications.deliver(noticeId).catch((error) => this.logger.error(error));
+    if (outcome?.noticeId) this.sendNotice(outcome.noticeId);
+    if (outcome?.alerted) void this.alerts.sendDue().catch((error) => this.logger.error(error));
+  }
+
+  /**
+   * Sessions whose link expired (and the wait for a payment already under way after it) close
+   * unpaid, and their product is told (payment.failed), so it can let the payer start again.
+   */
+  async closeExpired() {
+    const due = await this.prisma.session.findMany({
+      where: { status: 'pending', expiresAt: { lt: new Date(Date.now() - CLOSE_AFTER_EXPIRY_MS) } },
+      orderBy: { expiresAt: 'asc' },
+      select: { id: true },
+      take: 100
+    });
+    for (const { id } of due) {
+      const noticeId = await this.prisma.$transaction(async (tx) => {
+        // Locked, as a payment arriving now would be: one or the other settles it.
+        const [locked] = await tx.$queryRaw<Array<{ status: string }>>`SELECT status FROM "Session" WHERE id = ${id} FOR UPDATE`;
+        if (locked?.status !== 'pending') return null;
+        const session = await tx.session.findUniqueOrThrow({ where: { id } });
+        const reason = session.failureReason ? `The payment link expired; the last attempt failed: ${session.failureReason}` : 'The payment link expired';
+        const now = new Date();
+        await tx.session.update({ where: { id }, data: { status: 'failed', settledAt: now, failureReason: reason } });
+        return this.queueNotice(tx, session, 'payment.failed', session.amount, reason, now);
+      });
+      if (noticeId) this.sendNotice(noticeId);
+    }
+  }
+
+  /** A notice for the session's product, stored with what it's about; sendNotice() sends it after the commit. */
+  private async queueNotice(
+    tx: Prisma.TransactionClient,
+    session: Session,
+    type: NotificationType,
+    amount: number,
+    reason: string | null,
+    occurredAt: Date
+  ) {
+    const id = newNoticeId();
+    const notice: CheckoutNotification = {
+      id,
+      type,
+      sessionId: session.id,
+      product: session.product,
+      reference: session.reference,
+      amount,
+      currency: 'INR',
+      reason,
+      metadata: session.metadata as Record<string, string>,
+      occurredAt: occurredAt.toISOString()
+    };
+    await tx.notification.create({ data: { id, sessionId: session.id, product: session.product, type, body: JSON.stringify(notice) } });
+    return id;
+  }
+
+  private sendNotice(id: string) {
+    void this.notifications.deliver(id).catch((error) => this.logger.error(error));
+  }
+
+  /** Money the provider took that no session counts: kept to refund, and an alert to the people who can. */
+  private async recordUncounted(
+    tx: Prisma.TransactionClient,
+    providerName: string,
+    event: ProviderPaymentEvent,
+    session: Session | null,
+    problem: string
+  ) {
+    const id = `unc_${randomBytes(12).toString('base64url')}`;
+    await tx.uncountedPayment.create({
+      data: { id, provider: providerName, providerRef: event.providerRef, eventId: event.eventId, sessionId: session?.id ?? null, amount: event.amount, reason: problem }
+    });
+    const lines = [`${providerName} took ${rupees(event.amount)} (${event.amount} paise) that didn't count: ${problem}.`];
+    if (session) {
+      lines.push(`Session ${session.id}: ${session.product} ${session.reference}, "${session.description}", payer ${session.customerEmail ?? 'unknown'}.`);
+    }
+    lines.push(
+      `${providerName} payment ${event.providerRef}, event ${event.eventId}.`,
+      '',
+      `Refund it with ${providerName}, then mark it refunded (in the checkout database):`,
+      `  UPDATE "UncountedPayment" SET "refundedAt" = now() WHERE id = '${id}';`
+    );
+    await this.alerts.raise(tx, `Refund ${rupees(event.amount)}: a ${providerName} payment that didn't count`, lines.join('\n'));
   }
 
   /** CHECKOUT_PROVIDER=dummy: the stand-in provider's page, with a button to pay and one to fail. */
   async dummyPage(providerRef: string): Promise<PayTarget> {
     const session = await this.dummySession(providerRef);
-    if (session.status !== 'pending') return this.payTarget(session.id);
+    if (session.status !== 'pending' || session.expiresAt <= new Date()) return this.payTarget(session.id);
+    const lastAttempt = session.failureReason ? `<p>That attempt didn't go through (${escapeHtml(session.failureReason)}). Try again.</p>\n` : '';
     const page = simplePage(
       'Test payment',
-      `<p>${escapeHtml(session.description)}: <strong>${rupees(session.amount)}</strong></p>
+      `${lastAttempt}<p>${escapeHtml(session.description)}: <strong>${rupees(session.amount)}</strong></p>
 <p>No money moves: this is the test provider.</p>
 <form method="post"><input type="hidden" name="outcome" value="pay"><button type="submit">Pay</button></form>
 <form method="post"><input type="hidden" name="outcome" value="fail"><button type="submit">Fail the payment</button></form>`
@@ -214,10 +291,15 @@ export class PaymentsService {
     return { status: 200, page };
   }
 
-  /** The dummy page's buttons: a signed webhook through the same path a real provider's takes. */
+  /**
+   * The dummy page's buttons: a signed webhook through the same path a real provider's takes. As
+   * a real provider's page, it takes nothing more once the session is settled, but a page opened
+   * before the link expired can still pay until the session closes.
+   */
   async dummyComplete(providerRef: string, outcome: unknown): Promise<PayTarget> {
     const session = await this.dummySession(providerRef);
     if (outcome !== 'pay' && outcome !== 'fail') throw new BadRequestException('outcome must be pay or fail');
+    if (session.status !== 'pending') return this.payTarget(session.id);
     const body = Buffer.from(
       JSON.stringify({
         eventId: `dummy_evt_${randomBytes(12).toString('hex')}`,
@@ -229,10 +311,9 @@ export class PaymentsService {
     );
     await this.receiveWebhook('dummy', body, { [DUMMY_SIGNATURE_HEADER]: signDummyWebhook(body) });
     const after = await this.prisma.session.findUniqueOrThrow({ where: { id: session.id } });
-    if (after.status === 'paid' && after.returnUrl) return { redirect: after.returnUrl };
-    return after.status === 'paid'
-      ? { status: 200, page: simplePage('Payment received', '<p>Thank you. You can close this window.</p>') }
-      : this.payTarget(after.id);
+    if (after.status !== 'paid') return this.dummyPage(providerRef);
+    if (after.returnUrl) return { redirect: after.returnUrl };
+    return { status: 200, page: simplePage('Payment received', '<p>Thank you. You can close this window.</p>') };
   }
 
   private async dummySession(providerRef: string) {

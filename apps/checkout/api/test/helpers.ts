@@ -4,6 +4,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app-config';
 import { PrismaService } from '../src/common/prisma.service';
+import { JobsService } from '../src/jobs.service';
 import { NotificationsService } from '../src/notifications/notifications.service';
 
 export const POS_KEY = process.env.CHECKOUT_POS_API_KEY!;
@@ -45,6 +46,7 @@ export async function startApp() {
     request,
     db: app.get(PrismaService),
     notifications: app.get(NotificationsService),
+    jobs: app.get(JobsService),
     close: () => app.close()
   };
 }

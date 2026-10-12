@@ -5,11 +5,13 @@
  * 1. A product starts a payment: POST <checkout>/sessions with `Authorization: Bearer <its API
  *    key>` and a CreateSessionRequest. The answer is a CheckoutSession; the payer is sent to its
  *    `payUrl`. Asking again with the same `reference` gives back the same session.
- * 2. The payer pays on the checkout service's page, which talks to the payment provider.
- * 3. The checkout service tells the product what happened: a POST of a CheckoutNotification to the
- *    product's notify URL, signed in the CHECKOUT_SIGNATURE_HEADER with the product's notify
- *    secret (signNotification / verifyNotification). Until the product answers 2xx it is sent
- *    again, with the same `id`, so the product must ignore an `id` it has already handled.
+ * 2. The payer pays on the checkout service's page, which talks to the payment provider. An
+ *    attempt that fails leaves the session open: the payer can try again until it expires.
+ * 3. The checkout service tells the product how it ended, once: paid (payment.succeeded), or
+ *    expired unpaid (payment.failed). A POST of a CheckoutNotification to the product's notify
+ *    URL, signed in the CHECKOUT_SIGNATURE_HEADER with the product's notify secret
+ *    (signNotification / verifyNotification). Until the product answers 2xx it is sent again,
+ *    with the same `id`, so the product must ignore an `id` it has already handled.
  */
 import { createHmac, timingSafeEqual } from 'crypto';
 import { z } from 'zod';
@@ -53,9 +55,9 @@ export const checkoutSessionSchema = z.object({
   amount: z.number().int(),
   currency: z.literal('INR'),
   /**
-   * `pending` until the payer pays (`paid`) or a payment fails (`failed`). Either is final: the
-   * page takes no more payments, and the payer starts a new one from the product, as the
-   * product's own record of it is final too.
+   * `pending` until the payer pays (`paid`) or the session expires unpaid (`failed`), a day after
+   * it was made. A failed attempt leaves it `pending`. Paid and failed are final: the page takes
+   * no more payments, and the payer starts a new one from the product.
    */
   status: sessionStatusSchema,
   /** The checkout service's page for this payment. */
@@ -78,7 +80,7 @@ export const checkoutNotificationSchema = z.object({
   /** Paise: what was paid (or tried). */
   amount: z.number().int(),
   currency: z.literal('INR'),
-  /** Why a payment failed, as the provider put it. */
+  /** Why the session closed unpaid: it expired, and the last attempt's failure as the provider put it, if there was one. */
   reason: z.string().nullable(),
   metadata: z.record(z.string()),
   occurredAt: z.string()
