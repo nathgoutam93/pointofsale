@@ -1,7 +1,7 @@
 {
-  "name": "point-of-sale",
-  "version": "0.1.6",
+  "name": "hackd",
   "private": true,
+  "description": "Every hackd product in one repository: each under apps/<product>, shared code under packages/.",
   "packageManager": "pnpm@9.12.1",
   "scripts": {
     "build": "turbo run build",

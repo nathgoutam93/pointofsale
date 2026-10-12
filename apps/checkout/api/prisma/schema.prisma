@@ -1,0 +1,113 @@
+// The checkout service's own database: nothing here is shared with any product's.
+
+// Its own client, in this package's node_modules: @prisma/client is shared by every product in
+// the workspace (pnpm keeps one copy), so the default place would overwrite another product's.
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/checkout-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// One payment a product asked for (POST /sessions). Pending until paid, or until it expires
+/// unpaid (failed). A failed attempt leaves it pending, so the payer can try again.
+model Session {
+  id            String         @id
+  /// The product that started it (CHECKOUT_PRODUCTS), from its API key.
+  product       String
+  /// The product's own id for the payment; one session per product and reference.
+  reference     String
+  /// Paise, taxes included.
+  amount        Int
+  currency      String         @default("INR")
+  description   String
+  customerEmail String?
+  customerName  String?
+  returnUrl     String?
+  metadata      Json           @default("{}")
+  /// pending, paid or failed (closed unpaid: it expired).
+  status        String         @default("pending")
+  /// The payment provider that takes it (CHECKOUT_PROVIDER when it was made), its id there,
+  /// and where its page is (absolute, or relative to /pay/<id>).
+  provider      String
+  providerRef   String
+  redirectUrl   String
+  createdAt     DateTime       @default(now())
+  /// When its link stops leading to the provider. It closes unpaid a little later (a payment
+  /// already under way can still finish; see PaymentsService.closeExpired).
+  expiresAt     DateTime
+  /// When it was paid or failed.
+  settledAt     DateTime?
+  /// Why the last attempt failed while pending; once failed, why it closed unpaid.
+  failureReason String?
+  notifications Notification[]
+
+  @@unique([product, reference])
+  @@unique([provider, providerRef])
+  @@index([status, expiresAt])
+}
+
+/// Provider webhook events already handled, so a retried delivery changes nothing.
+model ProviderEvent {
+  provider   String
+  eventId    String
+  receivedAt DateTime @default(now())
+
+  @@id([provider, eventId])
+}
+
+/// A notice to a product about one of its sessions, sent until the product answers 2xx.
+model Notification {
+  /// The notice's id, the same on every attempt.
+  id            String    @id
+  sessionId     String
+  session       Session   @relation(fields: [sessionId], references: [id])
+  product       String
+  type          String
+  /// The exact JSON sent; signed afresh on each attempt.
+  body          String
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  deliveredAt   DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([deliveredAt, nextAttemptAt])
+}
+
+/// Money the provider took that no session counted: a payment for a session already closed, for
+/// the wrong amount, or for a payment we don't know. Each raises an alert; someone refunds it with
+/// the provider and sets refundedAt.
+model UncountedPayment {
+  id          String    @id
+  provider    String
+  /// The provider's id for the payment it was made against (as Session.providerRef).
+  providerRef String
+  /// The provider event that reported it.
+  eventId     String
+  /// The session it was for, when there is one.
+  sessionId   String?
+  /// Paise.
+  amount      Int
+  reason      String
+  createdAt   DateTime  @default(now())
+  refundedAt  DateTime?
+}
+
+/// An email to the people who run the service (CHECKOUT_ALERT_EMAIL) about something they must
+/// act on, sent until it goes out.
+model Alert {
+  id            String    @id
+  subject       String
+  text          String
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  sentAt        DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([sentAt, nextAttemptAt])
+}

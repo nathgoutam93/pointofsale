@@ -1,0 +1,68 @@
+# The checkout service's checks, on pull requests that change it (apps/checkout), the contract it
+# shares with products (packages/checkout-contracts), or the workspace's own setup: lint, types,
+# the contract's tests, the service's tests against a real PostgreSQL, and a build. Changes to
+# other products don't run it, nor do changes to docs alone.
+name: Checkout
+
+on:
+  pull_request:
+    paths:
+      - 'apps/checkout/**'
+      - 'packages/checkout-contracts/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'eslint.config.mjs'
+      - 'turbo.json'
+      - '.github/workflows/checkout.yml'
+      - '!**/*.md'
+
+concurrency:
+  group: checkout-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CHECKOUT_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/checkout_test?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # Only the service, what it uses and the workspace's tools: not the other products.
+      - run: pnpm install --frozen-lockfile --filter "@hackd/checkout-api..." --filter hackd
+      - name: Generate the Prisma client and build what the service uses
+        run: |
+          pnpm --filter @hackd/checkout-api prisma:generate
+          pnpm --filter "@hackd/checkout-api^..." build
+      - name: Lint
+        run: pnpm exec eslint apps/checkout packages/checkout-contracts
+      - name: Typecheck
+        run: pnpm --filter "@hackd/checkout-api..." typecheck
+      - name: Contract tests
+        run: pnpm --filter @hackd/checkout-contracts test
+      - name: Service tests
+        run: pnpm --filter @hackd/checkout-api test
+      - name: Builds
+        run: pnpm --filter @hackd/checkout-api build

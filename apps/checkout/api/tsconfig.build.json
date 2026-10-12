@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Resolve @hackd/* through node_modules (their built dist), as Node does at runtime.
+    // The source mappings in tsconfig.base.json would pull their .ts files into this build.
+    "paths": {}
+  },
+  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
+}

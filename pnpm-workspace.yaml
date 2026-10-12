@@ -1,3 +1,5 @@
+# Each product has its own folder under apps/ (apps/pos, apps/checkout, …) holding its apps and
+# product-only libraries; packages/ holds what more than one product shares.
 packages:
-  - apps/*
+  - apps/*/*
   - packages/*
