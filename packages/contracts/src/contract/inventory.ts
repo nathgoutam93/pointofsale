@@ -324,6 +324,15 @@ export const itemsRoutes = c.router({
     responses: { 200: z.array(itemWithSaleUomsSchema) }
   },
   /**
+   * The categories the business's items are in, inactive items' too, one spelling each
+   * (letter case aside), A to Z: suggestions for an item's category.
+   */
+  categories: {
+    method: 'GET',
+    path: '/items/categories',
+    responses: { 200: z.array(z.string()) }
+  },
+  /**
    * Item managers: items from a spreadsheet (as text cells). Every row is checked first; with
    * no errors and dryRun false, all are saved together: new codes created, existing ones
    * updated (blank cells left as they are), opening stock and reorder levels at the branch.

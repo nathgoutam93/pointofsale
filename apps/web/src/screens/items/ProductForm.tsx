@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
 import { api, apiErrorMessage, authHeaders } from "../../lib/api";
 import { canSeeCosts, getSession } from "../../lib/session";
+import { CategoryInput } from "./CategoryInput";
 
 const splitValues = (text: string) => [...new Set(text.split(",").map((value) => value.trim()).filter(Boolean))];
 const codePart = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]+/g, "");
@@ -86,7 +87,7 @@ export function ProductForm({ onDone, onCancel }: { onDone: (firstItemId: string
         </div>
         <div>
           <label className="field-label" htmlFor="product-category">Category</label>
-          <input id="product-category" className="field h-10" value={category} onChange={(e) => setCategory(e.target.value)} />
+          <CategoryInput id="product-category" className="field h-10" value={category} onChange={(e) => setCategory(e.target.value)} />
         </div>
         <div>
           <label className="field-label" htmlFor="product-uom">Unit</label>

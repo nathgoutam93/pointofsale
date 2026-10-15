@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { canSeeCosts, getSession } from "../../lib/session";
 import { uploadSrc } from "../../lib/api";
 import { BarcodeEditor } from "./BarcodeEditor";
+import { CategoryInput } from "./CategoryInput";
 import { GstItemFields } from "./GstItemFields";
 import { initialForm, type Item, type ItemFormState, type SaleUomFormState, type PanelMode } from "./itemForm";
 import { SaleUomEditor } from "./SaleUomEditor";
@@ -180,7 +181,7 @@ export function EditItemForm({
           <span className="text-xs font-medium text-slate-600">
             Category
           </span>
-          <input
+          <CategoryInput
             className="field"
             value={form.category}
             onChange={(e) =>
