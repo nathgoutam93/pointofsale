@@ -29,6 +29,13 @@ export class ItemsController {
     return this.items.listItems(getSession(headers), activeOnly === true, branchId);
   }
 
+  @Get('/items/categories')
+  listCategories(@Headers() headers: RequestHeaders) {
+    // Anyone signed in, as the item list.
+    getSession(headers);
+    return this.items.listCategories();
+  }
+
   @Get('/items/:id/branch-prices')
   listBranchPrices(@Param('id', ParseUUIDPipe) id: string, @Headers() headers: RequestHeaders) {
     return this.items.listBranchPrices(requireAdminSession(headers), id);

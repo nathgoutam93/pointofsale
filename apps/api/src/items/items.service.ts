@@ -182,6 +182,42 @@ export class ItemsService {
     return items.map((item) => withBranchPrices(item, pricesByItem.get(item.id) ?? []));
   }
 
+  /**
+   * The categories items are in, inactive items' too: of spellings that differ only in letter
+   * case, the one most items use (as categoryAsSaved picks). A to Z.
+   */
+  async listCategories() {
+    const rows = await this.prisma.item.groupBy({
+      by: ['category'],
+      where: { category: { not: null } },
+      _count: { _all: true },
+      orderBy: [{ _count: { category: 'desc' } }, { category: 'asc' }]
+    });
+    const byKey = new Map<string, string>();
+    for (const row of rows) {
+      const name = row.category!.trim();
+      if (name && !byKey.has(name.toLowerCase())) byKey.set(name.toLowerCase(), name);
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }
+
+  /**
+   * A category as it is saved: trimmed, blank as none, and spelled as other items already spell
+   * it when only the letter case differs ("snacks" goes in as "Snacks"), so one category stays one.
+   */
+  private async categoryAsSaved(tx: Prisma.TransactionClient, category: string | null | undefined, exceptItemId?: string) {
+    if (category == null) return category;
+    const name = category.trim();
+    if (!name) return null;
+    const [existing] = await tx.item.groupBy({
+      by: ['category'],
+      where: { category: { equals: name, mode: 'insensitive' }, ...(exceptItemId ? { id: { not: exceptItemId } } : {}) },
+      _count: { _all: true },
+      orderBy: [{ _count: { category: 'desc' } }, { category: 'asc' }]
+    });
+    return existing?.category ?? name;
+  }
+
   /** A branch's own prices for an item, for pricing a sale line. */
   async branchPricesFor(tx: Prisma.TransactionClient, branchId: string, itemId: string) {
     return tx.itemBranchPrice.findMany({ where: { branchId, itemId }, select: { uom: true, sellPrice: true, mrp: true } });
@@ -322,7 +358,7 @@ export class ItemsService {
         ...(input.variant ? { groupId: input.variant.groupId, option1: input.variant.option1, option2: input.variant.option2 } : {}),
         code: input.code,
         name: input.name,
-        category: input.category,
+        category: await this.categoryAsSaved(tx, input.category),
         uom: input.uom,
         leastCount,
         costPrice: input.costPrice ?? 0,
@@ -378,6 +414,7 @@ export class ItemsService {
     this.assertSupplyType(data.supplyType, taxRate);
     await this.assertHsnCode(data.hsnCode, tx);
     if (data.hsnCode === '') data.hsnCode = null;
+    if (data.category !== undefined) data.category = await this.categoryAsSaved(tx, data.category, id);
     if (data.uqc === undefined && !gst.uqc) data.uqc = suggestUqc(data.uom ?? gst.uom);
     const previousBaseUom = gst.uom;
 

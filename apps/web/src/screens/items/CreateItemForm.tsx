@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { canSeeCosts, getSession } from "../../lib/session";
 import { BarcodeEditor } from "./BarcodeEditor";
+import { CategoryInput } from "./CategoryInput";
 import { GstItemFields } from "./GstItemFields";
 import type { ItemFormState, SaleUomFormState } from "./itemForm";
 import { SaleUomEditor } from "./SaleUomEditor";
@@ -110,7 +111,7 @@ export function CreateItemForm({
           <span className="text-xs font-medium text-slate-600">
             Category
           </span>
-          <input
+          <CategoryInput
             className="field"
             placeholder="Optional"
             value={form.category}
